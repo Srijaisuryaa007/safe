@@ -1,0 +1,88 @@
+import React, { useEffect } from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as Sentry from '@sentry/react-native';
+import { supabase } from './src/lib/supabase';
+import { useAuthStore } from './src/store/useAuthStore';
+import AppNavigator from './src/navigation/AppNavigator';
+
+Sentry.init({
+  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN || '',
+  enableInExpoDevelopment: true,
+  debug: true, 
+});
+
+function App() {
+  const { setSession, setProfile, setLoading } = useAuthStore();
+
+  // BYPASS FLAG: Set this to true to skip login and mock the API for testing UI
+  const isTestingBypass = true;
+
+  useEffect(() => {
+    if (isTestingBypass) {
+      setSession({ user: { id: 'test-user' } } as any);
+      setProfile({
+        id: 'test-user',
+        full_name: 'Test User (Bypassed)',
+        phone: null,
+        avatar_url: null,
+        created_at: new Date().toISOString()
+      });
+      setLoading(false);
+      return;
+    }
+
+    // 1. Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session?.user) {
+        fetchProfile(session.user.id);
+      } else {
+        setLoading(false);
+      }
+    });
+
+    // 2. Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session?.user) {
+        fetchProfile(session.user.id);
+      } else {
+        setProfile(null);
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const fetchProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+        
+      if (error && error.code !== 'PGRST116') {
+        // PGRST116 means no row returned, which is fine if profile isn't setup yet
+        console.error('Error fetching profile:', error);
+      }
+      
+      setProfile(data || null);
+    } catch (err) {
+      console.error('Fetch profile err:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <SafeAreaProvider>
+      <AppNavigator />
+    </SafeAreaProvider>
+  );
+}
+
+export default Sentry.wrap(App);
