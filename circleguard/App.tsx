@@ -1,15 +1,15 @@
 import React, { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import * as Sentry from '@sentry/react-native';
+import { enableScreens, enableFreeze } from 'react-native-screens';
+
+// Disable native fragment switching which causes native Android crash on tab switch
+enableScreens(false);
+enableFreeze(false);
+
 import { supabase } from './src/lib/supabase';
 import { useAuthStore } from './src/store/useAuthStore';
 import AppNavigator from './src/navigation/AppNavigator';
 
-Sentry.init({
-  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN || '',
-  enableInExpoDevelopment: true,
-  debug: true, 
-});
 
 function App() {
   const { setSession, setProfile, setLoading } = useAuthStore();
@@ -69,4 +69,4 @@ function App() {
   );
 }
 
-export default Sentry.wrap(App);
+export default App;

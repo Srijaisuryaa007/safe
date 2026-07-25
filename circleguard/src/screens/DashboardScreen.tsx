@@ -36,7 +36,10 @@ export default function DashboardScreen() {
 
       if (memberData && memberData.length > 0) {
         // Set the first circle as active for now
-        const circle = memberData[0].circles as unknown as Circle;
+        let circle = memberData[0].circles as unknown as Circle;
+        if (Array.isArray(circle)) {
+          circle = circle[0];
+        }
         setActiveCircle(circle);
       } else {
         setActiveCircle(null);
@@ -90,16 +93,30 @@ export default function DashboardScreen() {
 
       if (error) throw error;
       
-      const formattedMembers = data.map(d => ({
-        circle_id: circleId,
-        user_id: d.user_id,
-        role: d.role as 'owner'|'member',
-        joined_at: d.joined_at,
-        profile: d.profiles ? {
-          full_name: (d.profiles as any).full_name,
-          avatar_url: (d.profiles as any).avatar_url
-        } : undefined
-      }));
+      const uniqueMembersMap = new Map();
+      (data || []).forEach(d => {
+        if (d && d.user_id && !uniqueMembersMap.has(d.user_id)) {
+          let profObj: any = d.profiles;
+          if (Array.isArray(profObj)) {
+            profObj = profObj[0];
+          }
+          const fullName = (profObj && typeof profObj.full_name === 'string') ? profObj.full_name : 'Member';
+          const avatarUrl = (profObj && typeof profObj.avatar_url === 'string') ? profObj.avatar_url : null;
+
+          uniqueMembersMap.set(d.user_id, {
+            circle_id: circleId,
+            user_id: d.user_id,
+            role: d.role as 'owner'|'member',
+            joined_at: d.joined_at,
+            profile: {
+              full_name: fullName,
+              avatar_url: avatarUrl
+            }
+          });
+        }
+      });
+
+      const formattedMembers = Array.from(uniqueMembersMap.values());
       setMembers(formattedMembers);
     } catch (err) {
       console.error('Error fetching members:', err);
@@ -164,7 +181,7 @@ export default function DashboardScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
-          {activeCircle ? activeCircle.name : 'Welcome to CircleGuard'}
+          {activeCircle ? (activeCircle.name || 'My Circle') : 'Welcome to CircleGuard'}
         </Text>
         <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
           <Text style={styles.logoutText}>Logout</Text>
@@ -192,25 +209,29 @@ export default function DashboardScreen() {
           <Text style={styles.sectionTitle}>Circle Members</Text>
           <FlatList
             data={members}
-            keyExtractor={(item) => item.user_id}
-            renderItem={({ item }) => (
-              <View style={styles.memberCard}>
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarText}>
-                    {item.profile?.full_name?.charAt(0).toUpperCase()}
-                  </Text>
+            keyExtractor={(item, index) => item?.user_id ? `${item.user_id}-${index}` : `member-${index}`}
+            renderItem={({ item }) => {
+              const fullName = item?.profile?.full_name;
+              const displayName = (typeof fullName === 'string' && fullName.trim().length > 0) ? fullName : 'Unknown';
+              const initial = (typeof fullName === 'string' && fullName.trim().length > 0) ? fullName.trim().charAt(0).toUpperCase() : '?';
+
+              return (
+                <View style={styles.memberCard}>
+                  <View style={styles.avatarPlaceholder}>
+                    <Text style={styles.avatarText}>{initial}</Text>
+                  </View>
+                  <View style={styles.memberInfo}>
+                    <Text style={styles.memberName}>{displayName}</Text>
+                    <Text style={styles.memberRole}>{item?.role === 'owner' ? 'Owner' : 'Member'}</Text>
+                  </View>
                 </View>
-                <View style={styles.memberInfo}>
-                  <Text style={styles.memberName}>{item.profile?.full_name}</Text>
-                  <Text style={styles.memberRole}>{item.role === 'owner' ? 'Owner' : 'Member'}</Text>
-                </View>
-              </View>
-            )}
+              );
+            }}
             contentContainerStyle={styles.listContainer}
           />
 
           <View style={styles.footerActions}>
-            <Text style={styles.inviteCodeText}>Invite Code: <Text style={styles.bold}>{activeCircle.invite_code}</Text></Text>
+            <Text style={styles.inviteCodeText}>Invite Code: <Text style={styles.bold}>{activeCircle.invite_code || '---'}</Text></Text>
             <View style={styles.actionRow}>
               <TouchableOpacity style={styles.actionBtn} onPress={() => navigation.navigate('CreateCircle')}>
                 <Text style={styles.actionBtnText}>New Circle</Text>
