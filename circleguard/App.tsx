@@ -14,23 +14,7 @@ Sentry.init({
 function App() {
   const { setSession, setProfile, setLoading } = useAuthStore();
 
-  // BYPASS FLAG: Set this to true to skip login and mock the API for testing UI
-  const isTestingBypass = true;
-
   useEffect(() => {
-    if (isTestingBypass) {
-      setSession({ user: { id: 'test-user' } } as any);
-      setProfile({
-        id: 'test-user',
-        full_name: 'Test User (Bypassed)',
-        phone: null,
-        avatar_url: null,
-        created_at: new Date().toISOString()
-      });
-      setLoading(false);
-      return;
-    }
-
     // 1. Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);

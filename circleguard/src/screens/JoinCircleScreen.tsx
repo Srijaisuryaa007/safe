@@ -22,13 +22,6 @@ export default function JoinCircleScreen() {
 
     if (!user) return;
 
-    if (user.id === 'test-user') {
-      const mockCircle = { id: 'mock-id-234', name: 'Mocked Family Circle', owner_id: 'some-other-id', invite_code: code.toUpperCase(), created_at: new Date().toISOString() };
-      setActiveCircle(mockCircle as any);
-      navigation.goBack();
-      return;
-    }
-
     setLoading(true);
     try {
       // 1. Find circle by code
@@ -38,18 +31,25 @@ export default function JoinCircleScreen() {
         .eq('invite_code', code.toUpperCase())
         .single();
 
-      if (circleError || !circleData) {
+      if (circleError) {
+        throw new Error(`DB Error (circles): ${circleError.message}`);
+      }
+      if (!circleData) {
         throw new Error('Invalid or expired invite code.');
       }
 
       // 2. Check if already a member
-      const { data: existingMember } = await supabase
+      const { data: existingMember, error: memberSelectError } = await supabase
         .from('circle_members')
         .select('*')
         .eq('circle_id', circleData.id)
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
+      if (memberSelectError) {
+         throw new Error(`DB Error (check member): ${memberSelectError.message}`);
+      }
+      
       if (existingMember) {
         throw new Error('You are already a member of this circle.');
       }
@@ -65,7 +65,9 @@ export default function JoinCircleScreen() {
           }
         ]);
 
-      if (joinError) throw joinError;
+      if (joinError) {
+        throw new Error(`DB Error (join): ${joinError.message}`);
+      }
 
       setActiveCircle(circleData as any);
       navigation.goBack();

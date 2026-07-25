@@ -1,13 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, FlatList, Alert } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore, Circle } from '../store/useCircleStore';
 import { RootStackParamList } from '../navigation/AppNavigator';
+import { MainTabParamList } from '../navigation/MainTabNavigator';
 
-type DashboardNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Dashboard'>;
+type DashboardNavigationProp = CompositeNavigationProp<
+  BottomTabNavigationProp<MainTabParamList, 'Members'>,
+  NativeStackNavigationProp<RootStackParamList>
+>;
 
 export default function DashboardScreen() {
   const navigation = useNavigation<DashboardNavigationProp>();
@@ -33,7 +38,6 @@ export default function DashboardScreen() {
         // Set the first circle as active for now
         const circle = memberData[0].circles as unknown as Circle;
         setActiveCircle(circle);
-        await fetchCircleMembers(circle.id);
       } else {
         setActiveCircle(null);
         setMembers([]);
@@ -45,6 +49,34 @@ export default function DashboardScreen() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (activeCircle) {
+      fetchCircleMembers(activeCircle.id);
+
+      // Subscribe to real-time changes on circle_members for the active circle
+      const channel = supabase
+        .channel(`public:circle_members:circle_id=eq.${activeCircle.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'circle_members',
+            filter: `circle_id=eq.${activeCircle.id}`
+          },
+          (payload) => {
+            // When a member is added, updated, or removed, refetch the members
+            fetchCircleMembers(activeCircle.id);
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [activeCircle?.id]);
 
   const fetchCircleMembers = async (circleId: string) => {
     try {
@@ -72,6 +104,48 @@ export default function DashboardScreen() {
     } catch (err) {
       console.error('Error fetching members:', err);
     }
+  };
+
+  const handleLeaveOrDelete = async () => {
+    if (!activeCircle || !profile) return;
+    const isOwner = activeCircle.owner_id === profile.id;
+    
+    Alert.alert(
+      isOwner ? "Delete Circle" : "Leave Circle",
+      isOwner ? `Are you sure you want to delete ${activeCircle.name}? This will remove all members.` : `Are you sure you want to leave ${activeCircle.name}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: isOwner ? "Delete" : "Leave", 
+          style: "destructive",
+          onPress: async () => {
+            setLoading(true);
+            try {
+              if (isOwner) {
+                const { error } = await supabase
+                  .from('circles')
+                  .delete()
+                  .eq('id', activeCircle.id);
+                if (error) throw error;
+              } else {
+                const { error } = await supabase
+                  .from('circle_members')
+                  .delete()
+                  .eq('circle_id', activeCircle.id)
+                  .eq('user_id', profile.id);
+                if (error) throw error;
+              }
+              await fetchMyCircles();
+            } catch (err: any) {
+              console.error('Error leaving/deleting circle:', err);
+              Alert.alert('Error', 'Failed to perform action.');
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleLogout = async () => {
@@ -145,6 +219,11 @@ export default function DashboardScreen() {
                 <Text style={styles.actionBtnText}>Join Circle</Text>
               </TouchableOpacity>
             </View>
+            <TouchableOpacity style={[styles.actionBtn, styles.leaveBtn]} onPress={handleLeaveOrDelete}>
+              <Text style={styles.leaveBtnText}>
+                {activeCircle.owner_id === profile?.id ? 'Delete Circle' : 'Leave Circle'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -302,6 +381,14 @@ const styles = StyleSheet.create({
   },
   actionBtnText: {
     color: '#333',
+    fontWeight: '600',
+  },
+  leaveBtn: {
+    backgroundColor: '#ffe6e6',
+    marginTop: 8,
+  },
+  leaveBtnText: {
+    color: '#ff3b30',
     fontWeight: '600',
   },
 });

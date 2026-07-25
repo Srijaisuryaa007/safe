@@ -7,7 +7,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import LoginScreen from '../screens/LoginScreen';
 import SignUpScreen from '../screens/SignUpScreen';
 import ProfileSetupScreen from '../screens/ProfileSetupScreen';
-import DashboardScreen from '../screens/DashboardScreen';
+import MainTabNavigator from './MainTabNavigator';
 import CreateCircleScreen from '../screens/CreateCircleScreen';
 import JoinCircleScreen from '../screens/JoinCircleScreen';
 
@@ -15,7 +15,7 @@ export type RootStackParamList = {
   Login: undefined;
   SignUp: undefined;
   ProfileSetup: undefined;
-  Dashboard: undefined;
+  MainTabs: undefined;
   CreateCircle: undefined;
   JoinCircle: undefined;
 };
@@ -44,7 +44,7 @@ export default function AppNavigator() {
         ) : (
           // Authenticated Flow
           <>
-            <Stack.Screen name="Dashboard" component={DashboardScreen} />
+            <Stack.Screen name="MainTabs" component={MainTabNavigator} />
             <Stack.Screen name="CreateCircle" component={CreateCircleScreen} />
             <Stack.Screen name="JoinCircle" component={JoinCircleScreen} />
           </>

@@ -24,13 +24,6 @@ export default function CreateCircleScreen() {
 
     if (!user) return;
 
-    if (user.id === 'test-user') {
-      const mockCircle = { id: 'mock-id-123', name, owner_id: user.id, invite_code: generateInviteCode(), created_at: new Date().toISOString() };
-      setActiveCircle(mockCircle as any);
-      navigation.goBack();
-      return;
-    }
-
     setLoading(true);
     try {
       const inviteCode = generateInviteCode();
