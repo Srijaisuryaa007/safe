@@ -10,6 +10,11 @@ import ProfileSetupScreen from '../screens/ProfileSetupScreen';
 import MainTabNavigator from './MainTabNavigator';
 import CreateCircleScreen from '../screens/CreateCircleScreen';
 import JoinCircleScreen from '../screens/JoinCircleScreen';
+import SOSAlertScreen from '../screens/SOSAlertScreen';
+import SafePlacesScreen from '../screens/SafePlacesScreen';
+import ActivityScreen from '../screens/ActivityScreen';
+
+import GlobalSOSModal from '../components/GlobalSOSModal';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -18,6 +23,9 @@ export type RootStackParamList = {
   MainTabs: undefined;
   CreateCircle: undefined;
   JoinCircle: undefined;
+  SOSAlert: undefined;
+  SafePlaces: undefined;
+  Activity: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -31,6 +39,7 @@ export default function AppNavigator() {
 
   return (
     <NavigationContainer>
+      {session && profile ? <GlobalSOSModal /> : null}
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!session ? (
           // Unauthenticated Flow
@@ -47,6 +56,13 @@ export default function AppNavigator() {
             <Stack.Screen name="MainTabs" component={MainTabNavigator} />
             <Stack.Screen name="CreateCircle" component={CreateCircleScreen} />
             <Stack.Screen name="JoinCircle" component={JoinCircleScreen} />
+            <Stack.Screen 
+              name="SOSAlert" 
+              component={SOSAlertScreen} 
+              options={{ presentation: 'fullScreenModal', animation: 'fade' }}
+            />
+            <Stack.Screen name="SafePlaces" component={SafePlacesScreen} />
+            <Stack.Screen name="Activity" component={ActivityScreen} />
           </>
         )}
       </Stack.Navigator>

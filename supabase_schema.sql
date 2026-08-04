@@ -104,6 +104,19 @@ $$;
 -- Profiles
 drop policy if exists "Public profiles are viewable by everyone" on profiles;
 create policy "Public profiles are viewable by everyone" on profiles for select using (true);
+drop policy if exists "Users can view profiles of circle members" on profiles;
+create policy "Users can view profiles of circle members"
+on profiles
+for select
+using (
+  exists (
+    select 1
+    from circle_members cm1
+    join circle_members cm2 on cm1.circle_id = cm2.circle_id
+    where cm1.user_id = auth.uid()
+      and cm2.user_id = profiles.id
+  )
+);
 drop policy if exists "Users can insert their own profile" on profiles;
 create policy "Users can insert their own profile" on profiles for insert with check (auth.uid() = id);
 drop policy if exists "Users can update their own profile" on profiles;

@@ -1,20 +1,21 @@
+import './global.css';
 import React, { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { enableScreens, enableFreeze } from 'react-native-screens';
-
-// Disable native fragment switching which causes native Android crash on tab switch
-enableScreens(false);
-enableFreeze(false);
 
 import { supabase } from './src/lib/supabase';
 import { useAuthStore } from './src/store/useAuthStore';
+import { useCircleStore } from './src/store/useCircleStore';
 import AppNavigator from './src/navigation/AppNavigator';
-
+import { startBatteryOptimizedBackgroundLocation } from './src/services/LocationBackgroundService';
+import { useThemeStore } from './src/store/useThemeStore';
 
 function App() {
   const { setSession, setProfile, setLoading } = useAuthStore();
 
   useEffect(() => {
+    // 0. Initialize visual theme
+    useThemeStore.getState().initTheme();
+
     // 1. Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -48,13 +49,17 @@ function App() {
         .select('*')
         .eq('id', userId)
         .single();
-        
+
       if (error && error.code !== 'PGRST116') {
         // PGRST116 means no row returned, which is fine if profile isn't setup yet
         console.error('Error fetching profile:', error);
       }
-      
+
       setProfile(data || null);
+      if (data) {
+        useCircleStore.getState().fetchActiveCircle(userId);
+        startBatteryOptimizedBackgroundLocation();
+      }
     } catch (err) {
       console.error('Fetch profile err:', err);
     } finally {
