@@ -1,28 +1,34 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, Vibration, Linking, Animated, Easing } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { LUXURY_THEME } from '../constants/theme';
+import AnimatedCircleGuardLogo from './AnimatedCircleGuardLogo';
 
 interface GlobalSOSModalProps {
   onNavigateToMap?: (user_id: string) => void;
 }
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function GlobalSOSModal({ onNavigateToMap }: GlobalSOSModalProps) {
   const { profile } = useAuthStore();
   const { activeCircle, members } = useCircleStore();
 
   const [activeSOS, setActiveSOS] = useState<any | null>(null);
-  const pulseAnim = React.useRef(new Animated.Value(1)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (!activeCircle || !profile) return;
+    if (!activeCircle?.id || !profile?.id) return;
 
     // 1. Initial check for active SOS alerts in this circle
     const checkActiveSOS = async () => {
       try {
+        const stored = await AsyncStorage.getItem('dismissed_sos_ids');
+        const dismissedIds: string[] = stored ? JSON.parse(stored) : [];
+
         const { data } = await supabase
           .from('sos_alerts')
           .select('*, profiles(*)')
@@ -33,10 +39,15 @@ export default function GlobalSOSModal({ onNavigateToMap }: GlobalSOSModalProps)
 
         if (data && data.length > 0 && data[0].user_id !== profile.id) {
           const alert = data[0];
+          if (dismissedIds.includes(alert.id)) return; // Skip if already dismissed locally!
+
           // Only show if created within last 10 minutes
           const diffMs = Date.now() - new Date(alert.created_at).getTime();
           if (diffMs < 600000) {
             setActiveSOS(alert);
+          } else {
+            // Auto-resolve expired alert in database
+            await supabase.from('sos_alerts').update({ status: 'resolved' }).eq('id', alert.id);
           }
         }
       } catch (e) {
@@ -56,6 +67,10 @@ export default function GlobalSOSModal({ onNavigateToMap }: GlobalSOSModalProps)
           const newAlert = payload.new;
           if (newAlert.user_id === profile.id) return;
           if (newAlert.status !== 'active') return;
+
+          const stored = await AsyncStorage.getItem('dismissed_sos_ids');
+          const dismissedIds: string[] = stored ? JSON.parse(stored) : [];
+          if (dismissedIds.includes(newAlert.id)) return;
 
           // Fetch sender profile
           const { data: profData } = await supabase
@@ -89,12 +104,10 @@ export default function GlobalSOSModal({ onNavigateToMap }: GlobalSOSModalProps)
 
   useEffect(() => {
     if (activeSOS) {
-      // Trigger repeated emergency vibration pattern
       try {
         Vibration.vibrate([0, 500, 200, 500, 200, 500], true);
       } catch (e) {}
 
-      // Pulse animation
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, { toValue: 1.2, duration: 800, easing: Easing.ease, useNativeDriver: true }),
@@ -108,10 +121,29 @@ export default function GlobalSOSModal({ onNavigateToMap }: GlobalSOSModalProps)
     }
   }, [activeSOS]);
 
-  const handleDismiss = () => {
+  const handleDismiss = async () => {
     try {
       Vibration.cancel();
     } catch (e) {}
+
+    if (activeSOS?.id) {
+      try {
+        const stored = await AsyncStorage.getItem('dismissed_sos_ids');
+        const ids: string[] = stored ? JSON.parse(stored) : [];
+        if (!ids.includes(activeSOS.id)) {
+          ids.push(activeSOS.id);
+          await AsyncStorage.setItem('dismissed_sos_ids', JSON.stringify(ids));
+        }
+      } catch (e) {}
+
+      try {
+        await supabase
+          .from('sos_alerts')
+          .update({ status: 'resolved' })
+          .eq('id', activeSOS.id);
+      } catch (e) {}
+    }
+
     setActiveSOS(null);
   };
 
@@ -137,10 +169,7 @@ export default function GlobalSOSModal({ onNavigateToMap }: GlobalSOSModalProps)
         </View>
 
         <View style={styles.centerBox}>
-          <Animated.View style={[styles.pulseRing, { transform: [{ scale: pulseAnim }] }]} />
-          <View style={styles.sosIconCircle}>
-            <Ionicons name="alert-circle" size={72} color={LUXURY_THEME.colors.accentGold} />
-          </View>
+          <AnimatedCircleGuardLogo size={200} showText={false} statusMode="sos" />
         </View>
 
         <View style={styles.alertContent}>

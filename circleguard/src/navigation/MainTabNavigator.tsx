@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -31,18 +31,26 @@ export default function MainTabNavigator() {
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.foreground,
-        tabBarInactiveTintColor: colors.textMuted,
-        tabBarStyle: [styles.tabBar, { backgroundColor: colors.surface, borderTopColor: colors.border }],
+        tabBarActiveTintColor: colors.accentGold || '#D4AF37',
+        tabBarInactiveTintColor: colors.textMuted || '#737373',
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            backgroundColor: colors.surface,
+            borderTopColor: colors.border,
+          },
+        ],
         tabBarLabelStyle: styles.tabBarLabel,
+        tabBarItemStyle: styles.tabBarItem,
       }}
     >
       <Tab.Screen
         name="Home"
         component={HomeScreen}
         options={{
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home-outline" size={20} color={color} />
+          tabBarLabel: 'Home',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'home' : 'home-outline'} size={21} color={color} />
           ),
         }}
       />
@@ -51,8 +59,9 @@ export default function MainTabNavigator() {
         name="Map"
         component={MapScreen}
         options={{
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="map-outline" size={20} color={color} />
+          tabBarLabel: 'Map',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'map' : 'map-outline'} size={21} color={color} />
           ),
         }}
       />
@@ -60,26 +69,30 @@ export default function MainTabNavigator() {
       <Tab.Screen
         name="SOS"
         component={DummySOS}
-        options={({ navigation }) => ({
-          tabBarButton: () => (
-            <TouchableOpacity
-              style={styles.sosTabBtn}
-              onPress={() => (navigation as any).navigate('SOSAlert')}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="alert-circle" size={26} color="#D4AF37" />
-              <Text style={styles.sosTabLabel}>SOS</Text>
-            </TouchableOpacity>
-          ),
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            e.preventDefault();
+            (navigation as any).navigate('SOSAlert');
+          },
         })}
+        options={{
+          tabBarLabel: 'SOS',
+          tabBarActiveTintColor: '#EF4444',
+          tabBarIcon: () => (
+            <View style={styles.sosBadge}>
+              <Ionicons name="alert-circle" size={22} color="#EF4444" />
+            </View>
+          ),
+        }}
       />
 
       <Tab.Screen
         name="Circle"
         component={DashboardScreen}
         options={{
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="people-outline" size={20} color={color} />
+          tabBarLabel: 'Circle',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'people' : 'people-outline'} size={21} color={color} />
           ),
         }}
       />
@@ -88,8 +101,9 @@ export default function MainTabNavigator() {
         name="Profile"
         component={ProfileScreen}
         options={{
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={20} color={color} />
+          tabBarLabel: 'Profile',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'person' : 'person-outline'} size={21} color={color} />
           ),
         }}
       />
@@ -99,36 +113,29 @@ export default function MainTabNavigator() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    height: 70,
-    paddingBottom: 12,
-    paddingTop: 10,
+    height: 60,
+    paddingBottom: 6,
+    paddingTop: 6,
     borderTopWidth: 1,
+    elevation: 10,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  tabBarItem: {
+    paddingVertical: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tabBarLabel: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 1.2,
+    letterSpacing: 0.8,
+    marginTop: 2,
   },
-  sosTabBtn: {
-    top: -20,
-    width: 58,
-    height: 58,
-    backgroundColor: '#DC2626',
-    justifyContent: 'center',
+  sosBadge: {
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#D4AF37',
-    shadowColor: '#DC2626',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  sosTabLabel: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: 'bold',
-    letterSpacing: 1.5,
-    marginTop: -2,
+    justifyContent: 'center',
   },
 });

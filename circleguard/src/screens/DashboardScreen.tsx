@@ -1,5 +1,6 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Clipboard, Image } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, RefreshControl } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
@@ -25,15 +26,33 @@ export default function DashboardScreen() {
 
   const isOwner = activeCircle && profile && activeCircle.owner_id === profile.id;
 
-  const handleCopyCode = () => {
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    if (!profile) return;
+    setRefreshing(true);
+    try {
+      await useCircleStore.getState().fetchActiveCircle(profile.id);
+      if (activeCircle?.id) {
+        await useCircleStore.getState().fetchMembers(activeCircle.id);
+      }
+    } catch (e) {
+      console.error('Refresh error:', e);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleCopyCode = async () => {
     if (activeCircle?.invite_code) {
-      Clipboard.setString(activeCircle.invite_code);
+      await Clipboard.setStringAsync(activeCircle.invite_code);
       Alert.alert('Copied', 'Invite code copied to clipboard!');
     }
   };
 
   const handleLeaveOrDelete = async () => {
-    if (!activeCircle || !profile) return;
+    const userId = profile?.id || (useAuthStore.getState() as any).user?.id;
+    if (!activeCircle || !userId) return;
 
     if (isOwner) {
       Alert.alert(
@@ -48,13 +67,15 @@ export default function DashboardScreen() {
               try {
                 const { error } = await supabase.from('circles').delete().eq('id', activeCircle.id);
                 if (error) throw error;
+
                 setActiveCircle(null);
                 setMembers([]);
-                Alert.alert('Deleted', 'Circle deleted successfully.');
+                await useCircleStore.getState().fetchActiveCircle(userId);
+                Alert.alert('Circle Deleted', 'Your circle has been removed.');
               } catch (err: any) {
                 Alert.alert('Error', err.message || 'Failed to delete circle.');
               }
-            }
+            } 
           }
         ]
       );
@@ -73,15 +94,18 @@ export default function DashboardScreen() {
                   .from('circle_members')
                   .delete()
                   .eq('circle_id', activeCircle.id)
-                  .eq('user_id', profile.id);
+                  .eq('user_id', userId);
+
                 if (error) throw error;
+
                 setActiveCircle(null);
                 setMembers([]);
-                Alert.alert('Left', 'You have left the circle.');
+                await useCircleStore.getState().fetchActiveCircle(userId);
+                Alert.alert('Left Circle', 'You have left the circle.');
               } catch (err: any) {
                 Alert.alert('Error', err.message || 'Failed to leave circle.');
               }
-            }
+            } 
           }
         ]
       );
@@ -90,41 +114,84 @@ export default function DashboardScreen() {
 
   if (!activeCircle) {
     return (
-      <View style={[styles.emptyContainer, { backgroundColor: colors.background }]}>
-        <Ionicons name="people-outline" size={60} color={colors.accentGold} />
+      <View style={[styles.container, styles.centerContent, { backgroundColor: colors.background }]}>
+        <Ionicons name="people-outline" size={56} color={colors.accentGold} />
         <Text style={[styles.emptyTitle, { color: colors.foreground }]}>NO ACTIVE CIRCLE</Text>
         <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
-          Create or join a family circle to start tracking live locations & sending distress signals.
+          Create a new circle or join an existing family group with an invite code.
         </Text>
 
-        <TouchableOpacity 
-          style={[styles.primaryBtn, { backgroundColor: colors.accentGold }]}
-          onPress={() => navigation.navigate('CreateJoinCircle' as never)}
-        >
-          <Ionicons name="add-circle-outline" size={20} color="#1A1A1A" />
-          <Text style={styles.primaryBtnText}>CREATE OR JOIN CIRCLE</Text>
-        </TouchableOpacity>
+        <View style={{ width: '100%', gap: 12, marginTop: 24 }}>
+          <TouchableOpacity 
+            style={[styles.primaryBtn, { backgroundColor: colors.accentGold }]}
+            onPress={() => navigation.navigate('CreateCircle')}
+          >
+            <Ionicons name="add-circle-outline" size={20} color="#1A1A1A" />
+            <Text style={styles.primaryBtnText}>CREATE A NEW CIRCLE</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.primaryBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]}
+            onPress={() => navigation.navigate('JoinCircle')}
+          >
+            <Ionicons name="log-in-outline" size={20} color={colors.foreground} />
+            <Text style={[styles.primaryBtnText, { color: colors.foreground }]}>JOIN WITH INVITE CODE</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
+    <ScrollView 
+      style={[styles.container, { backgroundColor: colors.background }]} 
+      contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.accentGold]} tintColor={colors.accentGold} />
+      }
+    >
       {/* Header */}
       <View style={styles.header}>
         <Text style={[styles.overline, { color: colors.accentGold }]}>FAMILY ARCHITECTURE</Text>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{activeCircle.name}</Text>
       </View>
 
+      {/* Tracking Mode Protocol Badge Card */}
+      <View style={[styles.trackingModeCard, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={[styles.protocolIconCircle, { backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
+            <Ionicons
+              name={activeCircle?.tracking_mode === 'privacy' ? 'shield-half-outline' : 'radio-outline'}
+              size={22}
+              color={colors.accentGold}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.trackingModeLabel, { color: colors.accentGold }]}>CIRCLE TRACKING PROTOCOL</Text>
+            <Text style={[styles.trackingModeTitle, { color: colors.foreground }]}>
+              {activeCircle?.tracking_mode === 'privacy'
+                ? 'Option A: Privacy-First Disconnect'
+                : 'Option B: Continuous 24/7 Safety Mode'}
+            </Text>
+            <Text style={[styles.trackingModeDesc, { color: colors.textMuted }]}>
+              {activeCircle?.tracking_mode === 'privacy'
+                ? 'Location disconnects and shows offline when app is closed.'
+                : 'Location updates continuously 24/7 even when app is closed.'}
+            </Text>
+          </View>
+        </View>
+      </View>
+
       {/* Invite Code Luxury Card */}
       <View style={[styles.inviteCard, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}>
         <View style={styles.inviteHeader}>
-          <View>
+          <View style={{ flex: 1, marginRight: 12 }}>
             <Text style={[styles.inviteOverline, { color: colors.accentGold }]}>CIRCLE ACCESS CODE</Text>
-            <Text style={[styles.circleName, { color: colors.foreground }]}>{activeCircle.name}</Text>
+            <Text style={[styles.circleName, { color: colors.foreground }]} numberOfLines={1}>{activeCircle.name}</Text>
           </View>
-          <TouchableOpacity style={styles.copyIconBtn} onPress={handleCopyCode}>
-            <Ionicons name="copy-outline" size={20} color={colors.accentGold} />
+          <TouchableOpacity style={[styles.copyBtn, { backgroundColor: colors.accentGold }]} onPress={handleCopyCode}>
+            <Ionicons name="copy-outline" size={14} color="#1A1A1A" />
+            <Text style={styles.copyBtnText}>SHARE</Text>
           </TouchableOpacity>
         </View>
 
@@ -148,21 +215,26 @@ export default function DashboardScreen() {
           const avatarUrl = item?.profile?.avatar_url;
 
           return (
-            <View key={item.user_id} style={[styles.memberCard, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}>
-              <View style={[styles.memberAvatar, { overflow: 'hidden' }]}>
-                {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} />
-                ) : (
-                  <Text style={styles.avatarText}>{initial}</Text>
-                )}
+            <View key={item.user_id} style={[styles.memberCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.memberTopRow}>
+                <View style={styles.memberLeft}>
+                  <View style={[styles.memberAvatar, { overflow: 'hidden' }]}>
+                    {avatarUrl ? (
+                      <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} />
+                    ) : (
+                      <Text style={styles.avatarText}>{initial}</Text>
+                    )}
+                  </View>
+                  <View style={styles.memberInfo}>
+                    <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>{displayName}</Text>
+                    <Text style={[styles.memberRole, { color: colors.textMuted }]}>{item.role === 'owner' ? 'CIRCLE FOUNDER' : 'MEMBER'}</Text>
+                  </View>
+                </View>
               </View>
-              <View style={styles.memberInfo}>
-                <Text style={[styles.memberName, { color: colors.foreground }]}>{displayName}</Text>
-                <Text style={[styles.memberRole, { color: colors.textMuted }]}>{item.role === 'owner' ? 'CIRCLE FOUNDER' : 'MEMBER'}</Text>
-              </View>
-              <View style={[styles.statusChip, item.isOnline ? styles.onlineChip : styles.offlineChip]}>
+
+              <View style={[styles.statusChip, { backgroundColor: colors.background, borderColor: item.isOnline ? '#10B981' : colors.border }]}>
                 <View style={[styles.statusDot, { backgroundColor: item.isOnline ? '#10B981' : '#9CA3AF' }]} />
-                <Text style={[styles.statusText, { color: item.isOnline ? '#10B981' : '#6B7280' }]}>
+                <Text style={[styles.statusText, { color: item.isOnline ? '#10B981' : colors.textMuted }]} numberOfLines={1}>
                   {item.isOnline ? 'ONLINE' : (item.lastSeenText || 'OFFLINE').toUpperCase()}
                 </Text>
               </View>
@@ -188,10 +260,12 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 40,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  centerContent: {
+    justifyContent: 'center',
     alignItems: 'center',
+    padding: 32,
+  },
+  header: {
     marginBottom: 28,
   },
   overline: {
@@ -207,26 +281,18 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: LUXURY_THEME.colors.foreground,
   },
-  emptyContainer: {
-    backgroundColor: LUXURY_THEME.colors.surface,
-    borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.border,
-    padding: 32,
-    alignItems: 'center',
-    marginTop: 20,
-  },
   emptyTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: LUXURY_THEME.colors.foreground,
-    letterSpacing: 2,
+    fontSize: 16,
+    fontWeight: 'bold',
     marginTop: 16,
+    letterSpacing: 2,
   },
   emptySubtitle: {
     fontSize: 13,
     color: LUXURY_THEME.colors.textMuted,
     textAlign: 'center',
     marginTop: 8,
+    lineHeight: 20,
   },
   inviteCard: {
     backgroundColor: LUXURY_THEME.colors.foreground,
@@ -254,13 +320,19 @@ const styles = StyleSheet.create({
     fontFamily: LUXURY_THEME.typography.fontFamilySerif,
     fontWeight: 'bold',
   },
-  copyIconBtn: {
-    width: 40,
-    height: 40,
-    borderWidth: 1,
-    borderColor: 'rgba(212, 175, 55, 0.4)',
-    justifyContent: 'center',
+  copyBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    gap: 6,
+  },
+  copyBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    color: '#1A1A1A',
   },
   codeBox: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
@@ -298,21 +370,30 @@ const styles = StyleSheet.create({
     backgroundColor: LUXURY_THEME.colors.border,
   },
   membersList: {
-    gap: 12,
+    gap: 14,
     marginBottom: 32,
   },
   memberCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: LUXURY_THEME.colors.surface,
     borderWidth: 1,
     borderColor: LUXURY_THEME.colors.border,
     padding: 16,
+    gap: 12,
+  },
+  memberTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  memberLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
     gap: 14,
   },
   memberAvatar: {
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     backgroundColor: LUXURY_THEME.colors.foreground,
     borderWidth: 1,
     borderColor: LUXURY_THEME.colors.accentGold,
@@ -326,15 +407,16 @@ const styles = StyleSheet.create({
   },
   memberInfo: {
     flex: 1,
+    justifyContent: 'center',
   },
   memberName: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
     color: LUXURY_THEME.colors.foreground,
     marginBottom: 2,
   },
   memberRole: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '700',
     color: LUXURY_THEME.colors.textMuted,
     letterSpacing: 1.5,
@@ -342,27 +424,21 @@ const styles = StyleSheet.create({
   statusChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    alignSelf: 'flex-start',
+    gap: 8,
     borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  onlineChip: {
-    borderColor: '#A7F3D0',
-    backgroundColor: '#ECFDF5',
-  },
-  offlineChip: {
-    borderColor: LUXURY_THEME.colors.border,
-    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   statusDot: {
-    width: 6,
-    height: 6,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
   },
   statusText: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 1,
+    letterSpacing: 1.2,
   },
   deleteBtn: {
     height: 48,
@@ -370,12 +446,40 @@ const styles = StyleSheet.create({
     borderColor: LUXURY_THEME.colors.sosRed,
     justifyContent: 'center',
     alignItems: 'center',
+    marginVertical: 12,
   },
   deleteBtnText: {
     color: LUXURY_THEME.colors.sosRed,
     fontSize: 11,
+    fontWeight: 'bold',
+    letterSpacing: 1.5,
+  },
+  trackingModeCard: {
+    padding: 16,
+    borderRadius: 14,
+    marginBottom: 16,
+  },
+  protocolIconCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trackingModeLabel: {
+    fontSize: 9,
     fontWeight: '700',
-    letterSpacing: 2,
+    letterSpacing: 1.5,
+    marginBottom: 2,
+  },
+  trackingModeTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 3,
+  },
+  trackingModeDesc: {
+    fontSize: 11.5,
+    lineHeight: 16,
   },
   primaryBtn: {
     flexDirection: 'row',

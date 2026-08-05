@@ -6,6 +6,8 @@ import { useThemeStore } from '../store/useThemeStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from '../lib/supabase';
 
+import { useCircleStore } from '../store/useCircleStore';
+
 interface PrivacySecurityModalProps {
   visible: boolean;
   onClose: () => void;
@@ -36,13 +38,17 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
 
   const loadSettings = async () => {
     try {
-      const g = await AsyncStorage.getItem(KEYS.GHOST_MODE);
-      const h = await AsyncStorage.getItem(KEYS.HIDE_ONLINE);
+      if (profile) {
+        setGhostMode(!!profile.is_ghost_mode);
+        setHideOnline(!!profile.hide_online_presence);
+      } else {
+        const g = await AsyncStorage.getItem(KEYS.GHOST_MODE);
+        const h = await AsyncStorage.getItem(KEYS.HIDE_ONLINE);
+        if (g !== null) setGhostMode(g === 'true');
+        if (h !== null) setHideOnline(h === 'true');
+      }
       const l = await AsyncStorage.getItem(KEYS.APP_LOCK);
       const s = await AsyncStorage.getItem(KEYS.SHAKE_SOS);
-
-      if (g !== null) setGhostMode(g === 'true');
-      if (h !== null) setHideOnline(h === 'true');
       if (l !== null) setAppLock(l === 'true');
       if (s !== null) setShakeSos(s === 'true');
     } catch (e) {
@@ -54,6 +60,28 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
     try {
       setter(val);
       await AsyncStorage.setItem(key, String(val));
+
+      if (profile?.id) {
+        let updateData: any = {};
+        if (key === KEYS.GHOST_MODE) updateData.is_ghost_mode = val;
+        if (key === KEYS.HIDE_ONLINE) updateData.hide_online_presence = val;
+
+        if (Object.keys(updateData).length > 0) {
+          const { error } = await supabase
+            .from('profiles')
+            .update(updateData)
+            .eq('id', profile.id);
+
+          if (error) console.warn('Supabase profile privacy update notice:', error);
+          useAuthStore.getState().setProfile({ ...profile, ...updateData });
+        }
+      }
+
+      // Re-fetch circle members to update map & UI immediately!
+      const activeCircle = useCircleStore.getState().activeCircle;
+      if (activeCircle?.id) {
+        await useCircleStore.getState().fetchMembers(activeCircle.id);
+      }
     } catch (e) {
       console.error('Error saving setting:', e);
     }

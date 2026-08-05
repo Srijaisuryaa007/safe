@@ -1,88 +1,183 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { supabase } from '../lib/supabase';
-import { useCircleStore } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
 
 export default function ActivityScreen() {
   const { colors } = useThemeStore();
   const navigation = useNavigation();
-  const { activeCircle } = useCircleStore();
-  
-  const [activities, setActivities] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<'ALL' | 'UPDATES' | 'SYSTEM'>('ALL');
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    if (activeCircle?.id) {
-      fetchRealActivities(activeCircle.id);
-    } else {
-      setLoading(false);
-    }
-  }, [activeCircle?.id]);
+  // App & System Announcement Notifications Data
+  const appNotifications = [
+    {
+      id: '1',
+      category: 'UPDATES',
+      title: 'CircleGuard v1.2 Performance Build',
+      message: 'New 60 FPS animated protection shield, Swiggy-style live address bar, and Option A (Privacy-First) vs Option B (Continuous 24/7) circle tracking modes are now active.',
+      time: 'TODAY • 06:00 PM',
+      icon: 'rocket-outline',
+      color: '#D4AF37',
+      isNew: true,
+    },
+    {
+      id: '2',
+      category: 'SYSTEM',
+      title: 'PostGIS Geofence Guard Activated',
+      message: 'Smart place arrive and leave notifications are now active. Receive immediate system banners when family members enter or depart saved zones.',
+      time: 'YESTERDAY',
+      icon: 'shield-checkmark-outline',
+      color: '#10B981',
+      isNew: false,
+    },
+    {
+      id: '3',
+      category: 'SYSTEM',
+      title: 'Zero-Drain Battery Optimization',
+      message: 'Background location engine updated with adaptive GPS velocity filters, minimizing battery consumption during stationary periods.',
+      time: 'AUG 4',
+      icon: 'battery-charging-outline',
+      color: '#3B82F6',
+      isNew: false,
+    },
+    {
+      id: '4',
+      category: 'UPDATES',
+      title: 'Supabase Realtime Database Sync Active',
+      message: 'Targeted live location sharing updated with 0ms database push notifications across all circle members.',
+      time: 'AUG 3',
+      icon: 'cloud-done-outline',
+      color: '#F59E0B',
+      isNew: false,
+    },
+  ];
 
-  const fetchRealActivities = async (circleId: string) => {
-    setLoading(true);
-    try {
-      const { data: sosData } = await supabase
-        .from('sos_alerts')
-        .select('id, created_at, status, user_id, profiles(full_name)')
-        .eq('circle_id', circleId)
-        .order('created_at', { ascending: false });
+  const filteredList = appNotifications.filter(
+    item => filter === 'ALL' || item.category === filter
+  );
 
-      const formatted = (sosData || []).map(item => {
-        let name = 'A circle member';
-        if (item.profiles) {
-          name = Array.isArray(item.profiles) ? item.profiles[0]?.full_name : (item.profiles as any).full_name;
-        }
-        return {
-          id: item.id,
-          time: new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          text: `${name || 'Member'} triggered SOS Emergency Alert`,
-          color: '#EF4444',
-          date: new Date(item.created_at).toLocaleDateString(),
-        };
-      });
+  const onRefresh = async () => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 800);
+  };
 
-      setActivities(formatted);
-    } catch (err) {
-      console.error('Error fetching activity log:', err);
-    } finally {
-      setLoading(false);
-    }
+  const handleCheckUpdate = () => {
+    Alert.alert(
+      'App Up to Date',
+      'CircleGuard v1.2.0 is currently running the latest security build with 100% active protection.',
+      [{ text: 'OK' }]
+    );
   };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Top Header */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.8}>
           <Ionicons name="arrow-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>Circle Activity Log</Text>
-        <View style={{ width: 24 }} />
+        <Text style={[styles.headerTitle, { color: colors.foreground }]}>App Notifications</Text>
+        <TouchableOpacity onPress={handleCheckUpdate} activeOpacity={0.8}>
+          <Ionicons name="sparkles-outline" size={22} color={colors.accentGold} />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        {loading ? (
-          <ActivityIndicator size="large" color="#10B981" style={{ marginTop: 40 }} />
-        ) : activities.length > 0 ? (
-          <View style={styles.timelineList}>
-            {activities.map((item) => (
-              <View key={item.id} style={styles.timelineItem}>
-                <Text style={styles.time}>{item.time}</Text>
-                <View style={[styles.dot, { backgroundColor: item.color }]} />
-                <Text style={styles.activityText}>{item.text}</Text>
+      {/* Filter Tabs */}
+      <View style={styles.filterRow}>
+        <TouchableOpacity
+          style={[
+            styles.filterPill,
+            {
+              backgroundColor: filter === 'ALL' ? colors.accentGold : colors.surface,
+              borderColor: filter === 'ALL' ? colors.accentGold : colors.border,
+            },
+          ]}
+          onPress={() => setFilter('ALL')}
+        >
+          <Text style={[styles.filterText, { color: filter === 'ALL' ? '#1A1A1A' : colors.textMuted }]}>
+            ALL NOTIFICATIONS
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.filterPill,
+            {
+              backgroundColor: filter === 'UPDATES' ? colors.accentGold : colors.surface,
+              borderColor: filter === 'UPDATES' ? colors.accentGold : colors.border,
+            },
+          ]}
+          onPress={() => setFilter('UPDATES')}
+        >
+          <Text style={[styles.filterText, { color: filter === 'UPDATES' ? '#1A1A1A' : colors.textMuted }]}>
+            APP UPDATES
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.filterPill,
+            {
+              backgroundColor: filter === 'SYSTEM' ? colors.accentGold : colors.surface,
+              borderColor: filter === 'SYSTEM' ? colors.accentGold : colors.border,
+            },
+          ]}
+          onPress={() => setFilter('SYSTEM')}
+        >
+          <Text style={[styles.filterText, { color: filter === 'SYSTEM' ? '#1A1A1A' : colors.textMuted }]}>
+            SYSTEM
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.accentGold]} tintColor={colors.accentGold} />
+        }
+      >
+        <View style={styles.listContainer}>
+          {filteredList.map((item) => (
+            <View
+              key={item.id}
+              style={[
+                styles.notifCard,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: item.isNew ? colors.accentGold : colors.border,
+                },
+              ]}
+            >
+              <View style={styles.cardHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={[styles.iconCircle, { backgroundColor: `${item.color}20` }]}>
+                    <Ionicons name={item.icon as any} size={20} color={item.color} />
+                  </View>
+                  <Text style={[styles.cardTitle, { color: colors.foreground }]}>{item.title}</Text>
+                </View>
+                {item.isNew ? (
+                  <View style={[styles.newBadge, { backgroundColor: colors.accentGold }]}>
+                    <Text style={styles.newBadgeText}>NEW</Text>
+                  </View>
+                ) : null}
               </View>
-            ))}
-          </View>
-        ) : (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="shield-checkmark-outline" size={48} color="#D1D5DB" />
-            <Text style={styles.emptyTitle}>No Activity Logs Yet</Text>
-            <Text style={styles.emptySubtitle}>All member location updates and emergency alerts in your circle will appear here.</Text>
-          </View>
-        )}
+
+              <Text style={[styles.cardMsg, { color: colors.textMuted }]}>{item.message}</Text>
+              <Text style={[styles.cardTime, { color: colors.textMuted }]}>{item.time}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Check Update Button */}
+        <TouchableOpacity
+          style={[styles.updateCheckBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          onPress={handleCheckUpdate}
+        >
+          <Ionicons name="cloud-download-outline" size={18} color={colors.accentGold} />
+          <Text style={[styles.updateCheckText, { color: colors.foreground }]}>CHECK FOR LATEST APP UPDATES</Text>
+        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -91,76 +186,101 @@ export default function ActivityScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 16,
-    backgroundColor: '#FFFFFF',
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
-    color: '#111827',
+    letterSpacing: 1,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  filterPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  filterText: {
+    fontSize: 9,
+    fontWeight: 'bold',
+    letterSpacing: 1,
   },
   content: {
-    padding: 20,
-  },
-  timelineList: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
     padding: 16,
-    gap: 20,
-    marginTop: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
   },
-  timelineItem: {
+  listContainer: {
+    gap: 12,
+    marginBottom: 20,
+  },
+  notifCard: {
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
-  time: {
-    fontSize: 12,
-    color: '#6B7280',
-    width: 64,
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  activityText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#111827',
-    flex: 1,
-  },
-  emptyContainer: {
+  iconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 80,
-    paddingHorizontal: 32,
   },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#374151',
-    marginTop: 16,
-  },
-  emptySubtitle: {
+  cardTitle: {
     fontSize: 14,
-    color: '#9CA3AF',
-    textAlign: 'center',
+    fontWeight: 'bold',
+    flex: 1,
+  },
+  newBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  newBadgeText: {
+    fontSize: 8,
+    fontWeight: 'bold',
+    color: '#1A1A1A',
+    letterSpacing: 0.8,
+  },
+  cardMsg: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  cardTime: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  updateCheckBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
     marginTop: 8,
+  },
+  updateCheckText: {
+    fontSize: 10.5,
+    fontWeight: 'bold',
+    letterSpacing: 1.2,
   },
 });

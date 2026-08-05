@@ -1,57 +1,65 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
+import { useThemeStore } from '../store/useThemeStore';
 
 export default function JoinCircleScreen() {
+  const { colors } = useThemeStore();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const navigation = useNavigation();
-  const { user } = useAuthStore();
+  const navigation = useNavigation<any>();
+  const { profile, user } = useAuthStore();
   const { setActiveCircle } = useCircleStore();
+
+  const userId = profile?.id || user?.id;
 
   const handleJoin = async () => {
     setErrorMsg('');
-    if (!code.trim() || code.length !== 6) {
+    const cleanCode = code.trim().toUpperCase();
+
+    if (!cleanCode || cleanCode.length !== 6) {
       setErrorMsg('Please enter a valid 6-character invite code.');
       return;
     }
 
-    if (!user) return;
+    if (!userId) {
+      setErrorMsg('User authentication session expired. Please sign in again.');
+      return;
+    }
 
     setLoading(true);
     try {
-      // 1. Find circle by code
+      // 1. Find circle by invite code
       const { data: circleData, error: circleError } = await supabase
         .from('circles')
         .select('*')
-        .eq('invite_code', code.toUpperCase())
+        .eq('invite_code', cleanCode)
         .single();
 
-      if (circleError) {
-        throw new Error(`DB Error (circles): ${circleError.message}`);
-      }
-      if (!circleData) {
-        throw new Error('Invalid or expired invite code.');
+      if (circleError || !circleData) {
+        throw new Error('Invalid or expired invite code. Please verify code with circle owner.');
       }
 
-      // 2. Check if already a member
-      const { data: existingMember, error: memberSelectError } = await supabase
+      // 2. Check if user is already a member
+      const { data: existingMember } = await supabase
         .from('circle_members')
         .select('*')
         .eq('circle_id', circleData.id)
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .maybeSingle();
 
-      if (memberSelectError) {
-         throw new Error(`DB Error (check member): ${memberSelectError.message}`);
-      }
-      
       if (existingMember) {
-        throw new Error('You are already a member of this circle.');
+        // Already a member, just switch active circle
+        await useCircleStore.getState().fetchMembers(circleData.id);
+        setActiveCircle(circleData as any);
+        Alert.alert('Circle Loaded', `Switched to "${circleData.name}".`);
+        navigation.goBack();
+        return;
       }
 
       // 3. Join circle
@@ -60,16 +68,19 @@ export default function JoinCircleScreen() {
         .insert([
           {
             circle_id: circleData.id,
-            user_id: user.id,
+            user_id: userId,
             role: 'member'
           }
         ]);
 
       if (joinError) {
-        throw new Error(`DB Error (join): ${joinError.message}`);
+        throw new Error(joinError.message || 'Failed to join circle.');
       }
 
+      // 4. Fetch members and set active circle
+      await useCircleStore.getState().fetchMembers(circleData.id);
       setActiveCircle(circleData as any);
+      Alert.alert('Joined Circle!', `Successfully joined "${circleData.name}".`);
       navigation.goBack();
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to join circle.');
@@ -79,31 +90,40 @@ export default function JoinCircleScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-        <Text style={styles.backText}>Cancel</Text>
+        <Ionicons name="arrow-back" size={24} color={colors.foreground} />
       </TouchableOpacity>
 
-      <Text style={styles.title}>Join a Circle</Text>
-      <Text style={styles.subtitle}>Enter the 6-character invite code</Text>
+      <Text style={[styles.title, { color: colors.foreground }]}>Join a Circle</Text>
+      <Text style={[styles.subtitle, { color: colors.textMuted }]}>Enter the 6-character private invite code</Text>
 
       <View style={styles.form}>
         {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
 
         <TextInput
-          style={[styles.input, styles.codeInput]}
-          placeholder="e.g. A1B2C3"
+          style={[
+            styles.input,
+            styles.codeInput,
+            { backgroundColor: colors.surface, borderColor: colors.border, color: colors.accentGold }
+          ]}
+          placeholder="e.g. 8HGTT0"
+          placeholderTextColor={colors.textMuted}
           value={code}
           onChangeText={setCode}
           autoCapitalize="characters"
           maxLength={6}
         />
 
-        <TouchableOpacity style={styles.button} onPress={handleJoin} disabled={loading}>
+        <TouchableOpacity 
+          style={[styles.button, { backgroundColor: colors.accentGold }]} 
+          onPress={handleJoin} 
+          disabled={loading}
+        >
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color="#1A1A1A" />
           ) : (
-            <Text style={styles.buttonText}>Join Circle</Text>
+            <Text style={styles.buttonText}>JOIN CIRCLE</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -114,64 +134,53 @@ export default function JoinCircleScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
     padding: 24,
     paddingTop: 60,
   },
   backBtn: {
     marginBottom: 24,
   },
-  backText: {
-    color: '#0066cc',
-    fontSize: 16,
-  },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: 'bold',
-    color: '#1a1a1a',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 48,
+    fontSize: 14,
+    marginBottom: 36,
   },
   form: {
     gap: 16,
   },
   errorText: {
-    color: '#ff3b30',
-    fontSize: 14,
-    fontWeight: '500',
-    backgroundColor: '#ffe6e6',
+    color: '#EF4444',
+    fontSize: 13,
+    fontWeight: '600',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
     padding: 12,
-    borderRadius: 8,
-    overflow: 'hidden',
-    textAlign: 'center'
+    borderWidth: 1,
+    borderColor: '#EF4444',
   },
   input: {
-    backgroundColor: '#f5f5f5',
     padding: 16,
-    borderRadius: 12,
+    borderWidth: 1,
     fontSize: 16,
-    color: '#333',
   },
   codeInput: {
-    textAlign: 'center',
     fontSize: 24,
-    letterSpacing: 4,
     fontWeight: 'bold',
+    textAlign: 'center',
+    letterSpacing: 6,
   },
   button: {
-    backgroundColor: '#0066cc',
     padding: 16,
-    borderRadius: 12,
     alignItems: 'center',
     marginTop: 8,
   },
   buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    color: '#1A1A1A',
+    fontSize: 13,
+    fontWeight: 'bold',
+    letterSpacing: 1.5,
   },
 });

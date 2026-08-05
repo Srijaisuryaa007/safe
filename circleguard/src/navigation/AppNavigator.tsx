@@ -15,6 +15,7 @@ import SafePlacesScreen from '../screens/SafePlacesScreen';
 import ActivityScreen from '../screens/ActivityScreen';
 
 import GlobalSOSModal from '../components/GlobalSOSModal';
+import GlobalLocationShareModal from '../components/GlobalLocationShareModal';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -30,16 +31,35 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+import SplashScreen from '../screens/SplashScreen';
+
+import { registerForPushNotificationsAsync } from '../services/PushNotificationService';
+
+import ShakeSOSListener from '../components/ShakeSOSListener';
+
 export default function AppNavigator() {
   const { session, profile, isLoading } = useAuthStore();
+  const [showSplash, setShowSplash] = React.useState(true);
 
-  if (isLoading) {
-    return null;
+  React.useEffect(() => {
+    if (profile?.id) {
+      registerForPushNotificationsAsync(profile.id);
+    }
+  }, [profile?.id]);
+
+  if (isLoading || showSplash) {
+    return <SplashScreen onFinish={() => setShowSplash(false)} />;
   }
 
   return (
     <NavigationContainer>
-      {session && profile ? <GlobalSOSModal /> : null}
+      {session && profile ? (
+        <>
+          <GlobalSOSModal />
+          <GlobalLocationShareModal />
+          <ShakeSOSListener />
+        </>
+      ) : null}
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!session ? (
           // Unauthenticated Flow

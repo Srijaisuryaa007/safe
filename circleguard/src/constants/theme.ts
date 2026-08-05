@@ -44,6 +44,22 @@ export const DARK_THEME = {
   } as ThemeColors,
 };
 
+export const GRAY_THEME = {
+  colors: {
+    background: '#1C1D22', // Luxury Charcoal Slate Gray
+    foreground: '#F3F4F6', // Off-White Text
+    surface: '#262830', // Elevated Slate Gray Surface
+    surfaceMuted: '#333644', // Darker Slate Surface
+    textMuted: '#9CA3AF', // Metallic Grey
+    accentGold: '#D4AF37', // Gold Accent
+    accentGoldLight: '#2D2712',
+    sosRed: '#EF4444',
+    border: 'rgba(255, 255, 255, 0.15)',
+    borderDark: '#F3F4F6',
+    borderGold: '#D4AF37',
+  } as ThemeColors,
+};
+
 // Global reactive theme instance
 export const LUXURY_THEME = {
   colors: { ...LIGHT_THEME.colors },

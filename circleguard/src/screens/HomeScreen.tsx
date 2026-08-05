@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Image, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import * as Clipboard from 'expo-clipboard';
@@ -7,11 +7,17 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { sendInstantLocationPing, startBatteryOptimizedBackgroundLocation, stopBackgroundLocation } from '../services/LocationBackgroundService';
 import { LUXURY_THEME } from '../constants/theme';
 
 import { useThemeStore } from '../store/useThemeStore';
 
 import FakeCallModal from '../components/FakeCallModal';
+import { useLuxuryAlert } from '../components/LuxuryAlertModal';
+import ShareLocationModal from '../components/ShareLocationModal';
+import AnimatedCircleGuardLogo from '../components/AnimatedCircleGuardLogo';
+
+import SwiggyHeaderBar from '../components/SwiggyHeaderBar';
 
 export default function HomeScreen() {
   const { colors } = useThemeStore();
@@ -22,12 +28,64 @@ export default function HomeScreen() {
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
   const [sharingLocation, setSharingLocation] = useState(false);
+  const [isTrackingActive, setIsTrackingActive] = useState(true);
+
+  const { showAlert } = useLuxuryAlert();
+
+  const toggleLocationTracking = async () => {
+    if (isTrackingActive) {
+      await stopBackgroundLocation();
+      setIsTrackingActive(false);
+      showAlert({
+        title: 'Location Sharing Stopped',
+        message: 'Background location tracking and geofence notifications have been completely stopped. Tap "RESUME" anytime to start sharing again.',
+        type: 'warning',
+        buttonText: 'RESUME OPTION READY',
+      });
+    } else {
+      await startBatteryOptimizedBackgroundLocation();
+      setIsTrackingActive(true);
+      showAlert({
+        title: 'Location Sharing Active',
+        message: 'Background location tracking and geofence notifications are now active.',
+        type: 'success',
+        buttonText: 'PROTECTION ACTIVE',
+      });
+    }
+  };
   const [fakeCallVisible, setFakeCallVisible] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+
+  const handleShareLocation = () => {
+    setShareModalVisible(true);
+  };
 
   const safeMembers = members || [];
   const firstName = String(profile?.full_name || 'User').split(' ')[0];
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    if (!profile) return;
+    setRefreshing(true);
+    try {
+      await useCircleStore.getState().fetchActiveCircle(profile.id);
+      if (activeCircle?.id) {
+        await Promise.all([
+          useCircleStore.getState().fetchMembers(activeCircle.id),
+          fetchCircleActivity(activeCircle.id),
+        ]);
+      }
+    } catch (e) {
+      console.error('Refresh error:', e);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   useEffect(() => {
+    sendInstantLocationPing();
+    startBatteryOptimizedBackgroundLocation();
     if (activeCircle?.id) {
       fetchCircleActivity(activeCircle.id);
     }
@@ -64,16 +122,6 @@ export default function HomeScreen() {
     }
   };
 
-  const handleShareLocation = () => {
-    setSharingLocation(prev => !prev);
-    Alert.alert(
-      sharingLocation ? 'Location Sharing Paused' : 'Live Location Active',
-      sharingLocation 
-        ? 'Your live GPS location broadcast has been paused.' 
-        : 'Your live location is now being broadcast to circle members.'
-    );
-  };
-
   const handleInviteMember = async () => {
     if (activeCircle?.invite_code) {
       await Clipboard.setStringAsync(activeCircle.invite_code);
@@ -84,31 +132,15 @@ export default function HomeScreen() {
   };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
-      {/* Editorial Overline & Header */}
-      <View style={styles.header}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <TouchableOpacity onPress={() => navigation.navigate('Profile')} activeOpacity={0.8}>
-            {profile?.avatar_url ? (
-              <Image source={{ uri: profile.avatar_url }} style={styles.headerAvatarImg} />
-            ) : (
-              <View style={[styles.headerAvatarFallback, { backgroundColor: colors.accentGold }]}>
-                <Text style={styles.headerAvatarText}>
-                  {String(profile?.full_name || 'U').charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-          <View>
-            <Text style={[styles.overlineText, { color: colors.accentGold }]}>VOL. 01 — LIVE STATUS</Text>
-            <Text style={[styles.userName, { color: colors.foreground }]}>{profile?.full_name || 'Welcome Back'}</Text>
-          </View>
-        </View>
-        <TouchableOpacity style={[styles.bellBtn, { borderColor: colors.border }]} onPress={() => navigation.navigate('Activity')}>
-          <Ionicons name="notifications-outline" size={22} color={colors.foreground} />
-          {recentActivities.length > 0 ? <View style={styles.notificationDot} /> : null}
-        </TouchableOpacity>
-      </View>
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.accentGold]} tintColor={colors.accentGold} />
+      }
+    >
+      {/* Swiggy-Style Top Location Header Bar */}
+      <SwiggyHeaderBar hasNotification={recentActivities.length > 0} />
 
       {/* Main Luxury Banner */}
       <View style={[styles.statusBanner, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -120,9 +152,31 @@ export default function HomeScreen() {
           <Text style={[styles.bannerDate, { color: colors.textMuted }]}>{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}</Text>
         </View>
 
+        <View style={{ alignItems: 'center', marginVertical: 8 }}>
+          <AnimatedCircleGuardLogo size={140} showText={false} statusMode={isTrackingActive ? 'safe' : 'traveling'} />
+        </View>
+
         <Text style={[styles.bannerTitle, { color: colors.foreground }]}>
           {activeCircle ? `${activeCircle.name}` : 'CircleGuard Protection'}
         </Text>
+        
+        {activeCircle ? (
+          <View style={{ alignItems: 'center', marginTop: 4, marginBottom: 8 }}>
+            <View style={[styles.goldPill, { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: colors.accentGold }]}>
+              <Ionicons
+                name={activeCircle?.tracking_mode === 'privacy' ? 'shield-half-outline' : 'radio-outline'}
+                size={12}
+                color={colors.accentGold}
+              />
+              <Text style={styles.goldPillText}>
+                {activeCircle?.tracking_mode === 'privacy'
+                  ? 'OPTION A • PRIVACY DISCONNECT'
+                  : 'OPTION B • CONTINUOUS 24/7 SAFETY'}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         <Text style={[styles.bannerSubtitle, { color: colors.textMuted }]}>
           {activeCircle 
             ? `${safeMembers.length} member${safeMembers.length === 1 ? '' : 's'} actively connected`
@@ -152,6 +206,32 @@ export default function HomeScreen() {
             ) : null}
           </View>
         ) : null}
+      </View>
+
+      {/* Location Tracking Master Control Banner */}
+      <View style={[styles.controlBanner, { backgroundColor: isTrackingActive ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)', borderColor: isTrackingActive ? '#10B981' : '#EF4444' }]}>
+        <View style={styles.controlHeaderRow}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={[styles.statusDot, { backgroundColor: isTrackingActive ? '#10B981' : '#EF4444' }]} />
+            <Text style={[styles.controlStatusText, { color: isTrackingActive ? '#10B981' : '#EF4444' }]}>
+              {isTrackingActive ? 'LOCATION SHARING: ACTIVE' : 'LOCATION SHARING: PAUSED'}
+            </Text>
+          </View>
+        </View>
+        <Text style={[styles.controlSubtext, { color: colors.textMuted }]}>
+          {isTrackingActive 
+            ? 'Background location & geofence notifications are currently active.' 
+            : 'Background location sharing and notifications are completely turned off.'}
+        </Text>
+        <TouchableOpacity 
+          style={[styles.controlToggleBtn, { backgroundColor: isTrackingActive ? '#EF4444' : '#10B981' }]}
+          onPress={toggleLocationTracking}
+        >
+          <Ionicons name={isTrackingActive ? "power-outline" : "play-outline"} size={16} color="#FFFFFF" />
+          <Text style={styles.controlToggleBtnText}>
+            {isTrackingActive ? 'STOP & EXIT LOCATION TRACKING' : 'RESUME LOCATION SHARING'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Circle Metrics Grid */}
@@ -229,9 +309,17 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      <FakeCallModal 
-        visible={fakeCallVisible} 
-        onClose={() => setFakeCallVisible(false)} 
+      {/* Modals */}
+      <FakeCallModal visible={fakeCallVisible} onClose={() => setFakeCallVisible(false)} />
+      <ShareLocationModal 
+        visible={shareModalVisible} 
+        onClose={() => setShareModalVisible(false)} 
+        onSuccess={() => showAlert({
+          title: 'Live Location Shared',
+          message: 'Your live location details have been sent. Target members can view your exact position on their main map.',
+          type: 'success',
+          buttonText: 'POSITION BROADCASTING',
+        })}
       />
 
       {/* Recent Activity */}
@@ -316,9 +404,7 @@ const styles = StyleSheet.create({
   bellBtn: {
     width: 44,
     height: 44,
-    backgroundColor: LUXURY_THEME.colors.surface,
     borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -407,6 +493,46 @@ const styles = StyleSheet.create({
     color: LUXURY_THEME.colors.foreground,
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  controlBanner: {
+    padding: 16,
+    borderWidth: 1,
+    marginBottom: 24,
+    gap: 8,
+  },
+  controlHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  controlStatusText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    letterSpacing: 1.2,
+  },
+  controlSubtext: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  controlToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginTop: 4,
+  },
+  controlToggleBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: 'bold',
+    letterSpacing: 1.2,
   },
   sectionHeaderRow: {
     flexDirection: 'row',

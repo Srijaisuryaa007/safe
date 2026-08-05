@@ -5,6 +5,8 @@ import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { LUXURY_THEME } from '../constants/theme';
 
+import AnimatedCircleGuardLogo from '../components/AnimatedCircleGuardLogo';
+
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -53,13 +55,7 @@ export default function LoginScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.brandContainer}>
-        <Image 
-          source={require('../../assets/logo.png')} 
-          style={styles.logoImage} 
-          resizeMode="contain"
-        />
-        <Text style={styles.overline}>ELEGANCE IN SECURITY</Text>
-        <Text style={styles.brandSubtitle}>Your Circle. Your Safety. Always.</Text>
+        <AnimatedCircleGuardLogo size={180} showText={true} />
       </View>
 
       <View style={styles.form}>

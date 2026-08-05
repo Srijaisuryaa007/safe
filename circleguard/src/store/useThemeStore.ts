@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { Appearance, ColorSchemeName } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LIGHT_THEME, DARK_THEME, ThemeColors, LUXURY_THEME } from '../constants/theme';
+import { LIGHT_THEME, DARK_THEME, GRAY_THEME, ThemeColors, LUXURY_THEME } from '../constants/theme';
 
-export type ThemeMode = 'light' | 'dark' | 'system';
+export type ThemeMode = 'light' | 'dark' | 'gray' | 'system';
 
 interface ThemeState {
   themeMode: ThemeMode;
@@ -15,43 +15,42 @@ interface ThemeState {
 
 const STORAGE_KEY = '@circleguard_theme_mode';
 
-const getIsDark = (mode: ThemeMode, sysScheme: ColorSchemeName | null | undefined): boolean => {
-  if (mode === 'dark') return true;
-  if (mode === 'light') return false;
-  return sysScheme === 'dark';
+const getThemeConfig = (mode: ThemeMode, sysScheme: ColorSchemeName | null | undefined): { colors: ThemeColors; isDark: boolean } => {
+  if (mode === 'dark') return { colors: DARK_THEME.colors, isDark: true };
+  if (mode === 'gray') return { colors: GRAY_THEME.colors, isDark: true };
+  if (mode === 'light') return { colors: LIGHT_THEME.colors, isDark: false };
+  const isSysDark = sysScheme === 'dark';
+  return { colors: isSysDark ? DARK_THEME.colors : LIGHT_THEME.colors, isDark: isSysDark };
 };
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
-  themeMode: 'light',
-  isDark: false,
-  colors: LIGHT_THEME.colors,
+  themeMode: 'gray',
+  isDark: true,
+  colors: GRAY_THEME.colors,
 
   initTheme: async () => {
     try {
       const saved = await AsyncStorage.getItem(STORAGE_KEY);
-      const mode: ThemeMode = (saved as ThemeMode) || 'system';
+      const mode: ThemeMode = (saved as ThemeMode) || 'gray';
       const sysScheme = Appearance.getColorScheme();
-      const dark = getIsDark(mode, sysScheme);
-      const activeColors = dark ? DARK_THEME.colors : LIGHT_THEME.colors;
+      const config = getThemeConfig(mode, sysScheme);
 
-      Object.assign(LUXURY_THEME.colors, activeColors);
+      Object.assign(LUXURY_THEME.colors, config.colors);
 
       set({
         themeMode: mode,
-        isDark: dark,
-        colors: activeColors,
+        isDark: config.isDark,
+        colors: config.colors,
       });
 
-      // Listen for system OS dark/light mode changes when system mode is selected
       Appearance.addChangeListener(({ colorScheme }) => {
         const currentMode = get().themeMode;
         if (currentMode === 'system') {
-          const isSysDark = colorScheme === 'dark';
-          const newColors = isSysDark ? DARK_THEME.colors : LIGHT_THEME.colors;
-          Object.assign(LUXURY_THEME.colors, newColors);
+          const newConfig = getThemeConfig('system', colorScheme);
+          Object.assign(LUXURY_THEME.colors, newConfig.colors);
           set({
-            isDark: isSysDark,
-            colors: newColors,
+            isDark: newConfig.isDark,
+            colors: newConfig.colors,
           });
         }
       });
@@ -64,15 +63,14 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     try {
       await AsyncStorage.setItem(STORAGE_KEY, mode);
       const sysScheme = Appearance.getColorScheme();
-      const dark = getIsDark(mode, sysScheme);
-      const activeColors = dark ? DARK_THEME.colors : LIGHT_THEME.colors;
+      const config = getThemeConfig(mode, sysScheme);
 
-      Object.assign(LUXURY_THEME.colors, activeColors);
+      Object.assign(LUXURY_THEME.colors, config.colors);
 
       set({
         themeMode: mode,
-        isDark: dark,
-        colors: activeColors,
+        isDark: config.isDark,
+        colors: config.colors,
       });
     } catch (e) {
       console.error('Error setting theme mode:', e);

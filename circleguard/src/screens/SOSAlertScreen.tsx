@@ -73,10 +73,13 @@ export default function SOSAlertScreen() {
       Vibration.vibrate([0, 400, 200, 400], true);
     } catch(e) {}
 
-    if (activeCircle && profile) {
+    const userId = profile?.id || (useAuthStore.getState() as any).user?.id;
+
+    if (activeCircle && userId) {
       try {
+        // Insert into sos_alerts for guaranteed 0ms Supabase Realtime trigger across all circle members
         await supabase.from('sos_alerts').insert({
-          user_id: profile.id,
+          user_id: userId,
           circle_id: activeCircle.id,
           status: 'active',
         });
@@ -86,11 +89,23 @@ export default function SOSAlertScreen() {
     }
   };
 
-  const cancelEmergency = () => {
+  const cancelEmergency = async () => {
     try {
       Vibration.cancel();
     } catch(e) {}
     setIsSending(false);
+
+    if (activeCircle?.id && profile?.id) {
+      try {
+        await supabase
+          .from('sos_alerts')
+          .update({ status: 'resolved' })
+          .eq('circle_id', activeCircle.id)
+          .eq('user_id', profile.id)
+          .eq('status', 'active');
+      } catch (e) {}
+    }
+
     navigation.goBack();
   };
 

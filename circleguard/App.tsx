@@ -7,7 +7,10 @@ import { useAuthStore } from './src/store/useAuthStore';
 import { useCircleStore } from './src/store/useCircleStore';
 import AppNavigator from './src/navigation/AppNavigator';
 import { startBatteryOptimizedBackgroundLocation } from './src/services/LocationBackgroundService';
+import { registerForPushNotificationsAsync } from './src/services/PushNotificationService';
 import { useThemeStore } from './src/store/useThemeStore';
+
+import { LuxuryAlertProvider } from './src/components/LuxuryAlertModal';
 
 function App() {
   const { setSession, setProfile, setLoading } = useAuthStore();
@@ -59,6 +62,7 @@ function App() {
       if (data) {
         useCircleStore.getState().fetchActiveCircle(userId);
         startBatteryOptimizedBackgroundLocation();
+        registerForPushNotificationsAsync(userId);
       }
     } catch (err) {
       console.error('Fetch profile err:', err);
@@ -69,7 +73,9 @@ function App() {
 
   return (
     <SafeAreaProvider>
-      <AppNavigator />
+      <LuxuryAlertProvider>
+        <AppNavigator />
+      </LuxuryAlertProvider>
     </SafeAreaProvider>
   );
 }

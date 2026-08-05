@@ -1,11 +1,14 @@
 import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
+import { useAuthStore } from './useAuthStore';
 
 export interface Circle {
   id: string;
   name: string;
   owner_id: string;
   invite_code: string;
+  tracking_mode?: string;
   created_at: string;
 }
 
@@ -18,6 +21,8 @@ export interface CircleMember {
     full_name: string;
     avatar_url: string | null;
     phone?: string | null;
+    is_ghost_mode?: boolean;
+    hide_online_presence?: boolean;
   };
   isOnline?: boolean;
   lastSeenText?: string;
@@ -27,6 +32,7 @@ export interface CircleMember {
 
 interface CircleState {
   activeCircle: Circle | null;
+  circles: Circle[];
   members: CircleMember[];
   isLoading: boolean;
   circleFetched: boolean;
@@ -39,6 +45,7 @@ interface CircleState {
 
 export const useCircleStore = create<CircleState>((set, get) => ({
   activeCircle: null,
+  circles: [],
   members: [],
   isLoading: false,
   circleFetched: false,
@@ -48,12 +55,26 @@ export const useCircleStore = create<CircleState>((set, get) => ({
   fetchMembers: async (circleId: string) => {
     if (!circleId) return [];
     try {
-      const { data: membersData, error } = await supabase
+      let membersData: any[] | null = null;
+
+      // Tier 1: Attempt query with privacy columns
+      const res1 = await supabase
         .from('circle_members')
-        .select('circle_id, user_id, role, joined_at, profiles(full_name, avatar_url, phone)')
+        .select('circle_id, user_id, role, joined_at, profiles(full_name, avatar_url, phone, is_ghost_mode, hide_online_presence)')
         .eq('circle_id', circleId);
 
-      if (error) throw error;
+      if (!res1.error && res1.data) {
+        membersData = res1.data;
+      } else {
+        // Tier 2: Fallback query for core columns
+        const res2 = await supabase
+          .from('circle_members')
+          .select('circle_id, user_id, role, joined_at, profiles(full_name, avatar_url, phone)')
+          .eq('circle_id', circleId);
+
+        if (res2.error) throw res2.error;
+        membersData = res2.data;
+      }
 
       const userIds = (membersData || []).map(m => m.user_id);
       let locationsMap: Record<string, { updated_at: string; battery_pct?: number; is_driving?: boolean }> = {};
@@ -76,29 +97,56 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       }
 
       const now = Date.now();
+      const currentUserId = useAuthStore.getState().profile?.id;
+
+      // Read local privacy settings from AsyncStorage for instant reactive sync
+      const localHideOnline = (await AsyncStorage.getItem('@circleguard_hide_online')) === 'true';
+      const localGhostMode = (await AsyncStorage.getItem('@circleguard_ghost_mode')) === 'true';
+
       const formattedMembers: CircleMember[] = (membersData || []).map(m => {
         let prof = m.profiles as any;
         if (Array.isArray(prof)) prof = prof[0];
-        
+
         const loc = locationsMap[m.user_id];
+        const isSelf = !!currentUserId && m.user_id === currentUserId;
+
         let isOnline = false;
         let lastSeenText = 'Offline';
 
-        if (loc?.updated_at) {
+        const isGhost = isSelf ? (localGhostMode || !!prof?.is_ghost_mode) : !!prof?.is_ghost_mode;
+        const hideOnline = isSelf ? (localHideOnline || !!prof?.hide_online_presence) : !!prof?.hide_online_presence;
+
+        if (isGhost) {
+          isOnline = false;
+          lastSeenText = 'Ghost Mode (Location Hidden)';
+        } else if (hideOnline) {
+          isOnline = false;
+          lastSeenText = 'Offline';
+        } else if (isSelf) {
+          // Logged-in active app user is online when privacy settings are off
+          isOnline = true;
+          lastSeenText = 'Online now';
+        } else if (loc?.updated_at) {
           const diffMs = now - new Date(loc.updated_at).getTime();
-          // If updated within 2 minutes (120,000 ms), member is considered ONLINE
-          if (diffMs <= 120000) {
+          if (diffMs <= 180000) {
             isOnline = true;
-            lastSeenText = 'Online';
+            lastSeenText = 'Online now';
           } else {
             const mins = Math.floor(diffMs / 60000);
             if (mins < 60) {
-              lastSeenText = `Last seen ${mins}m ago`;
+              lastSeenText = `Offline • ${mins}m ago`;
             } else {
               const hours = Math.floor(mins / 60);
-              lastSeenText = `Last seen ${hours}h ago`;
+              if (hours < 24) {
+                lastSeenText = `Offline • ${hours}h ago`;
+              } else {
+                const days = Math.floor(hours / 24);
+                lastSeenText = `Offline • ${days}d ago`;
+              }
             }
           }
+        } else {
+          lastSeenText = 'Offline • No location data';
         }
 
         return {
@@ -106,7 +154,11 @@ export const useCircleStore = create<CircleState>((set, get) => ({
           user_id: m.user_id,
           role: m.role as 'owner' | 'member',
           joined_at: m.joined_at,
-          profile: prof || { full_name: 'Member', avatar_url: null },
+          profile: prof ? {
+            ...prof,
+            is_ghost_mode: isGhost,
+            hide_online_presence: hideOnline,
+          } : { full_name: 'Member', avatar_url: null, is_ghost_mode: isGhost, hide_online_presence: hideOnline },
           isOnline,
           lastSeenText,
           batteryPct: loc?.battery_pct,
@@ -133,16 +185,21 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       if (memberError) throw memberError;
 
       if (memberData && memberData.length > 0) {
-        let circle = memberData[0].circles as unknown as Circle;
-        if (Array.isArray(circle)) {
-          circle = circle[0];
-        }
+        const allCircles: Circle[] = memberData
+          .map(m => {
+            let c = m.circles as unknown as Circle;
+            if (Array.isArray(c)) c = c[0];
+            return c;
+          })
+          .filter(Boolean);
 
-        set({ activeCircle: circle, circleFetched: true });
+        let circle = allCircles[0];
+
+        set({ activeCircle: circle, circles: allCircles, circleFetched: true });
         await get().fetchMembers(circle.id);
         return circle;
       } else {
-        set({ activeCircle: null, members: [], circleFetched: true });
+        set({ activeCircle: null, circles: [], members: [], circleFetched: true });
         return null;
       }
     } catch (err) {

@@ -11,6 +11,7 @@ import AlertModal from '../components/AlertModal';
 import AddPlaceModal from '../components/AddPlaceModal';
 import SearchFilterModal from '../components/SearchFilterModal';
 import { LUXURY_THEME } from '../constants/theme';
+import { evaluateGeofenceBreaches } from '../services/GeofenceEngine';
 
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
@@ -116,9 +117,10 @@ export default function MapScreen() {
 
   const handleDeleteSelectedPlace = async () => {
     if (!selectedPlace) return;
+    const placeToDelete = selectedPlace;
     Alert.alert(
       'Delete Bookmark',
-      `Remove "${selectedPlace.name}" from your circle geofences?`,
+      `Remove "${placeToDelete.name}" from your circle geofences?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -126,21 +128,23 @@ export default function MapScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              const { error } = await supabase.from('places').delete().eq('id', selectedPlace.id);
-              if (error) throw error;
               setSelectedPlace(null);
-              fetchPlaces();
-              Alert.alert('Bookmark Removed', `"${selectedPlace.name}" has been deleted.`);
+              setPlaces(prev => prev.filter(p => p.id !== placeToDelete.id));
+
+              const { error } = await supabase.from('places').delete().eq('id', placeToDelete.id);
+              if (error) {
+                fetchPlaces();
+                throw error;
+              }
+              Alert.alert('Bookmark Removed', `"${placeToDelete.name}" has been deleted.`);
             } catch (e: any) {
-              Alert.alert('Error', e.message || 'Failed to delete bookmark');
+              Alert.alert('Error Deleting Bookmark', e.message || 'Failed to delete bookmark');
             }
           }
         }
       ]
     );
   };
-
-  const [mapRotation, setMapRotation] = useState<number>(0);
 
   // POI Categories & Nearby Places State
   const [selectedPoiCategory, setSelectedPoiCategory] = useState<string | null>(null);
@@ -293,18 +297,9 @@ export default function MapScreen() {
 
   // Map is clean & plain by default showing only User & Circle Members
 
-  const handleResetNorth = () => {
-    setMapRotation(0);
-    if (webViewRef.current) {
-      webViewRef.current.injectJavaScript(`if (window.resetRotation) { window.resetRotation(); } true;`);
-    }
-  };
 
-  const handleRotateMap = (delta: number) => {
-    if (webViewRef.current) {
-      webViewRef.current.injectJavaScript(`if (window.rotateMapBy) { window.rotateMapBy(${delta}); } true;`);
-    }
-  };
+
+
 
   const handleZoomIn = () => {
     if (webViewRef.current) {
@@ -445,6 +440,31 @@ export default function MapScreen() {
     }
   };
 
+  // Refresh State
+  const [isRefreshingMap, setIsRefreshingMap] = useState(false);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshingMap(true);
+    try {
+      if (profile?.id) {
+        await fetchActiveCircle(profile.id);
+      }
+      if (activeCircle?.id) {
+        await Promise.all([
+          fetchMembers(activeCircle.id),
+          fetchPlaces(),
+          fetchLocations(),
+        ]);
+      }
+      pushMapData();
+      Alert.alert('Sync Complete', 'Refreshed latest member locations, online statuses, and geofences!');
+    } catch (e) {
+      console.error('Refresh error:', e);
+    } finally {
+      setIsRefreshingMap(false);
+    }
+  };
+
   // Modal State
   const [modalVisible, setModalVisible] = useState(false);
   const [modalTitle, setModalTitle] = useState('');
@@ -465,28 +485,38 @@ export default function MapScreen() {
   useEffect(() => {
     if (!locations || locations.length === 0 || !places || places.length === 0) return;
 
-    locations.forEach(loc => {
-      if (loc.user_id === profile?.id) return;
-      const member = members.find(m => m.user_id === loc.user_id);
-      const name = member?.profile?.full_name || 'A circle member';
+    (async () => {
+      for (const loc of locations) {
+        const member = members.find(m => m.user_id === loc.user_id);
+        const name = member?.profile?.full_name || (loc.user_id === profile?.id ? 'You' : 'A circle member');
 
-      places.forEach(place => {
-        if (!place.latitude || !place.longitude) return;
-        const dist = getDistanceInMeters(loc.latitude, loc.longitude, place.latitude, place.longitude);
-        const radius = place.radius_m || 150;
+        const breaches = await evaluateGeofenceBreaches(
+          {
+            user_id: loc.user_id,
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            accuracy_m: loc.accuracy_m
+          },
+          name,
+          places
+        );
 
-        if (dist <= radius) {
-          const alertKey = `${loc.user_id}_${place.id}`;
-          if (!alertedProximity.current.has(alertKey)) {
-            alertedProximity.current.add(alertKey);
-            setModalTitle('GEOFENCE PROXIMITY ALERT');
-            setModalMessage(`📍 ${name} is near your bookmarked place "${place.name}" (${Math.round(dist)}m away)!`);
+        if (breaches.length > 0) {
+          const firstBreach = breaches[0];
+          if (firstBreach.type === 'exit') {
+            setModalTitle('GEOFENCE EXIT BREACH ALERT');
+            setModalMessage(`⚠️ ${firstBreach.userName} exited geofence boundary "${firstBreach.placeName}" (${firstBreach.formattedDistance} from center)!`);
+            setModalType('sos');
+            setModalVisible(true);
+          } else if (firstBreach.type === 'entry') {
+            setModalTitle('GEOFENCE RE-ENTRY ALERT');
+            setModalMessage(`📍 ${firstBreach.userName} re-entered geofence boundary "${firstBreach.placeName}" (${firstBreach.formattedDistance} from center)!`);
             setModalType('place');
             setModalVisible(true);
           }
         }
-      });
-    });
+      }
+    })();
   }, [locations, places, members, profile]);
 
   useEffect(() => {
@@ -516,8 +546,8 @@ export default function MapScreen() {
       
       locationSubscription.current = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.Highest,
-          timeInterval: 10000,
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 3000, // Fast 3-second live sync cycle
           distanceInterval: 0,
         },
         async (loc) => {
@@ -534,7 +564,16 @@ export default function MapScreen() {
             const speed = loc.coords.speed || 0;
             const isDriving = speed > 5.5;
 
-            const point = `POINT(${loc.coords.longitude} ${loc.coords.latitude})`;
+            let finalLat = loc.coords.latitude;
+            let finalLng = loc.coords.longitude;
+
+            if (profile.is_ghost_mode) {
+              // Fuzz position by ~500m for Ghost Privacy Mode
+              finalLat += (Math.random() - 0.5) * 0.009;
+              finalLng += (Math.random() - 0.5) * 0.009;
+            }
+
+            const point = `POINT(${finalLng} ${finalLat})`;
             await supabase.from('locations').upsert({
               user_id: profile.id,
               geom: point,
@@ -543,7 +582,7 @@ export default function MapScreen() {
               battery_pct: battPct,
               is_driving: isDriving,
               updated_at: new Date().toISOString()
-            });
+            }, { onConflict: 'user_id' });
           } catch (err) {
             console.error('Error updating location:', err);
           }
@@ -561,9 +600,12 @@ export default function MapScreen() {
   useEffect(() => {
     if (!activeCircle) return;
     
-    fetchMembers(activeCircle.id);
-    fetchPlaces();
-    fetchLocations();
+    // Fetch members, places, and locations in parallel for sub-second instant load
+    Promise.all([
+      fetchMembers(activeCircle.id),
+      fetchPlaces(),
+      fetchLocations()
+    ]);
     
     const channel = supabase
       .channel('public:locations')
@@ -571,6 +613,15 @@ export default function MapScreen() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'locations' },
         () => fetchLocations()
+      )
+      .subscribe();
+
+    const membersChannel = supabase
+      .channel('public:circle_members')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'circle_members', filter: `circle_id=eq.${activeCircle.id}` },
+        () => fetchMembers(activeCircle.id)
       )
       .subscribe();
       
@@ -585,7 +636,7 @@ export default function MapScreen() {
       
     const fallbackInterval = setInterval(() => {
       fetchLocations();
-    }, 10000);
+    }, 3000); // 3-second rapid polling
       
     const sosChannel = supabase
       .channel('public:sos_alerts')
@@ -609,6 +660,7 @@ export default function MapScreen() {
 
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(membersChannel);
       supabase.removeChannel(placesChannel);
       supabase.removeChannel(sosChannel);
       clearInterval(fallbackInterval);
@@ -616,20 +668,21 @@ export default function MapScreen() {
   }, [activeCircle]);
 
   const fetchLocations = async () => {
-    if (!activeCircle) return;
     try {
-      const { data: memberRows } = await supabase
-        .from('circle_members')
-        .select('user_id')
-        .eq('circle_id', activeCircle.id);
+      let query = supabase.from('locations').select('*');
+      if (activeCircle?.id) {
+        const { data: memberRows } = await supabase
+          .from('circle_members')
+          .select('user_id')
+          .eq('circle_id', activeCircle.id);
 
-      const memberUserIds = (memberRows || []).map(m => m.user_id);
-      if (memberUserIds.length === 0) return;
+        const memberUserIds = (memberRows || []).map(m => m.user_id);
+        if (memberUserIds.length > 0) {
+          query = query.in('user_id', memberUserIds);
+        }
+      }
 
-      const { data, error } = await supabase
-        .from('locations')
-        .select('*')
-        .in('user_id', memberUserIds);
+      const { data, error } = await query;
 
       if (error) {
         console.error('Error fetching locations:', error);
@@ -709,25 +762,60 @@ export default function MapScreen() {
       isDark: isDark,
       center: [centerLat, centerLng],
       userLocation: userLoc,
-      members: members.map(m => {
-        const loc = locations.find(l => l.user_id === m.user_id);
-        const lat = loc?.latitude || userLoc?.latitude || 20.5937;
-        const lng = loc?.longitude || userLoc?.longitude || 78.9629;
-        return {
-          id: m.user_id,
-          lat,
-          lng,
-          name: m.profile?.full_name || 'Member',
-          initial: String(m.profile?.full_name || 'M').charAt(0).toUpperCase(),
-          avatarUrl: m.profile?.avatar_url || null,
-          isOnline: m.isOnline ?? false,
-          lastSeenText: m.lastSeenText || 'Offline'
-        };
-      }),
+      members: members
+        .filter(m => m.user_id === profile?.id || !m.profile?.is_ghost_mode)
+        .map(m => {
+          const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
+          const loc = locations.find(l => String(l.user_id).toLowerCase() === String(m.user_id).toLowerCase());
+          
+          let lat = loc?.latitude;
+          let lng = loc?.longitude;
+
+          if (!lat || !lng) {
+            if (isSelf && userLoc) {
+              lat = userLoc.latitude;
+              lng = userLoc.longitude;
+            }
+          }
+
+          if (!lat || !lng) return null;
+
+          const isHideOnline = !!m.profile?.hide_online_presence;
+          const isGhost = !!m.profile?.is_ghost_mode;
+
+          const speedMps = loc?.speed_mps || 0;
+          const speedKmh = Math.round(speedMps * 3.6);
+          let activityText = '🛋️ Stationary';
+          if (loc?.activity_state) {
+            activityText = loc.activity_state;
+          } else if (speedMps > 4.5) {
+            activityText = `🚗 Traveling • ${speedKmh} km/h`;
+          } else if (speedMps >= 0.8) {
+            activityText = `🚶 Walking • ${speedKmh} km/h`;
+          } else {
+            activityText = '🛋️ Stationary / Idle';
+          }
+
+          return {
+            id: m.user_id,
+            lat,
+            lng,
+            name: isSelf ? 'You' : (m.profile?.full_name || 'Member'),
+            initial: String(m.profile?.full_name || 'M').charAt(0).toUpperCase(),
+            avatarUrl: m.profile?.avatar_url || null,
+            isOnline: (isGhost || isHideOnline) ? false : (m.isOnline ?? false),
+            lastSeenText: isGhost ? 'Ghost Mode' : (isHideOnline ? 'Offline' : (m.lastSeenText || 'Offline')),
+            batteryPct: loc?.battery_pct || m.batteryPct || 100,
+            activityText,
+          };
+        })
+        .filter(Boolean),
       places: places.map(p => ({
         id: p.id,
-        lat: p.latitude,
-        lng: p.longitude,
+        lat: p.start_lat || p.latitude,
+        lng: p.start_lng || p.longitude,
+        endLat: p.end_lat || null,
+        endLng: p.end_lng || null,
         name: p.name,
         radius: p.radius_m || 150
       })),
@@ -758,11 +846,6 @@ export default function MapScreen() {
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
       <style>
         body, html, #map { margin: 0; padding: 0; height: 100%; width: 100%; background: #F9F8F6; }
-        .leaflet-map-pane {
-          transition: transform 0.4s cubic-bezier(0.1, 1, 0.2, 1);
-          transform-origin: 50% 50%;
-          will-change: transform;
-        }
         .member-avatar-online {
           background: #1A1A1A; color: #10B981; border-radius: 0px;
           display: flex; align-items: center; justify-content: center;
@@ -829,83 +912,6 @@ export default function MapScreen() {
         var poiMarkers = {};
         var initialCentered = false;
 
-        var currentRotation = 0;
-        function setRotation(deg) {
-          currentRotation = (deg % 360 + 360) % 360;
-          var pane = document.querySelector('.leaflet-map-pane');
-          if (pane) {
-            pane.style.transform = 'rotate(' + currentRotation + 'deg)';
-          }
-          if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'MAP_ROTATION',
-              rotation: currentRotation
-            }));
-          }
-        }
-        window.resetRotation = function() {
-          setRotation(0);
-        };
-        window.rotateMapBy = function(delta) {
-          setRotation(currentRotation + delta);
-        };
-
-        var touchStartAngle = 0;
-        var initAngle = 0;
-        var isTwoFingerRotating = false;
-        var rotationActive = false;
-        var ROTATION_DEADZONE = 7.5;
-
-        var mapDiv = document.getElementById('map');
-        mapDiv.addEventListener('touchstart', function(e) {
-          if (e.touches && e.touches.length === 2) {
-            isTwoFingerRotating = true;
-            rotationActive = false;
-            var t1 = e.touches[0];
-            var t2 = e.touches[1];
-            touchStartAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX) * 180 / Math.PI;
-            initAngle = currentRotation;
-          }
-        }, { passive: true });
-
-        mapDiv.addEventListener('touchmove', function(e) {
-          if (isTwoFingerRotating && e.touches && e.touches.length === 2) {
-            var t1 = e.touches[0];
-            var t2 = e.touches[1];
-            var currentAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX) * 180 / Math.PI;
-            var rawDelta = currentAngle - touchStartAngle;
-
-            while (rawDelta > 180) rawDelta -= 360;
-            while (rawDelta < -180) rawDelta += 360;
-
-            if (!rotationActive) {
-              if (Math.abs(rawDelta) > ROTATION_DEADZONE) {
-                rotationActive = true;
-                touchStartAngle = currentAngle;
-                rawDelta = 0;
-              } else {
-                return;
-              }
-            }
-
-            var dampedDelta = rawDelta * 0.28;
-            setRotation(initAngle + dampedDelta);
-          }
-        }, { passive: true });
-
-        mapDiv.addEventListener('touchend', function(e) {
-          if (!e.touches || e.touches.length < 2) {
-            if (isTwoFingerRotating && rotationActive) {
-              var norm = (currentRotation % 360 + 360) % 360;
-              if (norm < 8 || norm > 352) {
-                setRotation(0);
-              }
-            }
-            isTwoFingerRotating = false;
-            rotationActive = false;
-          }
-        }, { passive: true });
-
         var tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
           maxZoom: 19,
           attribution: 'CartoDB'
@@ -940,19 +946,32 @@ export default function MapScreen() {
 
           if (data.members) {
             var currentMemberIds = {};
+            var allMemberCoords = [];
+
             data.members.forEach(function(m) {
               currentMemberIds[m.id] = true;
               var mLatLng = [m.lat, m.lng];
+              allMemberCoords.push(mLatLng);
+
               var avatarClass = m.isOnline ? 'member-avatar-online' : 'member-avatar-offline';
               var statusTag = m.isOnline ? ' (Online)' : ' (' + (m.lastSeenText || 'Offline - Last Known Position') + ')';
               var avatarContent = m.avatarUrl
                 ? '<img src="' + m.avatarUrl + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" />'
-                : m.initial;
+                : '<span style="color:#FFF;font-weight:bold;font-size:14px;">' + m.initial + '</span>';
+
+              var pulseStyle = m.isOnline 
+                ? 'border: 2px solid #10B981; box-shadow: 0 0 16px rgba(16,185,129,0.95);' 
+                : 'border: 2px solid #9CA3AF; opacity: 0.85;';
+
+              var batteryTag = m.batteryPct ? ' • 🔋' + m.batteryPct + '%' : '';
+              var activityTag = m.activityText ? ' • ' + m.activityText : '';
+              var labelHtml = '<div style="position:absolute; bottom:44px; left:50%; transform:translateX(-50%); white-space:nowrap; background:rgba(26,26,26,0.95); color:#FFFFFF; font-size:10px; font-weight:bold; font-family:sans-serif; padding:4px 9px; border-radius:12px; border:1px solid #D4AF37; box-shadow:0 4px 12px rgba(0,0,0,0.5); pointer-events:none; z-index:1000;">' + m.name + activityTag + batteryTag + '</div>';
 
               var icon = L.divIcon({
                 className: 'custom-icon',
-                html: '<div class="' + avatarClass + '" style="width:34px;height:34px;overflow:hidden;border-radius:50%;display:flex;align-items:center;justify-content:center;">' + avatarContent + '</div>',
-                iconSize: [34, 34]
+                html: '<div style="position:relative; width:40px; height:40px;">' + labelHtml + '<div class="' + avatarClass + '" style="width:40px;height:40px;overflow:hidden;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#1A1A1A;' + pulseStyle + '">' + avatarContent + '</div></div>',
+                iconSize: [40, 40],
+                iconAnchor: [20, 20]
               });
 
               if (memberMarkers[m.id]) {
@@ -963,6 +982,14 @@ export default function MapScreen() {
                 memberMarkers[m.id] = L.marker(mLatLng, { icon: icon }).addTo(map).bindPopup(m.name + statusTag);
               }
             });
+
+            if (!initialCentered && allMemberCoords.length > 0) {
+              try {
+                var bounds = L.latLngBounds(allMemberCoords);
+                map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+                initialCentered = true;
+              } catch(e) {}
+            }
 
             Object.keys(memberMarkers).forEach(function(id) {
               if (!currentMemberIds[id]) {
@@ -982,14 +1009,49 @@ export default function MapScreen() {
                 placeCircles[p.id].setRadius(p.radius);
               } else {
                 placeCircles[p.id] = L.circle(pLatLng, {
-                  radius: p.radius, color: '#D4AF37', fillColor: '#D4AF37', fillOpacity: 0.18, weight: 2
-                }).addTo(map).bindPopup(p.name);
+                  radius: p.radius, color: '#D4AF37', fillColor: '#D4AF37', fillOpacity: 0.22, weight: 2
+                }).addTo(map).bindPopup("Geofence: " + p.name);
 
                 placeCircles[p.id].on('click', function() {
                   if (window.ReactNativeWebView) {
                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PLACE_CLICK', placeId: p.id }));
                   }
                 });
+              }
+
+              if (p.endLat && p.endLng) {
+                var startKey = 'start_' + p.id;
+                var endKey = 'end_' + p.id;
+                var lineKey = 'line_' + p.id;
+                currentPlaceIds[startKey] = true;
+                currentPlaceIds[endKey] = true;
+                currentPlaceIds[lineKey] = true;
+
+                var endLatLng = [p.endLat, p.endLng];
+
+                if (placeCircles[startKey]) {
+                  placeCircles[startKey].setLatLng(pLatLng);
+                } else {
+                  placeCircles[startKey] = L.marker(pLatLng, {
+                    icon: L.divIcon({ className: 'custom-icon', html: '<div style="background:#10B981;border:2px solid #FFF;border-radius:50%;width:16px;height:16px;box-shadow:0 0 10px rgba(16,185,129,0.9);"></div>', iconSize: [16, 16] })
+                  }).addTo(map).bindPopup("Start Point: " + p.name);
+                }
+
+                if (placeCircles[endKey]) {
+                  placeCircles[endKey].setLatLng(endLatLng);
+                } else {
+                  placeCircles[endKey] = L.marker(endLatLng, {
+                    icon: L.divIcon({ className: 'custom-icon', html: '<div style="background:#EF4444;border:2px solid #FFF;border-radius:50%;width:16px;height:16px;box-shadow:0 0 10px rgba(239,68,68,0.9);"></div>', iconSize: [16, 16] })
+                  }).addTo(map).bindPopup("End Point: " + p.name);
+                }
+
+                if (placeCircles[lineKey]) {
+                  placeCircles[lineKey].setLatLngs([pLatLng, endLatLng]);
+                } else {
+                  placeCircles[lineKey] = L.polyline([pLatLng, endLatLng], {
+                    color: '#60A5FA', weight: 3, dashArray: '6, 6'
+                  }).addTo(map);
+                }
               }
             });
 
@@ -1149,8 +1211,6 @@ export default function MapScreen() {
                 setSelectedMember(null);
                 setSelectedPlace(found);
               }
-            } else if (msg.type === 'MAP_ROTATION') {
-              setMapRotation(Math.round(msg.rotation));
             } else if (msg.type === 'POI_CLICK') {
               const found = poiList.find(p => p.id === msg.poiId);
               if (found) {
@@ -1518,29 +1578,8 @@ export default function MapScreen() {
         userLoc={userLoc}
       />
 
-      {/* Floating Map Controls: Compass Direction Indicator & Zoom Controls at Bottom */}
+      {/* Floating Map Controls: Zoom Controls */}
       <View style={[styles.floatingControls, selectedMember || selectedPlace || selectedPoi ? { bottom: 275 } : { bottom: 25 }]}>
-        {/* Compass Direction Widget */}
-        <TouchableOpacity style={styles.controlBtn} onPress={handleResetNorth} activeOpacity={0.8}>
-          <View style={{ transform: [{ rotate: `${-mapRotation}deg` }] }}>
-            <Ionicons name="compass" size={24} color={LUXURY_THEME.colors.accentGold} />
-          </View>
-          <Text style={styles.compassLabel}>{mapRotation === 0 ? 'N' : `${mapRotation}°`}</Text>
-        </TouchableOpacity>
-
-        {/* Rotate Left & Rotate Right Buttons */}
-        <View style={styles.rotateRow}>
-          <TouchableOpacity style={styles.controlBtnSmall} onPress={() => handleRotateMap(-45)} activeOpacity={0.8}>
-            <Ionicons name="refresh-outline" size={14} color={LUXURY_THEME.colors.foreground} style={{ transform: [{ scaleX: -1 }] }} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.controlBtnSmall} onPress={() => handleRotateMap(45)} activeOpacity={0.8}>
-            <Ionicons name="refresh-outline" size={14} color={LUXURY_THEME.colors.foreground} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.controlDivider} />
-
-        {/* Zoom In & Zoom Out Buttons Brought to Bottom */}
         <TouchableOpacity style={styles.controlBtn} onPress={handleZoomIn} activeOpacity={0.8}>
           <Ionicons name="add" size={22} color={LUXURY_THEME.colors.foreground} />
         </TouchableOpacity>
