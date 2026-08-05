@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Switch } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '../store/useThemeStore';
 
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -40,10 +41,16 @@ export default function SearchFilterModal({
 }: SearchFilterModalProps) {
   const { colors } = useThemeStore();
   const [activeCats, setActiveCats] = useState<string[]>([]);
+  const [unit, setUnit] = useState<'km' | 'mi'>('km');
 
   useEffect(() => {
+    const loadUnit = async () => {
+      const u = await AsyncStorage.getItem('@circleguard_distance_unit');
+      if (u) setUnit(u as 'km' | 'mi');
+    };
     if (visible) {
       setActiveCats(selectedCategories);
+      loadUnit();
     }
   }, [visible, selectedCategories]);
 
@@ -68,6 +75,14 @@ export default function SearchFilterModal({
     onClose();
   };
 
+  const formatDefaultDist = (kmVal: number) => {
+    if (unit === 'mi') {
+      const milesVal = kmVal * 0.621371;
+      return `${milesVal.toFixed(1)} mi away`;
+    }
+    return `${kmVal.toFixed(1)} km away`;
+  };
+
   const getNearestDistance = (catId: string) => {
     if (!userLoc) return 'Nearby';
 
@@ -84,101 +99,100 @@ export default function SearchFilterModal({
     if (categoryPois.length === 0) return '0 Nearby';
 
     const distances = categoryPois.map(p => {
-      const meters = getDistanceInMeters(userLoc.latitude, userLoc.longitude, p.lat, p.lng);
-      return meters / 1000;
+      return getDistanceInMeters(userLoc.latitude, userLoc.longitude, p.lat, p.lng);
     });
 
-    const minKm = Math.min(...distances);
-    return `Nearest: ${minKm.toFixed(1)} km away (${categoryPois.length} found)`;
+    const minMeters = Math.min(...distances);
+    const isMiles = unit === 'mi';
+    const formattedVal = isMiles
+      ? `${(minMeters / 1609.34).toFixed(1)} mi away`
+      : `${(minMeters / 1000).toFixed(1)} km away`;
+
+    return `Nearest: ${formattedVal} (${categoryPois.length} found)`;
   };
 
   const filterOptions = [
-    { id: 'hospital', title: 'Hospitals / Clinics', icon: 'medical', color: '#EF4444', defaultDistance: '1.2 km away' },
-    { id: 'school', title: 'Schools / Universities', icon: 'school', color: '#3B82F6', defaultDistance: '0.8 km away' },
-    { id: 'police', title: 'Police Stations', icon: 'shield-checkmark', color: '#D4AF37', defaultDistance: '2.4 km away' },
-    { id: 'restaurant', title: 'Dining & Cafes', icon: 'restaurant', color: '#F59E0B', defaultDistance: '0.5 km away' },
-    { id: 'fuel', title: 'Fuel Stations', icon: 'car', color: '#10B981', defaultDistance: '1.1 km away' },
-    { id: 'member', title: 'Circle Members', icon: 'person', color: '#A855F7', defaultDistance: 'Live Online Status' },
-    { id: 'place', title: 'Bookmarked Places', icon: 'bookmark', color: '#EC4899', defaultDistance: 'Saved Safe Zones' },
+    { id: 'hospital', title: 'Hospitals / Clinics', icon: 'medical', color: '#EF4444', defaultDistance: formatDefaultDist(1.2) },
+    { id: 'school', title: 'Schools / Universities', icon: 'school', color: '#3B82F6', defaultDistance: formatDefaultDist(0.8) },
+    { id: 'police', title: 'Police Stations', icon: 'shield-checkmark', color: '#D4AF37', defaultDistance: formatDefaultDist(2.4) },
+    { id: 'restaurant', title: 'Dining & Cafes', icon: 'restaurant', color: '#F59E0B', defaultDistance: formatDefaultDist(0.5) },
+    { id: 'fuel', title: 'Fuel Stations', icon: 'car', color: '#10B981', defaultDistance: formatDefaultDist(1.1) },
+    { id: 'member', title: 'Circle Members', icon: 'people', color: '#10B981', defaultDistance: `${members.length} Members` },
+    { id: 'place', title: 'Safe Places & Geofences', icon: 'bookmark', color: '#D4AF37', defaultDistance: `${places.length} Places` },
   ];
 
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true}>
+    <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.modalOverlay}>
-        <View style={[styles.container, { backgroundColor: colors.background, borderColor: colors.border }]}>
-          {/* Header */}
-          <View style={[styles.header, { borderBottomColor: colors.border }]}>
-            <View style={styles.headerTitleBox}>
-              <Text style={[styles.overline, { color: colors.accentGold }]}>MAP SEARCH FILTERS</Text>
-              <Text style={[styles.title, { color: colors.foreground }]}>Filter Categories</Text>
+        <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.header}>
+            <View>
+              <Text style={[styles.overline, { color: colors.accentGold }]}>MAP INTELLIGENCE</Text>
+              <Text style={[styles.modalTitle, { color: colors.foreground }]}>Filter Map Layers</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { borderColor: colors.border }]}>
-              <Ionicons name="close" size={22} color={colors.foreground} />
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
-          {/* Filter Items */}
-          <ScrollView contentContainerStyle={styles.content}>
-            <View style={styles.quickActions}>
-              <TouchableOpacity onPress={handleSelectAll} style={[styles.quickBtn, { borderColor: colors.border }]}>
-                <Text style={[styles.quickBtnText, { color: colors.accentGold }]}>SELECT ALL</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleReset} style={[styles.quickBtn, { borderColor: colors.border }]}>
-                <Text style={[styles.quickBtnText, { color: colors.textMuted }]}>RESET</Text>
-              </TouchableOpacity>
-            </View>
+          <View style={styles.actionHeader}>
+            <TouchableOpacity onPress={handleSelectAll}>
+              <Text style={[styles.actionText, { color: colors.accentGold }]}>SELECT ALL</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleReset}>
+              <Text style={[styles.actionText, { color: colors.textMuted }]}>RESET</Text>
+            </TouchableOpacity>
+          </View>
 
-            {filterOptions.map(opt => {
-              const isChecked = activeCats.includes(opt.id);
-              const liveDist = getNearestDistance(opt.id);
+          <ScrollView style={styles.scrollList} showsVerticalScrollIndicator={false}>
+            {filterOptions.map((item) => {
+              const isSelected = activeCats.includes(item.id);
+              const subtitleText = isSelected ? getNearestDistance(item.id) : item.defaultDistance;
 
               return (
                 <TouchableOpacity
-                  key={opt.id}
+                  key={item.id}
                   style={[
                     styles.filterRow,
-                    { backgroundColor: colors.surface, borderColor: colors.border },
-                    isChecked && { borderColor: opt.color, borderWidth: 1.5 }
+                    {
+                      backgroundColor: isSelected ? 'rgba(212, 175, 55, 0.12)' : colors.background,
+                      borderColor: isSelected ? colors.accentGold : colors.border,
+                    },
                   ]}
-                  onPress={() => toggleCategory(opt.id)}
+                  onPress={() => toggleCategory(item.id)}
                   activeOpacity={0.8}
                 >
                   <View style={styles.rowLeft}>
-                    <View style={[styles.iconBadge, { backgroundColor: opt.color }]}>
-                      <Ionicons name={opt.icon as any} size={18} color="#FFFFFF" />
+                    <View style={[styles.iconBox, { backgroundColor: `${item.color}20` }]}>
+                      <Ionicons name={item.icon as any} size={20} color={item.color} />
                     </View>
-                    <View style={styles.textWrapper}>
-                      <Text style={[styles.rowTitle, { color: colors.foreground }]}>{opt.title}</Text>
-                      <Text style={[styles.rowSub, { color: colors.textMuted }]}>
-                        {liveDist !== '0 Nearby' ? liveDist : opt.defaultDistance}
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.rowTitle, { color: colors.foreground }]}>{item.title}</Text>
+                      <Text style={[styles.rowSubtitle, { color: isSelected ? colors.accentGold : colors.textMuted }]}>
+                        {subtitleText}
                       </Text>
                     </View>
                   </View>
 
                   <Switch
-                    value={isChecked}
-                    onValueChange={() => toggleCategory(opt.id)}
-                    trackColor={{ false: colors.border, true: opt.color }}
-                    thumbColor="#FFFFFF"
+                    value={isSelected}
+                    onValueChange={() => toggleCategory(item.id)}
+                    trackColor={{ false: '#374151', true: colors.accentGold }}
+                    thumbColor={isSelected ? '#1A1A1A' : '#9CA3AF'}
                   />
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
 
-          {/* Footer Action */}
-          <View style={[styles.footer, { borderTopColor: colors.border }]}>
-            <TouchableOpacity
-              style={[styles.applyBtn, { backgroundColor: colors.accentGold }]}
-              onPress={handleApply}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="checkmark-sharp" size={18} color="#1A1A1A" />
-              <Text style={styles.applyBtnText}>APPLY SEARCH FILTERS</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={[styles.applyBtn, { backgroundColor: colors.accentGold }]}
+            onPress={handleApply}
+          >
+            <Text style={styles.applyBtnText}>APPLY MAP LAYERS ({activeCats.length})</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </Modal>
@@ -191,110 +205,86 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'flex-end',
   },
-  container: {
+  modalCard: {
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '85%',
     borderWidth: 1,
+    padding: 24,
+    maxHeight: '85%',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-  },
-  headerTitleBox: {
-    flex: 1,
+    marginBottom: 12,
   },
   overline: {
     fontSize: 9,
     fontWeight: '700',
-    letterSpacing: 2,
+    letterSpacing: 1.5,
     marginBottom: 2,
   },
-  title: {
+  modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
   },
-  closeBtn: {
-    width: 36,
-    height: 36,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  content: {
-    padding: 20,
-    gap: 10,
-  },
-  quickActions: {
+  actionHeader: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-    marginBottom: 6,
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
   },
-  quickBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: 1,
-  },
-  quickBtnText: {
-    fontSize: 9,
+  actionText: {
+    fontSize: 10,
     fontWeight: 'bold',
-    letterSpacing: 1.2,
+    letterSpacing: 1,
+  },
+  scrollList: {
+    marginBottom: 16,
   },
   filterRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    borderRadius: 8,
+    marginBottom: 10,
   },
   rowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
     flex: 1,
+    marginRight: 10,
   },
-  iconBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    justifyContent: 'center',
+  iconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
-    boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-  },
-  textWrapper: {
-    flex: 1,
+    justifyContent: 'center',
   },
   rowTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 2,
+    fontSize: 14,
+    fontWeight: '600',
   },
-  rowSub: {
+  rowSubtitle: {
     fontSize: 11,
-  },
-  footer: {
-    padding: 16,
-    paddingBottom: 28,
-    borderTopWidth: 1,
+    marginTop: 2,
   },
   applyBtn: {
-    flexDirection: 'row',
+    paddingVertical: 15,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    gap: 8,
   },
   applyBtnText: {
     color: '#1A1A1A',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 'bold',
-    letterSpacing: 1.5,
+    letterSpacing: 1.2,
   },
 });

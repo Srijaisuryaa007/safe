@@ -237,7 +237,10 @@ export default function MapScreen() {
           if (!item) return null;
           const itemLat = parseFloat(item.lat);
           const itemLng = parseFloat(item.lon);
+          const isMiles = distanceUnit === 'mi';
           const distMeters = getDistanceInMeters(lat, lng, itemLat, itemLng);
+          const distVal = isMiles ? distMeters / 1609.34 : distMeters / 1000;
+          const unitStr = isMiles ? 'mi away' : 'km away';
 
           return {
             id: item.place_id ? String(item.place_id) : String(Math.random()),
@@ -246,7 +249,9 @@ export default function MapScreen() {
             lat: itemLat,
             lng: itemLng,
             category: category,
-            distanceKm: (distMeters / 1000).toFixed(1)
+            distMeters,
+            distanceKm: distVal.toFixed(1),
+            distanceText: `${distVal.toFixed(1)} ${unitStr}`,
           };
         }).filter((p: any) => p && !isNaN(p.lat) && !isNaN(p.lng))
           .sort((a: any, b: any) => parseFloat(a.distanceKm) - parseFloat(b.distanceKm));
@@ -284,17 +289,22 @@ export default function MapScreen() {
             if (!item) return null;
             const itemLat = parseFloat(item.lat);
             const itemLng = parseFloat(item.lon);
-            const distMeters = getDistanceInMeters(lat, lng, itemLat, itemLng);
+          const isMiles = distanceUnit === 'mi';
+          const distMeters = getDistanceInMeters(lat, lng, itemLat, itemLng);
+          const distVal = isMiles ? distMeters / 1609.34 : distMeters / 1000;
+          const unitStr = isMiles ? 'mi away' : 'km away';
 
-            return {
-              id: item.place_id ? String(item.place_id) : String(Math.random()),
-              name: item.display_name ? item.display_name.split(',')[0] : 'Location',
-              subText: item.display_name || '',
-              lat: itemLat,
-              lng: itemLng,
-              category: cat,
-              distanceKm: (distMeters / 1000).toFixed(1)
-            };
+          return {
+            id: item.place_id ? String(item.place_id) : String(Math.random()),
+            name: item.display_name ? item.display_name.split(',')[0] : 'Location',
+            subText: item.display_name || '',
+            lat: itemLat,
+            lng: itemLng,
+            category: cat,
+            distMeters,
+            distanceKm: distVal.toFixed(1),
+            distanceText: `${distVal.toFixed(1)} ${unitStr}`,
+          };
           }).filter((p: any) => p && !isNaN(p.lat) && !isNaN(p.lng) && parseFloat(p.distanceKm) < 25);
 
           combined = [...combined, ...formatted];
