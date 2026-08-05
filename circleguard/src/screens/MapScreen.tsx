@@ -176,22 +176,15 @@ export default function MapScreen() {
     { id: 'place', label: 'SAVED PLACES', icon: 'bookmark', color: '#EC4899' },
   ];
 
-  const buildPoiUrl = (category: string, lat: number, lng: number, limit = 50) => {
-    const delta = 0.18; // ~18 km local bounding box
-    const left = (lng - delta).toFixed(4);
-    const top = (lat + delta).toFixed(4);
-    const right = (lng + delta).toFixed(4);
-    const bottom = (lat - delta).toFixed(4);
-    const viewbox = `${left},${top},${right},${bottom}`;
-
+  const buildPoiUrl = (category: string, lat: number, lng: number, limit: number = 30) => {
     let searchQuery = category;
     if (category === 'hospital') searchQuery = 'hospital';
     else if (category === 'school') searchQuery = 'school';
-    else if (category === 'police') searchQuery = 'police';
+    else if (category === 'police') searchQuery = 'police station';
     else if (category === 'restaurant') searchQuery = 'restaurant';
-    else if (category === 'fuel') searchQuery = 'fuel station';
+    else if (category === 'fuel') searchQuery = 'fuel';
 
-    return `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&viewbox=${viewbox}&bounded=1&limit=${limit}`;
+    return `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&lat=${lat}&lon=${lng}&limit=${limit}`;
   };
 
   const fetchNearbyPois = async (category: string) => {
