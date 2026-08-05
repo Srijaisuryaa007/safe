@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import * as Battery from 'expo-battery';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
@@ -114,6 +115,19 @@ export default function MapScreen() {
   const [selectedMember, setSelectedMember] = useState<any>(null);
   const [selectedPlace, setSelectedPlace] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  const [distanceUnit, setDistanceUnit] = useState<'km' | 'mi'>('km');
+  const [mapStyleSetting, setMapStyleSetting] = useState<'vector' | 'satellite'>('vector');
+
+  useEffect(() => {
+    const loadAppSettings = async () => {
+      const u = await AsyncStorage.getItem('@circleguard_distance_unit');
+      const m = await AsyncStorage.getItem('@circleguard_map_style');
+      if (u) setDistanceUnit(u as 'km' | 'mi');
+      if (m) setMapStyleSetting(m as 'vector' | 'satellite');
+    };
+    loadAppSettings();
+  }, []);
 
   const handleDeleteSelectedPlace = async () => {
     if (!selectedPlace) return;
@@ -783,15 +797,18 @@ export default function MapScreen() {
           const isHideOnline = !!m.profile?.hide_online_presence;
           const isGhost = !!m.profile?.is_ghost_mode;
 
+          const isMiles = distanceUnit === 'mi';
           const speedMps = loc?.speed_mps || 0;
-          const speedKmh = Math.round(speedMps * 3.6);
+          const speedFormatted = isMiles ? Math.round(speedMps * 2.23694) : Math.round(speedMps * 3.6);
+          const unitText = isMiles ? 'mph' : 'km/h';
+
           let activityText = '🛋️ Stationary';
           if (loc?.activity_state) {
             activityText = loc.activity_state;
           } else if (speedMps > 4.5) {
-            activityText = `🚗 Traveling • ${speedKmh} km/h`;
+            activityText = `🚗 Traveling • ${speedFormatted} ${unitText}`;
           } else if (speedMps >= 0.8) {
-            activityText = `🚶 Walking • ${speedKmh} km/h`;
+            activityText = `🚶 Walking • ${speedFormatted} ${unitText}`;
           } else {
             activityText = '🛋️ Stationary / Idle';
           }

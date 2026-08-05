@@ -201,6 +201,8 @@ export const registerNativeGeofencesAsync = async (places: any[]) => {
   }
 };
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 export const startBatteryOptimizedBackgroundLocation = async (): Promise<boolean> => {
   if (Platform.OS === 'web') return false;
   try {
@@ -212,24 +214,43 @@ export const startBatteryOptimizedBackgroundLocation = async (): Promise<boolean
       console.warn('Background location permission optional/pending');
     }
 
-    const isRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_BACKGROUND_TASK);
-    if (!isRegistered) {
-      await Location.startLocationUpdatesAsync(LOCATION_BACKGROUND_TASK, {
-        accuracy: Location.Accuracy.High, // High accuracy GPS mode
-        distanceInterval: 3, // Triggers GPS sync when moved 3+ meters
-        timeInterval: 5000, // Fast 5-second sync cycle
-        deferredUpdatesDistance: 3,
-        deferredUpdatesInterval: 5000,
-        showsBackgroundLocationIndicator: true,
-        pausesUpdatesAutomatically: false, // CRITICAL: Never pause location updates when stationary or app is closed!
-        foregroundService: {
-          notificationTitle: "CircleGuard Location Active",
-          notificationBody: "Sharing live circle location with family.",
-          notificationColor: "#10B981",
-        },
-        activityType: Location.ActivityType.AutomotiveNavigation,
-      });
+    // Read user GPS sync rate settings from AsyncStorage
+    const syncRate = await AsyncStorage.getItem('@circleguard_gps_sync_rate');
+    let timeInterval = 5000;
+    let distanceInterval = 3;
+    let accuracy = Location.Accuracy.High;
+
+    if (syncRate === 'high') {
+      timeInterval = 3000; // Fast 3-second sync cycle
+      distanceInterval = 1; // Moved 1+ meter
+      accuracy = Location.Accuracy.Highest;
+    } else if (syncRate === 'saver') {
+      timeInterval = 30000; // 30-second battery saver sync
+      distanceInterval = 15; // Moved 15+ meters
+      accuracy = Location.Accuracy.Balanced;
     }
+
+    const isRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_BACKGROUND_TASK);
+    if (isRegistered) {
+      await Location.stopLocationUpdatesAsync(LOCATION_BACKGROUND_TASK);
+    }
+
+    await Location.startLocationUpdatesAsync(LOCATION_BACKGROUND_TASK, {
+      accuracy,
+      distanceInterval,
+      timeInterval,
+      deferredUpdatesDistance: distanceInterval,
+      deferredUpdatesInterval: timeInterval,
+      showsBackgroundLocationIndicator: true,
+      pausesUpdatesAutomatically: false, // Never pause updates when app is closed!
+      foregroundService: {
+        notificationTitle: "CircleGuard Location Active",
+        notificationBody: "Sharing live circle location with family.",
+        notificationColor: "#10B981",
+      },
+      activityType: Location.ActivityType.AutomotiveNavigation,
+    });
+
     sendInstantLocationPing();
     return true;
   } catch (err) {

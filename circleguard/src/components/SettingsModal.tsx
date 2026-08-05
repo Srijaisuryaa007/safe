@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Alert, Act
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '../store/useThemeStore';
+import { startBatteryOptimizedBackgroundLocation } from '../services/LocationBackgroundService';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -51,6 +52,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
   const handleSelectSyncRate = async (newRate: 'balanced' | 'high' | 'saver') => {
     setSyncRate(newRate);
     await AsyncStorage.setItem(KEYS.GPS_SYNC_RATE, newRate);
+    await startBatteryOptimizedBackgroundLocation();
   };
 
   const handleSelectMapStyle = async (newStyle: 'vector' | 'satellite') => {
