@@ -55,7 +55,14 @@ export default function LoginScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.brandContainer}>
-        <AnimatedCircleGuardLogo size={180} showText={true} />
+        <View style={styles.headerRow}>
+          <AnimatedCircleGuardLogo size={150} showText={true} />
+          <Image
+            source={require('../../assets/sulley.png')}
+            style={styles.sulleyMascot}
+            resizeMode="contain"
+          />
+        </View>
       </View>
 
       <View style={styles.form}>
@@ -122,7 +129,18 @@ const styles = StyleSheet.create({
   },
   brandContainer: {
     alignItems: 'center',
-    marginBottom: 44,
+    marginBottom: 32,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  sulleyMascot: {
+    width: 120,
+    height: 160,
+    marginLeft: 8,
   },
   shieldBg: {
     width: 80,
