@@ -108,7 +108,30 @@ export const MAXIMALISM_DOPAMINE_THEME = {
   } as ThemeColors,
 };
 
+export const PLAYFUL_GEOMETRIC_THEME = {
+  colors: {
+    background: '#FFFDF5', // Warm Cream / Off-White Paper feel
+    foreground: '#1E293B', // Slate 800
+    surface: '#FFFFFF', // Clean White Cards
+    surfaceMuted: '#F1F5F9', // Slate 100
+    textMuted: '#64748B', // Slate 500
+    accentGold: '#8B5CF6', // Vivid Violet Primary Accent
+    accentGoldLight: '#F472B6', // Hot Pink Secondary Pop
+    sosRed: '#F472B6', // Hot Pink / Coral Red
+    border: '#1E293B', // Slate 800 Chunky 2px Border
+    borderDark: '#8B5CF6', // Vivid Violet Border
+    borderGold: '#FBBF24', // Amber Yellow Border
+  } as ThemeColors,
+};
+
 export const getThemeBorderStyles = (themeMode?: string) => {
+  if (themeMode === 'playful_geometric') {
+    return {
+      borderWidth: 2,
+      borderRadius: 20,
+      borderColor: '#1E293B',
+    };
+  }
   if (themeMode === 'maximalism_dopamine') {
     return {
       borderWidth: 4,
@@ -137,6 +160,18 @@ export const getThemeBorderStyles = (themeMode?: string) => {
 };
 
 export const getThemeCardStyles = (themeMode?: string) => {
+  if (themeMode === 'playful_geometric') {
+    return {
+      borderWidth: 2,
+      borderRadius: 20,
+      borderColor: '#1E293B',
+      shadowColor: '#1E293B',
+      shadowOffset: { width: 5, height: 5 },
+      shadowOpacity: 1.0,
+      shadowRadius: 0,
+      elevation: 6,
+    };
+  }
   if (themeMode === 'maximalism_dopamine') {
     return {
       borderWidth: 4,
@@ -185,6 +220,22 @@ export const getThemeCardStyles = (themeMode?: string) => {
 };
 
 export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 'secondary' | 'danger' = 'primary') => {
+  if (themeMode === 'playful_geometric') {
+    const bg = variant === 'danger' ? '#F472B6' : variant === 'secondary' ? '#FBBF24' : '#8B5CF6';
+    const text = variant === 'secondary' ? '#1E293B' : '#FFFFFF';
+    return {
+      borderWidth: 2,
+      borderRadius: 100,
+      borderColor: '#1E293B',
+      backgroundColor: bg,
+      textColor: text,
+      shadowColor: '#1E293B',
+      shadowOffset: { width: 4, height: 4 },
+      shadowOpacity: 1.0,
+      shadowRadius: 0,
+      elevation: 5,
+    };
+  }
   if (themeMode === 'maximalism_dopamine') {
     const bg = variant === 'danger' ? '#FF6B35' : variant === 'secondary' ? '#00F5D4' : '#FF3AF2';
     const text = variant === 'secondary' ? '#0D0D1A' : '#FFFFFF';

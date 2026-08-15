@@ -48,6 +48,14 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
       mode: 'maximalism_dopamine' as ThemeMode,
     },
     {
+      id: 'playful_geometric',
+      title: 'PLAYFUL GEOMETRIC (DESIGN #4)',
+      subtitle: 'Memphis Pop, Warm Cream Canvas, Violet/Pink/Yellow Accents, Pop Shadows',
+      iconName: 'color-palette-outline' as const,
+      badge: themeMode === 'playful_geometric' ? 'ACTIVE' : undefined,
+      mode: 'playful_geometric' as ThemeMode,
+    },
+    {
       id: 'light',
       title: 'EDITORIAL LIGHT MODE',
       subtitle: 'Warm Alabaster canvas & Rich Charcoal typography',
