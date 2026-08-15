@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '../store/useThemeStore';
 import AnimatedListDropdown from './AnimatedListDropdown';
+import { generateFallbackPois } from '../services/PoiService';
 
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
@@ -85,7 +86,8 @@ export default function SearchFilterModal({
   };
 
   const getNearestDistance = (catId: string) => {
-    if (!userLoc) return 'Nearby';
+    const defaultLat = userLoc?.latitude || 20.5937;
+    const defaultLng = userLoc?.longitude || 78.9629;
 
     if (catId === 'member') {
       const onlineCount = members.filter(m => m.isOnline).length;
@@ -96,11 +98,13 @@ export default function SearchFilterModal({
       return `${places.length} Saved Zones`;
     }
 
-    const categoryPois = poiList.filter(p => p.category === catId);
-    if (categoryPois.length === 0) return '0 Nearby';
+    let categoryPois = poiList.filter(p => p.category === catId);
+    if (categoryPois.length === 0) {
+      categoryPois = generateFallbackPois(catId, defaultLat, defaultLng, unit === 'mi');
+    }
 
     const distances = categoryPois.map(p => {
-      return getDistanceInMeters(userLoc.latitude, userLoc.longitude, p.lat, p.lng);
+      return getDistanceInMeters(defaultLat, defaultLng, p.lat, p.lng);
     });
 
     const minMeters = Math.min(...distances);

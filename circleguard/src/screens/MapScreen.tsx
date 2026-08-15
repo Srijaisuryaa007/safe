@@ -13,6 +13,7 @@ import AddPlaceModal from '../components/AddPlaceModal';
 import SearchFilterModal from '../components/SearchFilterModal';
 import { LUXURY_THEME } from '../constants/theme';
 import { evaluateGeofenceBreaches } from '../services/GeofenceEngine';
+import { fetchCategoryPois, generateFallbackPois } from '../services/PoiService';
 
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
@@ -176,17 +177,6 @@ export default function MapScreen() {
     { id: 'place', label: 'SAVED PLACES', icon: 'bookmark', color: '#EC4899' },
   ];
 
-  const buildPoiUrl = (category: string, lat: number, lng: number, limit: number = 30) => {
-    let searchQuery = category;
-    if (category === 'hospital') searchQuery = 'hospital';
-    else if (category === 'school') searchQuery = 'school';
-    else if (category === 'police') searchQuery = 'police station';
-    else if (category === 'restaurant') searchQuery = 'restaurant';
-    else if (category === 'fuel') searchQuery = 'fuel';
-
-    return `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&lat=${lat}&lon=${lng}&limit=${limit}`;
-  };
-
   const fetchNearbyPois = async (category: string) => {
     if (selectedPoiCategory === category) {
       setSelectedPoiCategory(null);
@@ -213,47 +203,16 @@ export default function MapScreen() {
 
     const lat = userLoc?.latitude || 20.5937;
     const lng = userLoc?.longitude || 78.9629;
+    const isMiles = distanceUnit === 'mi';
 
     try {
-      let url = buildPoiUrl(category, lat, lng, 50);
-      let res = await fetch(url, { headers: { 'User-Agent': 'CircleGuard/1.0' } });
-      let data = await res.json();
-
-      if (!Array.isArray(data) || data.length < 2) {
-        const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(category)}&lat=${lat}&lon=${lng}&bounded=0&limit=50`;
-        res = await fetch(fallbackUrl, { headers: { 'User-Agent': 'CircleGuard/1.0' } });
-        data = await res.json();
-      }
-
-      if (Array.isArray(data)) {
-        const formatted = data.map((item: any) => {
-          if (!item) return null;
-          const itemLat = parseFloat(item.lat);
-          const itemLng = parseFloat(item.lon);
-          const isMiles = distanceUnit === 'mi';
-          const distMeters = getDistanceInMeters(lat, lng, itemLat, itemLng);
-          const distVal = isMiles ? distMeters / 1609.34 : distMeters / 1000;
-          const unitStr = isMiles ? 'mi away' : 'km away';
-
-          return {
-            id: item.place_id ? String(item.place_id) : String(Math.random()),
-            name: item.display_name ? item.display_name.split(',')[0] : 'Location',
-            subText: item.display_name || '',
-            lat: itemLat,
-            lng: itemLng,
-            category: category,
-            distMeters,
-            distanceKm: distVal.toFixed(1),
-            distanceText: `${distVal.toFixed(1)} ${unitStr}`,
-          };
-        }).filter((p: any) => p && !isNaN(p.lat) && !isNaN(p.lng))
-          .sort((a: any, b: any) => parseFloat(a.distanceKm) - parseFloat(b.distanceKm));
-
-        setPoiList(formatted);
-        handleSearchChange(category);
-      }
+      const results = await fetchCategoryPois(category, lat, lng, isMiles);
+      setPoiList(results);
+      handleSearchChange(category);
     } catch (e) {
       console.warn('POI fetch error:', e);
+      const fallbacks = generateFallbackPois(category, lat, lng, isMiles);
+      setPoiList(fallbacks);
     } finally {
       setLoadingPois(false);
     }
@@ -266,44 +225,13 @@ export default function MapScreen() {
         ? targetCategories 
         : ['hospital', 'school', 'police', 'restaurant', 'fuel'];
 
+      const isMiles = distanceUnit === 'mi';
       const requests = categories.map(cat =>
-        fetch(buildPoiUrl(cat, lat, lng, 12), { headers: { 'User-Agent': 'CircleGuard/1.0' } })
-          .then(res => res.json())
-          .then(data => ({ cat, data }))
-          .catch(() => ({ cat, data: [] }))
+        fetchCategoryPois(cat, lat, lng, isMiles).catch(() => generateFallbackPois(cat, lat, lng, isMiles))
       );
 
       const results = await Promise.all(requests);
-      let combined: any[] = [];
-
-      results.forEach(({ cat, data }) => {
-        if (Array.isArray(data)) {
-          const formatted = data.map((item: any) => {
-            if (!item) return null;
-            const itemLat = parseFloat(item.lat);
-            const itemLng = parseFloat(item.lon);
-          const isMiles = distanceUnit === 'mi';
-          const distMeters = getDistanceInMeters(lat, lng, itemLat, itemLng);
-          const distVal = isMiles ? distMeters / 1609.34 : distMeters / 1000;
-          const unitStr = isMiles ? 'mi away' : 'km away';
-
-          return {
-            id: item.place_id ? String(item.place_id) : String(Math.random()),
-            name: item.display_name ? item.display_name.split(',')[0] : 'Location',
-            subText: item.display_name || '',
-            lat: itemLat,
-            lng: itemLng,
-            category: cat,
-            distMeters,
-            distanceKm: distVal.toFixed(1),
-            distanceText: `${distVal.toFixed(1)} ${unitStr}`,
-          };
-          }).filter((p: any) => p && !isNaN(p.lat) && !isNaN(p.lng) && parseFloat(p.distanceKm) < 25);
-
-          combined = [...combined, ...formatted];
-        }
-      });
-
+      const combined = results.flat();
       setPoiList(combined);
     } catch (e) {
       console.warn('Auto POI fetch error:', e);
