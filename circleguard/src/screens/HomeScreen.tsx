@@ -22,7 +22,7 @@ import {
   stopBackgroundLocation,
 } from '../services/LocationBackgroundService';
 import { useThemeStore } from '../store/useThemeStore';
-import { getThemeBorderStyles, getThemeCardStyles, getThemeButtonStyles } from '../constants/theme';
+import { getThemeBorderStyles, getThemeCardStyles, getThemeButtonStyles, getThemeBadgeStyles } from '../constants/theme';
 
 import FakeCallModal from '../components/FakeCallModal';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';

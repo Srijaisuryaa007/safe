@@ -128,7 +128,10 @@ export const getThemeBorderStyles = (themeMode?: string) => {
   if (themeMode === 'playful_geometric') {
     return {
       borderWidth: 2,
-      borderRadius: 20,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      borderBottomRightRadius: 24,
+      borderBottomLeftRadius: 4,
       borderColor: '#1E293B',
     };
   }
@@ -163,8 +166,12 @@ export const getThemeCardStyles = (themeMode?: string) => {
   if (themeMode === 'playful_geometric') {
     return {
       borderWidth: 2,
-      borderRadius: 20,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      borderBottomRightRadius: 24,
+      borderBottomLeftRadius: 4, // Speech-bubble / sticker asymmetric cutout
       borderColor: '#1E293B',
+      backgroundColor: '#FFFFFF',
       shadowColor: '#1E293B',
       shadowOffset: { width: 5, height: 5 },
       shadowOpacity: 1.0,
@@ -177,11 +184,12 @@ export const getThemeCardStyles = (themeMode?: string) => {
       borderWidth: 4,
       borderRadius: 24,
       borderColor: '#FF3AF2',
+      backgroundColor: '#2D1B4E',
       shadowColor: '#00F5D4',
       shadowOffset: { width: 6, height: 6 },
-      shadowOpacity: 0.9,
-      shadowRadius: 12,
-      elevation: 8,
+      shadowOpacity: 0.95,
+      shadowRadius: 16,
+      elevation: 10,
     };
   }
   if (themeMode === 'bauhaus') {
@@ -189,6 +197,7 @@ export const getThemeCardStyles = (themeMode?: string) => {
       borderWidth: 3,
       borderRadius: 0,
       borderColor: '#121212',
+      backgroundColor: '#FFFFFF',
       shadowColor: '#121212',
       shadowOffset: { width: 5, height: 5 },
       shadowOpacity: 1.0,
@@ -201,6 +210,7 @@ export const getThemeCardStyles = (themeMode?: string) => {
       borderWidth: 1,
       borderRadius: 0,
       borderColor: '#000000',
+      backgroundColor: '#FFFFFF',
       shadowColor: '#000000',
       shadowOffset: { width: 0, height: 0 },
       shadowOpacity: 0,
@@ -225,7 +235,7 @@ export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 's
     const text = variant === 'secondary' ? '#1E293B' : '#FFFFFF';
     return {
       borderWidth: 2,
-      borderRadius: 100,
+      borderRadius: 100, // Pill candy button
       borderColor: '#1E293B',
       backgroundColor: bg,
       textColor: text,
@@ -290,6 +300,70 @@ export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 's
     shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 4,
+  };
+};
+
+export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert' | 'info' = 'live') => {
+  if (themeMode === 'playful_geometric') {
+    const bg = variant === 'alert' ? '#F472B6' : variant === 'info' ? '#FBBF24' : '#34D399';
+    return {
+      backgroundColor: bg,
+      borderWidth: 2,
+      borderColor: '#1E293B',
+      borderRadius: 100,
+      textColor: '#1E293B',
+      shadowColor: '#1E293B',
+      shadowOffset: { width: 2, height: 2 },
+      shadowOpacity: 1.0,
+      shadowRadius: 0,
+    };
+  }
+  if (themeMode === 'maximalism_dopamine') {
+    const bg = variant === 'alert' ? '#FF6B35' : variant === 'info' ? '#00F5D4' : '#FFE600';
+    const text = variant === 'info' ? '#0D0D1A' : variant === 'live' ? '#0D0D1A' : '#FFFFFF';
+    return {
+      backgroundColor: bg,
+      borderWidth: 2,
+      borderColor: '#FF3AF2',
+      borderRadius: 100,
+      textColor: text,
+      shadowColor: '#00F5D4',
+      shadowOffset: { width: 3, height: 3 },
+      shadowOpacity: 0.8,
+      shadowRadius: 4,
+    };
+  }
+  if (themeMode === 'bauhaus') {
+    const bg = variant === 'alert' ? '#D02020' : variant === 'info' ? '#1040C0' : '#F0C020';
+    const text = variant === 'live' ? '#121212' : '#FFFFFF';
+    return {
+      backgroundColor: bg,
+      borderWidth: 2,
+      borderColor: '#121212',
+      borderRadius: 0,
+      textColor: text,
+      shadowColor: '#121212',
+      shadowOffset: { width: 3, height: 3 },
+      shadowOpacity: 1.0,
+      shadowRadius: 0,
+    };
+  }
+  if (themeMode === 'minimalist_monochrome') {
+    return {
+      backgroundColor: '#000000',
+      borderWidth: 1,
+      borderColor: '#000000',
+      borderRadius: 0,
+      textColor: '#FFFFFF',
+      shadowOpacity: 0,
+    };
+  }
+  return {
+    backgroundColor: variant === 'alert' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(212, 175, 55, 0.15)',
+    borderWidth: 1,
+    borderColor: variant === 'alert' ? '#EF4444' : '#D4AF37',
+    borderRadius: 12,
+    textColor: variant === 'alert' ? '#EF4444' : '#D4AF37',
   };
 };
 
