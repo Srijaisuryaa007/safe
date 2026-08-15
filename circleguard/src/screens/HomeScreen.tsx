@@ -97,10 +97,12 @@ export default function HomeScreen() {
   useEffect(() => {
     sendInstantLocationPing();
     startBatteryOptimizedBackgroundLocation();
-    if (activeCircle?.id) {
+    if (profile?.id && !activeCircle) {
+      useCircleStore.getState().fetchActiveCircle(profile.id);
+    } else if (activeCircle?.id) {
       fetchCircleActivity(activeCircle.id);
     }
-  }, [activeCircle?.id]);
+  }, [profile?.id, activeCircle?.id]);
 
   const fetchCircleActivity = async (circleId: string) => {
     setLoadingActivity(true);

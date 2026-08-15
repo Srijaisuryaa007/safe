@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, RefreshControl, ActivityIndicator } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../store/useAuthStore';
@@ -23,7 +23,7 @@ export default function DashboardScreen() {
   const { colors } = useThemeStore();
   const navigation = useNavigation<DashboardNavigationProp>();
   const { profile } = useAuthStore();
-  const { activeCircle, members, setActiveCircle, setMembers } = useCircleStore();
+  const { activeCircle, members, circleFetched, isLoading, fetchActiveCircle, setActiveCircle, setMembers } = useCircleStore();
 
   const myMemberRecord = members.find(m => m.user_id === profile?.id);
   const myRole = myMemberRecord?.role || 'member';
@@ -32,6 +32,12 @@ export default function DashboardScreen() {
 
   const [selectedRoleMember, setSelectedRoleMember] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  React.useEffect(() => {
+    if (profile?.id && !activeCircle) {
+      fetchActiveCircle(profile.id);
+    }
+  }, [profile?.id, activeCircle?.id]);
 
   const onRefresh = async () => {
     if (!profile) return;
@@ -116,6 +122,18 @@ export default function DashboardScreen() {
       );
     }
   };
+
+  // Display loading spinner while circle syncs from cloud database
+  if (isLoading || !circleFetched) {
+    return (
+      <View style={[styles.container, styles.centerContent, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.accentGold} />
+        <Text style={{ color: colors.textMuted, marginTop: 16, fontSize: 11, fontWeight: '800', letterSpacing: 1.5 }}>
+          SYNCING FAMILY CIRCLE...
+        </Text>
+      </View>
+    );
+  }
 
   if (!activeCircle) {
     return (
