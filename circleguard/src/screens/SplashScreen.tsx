@@ -280,7 +280,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
             </G>
 
             {/* 4. Gold Shield */}
-            <AnimatedG animatedProps={shieldProps} origin="100, 95">
+            <AnimatedG animatedProps={shieldProps} originX={100} originY={95}>
               <Path
                 d="M 100 38 C 128 38 152 48 152 68 C 152 112 100 152 100 152 C 100 152 48 112 48 68 C 48 48 72 38 100 38 Z"
                 fill="url(#shieldBgGrad)"
@@ -306,7 +306,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
             </AnimatedG>
 
             {/* 6. GPS Location Pin Drop */}
-            <AnimatedG animatedProps={pinProps} origin="100, 122">
+            <AnimatedG animatedProps={pinProps} originX={100} originY={122}>
               <Path
                 d="M 100 94 C 87 94 77 104 77 117 C 77 133 100 154 100 154 C 100 154 123 133 123 117 C 123 104 113 94 100 94 Z"
                 fill="url(#goldGrad)"
