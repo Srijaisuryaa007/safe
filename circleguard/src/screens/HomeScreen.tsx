@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,6 @@ import {
   Alert,
   Image,
   RefreshControl,
-  Animated,
-  TouchableWithoutFeedback,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -29,47 +27,6 @@ import FakeCallModal from '../components/FakeCallModal';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import ShareLocationModal from '../components/ShareLocationModal';
 import SwiggyHeaderBar from '../components/SwiggyHeaderBar';
-
-interface AnimatedPressableProps {
-  children: React.ReactNode;
-  onPress?: () => void;
-  style?: any;
-  activeScale?: number;
-}
-
-function AnimatedPressable({ children, onPress, style, activeScale = 0.96 }: AnimatedPressableProps) {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: activeScale,
-      useNativeDriver: true,
-      speed: 30,
-      bounciness: 4,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 25,
-      bounciness: 8,
-    }).start();
-  };
-
-  return (
-    <TouchableWithoutFeedback
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      onPress={onPress}
-    >
-      <Animated.View style={[style, { transform: [{ scale: scaleAnim }] }]}>
-        {children}
-      </Animated.View>
-    </TouchableWithoutFeedback>
-  );
-}
 
 export default function HomeScreen() {
   const { colors, isDark } = useThemeStore();
@@ -329,8 +286,8 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* Ergonomic Animated Pause / Resume Button */}
-          <AnimatedPressable
+          {/* Ergonomic Pause / Resume Button */}
+          <TouchableOpacity
             style={[
               styles.pauseTrackingBtn,
               {
@@ -339,7 +296,7 @@ export default function HomeScreen() {
               },
             ]}
             onPress={toggleLocationTracking}
-            activeScale={0.97}
+            activeOpacity={0.8}
           >
             <Ionicons
               name={isTrackingActive ? 'pause-circle-outline' : 'play-circle-outline'}
@@ -354,7 +311,7 @@ export default function HomeScreen() {
             >
               {isTrackingActive ? 'PAUSE BACKGROUND TRACKING' : 'RESUME BACKGROUND SHIELD'}
             </Text>
-          </AnimatedPressable>
+          </TouchableOpacity>
         </View>
 
         {/* Section Header: Circle Metrics */}
@@ -367,7 +324,7 @@ export default function HomeScreen() {
 
         {/* Circle Metrics Grid */}
         <View style={styles.metricsGridRow}>
-          <AnimatedPressable
+          <TouchableOpacity
             style={[
               styles.metricCardBox,
               {
@@ -375,7 +332,7 @@ export default function HomeScreen() {
                 backgroundColor: isDark ? colors.surface : '#FFFFFF',
               },
             ]}
-            activeScale={0.95}
+            activeOpacity={0.8}
           >
             <Text style={[styles.metricBigNumber, { color: '#10B981' }]}>
               {onlineCount || 2}
@@ -383,9 +340,9 @@ export default function HomeScreen() {
             <Text style={[styles.metricCardLabel, { color: '#10B981' }]}>
               MEMBERS{'\n'}ONLINE
             </Text>
-          </AnimatedPressable>
+          </TouchableOpacity>
 
-          <AnimatedPressable
+          <TouchableOpacity
             style={[
               styles.metricCardBox,
               {
@@ -393,7 +350,7 @@ export default function HomeScreen() {
                 backgroundColor: isDark ? colors.surface : '#FFFFFF',
               },
             ]}
-            activeScale={0.95}
+            activeOpacity={0.8}
           >
             <Text style={[styles.metricBigNumber, { color: isDark ? colors.textMuted : '#4B5563' }]}>
               {offlineCount || 5}
@@ -401,9 +358,9 @@ export default function HomeScreen() {
             <Text style={[styles.metricCardLabel, { color: isDark ? colors.textMuted : '#6B7280' }]}>
               MEMBERS{'\n'}OFFLINE
             </Text>
-          </AnimatedPressable>
+          </TouchableOpacity>
 
-          <AnimatedPressable
+          <TouchableOpacity
             style={[
               styles.metricCardBox,
               {
@@ -411,7 +368,7 @@ export default function HomeScreen() {
                 backgroundColor: isDark ? colors.surface : '#FFFFFF',
               },
             ]}
-            activeScale={0.95}
+            activeOpacity={0.8}
           >
             <Text style={[styles.metricBigNumber, { color: '#B48B1E' }]}>
               {recentActivities.length || 5}
@@ -419,7 +376,7 @@ export default function HomeScreen() {
             <Text style={[styles.metricCardLabel, { color: '#B48B1E' }]}>
               ALERTS{'\n'}LOGGED
             </Text>
-          </AnimatedPressable>
+          </TouchableOpacity>
         </View>
 
         {/* Section Header: Safety Suite & Feature Controls */}
@@ -521,90 +478,90 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </ScrollView>
 
-        {/* Animated Action Tiles Grid Filtered by Sub-Tab */}
+        {/* Action Tiles Grid Filtered by Sub-Tab */}
         <View style={styles.actionsGrid}>
           {(activeFeatureTab === 'all' || activeFeatureTab === 'safety') && (
-            <AnimatedPressable
+            <TouchableOpacity
               style={[styles.actionTileCard, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}
               onPress={handleShareLocation}
-              activeScale={0.96}
+              activeOpacity={0.85}
             >
               <View style={[styles.tileIconWrap, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
                 <Ionicons name="location" size={20} color="#3B82F6" />
               </View>
               <Text style={[styles.tileTitle, { color: isDark ? colors.foreground : '#18181B' }]}>Share GPS</Text>
               <Text style={[styles.tileSub, { color: isDark ? colors.textMuted : '#71717A' }]}>Broadcast position</Text>
-            </AnimatedPressable>
+            </TouchableOpacity>
           )}
 
           {(activeFeatureTab === 'all' || activeFeatureTab === 'safety') && (
-            <AnimatedPressable
+            <TouchableOpacity
               style={[styles.actionTileCard, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}
               onPress={() => navigation.navigate('SafePlaces')}
-              activeScale={0.96}
+              activeOpacity={0.85}
             >
               <View style={[styles.tileIconWrap, { backgroundColor: 'rgba(180, 139, 30, 0.1)' }]}>
                 <Ionicons name="compass" size={20} color="#B48B1E" />
               </View>
               <Text style={[styles.tileTitle, { color: isDark ? colors.foreground : '#18181B' }]}>Safe Places</Text>
               <Text style={[styles.tileSub, { color: isDark ? colors.textMuted : '#71717A' }]}>Pin geofences</Text>
-            </AnimatedPressable>
+            </TouchableOpacity>
           )}
 
           {(activeFeatureTab === 'all' || activeFeatureTab === 'safety') && (
-            <AnimatedPressable
+            <TouchableOpacity
               style={[styles.actionTileCard, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}
               onPress={() => setFakeCallVisible(true)}
-              activeScale={0.96}
+              activeOpacity={0.85}
             >
               <View style={[styles.tileIconWrap, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
                 <Ionicons name="call" size={20} color="#F59E0B" />
               </View>
               <Text style={[styles.tileTitle, { color: isDark ? colors.foreground : '#18181B' }]}>Ghost Escort</Text>
               <Text style={[styles.tileSub, { color: isDark ? colors.textMuted : '#71717A' }]}>Fake call escort</Text>
-            </AnimatedPressable>
+            </TouchableOpacity>
           )}
 
           {(activeFeatureTab === 'all' || activeFeatureTab === 'chat') && (
-            <AnimatedPressable
+            <TouchableOpacity
               style={[styles.actionTileCard, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}
               onPress={() => navigation.navigate('Chat')}
-              activeScale={0.96}
+              activeOpacity={0.85}
             >
               <View style={[styles.tileIconWrap, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
                 <Ionicons name="chatbubbles" size={20} color="#10B981" />
               </View>
               <Text style={[styles.tileTitle, { color: isDark ? colors.foreground : '#18181B' }]}>Circle Chat</Text>
               <Text style={[styles.tileSub, { color: isDark ? colors.textMuted : '#71717A' }]}>Realtime msgs</Text>
-            </AnimatedPressable>
+            </TouchableOpacity>
           )}
 
           {(activeFeatureTab === 'all' || activeFeatureTab === 'reports') && (
-            <AnimatedPressable
+            <TouchableOpacity
               style={[styles.actionTileCard, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}
               onPress={() => navigation.navigate('LocationHistory')}
-              activeScale={0.96}
+              activeOpacity={0.85}
             >
               <View style={[styles.tileIconWrap, { backgroundColor: 'rgba(180, 139, 30, 0.1)' }]}>
                 <Ionicons name="time" size={20} color="#B48B1E" />
               </View>
               <Text style={[styles.tileTitle, { color: isDark ? colors.foreground : '#18181B' }]}>2-Day History</Text>
               <Text style={[styles.tileSub, { color: isDark ? colors.textMuted : '#71717A' }]}>Traveled routes</Text>
-            </AnimatedPressable>
+            </TouchableOpacity>
           )}
 
           {(activeFeatureTab === 'all' || activeFeatureTab === 'reports') && (
-            <AnimatedPressable
+            <TouchableOpacity
               style={[styles.actionTileCard, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}
               onPress={() => navigation.navigate('DrivingReports')}
-              activeScale={0.96}
+              activeOpacity={0.85}
             >
               <View style={[styles.tileIconWrap, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
                 <Ionicons name="speedometer" size={20} color="#EF4444" />
               </View>
               <Text style={[styles.tileTitle, { color: isDark ? colors.foreground : '#18181B' }]}>Driving Report</Text>
               <Text style={[styles.tileSub, { color: isDark ? colors.textMuted : '#71717A' }]}>Speed telemetry</Text>
-            </AnimatedPressable>
+            </TouchableOpacity>
           )}
         </View>
 
