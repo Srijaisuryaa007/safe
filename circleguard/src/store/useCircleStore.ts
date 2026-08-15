@@ -15,7 +15,7 @@ export interface Circle {
 export interface CircleMember {
   circle_id: string;
   user_id: string;
-  role: 'owner' | 'member';
+  role: 'owner' | 'co_leader' | 'guardian' | 'member';
   joined_at: string;
   profile?: {
     full_name: string;
@@ -152,7 +152,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
         return {
           circle_id: m.circle_id,
           user_id: m.user_id,
-          role: m.role as 'owner' | 'member',
+          role: m.role as 'owner' | 'co_leader' | 'guardian' | 'member',
           joined_at: m.joined_at,
           profile: prof ? {
             ...prof,

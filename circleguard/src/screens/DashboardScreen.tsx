@@ -12,6 +12,7 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import { MainTabParamList } from '../navigation/MainTabNavigator';
 import { LUXURY_THEME } from '../constants/theme';
 import { useThemeStore } from '../store/useThemeStore';
+import MemberRoleModal from '../components/MemberRoleModal';
 
 type DashboardNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Circle'>,
@@ -24,8 +25,12 @@ export default function DashboardScreen() {
   const { profile } = useAuthStore();
   const { activeCircle, members, setActiveCircle, setMembers } = useCircleStore();
 
-  const isOwner = activeCircle && profile && activeCircle.owner_id === profile.id;
+  const myMemberRecord = members.find(m => m.user_id === profile?.id);
+  const myRole = myMemberRecord?.role || 'member';
+  const isOwner = (activeCircle && profile && activeCircle.owner_id === profile.id) || myRole === 'owner';
+  const canManageRanks = isOwner || myRole === 'co_leader';
 
+  const [selectedRoleMember, setSelectedRoleMember] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -213,12 +218,32 @@ export default function DashboardScreen() {
           const displayName = (typeof fullName === 'string' && fullName.trim().length > 0) ? fullName : 'Member';
           const initial = String(displayName).charAt(0).toUpperCase();
           const avatarUrl = item?.profile?.avatar_url;
+          const isTargetOwner = item.role === 'owner';
+          const isSelf = item.user_id === profile?.id;
+
+          let roleTitle = 'MEMBER';
+          let roleColor = '#10B981';
+          let roleIcon: keyof typeof Ionicons.glyphMap = 'person-outline';
+
+          if (item.role === 'owner') {
+            roleTitle = '👑 FOUNDER & LEADER';
+            roleColor = '#D4AF37';
+            roleIcon = 'star-sharp';
+          } else if (item.role === 'co_leader') {
+            roleTitle = '⚡ CO-LEADER';
+            roleColor = '#A855F7';
+            roleIcon = 'shield-checkmark-sharp';
+          } else if (item.role === 'guardian') {
+            roleTitle = '🛡️ SAFETY GUARDIAN';
+            roleColor = '#3B82F6';
+            roleIcon = 'shield-outline';
+          }
 
           return (
             <View key={item.user_id} style={[styles.memberCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.memberTopRow}>
                 <View style={styles.memberLeft}>
-                  <View style={[styles.memberAvatar, { overflow: 'hidden' }]}>
+                  <View style={[styles.memberAvatar, { overflow: 'hidden', borderColor: roleColor, borderWidth: 1.5 }]}>
                     {avatarUrl ? (
                       <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} />
                     ) : (
@@ -226,10 +251,26 @@ export default function DashboardScreen() {
                     )}
                   </View>
                   <View style={styles.memberInfo}>
-                    <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>{displayName}</Text>
-                    <Text style={[styles.memberRole, { color: colors.textMuted }]}>{item.role === 'owner' ? 'CIRCLE FOUNDER' : 'MEMBER'}</Text>
+                    <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>
+                      {displayName} {isSelf ? '(You)' : ''}
+                    </Text>
+                    <View style={styles.roleBadgeRow}>
+                      <Ionicons name={roleIcon} size={12} color={roleColor} />
+                      <Text style={[styles.memberRole, { color: roleColor }]}>{roleTitle}</Text>
+                    </View>
                   </View>
                 </View>
+
+                {canManageRanks && !isTargetOwner && !isSelf ? (
+                  <TouchableOpacity
+                    style={[styles.manageRoleBtn, { borderColor: roleColor, backgroundColor: `${roleColor}15` }]}
+                    onPress={() => setSelectedRoleMember(item)}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons name="ribbon-outline" size={13} color={roleColor} />
+                    <Text style={[styles.manageRoleText, { color: roleColor }]}>RANK 👑</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
               <View style={[styles.statusChip, { backgroundColor: colors.background, borderColor: item.isOnline ? '#10B981' : colors.border }]}>
@@ -246,6 +287,13 @@ export default function DashboardScreen() {
       <TouchableOpacity style={styles.deleteBtn} onPress={handleLeaveOrDelete}>
         <Text style={styles.deleteBtnText}>{isOwner ? 'DELETE CIRCLE' : 'LEAVE CIRCLE'}</Text>
       </TouchableOpacity>
+
+      <MemberRoleModal
+        visible={!!selectedRoleMember}
+        member={selectedRoleMember}
+        circleId={activeCircle.id}
+        onClose={() => setSelectedRoleMember(null)}
+      />
     </ScrollView>
   );
 }
@@ -417,9 +465,29 @@ const styles = StyleSheet.create({
   },
   memberRole: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '800',
     color: LUXURY_THEME.colors.textMuted,
-    letterSpacing: 1.5,
+    letterSpacing: 1.2,
+  },
+  roleBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  manageRoleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  manageRoleText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
   statusChip: {
     flexDirection: 'row',
