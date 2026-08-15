@@ -1,12 +1,12 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, View, ViewStyle, TextStyle, ActivityIndicator } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle, ActivityIndicator } from 'react-native';
 import { useThemeStore } from '../store/useThemeStore';
-import { LUXURY_THEME } from '../constants/theme';
+import { getThemeButtonStyles } from '../constants/theme';
 
 interface EditorialButtonProps {
   title: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'link';
+  variant?: 'primary' | 'secondary' | 'danger' | 'link';
   style?: ViewStyle;
   textStyle?: TextStyle;
   loading?: boolean;
@@ -20,41 +20,45 @@ export const EditorialButton: React.FC<EditorialButtonProps> = ({
   textStyle,
   loading = false,
 }) => {
-  const { colors } = useThemeStore();
-  const typography = LUXURY_THEME.typography;
-
-  const isPrimary = variant === 'primary';
+  const { themeMode, colors } = useThemeStore();
   const isLink = variant === 'link';
+
+  const themeBtn = getThemeButtonStyles(themeMode, isLink ? 'secondary' : variant);
 
   const baseStyle: ViewStyle = {
     height: isLink ? undefined : 48,
-    borderRadius: 0, // Sharp corners
+    borderRadius: isLink ? 0 : themeBtn.borderRadius,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: isLink ? 0 : 32,
-    borderWidth: isLink ? 0 : 1,
-    borderColor: isPrimary ? colors.foreground : colors.foreground,
-    backgroundColor: isLink ? 'transparent' : isPrimary ? colors.foreground : 'transparent',
+    paddingHorizontal: isLink ? 0 : 28,
+    borderWidth: isLink ? 0 : themeBtn.borderWidth,
+    borderColor: themeBtn.borderColor,
+    backgroundColor: isLink ? 'transparent' : themeBtn.backgroundColor,
+    shadowColor: themeBtn.shadowColor,
+    shadowOffset: themeBtn.shadowOffset,
+    shadowOpacity: themeBtn.shadowOpacity,
+    shadowRadius: themeBtn.shadowRadius,
+    elevation: themeBtn.elevation,
   };
 
   const baseTextStyle: TextStyle = {
-    fontFamily: typography.fontFamilySansMedium,
     fontSize: 12,
-    letterSpacing: typography.letterSpacingWide || 3,
+    fontWeight: '800',
+    letterSpacing: 2,
     textTransform: 'uppercase',
-    color: isLink ? colors.foreground : isPrimary ? colors.background : colors.foreground,
+    color: isLink ? colors.foreground : themeBtn.textColor,
     textDecorationLine: isLink ? 'underline' : 'none',
   };
 
   return (
     <TouchableOpacity
-      activeOpacity={0.7}
+      activeOpacity={0.8}
       style={[baseStyle, style]}
       onPress={onPress}
       disabled={loading}
     >
       {loading ? (
-        <ActivityIndicator color={isPrimary ? colors.background : colors.foreground} />
+        <ActivityIndicator color={isLink ? colors.foreground : themeBtn.textColor} />
       ) : (
         <Text style={[baseTextStyle, textStyle]}>{title}</Text>
       )}

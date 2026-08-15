@@ -53,10 +53,9 @@ export const EditorialInput: React.FC<EditorialInputProps> = ({
             borderBottomWidth: isFocused ? 4 : 2,
             borderBottomColor: colors.foreground,
             color: colors.foreground,
-            fontFamily: props.placeholder ? typography.fontFamilySerifItalic : typography.fontFamilySans,
             fontSize: 16,
             paddingVertical: 8,
-            paddingHorizontal: 0, // No horizontal padding for underline style
+            paddingHorizontal: 0, // Underline input style
           },
           props.style,
         ]}
