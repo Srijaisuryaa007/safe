@@ -7,179 +7,191 @@ import { supabase } from '../lib/supabase';
 
 export const LOCATION_BACKGROUND_TASK = 'CIRCLEGUARD_BACKGROUND_LOCATION_TASK';
 
-TaskManager.defineTask(LOCATION_BACKGROUND_TASK, async ({ data, error }) => {
-  if (error || !data) {
-    return;
-  }
-  const { locations } = data as { locations: Location.LocationObject[] };
-  if (!locations || locations.length === 0) return;
-
-  const latest = locations[locations.length - 1];
-  const { latitude, longitude, speed } = latest.coords;
-
-  try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = sessionData?.session?.user?.id;
-    if (!userId) return;
-
-    // Check profile info & Ghost Mode
-    const { data: userProf } = await supabase
-      .from('profiles')
-      .select('full_name, is_ghost_mode')
-      .eq('id', userId)
-      .single();
-
-    let finalLat = latitude;
-    let finalLng = longitude;
-
-    if (userProf?.is_ghost_mode) {
-      // Fuzz position by ~500m to obscure real position
-      finalLat += (Math.random() - 0.5) * 0.009;
-      finalLng += (Math.random() - 0.5) * 0.009;
-    }
-
-    // Check active circle tracking mode first (Option A Privacy vs Option B Continuous)
-    const { data: memberCircle } = await supabase
-      .from('circle_members')
-      .select('circle_id, circles(tracking_mode)')
-      .eq('user_id', userId)
-      .limit(1);
-
-    if (memberCircle && memberCircle.length > 0) {
-      let circleObj = memberCircle[0].circles as any;
-      if (Array.isArray(circleObj)) circleObj = circleObj[0];
-
-      const trackingMode = circleObj?.tracking_mode || 'continuous';
-      if (trackingMode === 'privacy') {
-        // Option A: Privacy-First Mode - Disconnect location updates when app is closed in background
-        console.log('[LocationService] Privacy-First Circle Mode active. Location disconnected while app is closed.');
+try {
+  if (!TaskManager.isTaskDefined(LOCATION_BACKGROUND_TASK)) {
+    TaskManager.defineTask(LOCATION_BACKGROUND_TASK, async ({ data, error }) => {
+      if (error || !data) {
         return;
       }
-    }
+      const { locations } = data as { locations: Location.LocationObject[] };
+      if (!locations || locations.length === 0) return;
 
-    let batteryPct = 100;
-    try {
-      const level = await Battery.getBatteryLevelAsync();
-      if (level >= 0) batteryPct = Math.round(level * 100);
-    } catch (e) {}
+      const latest = locations[locations.length - 1];
+      const { latitude, longitude, speed } = latest.coords;
 
-    const rawSpeed = speed || 0;
-    const speedKmh = Math.round(rawSpeed * 3.6);
-    const isDriving = rawSpeed > 4.5;
-    
-    let activityState = 'Stationary / Idle';
-    if (rawSpeed > 4.5) {
-      activityState = `Traveling • ${speedKmh} km/h`;
-    } else if (rawSpeed >= 0.8) {
-      activityState = `Walking • ${speedKmh} km/h`;
-    } else {
-      activityState = 'Stationary / Idle';
-    }
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const userId = sessionData?.session?.user?.id;
+        if (!userId) return;
 
-    const point = `POINT(${finalLng} ${finalLat})`;
+        // Check profile info & Ghost Mode
+        const { data: userProf } = await supabase
+          .from('profiles')
+          .select('full_name, is_ghost_mode')
+          .eq('id', userId)
+          .single();
 
-    // 1. Live location upsert to keep user ONLINE continuously in background
-    await supabase.from('locations').upsert({
-      user_id: userId,
-      battery_pct: batteryPct,
-      is_driving: isDriving,
-      speed_mps: rawSpeed,
-      activity_state: activityState,
-      geom: point,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id' });
-      if (memberCircle && memberCircle.length > 0) {
-        const circleId = memberCircle[0].circle_id;
-        const { data: placesData } = await supabase
-          .from('places')
-          .select('*')
-          .eq('circle_id', circleId);
+        let finalLat = latitude;
+        let finalLng = longitude;
 
-        if (placesData && placesData.length > 0) {
-          const { evaluateGeofenceBreaches } = require('./GeofenceEngine');
-          const formattedPlaces = placesData.map((p: any) => {
-            let lat = 20.5937;
-            let lng = 78.9629;
-            if (p.geom) {
-              if (typeof p.geom === 'string') {
-                const match = p.geom.match(/POINT\(([-0-9.]+)\s+([-0-9.]+)\)/);
-                if (match) {
-                  lng = parseFloat(match[1]);
-                  lat = parseFloat(match[2]);
-                }
-              } else if (p.geom.coordinates) {
-                lng = p.geom.coordinates[0];
-                lat = p.geom.coordinates[1];
-              }
-            }
-            return {
-              ...p,
-              latitude: lat,
-              longitude: lng,
-            };
-          });
-
-          await evaluateGeofenceBreaches(
-            { user_id: userId, latitude: finalLat, longitude: finalLng },
-            userProf?.full_name || 'Member',
-            formattedPlaces
-          );
+        if (userProf?.is_ghost_mode) {
+          // Fuzz position by ~500m to obscure real position
+          finalLat += (Math.random() - 0.5) * 0.009;
+          finalLng += (Math.random() - 0.5) * 0.009;
         }
+
+        // Check active circle tracking mode first (Option A Privacy vs Option B Continuous)
+        const { data: memberCircle } = await supabase
+          .from('circle_members')
+          .select('circle_id, circles(tracking_mode)')
+          .eq('user_id', userId)
+          .limit(1);
+
+        if (memberCircle && memberCircle.length > 0) {
+          let circleObj = memberCircle[0].circles as any;
+          if (Array.isArray(circleObj)) circleObj = circleObj[0];
+
+          const trackingMode = circleObj?.tracking_mode || 'continuous';
+          if (trackingMode === 'privacy') {
+            // Option A: Privacy-First Mode - Disconnect location updates when app is closed in background
+            console.log('[LocationService] Privacy-First Circle Mode active. Location disconnected while app is closed.');
+            return;
+          }
+        }
+
+        let batteryPct = 100;
+        try {
+          const level = await Battery.getBatteryLevelAsync();
+          if (level >= 0) batteryPct = Math.round(level * 100);
+        } catch (e) {}
+
+        const rawSpeed = speed || 0;
+        const speedKmh = Math.round(rawSpeed * 3.6);
+        const isDriving = rawSpeed > 4.5;
+        
+        let activityState = 'Stationary / Idle';
+        if (rawSpeed > 4.5) {
+          activityState = `Traveling • ${speedKmh} km/h`;
+        } else if (rawSpeed >= 0.8) {
+          activityState = `Walking • ${speedKmh} km/h`;
+        } else {
+          activityState = 'Stationary / Idle';
+        }
+
+        const point = `POINT(${finalLng} ${finalLat})`;
+
+        // 1. Live location upsert to keep user ONLINE continuously in background
+        await supabase.from('locations').upsert({
+          user_id: userId,
+          battery_pct: batteryPct,
+          is_driving: isDriving,
+          speed_mps: rawSpeed,
+          activity_state: activityState,
+          geom: point,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' });
+          if (memberCircle && memberCircle.length > 0) {
+            const circleId = memberCircle[0].circle_id;
+            const { data: placesData } = await supabase
+              .from('places')
+              .select('*')
+              .eq('circle_id', circleId);
+
+            if (placesData && placesData.length > 0) {
+              const { evaluateGeofenceBreaches } = require('./GeofenceEngine');
+              const formattedPlaces = placesData.map((p: any) => {
+                let lat = 20.5937;
+                let lng = 78.9629;
+                if (p.geom) {
+                  if (typeof p.geom === 'string') {
+                    const match = p.geom.match(/POINT\(([-0-9.]+)\s+([-0-9.]+)\)/);
+                    if (match) {
+                      lng = parseFloat(match[1]);
+                      lat = parseFloat(match[2]);
+                    }
+                  } else if (p.geom.coordinates) {
+                    lng = p.geom.coordinates[0];
+                    lat = p.geom.coordinates[1];
+                  }
+                }
+                return {
+                  ...p,
+                  latitude: lat,
+                  longitude: lng,
+                };
+              });
+
+              await evaluateGeofenceBreaches(
+                { user_id: userId, latitude: finalLat, longitude: finalLng },
+                userProf?.full_name || 'Member',
+                formattedPlaces
+              );
+            }
+          }
+      } catch (err) {
+        console.error('Background location update error:', err);
       }
-  } catch (err) {
-    console.error('Background location update error:', err);
+    });
   }
-});
+} catch (e) {
+  console.warn('Location background task definition skipped:', e);
+}
 
 export const LOCATION_GEOFENCE_TASK = 'CIRCLEGUARD_NATIVE_GEOFENCE_TASK';
 
-// Native OS Geofence Task: Executed by iOS/Android kernel coprocessor even when app process is killed!
-TaskManager.defineTask(LOCATION_GEOFENCE_TASK, async ({ data, error }: any) => {
-  if (error || !data) return;
-  const { eventType, region } = data;
-  if (!region) return;
+try {
+  if (!TaskManager.isTaskDefined(LOCATION_GEOFENCE_TASK)) {
+    // Native OS Geofence Task: Executed by iOS/Android kernel coprocessor even when app process is killed!
+    TaskManager.defineTask(LOCATION_GEOFENCE_TASK, async ({ data, error }: any) => {
+      if (error || !data) return;
+      const { eventType, region } = data;
+      if (!region) return;
 
-  try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = sessionData?.session?.user?.id;
-    if (!userId) return;
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const userId = sessionData?.session?.user?.id;
+        if (!userId) return;
 
-    const { data: placeData } = await supabase
-      .from('places')
-      .select('*')
-      .eq('id', region.identifier)
-      .single();
+        const { data: placeData } = await supabase
+          .from('places')
+          .select('*')
+          .eq('id', region.identifier)
+          .single();
 
-    if (!placeData) return;
+        if (!placeData) return;
 
-    const { data: userProf } = await supabase
-      .from('profiles')
-      .select('full_name')
-      .eq('id', userId)
-      .single();
+        const { data: userProf } = await supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', userId)
+          .single();
 
-    const isExit = eventType === Location.GeofencingEventType.Exit;
-    const { dispatchGeofencePushAlert } = require('./GeofenceEngine');
+        const isExit = eventType === Location.GeofencingEventType.Exit;
+        const { dispatchGeofencePushAlert } = require('./GeofenceEngine');
 
-    const breachEvent = {
-      id: `${region.identifier}_${isExit ? 'exit' : 'entry'}_${Date.now()}`,
-      type: isExit ? 'exit' : 'entry',
-      placeId: placeData.id,
-      placeName: placeData.name,
-      userId,
-      userName: userProf?.full_name || 'Member',
-      distanceMeters: placeData.radius_m || 150,
-      formattedDistance: `${placeData.radius_m || 150}m boundary`,
-      timestamp: new Date().toISOString(),
-      latitude: region.latitude,
-      longitude: region.longitude,
-    };
+        const breachEvent = {
+          id: `${region.identifier}_${isExit ? 'exit' : 'entry'}_${Date.now()}`,
+          type: isExit ? 'exit' : 'entry',
+          placeId: placeData.id,
+          placeName: placeData.name,
+          userId,
+          userName: userProf?.full_name || 'Member',
+          distanceMeters: placeData.radius_m || 150,
+          formattedDistance: `${placeData.radius_m || 150}m boundary`,
+          timestamp: new Date().toISOString(),
+          latitude: region.latitude,
+          longitude: region.longitude,
+        };
 
-    await dispatchGeofencePushAlert(breachEvent, placeData);
-  } catch (err) {
-    console.error('Native geofence OS task error:', err);
+        await dispatchGeofencePushAlert(breachEvent, placeData);
+      } catch (err) {
+        console.error('Native geofence OS task error:', err);
+      }
+    });
   }
-});
+} catch (e) {
+  console.warn('Location geofence task definition skipped:', e);
+}
 
 export const registerNativeGeofencesAsync = async (places: any[]) => {
   if (Platform.OS === 'web') return;
