@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { Appearance, ColorSchemeName } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LIGHT_THEME, DARK_THEME, GRAY_THEME, ThemeColors, LUXURY_THEME } from '../constants/theme';
+import { LIGHT_THEME, DARK_THEME, GRAY_THEME, MINIMALIST_MONOCHROME_THEME, ThemeColors, LUXURY_THEME } from '../constants/theme';
 
-export type ThemeMode = 'light' | 'dark' | 'gray' | 'system';
+export type ThemeMode = 'light' | 'dark' | 'gray' | 'minimalist_monochrome' | 'system';
 
 interface ThemeState {
   themeMode: ThemeMode;
@@ -16,6 +16,7 @@ interface ThemeState {
 const STORAGE_KEY = '@circleguard_theme_mode';
 
 const getThemeConfig = (mode: ThemeMode, sysScheme: ColorSchemeName | null | undefined): { colors: ThemeColors; isDark: boolean } => {
+  if (mode === 'minimalist_monochrome') return { colors: MINIMALIST_MONOCHROME_THEME.colors, isDark: false };
   if (mode === 'dark') return { colors: DARK_THEME.colors, isDark: true };
   if (mode === 'gray') return { colors: GRAY_THEME.colors, isDark: true };
   if (mode === 'light') return { colors: LIGHT_THEME.colors, isDark: false };

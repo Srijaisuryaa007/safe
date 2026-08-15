@@ -60,6 +60,22 @@ export const GRAY_THEME = {
   } as ThemeColors,
 };
 
+export const MINIMALIST_MONOCHROME_THEME = {
+  colors: {
+    background: '#FFFFFF', // Pure White
+    foreground: '#000000', // Pure Black
+    surface: '#FFFFFF', // Pure White surface with 1px black border
+    surfaceMuted: '#F5F5F5', // Off-White for subtle backgrounds
+    textMuted: '#525252', // Dark Gray for secondary text
+    accentGold: '#000000', // Pure Black IS the accent
+    accentGoldLight: '#F5F5F5',
+    sosRed: '#000000', // Pure Black inverted emphasis
+    border: '#000000', // Hairline/Solid 1px Pure Black border
+    borderDark: '#000000',
+    borderGold: '#000000',
+  } as ThemeColors,
+};
+
 // Global reactive theme instance
 export const LUXURY_THEME = {
   colors: { ...LIGHT_THEME.colors },

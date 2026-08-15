@@ -24,6 +24,14 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
 
   const themeOptions = [
     {
+      id: 'minimalist_monochrome',
+      title: 'MINIMALIST MONOCHROME (DESIGN #1)',
+      subtitle: 'Pure Black & White, Sharp 0px Edges, Serif Editorial Weight',
+      iconName: 'contrast-outline' as const,
+      badge: themeMode === 'minimalist_monochrome' ? 'ACTIVE' : undefined,
+      mode: 'minimalist_monochrome' as ThemeMode,
+    },
+    {
       id: 'light',
       title: 'EDITORIAL LIGHT MODE',
       subtitle: 'Warm Alabaster canvas & Rich Charcoal typography',
