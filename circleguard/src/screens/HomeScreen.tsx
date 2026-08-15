@@ -341,11 +341,12 @@ export default function HomeScreen() {
 
           {/* Interactive Jelly Squeeze Physics Button */}
           <JellySqueezeButton
+            glowColor={isTrackingActive ? '#EF4444' : '#10B981'}
             style={[
               styles.pauseTrackingBtn,
               {
-                borderColor: isTrackingActive ? '#FCA5A5' : '#10B981',
-                backgroundColor: isTrackingActive ? '#FEF2F2' : 'rgba(16, 185, 129, 0.08)',
+                borderColor: isTrackingActive ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)',
+                backgroundColor: isTrackingActive ? '#FFF1F1' : 'rgba(16, 185, 129, 0.12)',
               },
             ]}
             onPress={toggleLocationTracking}
