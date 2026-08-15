@@ -17,6 +17,7 @@ import PrivacySecurityModal from '../components/PrivacySecurityModal';
 import NotificationsModal from '../components/NotificationsModal';
 import SettingsModal from '../components/SettingsModal';
 import AboutCircleGuardModal from '../components/AboutCircleGuardModal';
+import LogoutModal from '../components/LogoutModal';
 
 export default function ProfileScreen() {
   const { colors } = useThemeStore();
@@ -43,6 +44,7 @@ export default function ProfileScreen() {
   const [notifModalVisible, setNotifModalVisible] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [aboutModalVisible, setAboutModalVisible] = useState(false);
+  const [logoutModalVisible, setLogoutModalVisible] = useState(false);
 
   const handleLogout = async () => {
     Alert.alert('Logout', 'Are you sure you want to log out of CircleGuard?', [
@@ -209,11 +211,21 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         ))}
 
-        <TouchableOpacity style={[styles.menuItem, styles.logoutItem]} onPress={handleLogout} activeOpacity={0.7}>
+        <TouchableOpacity 
+          style={[styles.menuItem, styles.logoutCard, { backgroundColor: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.3)', borderWidth: 1 }]} 
+          onPress={() => setLogoutModalVisible(true)} 
+          activeOpacity={0.8}
+        >
           <View style={styles.menuLeft}>
-            <Ionicons name="log-out-outline" size={20} color={colors.sosRed} />
-            <Text style={[styles.logoutLabel, { color: colors.sosRed }]}>LOGOUT</Text>
+            <View style={styles.logoutIconBox}>
+              <Ionicons name="power-outline" size={18} color="#EF4444" />
+            </View>
+            <View>
+              <Text style={[styles.logoutLabel, { color: '#EF4444' }]}>DISCONNECT & LOGOUT</Text>
+              <Text style={[styles.logoutSub, { color: colors.textMuted }]}>Sign out of active GPS session</Text>
+            </View>
           </View>
+          <Ionicons name="chevron-forward" size={18} color="#EF4444" />
         </TouchableOpacity>
       </View>
 
@@ -251,6 +263,11 @@ export default function ProfileScreen() {
       <AboutCircleGuardModal
         visible={aboutModalVisible}
         onClose={() => setAboutModalVisible(false)}
+      />
+
+      <LogoutModal
+        visible={logoutModalVisible}
+        onClose={() => setLogoutModalVisible(false)}
       />
     </ScrollView>
   );
@@ -359,13 +376,28 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: LUXURY_THEME.colors.foreground,
   },
-  logoutItem: {
+  logoutCard: {
     borderBottomWidth: 0,
+    marginTop: 12,
+    borderRadius: 14,
+    paddingVertical: 14,
+  },
+  logoutIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   logoutLabel: {
     fontSize: 12,
-    fontWeight: '700',
-    color: LUXURY_THEME.colors.sosRed,
-    letterSpacing: 1.5,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  logoutSub: {
+    fontSize: 10,
+    fontWeight: '500',
+    marginTop: 1,
   },
 });
