@@ -140,7 +140,32 @@ export const BOTANICAL_ORGANIC_THEME = {
   } as ThemeColors,
 };
 
+export const VAPORWAVE_OUTRUN_THEME = {
+  colors: {
+    background: '#090014', // Deep Void Purple-Black
+    foreground: '#E0E0E0', // Chrome Silver Text
+    surface: '#1A103C', // Glass Panel Deep Purple
+    surfaceMuted: '#120926', // Void Accent Surface
+    textMuted: '#00FFFF', // Electric Cyan Text
+    accentGold: '#FF00FF', // Hot Magenta Primary Accent
+    accentGoldLight: '#00FFFF', // Electric Cyan Secondary Accent
+    sosRed: '#FF9900', // Sunset Orange Pop
+    border: '#FF00FF', // Hot Magenta 2px Border
+    borderDark: '#2D1B4E', // Muted Void Border
+    borderGold: '#00FFFF', // Electric Cyan Border
+  } as ThemeColors,
+};
+
 export const getThemeBorderStyles = (themeMode?: string) => {
+  if (themeMode === 'vaporwave_outrun') {
+    return {
+      borderWidth: 2,
+      borderRadius: 0,
+      borderColor: '#FF00FF',
+      borderTopColor: '#00FFFF',
+      borderTopWidth: 3,
+    };
+  }
   if (themeMode === 'botanical_organic') {
     return {
       borderWidth: 1,
@@ -189,6 +214,19 @@ export const getThemeBorderStyles = (themeMode?: string) => {
 };
 
 export const getThemeCardStyles = (themeMode?: string) => {
+  if (themeMode === 'vaporwave_outrun') {
+    return {
+      borderWidth: 2,
+      borderRadius: 0, // Sharp 0px angular corners
+      borderColor: '#FF00FF',
+      backgroundColor: '#1A103C',
+      shadowColor: '#FF00FF',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.95,
+      shadowRadius: 16,
+      elevation: 8,
+    };
+  }
   if (themeMode === 'botanical_organic') {
     return {
       borderWidth: 1,
@@ -272,6 +310,22 @@ export const getThemeCardStyles = (themeMode?: string) => {
 };
 
 export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 'secondary' | 'danger' = 'primary') => {
+  if (themeMode === 'vaporwave_outrun') {
+    const bg = variant === 'danger' ? '#FF9900' : variant === 'secondary' ? '#00FFFF' : '#FF00FF';
+    const text = variant === 'secondary' ? '#090014' : '#FFFFFF';
+    return {
+      borderWidth: 2,
+      borderRadius: 0, // Sharp 0px angular corners
+      borderColor: '#00FFFF', // Electric Cyan Border
+      backgroundColor: bg,
+      textColor: text,
+      shadowColor: '#00FFFF',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.9,
+      shadowRadius: 14,
+      elevation: 8,
+    };
+  }
   if (themeMode === 'botanical_organic') {
     const bg = variant === 'danger' ? '#C27B66' : variant === 'secondary' ? '#DCCFC2' : '#2D3A31';
     const text = variant === 'secondary' ? '#2D3A31' : '#FFFFFF';
@@ -362,6 +416,21 @@ export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 's
 };
 
 export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert' | 'info' = 'live') => {
+  if (themeMode === 'vaporwave_outrun') {
+    const bg = variant === 'alert' ? '#FF9900' : variant === 'info' ? '#00FFFF' : '#FF00FF';
+    const text = variant === 'info' ? '#090014' : '#FFFFFF';
+    return {
+      backgroundColor: bg,
+      borderWidth: 2,
+      borderColor: '#00FFFF',
+      borderRadius: 0,
+      textColor: text,
+      shadowColor: '#00FFFF',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.9,
+      shadowRadius: 10,
+    };
+  }
   if (themeMode === 'botanical_organic') {
     const bg = variant === 'alert' ? '#C27B66' : variant === 'info' ? '#DCCFC2' : '#8C9A84';
     return {
