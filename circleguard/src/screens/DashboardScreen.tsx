@@ -239,8 +239,17 @@ export default function DashboardScreen() {
             roleIcon = 'shield-outline';
           }
 
+          const canClickToManage = canManageRanks && !isTargetOwner && !isSelf;
+
           return (
-            <View key={item.user_id} style={[styles.memberCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <TouchableOpacity
+              key={item.user_id}
+              style={[styles.memberCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+              onPress={() => {
+                if (canClickToManage) setSelectedRoleMember(item);
+              }}
+              activeOpacity={canClickToManage ? 0.75 : 1.0}
+            >
               <View style={styles.memberTopRow}>
                 <View style={styles.memberLeft}>
                   <View style={[styles.memberAvatar, { overflow: 'hidden', borderColor: roleColor, borderWidth: 1.5 }]}>
@@ -261,15 +270,11 @@ export default function DashboardScreen() {
                   </View>
                 </View>
 
-                {canManageRanks && !isTargetOwner && !isSelf ? (
-                  <TouchableOpacity
-                    style={[styles.manageRoleBtn, { borderColor: roleColor, backgroundColor: `${roleColor}15` }]}
-                    onPress={() => setSelectedRoleMember(item)}
-                    activeOpacity={0.75}
-                  >
+                {canClickToManage ? (
+                  <View style={[styles.manageRoleBtn, { borderColor: roleColor, backgroundColor: `${roleColor}15` }]}>
                     <Ionicons name="ribbon-outline" size={13} color={roleColor} />
                     <Text style={[styles.manageRoleText, { color: roleColor }]}>RANK 👑</Text>
-                  </TouchableOpacity>
+                  </View>
                 ) : null}
               </View>
 
@@ -279,7 +284,7 @@ export default function DashboardScreen() {
                   {item.isOnline ? 'ONLINE' : (item.lastSeenText || 'OFFLINE').toUpperCase()}
                 </Text>
               </View>
-            </View>
+            </TouchableOpacity>
           );
         })}
       </View>
