@@ -157,8 +157,31 @@ export default function DashboardScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.overline, { color: colors.accentGold }]}>FAMILY ARCHITECTURE</Text>
+        <Text style={[styles.overline, { color: colors.accentGold }]}>FAMILY ARCHITECTURE & SAFETY</Text>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{activeCircle.name}</Text>
+      </View>
+
+      {/* Circle Overview Statistics Grid */}
+      <View style={styles.statsGridRow}>
+        <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Ionicons name="shield-checkmark-sharp" size={20} color={colors.accentGold} />
+          <Text style={[styles.statValue, { color: colors.foreground }]}>{members.length} Members</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>MONITORED 24/7</Text>
+        </View>
+
+        <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Ionicons name="key-outline" size={20} color="#10B981" />
+          <Text style={[styles.statValue, { color: colors.foreground }]}>
+            {myRole === 'owner' ? 'FOUNDER' : myRole.toUpperCase().replace('_', ' ')}
+          </Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>YOUR RANK 👑</Text>
+        </View>
+
+        <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Ionicons name="lock-closed-outline" size={20} color="#A855F7" />
+          <Text style={[styles.statValue, { color: colors.foreground }]}>AES-256</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>ENCRYPTED</Text>
+        </View>
       </View>
 
       {/* Tracking Mode Protocol Badge Card */}
@@ -316,7 +339,31 @@ const styles = StyleSheet.create({
     padding: 32,
   },
   header: {
-    marginBottom: 28,
+    marginBottom: 20,
+  },
+  statsGridRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 20,
+  },
+  statBox: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  statValue: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  statLabel: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
   overline: {
     fontSize: 10,

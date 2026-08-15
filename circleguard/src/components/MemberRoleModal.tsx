@@ -44,6 +44,7 @@ export default function MemberRoleModal({
     title: string;
     badgeText: string;
     description: string;
+    permissions: string[];
     icon: keyof typeof Ionicons.glyphMap;
     color: string;
   }> = [
@@ -51,25 +52,28 @@ export default function MemberRoleModal({
       id: 'co_leader',
       title: 'Co-Leader',
       badgeText: 'CO-LEADER',
-      description: 'High privilege: Can manage geofences, invite new members, promote Guardians, and broadcast alerts.',
+      description: 'High privilege administrative role with executive circle management powers.',
+      permissions: ['Geofences & Safe Places', 'Invite Code Sharing', 'Promote Guardians', 'Emergency Broadcasts'],
       icon: 'shield-checkmark',
-      color: '#A855F7', // Vivid Purple
+      color: '#A855F7',
     },
     {
       id: 'guardian',
       title: 'Safety Guardian',
       badgeText: 'GUARDIAN',
-      description: 'Safety Moderator: Receives priority SOS alerts, monitors geofence breaches, and views location history.',
+      description: 'Safety moderator responsible for monitoring family geofences and emergency dispatch.',
+      permissions: ['Priority SOS Alerts', 'Geofence Breach Radar', 'Location History Access', 'Battery Monitoring'],
       icon: 'shield-outline',
-      color: '#3B82F6', // Blue
+      color: '#3B82F6',
     },
     {
       id: 'member',
       title: 'Standard Member',
       badgeText: 'MEMBER',
-      description: 'Standard participant: Shares live GPS location, views circle map, and receives general alerts.',
+      description: 'Standard circle participant sharing GPS location and viewing live map.',
+      permissions: ['24/7 Live GPS Sharing', 'View Circle Map', 'Receive Emergency SOS', 'Driving Speed Safety'],
       icon: 'person-outline',
-      color: '#10B981', // Emerald Green
+      color: '#10B981',
     },
   ];
 
@@ -114,9 +118,9 @@ export default function MemberRoleModal({
           {/* Header */}
           <View style={styles.headerRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text style={[styles.overline, { color: colors.accentGold }]}>MEMBER HIERARCHY & RANKS</Text>
+              <Text style={[styles.overline, { color: colors.accentGold }]}>MEMBER HIERARCHY & PERMISSIONS</Text>
               <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>
-                {isTargetOwner ? `${name} (Founder)` : (canEdit ? `Promote ${name}` : `${name}'s Rank`)}
+                {isTargetOwner ? `${name} (Founder)` : (canEdit ? `Promote ${name}` : `${name}'s Rank Info`)}
               </Text>
             </View>
             <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7} disabled={updating}>
@@ -128,14 +132,14 @@ export default function MemberRoleModal({
             <View style={[styles.infoBanner, { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: colors.accentGold }]}>
               <Ionicons name="star" size={18} color={colors.accentGold} />
               <Text style={[styles.infoBannerText, { color: colors.accentGold }]}>
-                {name} is the Circle Founder & Leader with full administrative access.
+                {name} is the Circle Founder & Leader with full executive administrative powers.
               </Text>
             </View>
           ) : !canEdit ? (
             <View style={[styles.infoBanner, { backgroundColor: 'rgba(59, 130, 246, 0.12)', borderColor: '#3B82F6' }]}>
               <Ionicons name="information-circle" size={18} color="#3B82F6" />
               <Text style={[styles.infoBannerText, { color: '#3B82F6' }]}>
-                Only Circle Founders and Co-Leaders can change member ranks.
+                Viewing rank privileges. Only Circle Founders and Co-Leaders can change member ranks.
               </Text>
             </View>
           ) : null}
@@ -175,6 +179,16 @@ export default function MemberRoleModal({
                         </View>
                       </View>
                       <Text style={[styles.cardDesc, { color: colors.textMuted }]}>{opt.description}</Text>
+
+                      {/* Permission Feature Chips */}
+                      <View style={styles.permChipsRow}>
+                        {opt.permissions.map((p, idx) => (
+                          <View key={idx} style={[styles.permChip, { backgroundColor: `${opt.color}10`, borderColor: `${opt.color}40` }]}>
+                            <Ionicons name="checkmark-sharp" size={10} color={opt.color} />
+                            <Text style={[styles.permChipText, { color: opt.color }]}>{p.toUpperCase()}</Text>
+                          </View>
+                        ))}
+                      </View>
                     </View>
 
                     <View style={styles.radioBox}>
@@ -189,6 +203,7 @@ export default function MemberRoleModal({
               })}
             </ScrollView>
           )}
+
         </View>
       </View>
     </Modal>
@@ -306,6 +321,27 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     lineHeight: 15,
+    marginBottom: 8,
+  },
+  permChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+  },
+  permChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  permChipText: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   radioBox: {
     paddingLeft: 4,
