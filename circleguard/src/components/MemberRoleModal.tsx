@@ -32,6 +32,20 @@ export default function MemberRoleModal({
   const { colors } = useThemeStore();
   const { fetchMembers } = useCircleStore();
   const [updating, setUpdating] = useState(false);
+  const [alertState, setAlertState] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    color: string;
+    onPress?: () => void;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    icon: 'information-circle',
+    color: colors.accentGold,
+  });
 
   if (!visible || !member) return null;
 
@@ -79,11 +93,23 @@ export default function MemberRoleModal({
 
   const handleAssignRole = async (newRole: CircleRole) => {
     if (!canEdit) {
-      Alert.alert('Permission Info 👑', 'Only the Circle Founder & Leader or Co-Leaders can change member ranks.');
+      setAlertState({
+        visible: true,
+        title: 'Permission Notice 👑',
+        message: 'Only the Circle Founder & Leader or Co-Leaders can change member ranks.',
+        icon: 'shield-outline',
+        color: '#F59E0B',
+      });
       return;
     }
     if (isTargetOwner) {
-      Alert.alert('Circle Owner 👑', 'The Circle Founder rank cannot be changed.');
+      setAlertState({
+        visible: true,
+        title: 'Circle Founder 👑',
+        message: 'The Circle Founder rank cannot be modified.',
+        icon: 'star',
+        color: '#D4AF37',
+      });
       return;
     }
     if (newRole === currentRole) {
@@ -102,10 +128,22 @@ export default function MemberRoleModal({
       if (error) throw error;
 
       await fetchMembers(circleId);
-      Alert.alert('Rank Updated 👑', `Updated ${name}'s rank to ${newRole.toUpperCase().replace('_', ' ')}.`);
-      onClose();
+      setAlertState({
+        visible: true,
+        title: 'Rank Updated 👑',
+        message: `Successfully updated ${name}'s rank to ${newRole.toUpperCase().replace('_', ' ')}.`,
+        icon: 'checkmark-circle',
+        color: '#10B981',
+        onPress: onClose,
+      });
     } catch (err: any) {
-      Alert.alert('Error Updating Rank', err.message || 'Failed to update member rank');
+      setAlertState({
+        visible: true,
+        title: 'Update Error',
+        message: err.message || 'Failed to update member rank.',
+        icon: 'alert-circle',
+        color: '#EF4444',
+      });
     } finally {
       setUpdating(false);
     }
@@ -204,12 +242,35 @@ export default function MemberRoleModal({
             </ScrollView>
           )}
 
+          {/* Luxury Theme Alert Overlay */}
+          <Modal visible={alertState.visible} transparent animationType="fade">
+            <View style={styles.alertOverlay}>
+              <View style={[styles.alertCard, { backgroundColor: colors.surface, borderColor: alertState.color }]}>
+                <View style={[styles.alertIconCircle, { backgroundColor: `${alertState.color}15`, borderColor: alertState.color }]}>
+                  <Ionicons name={alertState.icon} size={32} color={alertState.color} />
+                </View>
+
+                <Text style={[styles.alertTitle, { color: colors.foreground }]}>{alertState.title}</Text>
+                <Text style={[styles.alertMessage, { color: colors.textMuted }]}>{alertState.message}</Text>
+
+                <TouchableOpacity
+                  style={[styles.alertBtn, { backgroundColor: alertState.color }]}
+                  onPress={() => {
+                    setAlertState(prev => ({ ...prev, visible: false }));
+                    if (alertState.onPress) alertState.onPress();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.alertBtnText}>GOT IT</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
         </View>
       </View>
     </Modal>
   );
 }
-
 
 const styles = StyleSheet.create({
   overlay: {
@@ -345,5 +406,60 @@ const styles = StyleSheet.create({
   },
   radioBox: {
     paddingLeft: 4,
+  },
+  alertOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  alertCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  alertIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  alertTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  alertMessage: {
+    fontSize: 12.5,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 20,
+  },
+  alertBtn: {
+    width: '100%',
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  alertBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.5,
   },
 });
