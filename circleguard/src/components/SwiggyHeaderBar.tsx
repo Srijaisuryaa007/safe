@@ -54,7 +54,11 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
 
         if (geo && geo.length > 0) {
           const item = geo[0];
-          setFullAddressDetails(item);
+          setFullAddressDetails({
+            ...item,
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          });
 
           const street = cleanAddressPart(item.street || item.name);
           const district = cleanAddressPart(item.district || item.subregion);
@@ -238,7 +242,7 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
                 <View style={styles.detailRow}>
                   <Text style={[styles.detailLabel, { color: colors.textMuted }]}>GPS COORDINATES</Text>
                   <Text style={[styles.detailVal, { color: colors.accentGold }]}>
-                    {fullAddressDetails.latitude.toFixed(5)}, {fullAddressDetails.longitude.toFixed(5)}
+                    {typeof fullAddressDetails?.latitude === 'number' ? fullAddressDetails.latitude.toFixed(5) : 'N/A'}, {typeof fullAddressDetails?.longitude === 'number' ? fullAddressDetails.longitude.toFixed(5) : 'N/A'}
                   </Text>
                 </View>
               </View>
