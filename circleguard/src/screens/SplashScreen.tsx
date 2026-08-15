@@ -145,11 +145,22 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
     containerOpacity.value = withDelay(
       3600,
       withTiming(0, { duration: 600, easing: Easing.inOut(Easing.cubic) }, (finished) => {
-        if (finished && onFinish) {
+        if (onFinish) {
           runOnJS(onFinish)();
         }
       })
     );
+
+    // Hard fallback timer (4.2 seconds max) to guarantee splash screen never hangs
+    const fallbackTimer = setTimeout(() => {
+      if (onFinish) {
+        onFinish();
+      }
+    }, 4200);
+
+    return () => {
+      clearTimeout(fallbackTimer);
+    };
   }, []);
 
   // Animated Styles

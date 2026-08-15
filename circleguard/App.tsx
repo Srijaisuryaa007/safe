@@ -17,7 +17,12 @@ function App() {
 
   useEffect(() => {
     // 0. Initialize visual theme
-    useThemeStore.getState().initTheme();
+    useThemeStore.getState().initTheme().catch(() => {});
+
+    // Safety fallback timer to prevent infinite loading if Supabase connection lags
+    const authTimeout = setTimeout(() => {
+      setLoading(false);
+    }, 2500);
 
     // 1. Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -27,6 +32,8 @@ function App() {
       } else {
         setLoading(false);
       }
+    }).catch(() => {
+      setLoading(false);
     });
 
     // 2. Listen for auth changes
@@ -41,6 +48,7 @@ function App() {
     });
 
     return () => {
+      clearTimeout(authTimeout);
       subscription.unsubscribe();
     };
   }, []);
