@@ -28,6 +28,7 @@ import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import ShareLocationModal from '../components/ShareLocationModal';
 import SwiggyHeaderBar from '../components/SwiggyHeaderBar';
 import MagnificationDock, { DockItemData } from '../components/MagnificationDock';
+import JellySqueezeButton from '../components/JellySqueezeButton';
 
 export default function HomeScreen() {
   const { colors, isDark } = useThemeStore();
@@ -338,8 +339,8 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* Ergonomic Pause / Resume Button */}
-          <TouchableOpacity
+          {/* Interactive Jelly Squeeze Physics Button */}
+          <JellySqueezeButton
             style={[
               styles.pauseTrackingBtn,
               {
@@ -348,7 +349,6 @@ export default function HomeScreen() {
               },
             ]}
             onPress={toggleLocationTracking}
-            activeOpacity={0.8}
           >
             <Ionicons
               name={isTrackingActive ? 'pause-circle-outline' : 'play-circle-outline'}
@@ -363,7 +363,7 @@ export default function HomeScreen() {
             >
               {isTrackingActive ? 'PAUSE BACKGROUND TRACKING' : 'RESUME BACKGROUND SHIELD'}
             </Text>
-          </TouchableOpacity>
+          </JellySqueezeButton>
         </View>
 
         {/* Section Header: Circle Metrics */}
