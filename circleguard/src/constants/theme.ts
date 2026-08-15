@@ -92,6 +92,25 @@ export const BAUHAUS_THEME = {
   } as ThemeColors,
 };
 
+export const getThemeBorderStyles = (themeMode?: string) => {
+  if (themeMode === 'bauhaus') {
+    return {
+      borderWidth: 3,
+      borderRadius: 0,
+    };
+  }
+  if (themeMode === 'minimalist_monochrome') {
+    return {
+      borderWidth: 1,
+      borderRadius: 0,
+    };
+  }
+  return {
+    borderWidth: 1,
+    borderRadius: 16,
+  };
+};
+
 // Global reactive theme instance
 export const LUXURY_THEME = {
   colors: { ...LIGHT_THEME.colors },

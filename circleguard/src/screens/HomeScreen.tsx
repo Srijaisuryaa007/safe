@@ -22,6 +22,7 @@ import {
   stopBackgroundLocation,
 } from '../services/LocationBackgroundService';
 import { useThemeStore } from '../store/useThemeStore';
+import { getThemeBorderStyles } from '../constants/theme';
 
 import FakeCallModal from '../components/FakeCallModal';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
@@ -31,7 +32,7 @@ import MagnificationDock, { DockItemData } from '../components/MagnificationDock
 import JellySqueezeButton from '../components/JellySqueezeButton';
 
 export default function HomeScreen() {
-  const { colors, isDark } = useThemeStore();
+  const { colors, isDark, themeMode } = useThemeStore();
   const navigation = useNavigation<any>();
   const { profile } = useAuthStore();
   const { activeCircle, members } = useCircleStore();
@@ -217,14 +218,15 @@ export default function HomeScreen() {
         <View
           style={[
             styles.heroCard,
+            getThemeBorderStyles(themeMode),
             {
               backgroundColor: isDark ? colors.surface : '#FFFFFF',
-              borderColor: isDark ? colors.border : '#F4F4F5',
+              borderColor: colors.border,
             },
           ]}
         >
           {/* Gold Left Accent Stripe */}
-          <View style={styles.goldLeftStripe} />
+          <View style={[styles.goldLeftStripe, { backgroundColor: colors.accentGold }]} />
 
           {/* Top Status & Date Row */}
           <View style={styles.cardTopRow}>
@@ -253,29 +255,33 @@ export default function HomeScreen() {
               </Text>
             </View>
 
-            <Text style={[styles.cardDateText, { color: isDark ? colors.textMuted : '#9CA3AF' }]}>
-              {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}
+            <Text style={[styles.cardDateText, { color: isDark ? colors.textMuted : '#A1A1AA' }]}>
+              {new Date().toLocaleDateString('en-US', {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+              }).toUpperCase()}
             </Text>
           </View>
 
-          {/* Central Shield Emblem */}
+          {/* Center 3D Shield Emblem Badge */}
           <View style={styles.shieldEmblemContainer}>
-            <View style={styles.outerShieldRing}>
-              <View style={styles.innerShieldBadge}>
-                <Ionicons name="shield" size={38} color="#B48B1E" />
+            <View style={[styles.outerShieldRing, { backgroundColor: isDark ? 'rgba(212, 175, 55, 0.15)' : '#FAF5DB' }]}>
+              <View style={[styles.innerShieldBadge, { borderColor: colors.accentGold }]}>
+                <Ionicons name="shield-checkmark" size={32} color={colors.accentGold} />
                 <View style={styles.shieldInnerPinWrap}>
-                  <Ionicons name="location" size={18} color="#1C1C1E" />
+                  <Ionicons name="location" size={14} color="#FF5266" />
                 </View>
               </View>
             </View>
           </View>
 
           {/* Circle Title & Connected Status */}
-          <Text style={[styles.circleNameTitle, { color: isDark ? colors.foreground : '#18181B' }]}>
+          <Text style={[styles.circleNameTitle, { color: colors.foreground }]}>
             {activeCircle ? activeCircle.name : 'friends'}
           </Text>
 
-          <Text style={[styles.circleSubtitle, { color: isDark ? colors.textMuted : '#71717A' }]}>
+          <Text style={[styles.circleSubtitle, { color: colors.textMuted }]}>
             {activeCircle
               ? `${safeMembers.length || 7} members connected in real time`
               : '7 members connected in real time'}
@@ -296,14 +302,14 @@ export default function HomeScreen() {
                         styles.avatarCircle,
                         {
                           backgroundColor: isDark ? colors.surfaceMuted : '#F4F4F5',
-                          borderColor: isDark ? colors.border : '#E4E4E7',
+                          borderColor: colors.border,
                         },
                       ]}
                     >
                       {avatarUrl ? (
                         <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
                       ) : (
-                        <Text style={[styles.avatarInitialText, { color: isDark ? colors.foreground : '#27272A' }]}>
+                        <Text style={[styles.avatarInitialText, { color: colors.foreground }]}>
                           {initial}
                         </Text>
                       )}
@@ -322,17 +328,17 @@ export default function HomeScreen() {
                       styles.avatarCircle,
                       {
                         backgroundColor: isDark ? colors.surfaceMuted : '#F4F4F5',
-                        borderColor: isDark ? colors.border : '#E4E4E7',
+                        borderColor: colors.border,
                       },
                     ]}
                   >
-                    <Text style={[styles.avatarInitialText, { color: isDark ? colors.foreground : '#27272A' }]}>
+                    <Text style={[styles.avatarInitialText, { color: colors.foreground }]}>
                       {item.initial}
                     </Text>
                   </View>
                 ))}
 
-            <View style={styles.moreAvatarGoldBadge}>
+            <View style={[styles.moreAvatarGoldBadge, { backgroundColor: colors.accentGold }]}>
               <Text style={styles.moreAvatarText}>
                 +{safeMembers.length > 4 ? safeMembers.length - 4 : 3}
               </Text>
@@ -344,9 +350,10 @@ export default function HomeScreen() {
             glowColor={isTrackingActive ? '#EF4444' : '#10B981'}
             style={[
               styles.pauseTrackingBtn,
+              getThemeBorderStyles(themeMode),
               {
                 borderColor: isTrackingActive ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)',
-                backgroundColor: isTrackingActive ? '#FFF1F1' : 'rgba(16, 185, 129, 0.12)',
+                backgroundColor: isTrackingActive ? (themeMode === 'minimalist_monochrome' || themeMode === 'bauhaus' ? '#000000' : '#FFF1F1') : 'rgba(16, 185, 129, 0.12)',
               },
             ]}
             onPress={toggleLocationTracking}
@@ -354,12 +361,12 @@ export default function HomeScreen() {
             <Ionicons
               name={isTrackingActive ? 'pause-circle-outline' : 'play-circle-outline'}
               size={18}
-              color={isTrackingActive ? '#DC2626' : '#10B981'}
+              color={isTrackingActive ? (themeMode === 'minimalist_monochrome' || themeMode === 'bauhaus' ? '#FFFFFF' : '#DC2626') : '#10B981'}
             />
             <Text
               style={[
                 styles.pauseBtnText,
-                { color: isTrackingActive ? '#DC2626' : '#10B981' },
+                { color: isTrackingActive ? (themeMode === 'minimalist_monochrome' || themeMode === 'bauhaus' ? '#FFFFFF' : '#DC2626') : '#10B981' },
               ]}
             >
               {isTrackingActive ? 'PAUSE BACKGROUND TRACKING' : 'RESUME BACKGROUND SHIELD'}
@@ -369,10 +376,10 @@ export default function HomeScreen() {
 
         {/* Section Header: Circle Metrics */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: isDark ? colors.foreground : '#18181B' }]}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
             CIRCLE METRICS
           </Text>
-          <View style={[styles.accentLine, { backgroundColor: isDark ? colors.border : '#E4E4E7' }]} />
+          <View style={[styles.accentLine, { backgroundColor: colors.border }]} />
         </View>
 
         {/* Circle Metrics Grid */}
@@ -380,9 +387,10 @@ export default function HomeScreen() {
           <TouchableOpacity
             style={[
               styles.metricCardBox,
+              getThemeBorderStyles(themeMode),
               {
-                borderColor: '#10B981',
-                backgroundColor: isDark ? colors.surface : '#FFFFFF',
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
               },
             ]}
             activeOpacity={0.8}
@@ -398,17 +406,18 @@ export default function HomeScreen() {
           <TouchableOpacity
             style={[
               styles.metricCardBox,
+              getThemeBorderStyles(themeMode),
               {
-                borderColor: isDark ? colors.border : '#E4E4E7',
-                backgroundColor: isDark ? colors.surface : '#FFFFFF',
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
               },
             ]}
             activeOpacity={0.8}
           >
-            <Text style={[styles.metricBigNumber, { color: isDark ? colors.textMuted : '#4B5563' }]}>
+            <Text style={[styles.metricBigNumber, { color: colors.textMuted }]}>
               {offlineCount || 5}
             </Text>
-            <Text style={[styles.metricCardLabel, { color: isDark ? colors.textMuted : '#6B7280' }]}>
+            <Text style={[styles.metricCardLabel, { color: colors.textMuted }]}>
               MEMBERS{'\n'}OFFLINE
             </Text>
           </TouchableOpacity>
@@ -416,17 +425,18 @@ export default function HomeScreen() {
           <TouchableOpacity
             style={[
               styles.metricCardBox,
+              getThemeBorderStyles(themeMode),
               {
-                borderColor: '#B48B1E',
-                backgroundColor: isDark ? colors.surface : '#FFFFFF',
+                borderColor: colors.accentGold,
+                backgroundColor: colors.surface,
               },
             ]}
             activeOpacity={0.8}
           >
-            <Text style={[styles.metricBigNumber, { color: '#B48B1E' }]}>
+            <Text style={[styles.metricBigNumber, { color: colors.accentGold }]}>
               {recentActivities.length || 5}
             </Text>
-            <Text style={[styles.metricCardLabel, { color: '#B48B1E' }]}>
+            <Text style={[styles.metricCardLabel, { color: colors.accentGold }]}>
               ALERTS{'\n'}LOGGED
             </Text>
           </TouchableOpacity>
