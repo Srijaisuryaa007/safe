@@ -6,6 +6,7 @@ import { useThemeStore } from '../store/useThemeStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useNavigation } from '@react-navigation/native';
+import AnimatedListDropdown, { AnimatedDropdownItem } from './AnimatedListDropdown';
 
 interface SwiggyHeaderBarProps {
   onNotificationPress?: () => void;
@@ -149,46 +150,26 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 220, marginBottom: 16 }}>
+            <View style={{ marginBottom: 16 }}>
               {(circles || []).length > 0 ? (
-                (circles || []).map((c: any) => {
-                  const isSelected = activeCircle?.id === c.id;
-                  return (
-                    <TouchableOpacity
-                      key={c.id}
-                      style={[
-                        styles.circleRowItem,
-                        {
-                          backgroundColor: isSelected ? 'rgba(212, 175, 55, 0.12)' : colors.background,
-                          borderColor: isSelected ? colors.accentGold : colors.border,
-                        },
-                      ]}
-                      onPress={() => handleSelectCircle(c)}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        <Ionicons
-                          name={isSelected ? 'radio-button-on' : 'radio-button-off'}
-                          size={18}
-                          color={isSelected ? colors.accentGold : colors.textMuted}
-                        />
-                        <Text style={[styles.circleRowName, { color: isSelected ? colors.accentGold : colors.foreground }]}>
-                          {c.name}
-                        </Text>
-                      </View>
-                      {isSelected ? (
-                        <View style={styles.activeTag}>
-                          <Text style={styles.activeTagText}>ACTIVE</Text>
-                        </View>
-                      ) : null}
-                    </TouchableOpacity>
-                  );
-                })
+                <AnimatedListDropdown
+                  items={(circles || []).map((c: any) => ({
+                    id: c.id,
+                    title: c.name,
+                    subtitle: `${c.member_count || 1} members active`,
+                    iconName: 'shield-checkmark-outline',
+                    badge: activeCircle?.id === c.id ? 'ACTIVE' : undefined,
+                    data: c,
+                  }))}
+                  selectedIndex={(circles || []).findIndex((c: any) => c.id === activeCircle?.id)}
+                  onItemSelect={(item) => handleSelectCircle(item.data)}
+                />
               ) : (
                 <Text style={[styles.addressText, { color: colors.textMuted, marginVertical: 12 }]}>
                   No active circles joined yet.
                 </Text>
               )}
-            </ScrollView>
+            </View>
 
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <TouchableOpacity
