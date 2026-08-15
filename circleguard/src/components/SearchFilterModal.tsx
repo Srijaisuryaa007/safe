@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Switch } f
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '../store/useThemeStore';
+import AnimatedListDropdown from './AnimatedListDropdown';
 
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
@@ -146,46 +147,23 @@ export default function SearchFilterModal({
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.scrollList} showsVerticalScrollIndicator={false}>
-            {filterOptions.map((item) => {
-              const isSelected = activeCats.includes(item.id);
-              const subtitleText = isSelected ? getNearestDistance(item.id) : item.defaultDistance;
-
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[
-                    styles.filterRow,
-                    {
-                      backgroundColor: isSelected ? 'rgba(212, 175, 55, 0.12)' : colors.background,
-                      borderColor: isSelected ? colors.accentGold : colors.border,
-                    },
-                  ]}
-                  onPress={() => toggleCategory(item.id)}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.rowLeft}>
-                    <View style={[styles.iconBox, { backgroundColor: `${item.color}20` }]}>
-                      <Ionicons name={item.icon as any} size={20} color={item.color} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.rowTitle, { color: colors.foreground }]}>{item.title}</Text>
-                      <Text style={[styles.rowSubtitle, { color: isSelected ? colors.accentGold : colors.textMuted }]}>
-                        {subtitleText}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <Switch
-                    value={isSelected}
-                    onValueChange={() => toggleCategory(item.id)}
-                    trackColor={{ false: '#374151', true: colors.accentGold }}
-                    thumbColor={isSelected ? '#1A1A1A' : '#9CA3AF'}
-                  />
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+          <View style={{ marginBottom: 16 }}>
+            <AnimatedListDropdown
+              items={filterOptions.map((item) => {
+                const isSelected = activeCats.includes(item.id);
+                const subtitleText = isSelected ? getNearestDistance(item.id) : item.defaultDistance;
+                return {
+                  id: item.id,
+                  title: item.title,
+                  subtitle: subtitleText,
+                  iconName: item.icon as any,
+                  badge: isSelected ? 'ACTIVE' : undefined,
+                  data: item,
+                };
+              })}
+              onItemSelect={(item) => toggleCategory(item.id)}
+            />
+          </View>
 
           <TouchableOpacity
             style={[styles.applyBtn, { backgroundColor: colors.accentGold }]}

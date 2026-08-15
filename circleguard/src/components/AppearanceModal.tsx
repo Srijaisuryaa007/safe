@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore, ThemeMode } from '../store/useThemeStore';
+import AnimatedListDropdown from './AnimatedListDropdown';
 
 interface AppearanceModalProps {
   visible: boolean;
@@ -21,6 +22,33 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
 
   if (!visible) return null;
 
+  const themeOptions = [
+    {
+      id: 'light',
+      title: 'EDITORIAL LIGHT MODE',
+      subtitle: 'Warm Alabaster canvas & Rich Charcoal typography',
+      iconName: 'sunny-outline' as const,
+      badge: themeMode === 'light' ? 'ACTIVE' : undefined,
+      mode: 'light' as ThemeMode,
+    },
+    {
+      id: 'dark',
+      title: 'BLACK LUXURY DARK MODE',
+      subtitle: 'Onyx Obsidian Black & Metallic Gold highlights',
+      iconName: 'moon-outline' as const,
+      badge: themeMode === 'dark' ? 'ACTIVE' : undefined,
+      mode: 'dark' as ThemeMode,
+    },
+    {
+      id: 'system',
+      title: 'SYSTEM AUTOMATIC',
+      subtitle: 'Sync dynamically with device OS settings',
+      iconName: 'phone-portrait-outline' as const,
+      badge: themeMode === 'system' ? 'ACTIVE' : undefined,
+      mode: 'system' as ThemeMode,
+    },
+  ];
+
   return (
     <Modal visible={visible} animationType="slide" transparent={false}>
       <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -39,78 +67,12 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
             Choose your preferred visual aesthetic for CircleGuard. Changes apply immediately across all screens.
           </Text>
 
-          <View style={styles.themeOptions}>
-            {/* Light Mode Option */}
-            <TouchableOpacity 
-              style={[
-                styles.optionCard, 
-                { backgroundColor: colors.surface, borderColor: colors.border },
-                themeMode === 'light' && { borderColor: colors.accentGold, borderWidth: 2 }
-              ]}
-              onPress={() => handleSelectTheme('light')}
-              activeOpacity={0.8}
-            >
-              <View style={styles.optionLeft}>
-                <View style={[styles.themePreview, styles.lightPreview]}>
-                  <Ionicons name="sunny" size={24} color="#1A1A1A" />
-                </View>
-                <View style={styles.optionTextBox}>
-                  <Text style={[styles.optionTitle, { color: colors.foreground }]}>EDITORIAL LIGHT MODE</Text>
-                  <Text style={[styles.optionDesc, { color: colors.textMuted }]}>Warm Alabaster canvas & Rich Charcoal typography</Text>
-                </View>
-              </View>
-              {themeMode === 'light' ? (
-                <Ionicons name="checkmark-circle" size={22} color={colors.accentGold} />
-              ) : null}
-            </TouchableOpacity>
-
-            {/* Dark Mode Option */}
-            <TouchableOpacity 
-              style={[
-                styles.optionCard, 
-                { backgroundColor: colors.surface, borderColor: colors.border },
-                themeMode === 'dark' && { borderColor: colors.accentGold, borderWidth: 2 }
-              ]}
-              onPress={() => handleSelectTheme('dark')}
-              activeOpacity={0.8}
-            >
-              <View style={styles.optionLeft}>
-                <View style={[styles.themePreview, styles.darkPreview]}>
-                  <Ionicons name="moon" size={24} color="#D4AF37" />
-                </View>
-                <View style={styles.optionTextBox}>
-                  <Text style={[styles.optionTitle, { color: colors.foreground }]}>BLACK LUXURY DARK MODE</Text>
-                  <Text style={[styles.optionDesc, { color: colors.textMuted }]}>Onyx Obsidian Black & Metallic Gold highlights</Text>
-                </View>
-              </View>
-              {themeMode === 'dark' ? (
-                <Ionicons name="checkmark-circle" size={22} color={colors.accentGold} />
-              ) : null}
-            </TouchableOpacity>
-
-            {/* System Default Option */}
-            <TouchableOpacity 
-              style={[
-                styles.optionCard, 
-                { backgroundColor: colors.surface, borderColor: colors.border },
-                themeMode === 'system' && { borderColor: colors.accentGold, borderWidth: 2 }
-              ]}
-              onPress={() => handleSelectTheme('system')}
-              activeOpacity={0.8}
-            >
-              <View style={styles.optionLeft}>
-                <View style={[styles.themePreview, styles.systemPreview]}>
-                  <Ionicons name="phone-portrait-outline" size={24} color="#6B7280" />
-                </View>
-                <View style={styles.optionTextBox}>
-                  <Text style={[styles.optionTitle, { color: colors.foreground }]}>SYSTEM AUTOMATIC</Text>
-                  <Text style={[styles.optionDesc, { color: colors.textMuted }]}>Sync dynamically with device OS settings</Text>
-                </View>
-              </View>
-              {themeMode === 'system' ? (
-                <Ionicons name="checkmark-circle" size={22} color={colors.accentGold} />
-              ) : null}
-            </TouchableOpacity>
+          <View style={{ marginBottom: 20 }}>
+            <AnimatedListDropdown
+              items={themeOptions}
+              selectedIndex={themeOptions.findIndex((o) => o.mode === themeMode)}
+              onItemSelect={(item) => handleSelectTheme((item as any).mode)}
+            />
           </View>
         </ScrollView>
       </View>

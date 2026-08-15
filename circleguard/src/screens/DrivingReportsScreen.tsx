@@ -11,6 +11,7 @@ import { useThemeStore } from '../store/useThemeStore';
 import { LUXURY_THEME } from '../constants/theme';
 import { segmentTripsByStops } from '../services/TripSegmentationService';
 import { fetchRoadSnappedRoute } from '../services/RoadRoutingService';
+import AnimatedListDropdown from '../components/AnimatedListDropdown';
 
 interface TripItem {
   id: string;
@@ -472,40 +473,25 @@ export default function DrivingReportsScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 260 }}>
-              {(members || []).map((m) => {
+            <AnimatedListDropdown
+              items={(members || []).map((m: any) => {
                 const isSel = m.user_id === selectedMemberId;
                 const name = m.user_id === profile?.id ? `${profile?.full_name || 'Me'} (You)` : (m.profile?.full_name || 'Member');
-                const initial = name.charAt(0).toUpperCase();
-
-                return (
-                  <TouchableOpacity
-                    key={m.user_id}
-                    style={[
-                      styles.memberPickerRow,
-                      {
-                        backgroundColor: isSel ? 'rgba(212, 175, 55, 0.12)' : 'transparent',
-                        borderColor: isSel ? '#D4AF37' : 'transparent',
-                      },
-                    ]}
-                    onPress={() => {
-                      setSelectedMemberId(m.user_id);
-                      setMemberPickerVisible(false);
-                    }}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                      <View style={[styles.avatarCircleMini, { backgroundColor: isSel ? '#D4AF37' : 'rgba(255, 255, 255, 0.15)' }]}>
-                        <Text style={[styles.avatarInitialMini, { color: isSel ? '#FFFFFF' : colors.foreground }]}>{initial}</Text>
-                      </View>
-                      <Text style={[styles.memberPickerName, { color: isSel ? colors.accentGold : colors.foreground, fontWeight: isSel ? '700' : '500' }]}>
-                        {name}
-                      </Text>
-                    </View>
-                    {isSel ? <Ionicons name="checkmark-circle" size={18} color={colors.accentGold} /> : null}
-                  </TouchableOpacity>
-                );
+                return {
+                  id: m.user_id,
+                  title: name,
+                  subtitle: m.isOnline ? 'Online now' : 'Offline',
+                  iconName: 'person-circle-outline',
+                  badge: isSel ? 'SELECTED' : undefined,
+                  data: m,
+                };
               })}
-            </ScrollView>
+              selectedIndex={(members || []).findIndex((m: any) => m.user_id === selectedMemberId)}
+              onItemSelect={(item) => {
+                setSelectedMemberId(item.id);
+                setMemberPickerVisible(false);
+              }}
+            />
           </View>
         </TouchableOpacity>
       </Modal>
