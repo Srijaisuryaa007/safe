@@ -399,7 +399,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
           >
             <Text style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#1040C0' : '#10B981' }]}>
-              {onlineCount || 2}
+              {activeCircle ? onlineCount : 0}
             </Text>
             <Text style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#1040C0' : '#10B981' }]}>
               MEMBERS{'\n'}ONLINE
@@ -417,7 +417,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
           >
             <Text style={[styles.metricBigNumber, { color: colors.textMuted }]}>
-              {offlineCount || 5}
+              {activeCircle ? offlineCount : 0}
             </Text>
             <Text style={[styles.metricCardLabel, { color: colors.textMuted }]}>
               MEMBERS{'\n'}OFFLINE
@@ -435,7 +435,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
           >
             <Text style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#D02020' : colors.accentGold }]}>
-              {recentActivities.length || 5}
+              {activeCircle ? recentActivities.length : 0}
             </Text>
             <Text style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#D02020' : colors.accentGold }]}>
               ALERTS{'\n'}LOGGED
