@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from '../lib/supabase';
 
 import { useCircleStore } from '../store/useCircleStore';
+import LeaderApprovalModal from './LeaderApprovalModal';
 
 interface PrivacySecurityModalProps {
   visible: boolean;
@@ -29,6 +30,9 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
   const [appLock, setAppLock] = useState(false);
   const [shakeSos, setShakeSos] = useState(true);
   const [purging, setPurging] = useState(false);
+
+  const [approvalModalVisible, setApprovalModalVisible] = useState(false);
+  const [approvalFeature, setApprovalFeature] = useState<'ghost_mode' | 'hide_online' | 'location_off'>('ghost_mode');
 
   useEffect(() => {
     if (visible) {
@@ -57,6 +61,21 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
   };
 
   const toggleSetting = async (key: string, val: boolean, setter: (v: boolean) => void) => {
+    // Option B: 24/7 Continuous Safety Mode Authorization Check
+    if (val && (key === KEYS.GHOST_MODE || key === KEYS.HIDE_ONLINE)) {
+      const activeCircle = useCircleStore.getState().activeCircle;
+      const members = useCircleStore.getState().members;
+      const is247Mode = activeCircle?.tracking_mode === 'continuous' || activeCircle?.tracking_mode === '24_7';
+      const myRole = members.find(m => m.user_id === profile?.id)?.role;
+      const isLeader = (activeCircle && profile && activeCircle.owner_id === profile.id) || myRole === 'owner';
+
+      if (is247Mode && !isLeader) {
+        setApprovalFeature(key === KEYS.GHOST_MODE ? 'ghost_mode' : 'hide_online');
+        setApprovalModalVisible(true);
+        return; // Block direct toggle for members under Option B
+      }
+    }
+
     try {
       setter(val);
       await AsyncStorage.setItem(key, String(val));
@@ -245,6 +264,12 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
             )}
           </TouchableOpacity>
         </ScrollView>
+
+        <LeaderApprovalModal
+          visible={approvalModalVisible}
+          onClose={() => setApprovalModalVisible(false)}
+          requestedFeature={approvalFeature}
+        />
       </View>
     </Modal>
   );
