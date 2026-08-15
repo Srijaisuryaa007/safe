@@ -124,7 +124,33 @@ export const PLAYFUL_GEOMETRIC_THEME = {
   } as ThemeColors,
 };
 
+export const BOTANICAL_ORGANIC_THEME = {
+  colors: {
+    background: '#F9F8F4', // Warm Alabaster / Rice Paper
+    foreground: '#2D3A31', // Deep Forest Green
+    surface: '#FFFFFF', // Clean White Cards
+    surfaceMuted: '#DCCFC2', // Soft Clay / Mushroom
+    textMuted: '#8C9A84', // Sage Green Text
+    accentGold: '#8C9A84', // Sage Green Primary Accent
+    accentGoldLight: '#C27B66', // Terracotta Accent Pop
+    sosRed: '#C27B66', // Terracotta Red
+    border: '#E6E2DA', // Stone Low-Contrast Border
+    borderDark: '#2D3A31', // Deep Forest Green Border
+    borderGold: '#8C9A84', // Sage Accent Border
+  } as ThemeColors,
+};
+
 export const getThemeBorderStyles = (themeMode?: string) => {
+  if (themeMode === 'botanical_organic') {
+    return {
+      borderWidth: 1,
+      borderTopLeftRadius: 40,
+      borderTopRightRadius: 40,
+      borderBottomRightRadius: 20,
+      borderBottomLeftRadius: 20,
+      borderColor: '#E6E2DA',
+    };
+  }
   if (themeMode === 'playful_geometric') {
     return {
       borderWidth: 2,
@@ -163,6 +189,22 @@ export const getThemeBorderStyles = (themeMode?: string) => {
 };
 
 export const getThemeCardStyles = (themeMode?: string) => {
+  if (themeMode === 'botanical_organic') {
+    return {
+      borderWidth: 1,
+      borderTopLeftRadius: 40,
+      borderTopRightRadius: 40,
+      borderBottomRightRadius: 20,
+      borderBottomLeftRadius: 20, // Architectural Roman Arch radius
+      borderColor: '#E6E2DA',
+      backgroundColor: '#FFFFFF',
+      shadowColor: '#2D3A31',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.06,
+      shadowRadius: 16,
+      elevation: 3,
+    };
+  }
   if (themeMode === 'playful_geometric') {
     return {
       borderWidth: 2,
@@ -230,6 +272,22 @@ export const getThemeCardStyles = (themeMode?: string) => {
 };
 
 export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 'secondary' | 'danger' = 'primary') => {
+  if (themeMode === 'botanical_organic') {
+    const bg = variant === 'danger' ? '#C27B66' : variant === 'secondary' ? '#DCCFC2' : '#2D3A31';
+    const text = variant === 'secondary' ? '#2D3A31' : '#FFFFFF';
+    return {
+      borderWidth: 1,
+      borderRadius: 100, // Organic pill shape
+      borderColor: '#E6E2DA',
+      backgroundColor: bg,
+      textColor: text,
+      shadowColor: '#2D3A31',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.08,
+      shadowRadius: 10,
+      elevation: 4,
+    };
+  }
   if (themeMode === 'playful_geometric') {
     const bg = variant === 'danger' ? '#F472B6' : variant === 'secondary' ? '#FBBF24' : '#8B5CF6';
     const text = variant === 'secondary' ? '#1E293B' : '#FFFFFF';
@@ -304,6 +362,20 @@ export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 's
 };
 
 export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert' | 'info' = 'live') => {
+  if (themeMode === 'botanical_organic') {
+    const bg = variant === 'alert' ? '#C27B66' : variant === 'info' ? '#DCCFC2' : '#8C9A84';
+    return {
+      backgroundColor: bg,
+      borderWidth: 1,
+      borderColor: '#E6E2DA',
+      borderRadius: 100,
+      textColor: '#FFFFFF',
+      shadowColor: '#2D3A31',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.05,
+      shadowRadius: 4,
+    };
+  }
   if (themeMode === 'playful_geometric') {
     const bg = variant === 'alert' ? '#F472B6' : variant === 'info' ? '#FBBF24' : '#34D399';
     return {
