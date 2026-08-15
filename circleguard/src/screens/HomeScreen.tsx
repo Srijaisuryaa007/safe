@@ -41,7 +41,6 @@ export default function HomeScreen() {
   const [fakeCallVisible, setFakeCallVisible] = useState(false);
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeFeatureTab, setActiveFeatureTab] = useState<'all' | 'safety' | 'reports' | 'chat'>('all');
 
   const { showAlert } = useLuxuryAlert();
 
@@ -145,7 +144,7 @@ export default function HomeScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: isDark ? colors.background : '#FAF9F5' }]}>
-      {/* Top Location Header */}
+      {/* Top Location Header with Increased Safe Area Padding */}
       <SwiggyHeaderBar hasNotification={recentActivities.length > 0} />
 
       <ScrollView
@@ -379,7 +378,7 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Section Header: Safety Suite & Feature Controls */}
+        {/* Section Header: Safety Suite & Controls */}
         <View style={styles.sectionHeaderRow}>
           <Text style={[styles.sectionTitle, { color: isDark ? colors.foreground : '#18181B' }]}>
             SAFETY SUITE & CONTROLS
@@ -387,183 +386,96 @@ export default function HomeScreen() {
           <View style={[styles.accentLine, { backgroundColor: isDark ? colors.border : '#E4E4E7' }]} />
         </View>
 
-        {/* Horizontal Side-by-Side Feature Sub-Tabs */}
+        {/* Horizontal Direct Action Pill Buttons Only (No Big Square Cards) */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.featureTabScrollContainer}
+          contentContainerStyle={styles.actionPillsContainer}
         >
           <TouchableOpacity
             style={[
-              styles.featureTabPill,
-              {
-                backgroundColor: activeFeatureTab === 'all' ? '#B48B1E' : isDark ? colors.surface : '#FFFFFF',
-                borderColor: activeFeatureTab === 'all' ? '#B48B1E' : isDark ? colors.border : '#E4E4E7',
-              },
+              styles.actionPillBtn,
+              { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: '#B48B1E' },
             ]}
-            onPress={() => setActiveFeatureTab('all')}
+            onPress={handleShareLocation}
             activeOpacity={0.8}
           >
-            <Text
-              style={[
-                styles.featureTabText,
-                { color: activeFeatureTab === 'all' ? '#FFFFFF' : isDark ? colors.foreground : '#18181B' },
-              ]}
-            >
-              ALL CONTROLS
+            <Ionicons name="location" size={14} color="#B48B1E" />
+            <Text style={[styles.actionPillText, { color: isDark ? colors.foreground : '#18181B' }]}>
+              SHARE GPS
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[
-              styles.featureTabPill,
-              {
-                backgroundColor: activeFeatureTab === 'safety' ? '#B48B1E' : isDark ? colors.surface : '#FFFFFF',
-                borderColor: activeFeatureTab === 'safety' ? '#B48B1E' : isDark ? colors.border : '#E4E4E7',
-              },
+              styles.actionPillBtn,
+              { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: '#B48B1E' },
             ]}
-            onPress={() => setActiveFeatureTab('safety')}
+            onPress={() => setFakeCallVisible(true)}
             activeOpacity={0.8}
           >
-            <Text
-              style={[
-                styles.featureTabText,
-                { color: activeFeatureTab === 'safety' ? '#FFFFFF' : isDark ? colors.foreground : '#18181B' },
-              ]}
-            >
-              SAFETY & ESCORT
+            <Ionicons name="call" size={14} color="#F59E0B" />
+            <Text style={[styles.actionPillText, { color: isDark ? colors.foreground : '#18181B' }]}>
+              GHOST ESCORT
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[
-              styles.featureTabPill,
-              {
-                backgroundColor: activeFeatureTab === 'reports' ? '#B48B1E' : isDark ? colors.surface : '#FFFFFF',
-                borderColor: activeFeatureTab === 'reports' ? '#B48B1E' : isDark ? colors.border : '#E4E4E7',
-              },
+              styles.actionPillBtn,
+              { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' },
             ]}
-            onPress={() => setActiveFeatureTab('reports')}
+            onPress={() => navigation.navigate('SafePlaces')}
             activeOpacity={0.8}
           >
-            <Text
-              style={[
-                styles.featureTabText,
-                { color: activeFeatureTab === 'reports' ? '#FFFFFF' : isDark ? colors.foreground : '#18181B' },
-              ]}
-            >
-              ROUTES & REPORTS
+            <Ionicons name="compass" size={14} color="#10B981" />
+            <Text style={[styles.actionPillText, { color: isDark ? colors.foreground : '#18181B' }]}>
+              SAFE PLACES
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[
-              styles.featureTabPill,
-              {
-                backgroundColor: activeFeatureTab === 'chat' ? '#B48B1E' : isDark ? colors.surface : '#FFFFFF',
-                borderColor: activeFeatureTab === 'chat' ? '#B48B1E' : isDark ? colors.border : '#E4E4E7',
-              },
+              styles.actionPillBtn,
+              { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' },
             ]}
-            onPress={() => setActiveFeatureTab('chat')}
+            onPress={() => navigation.navigate('LocationHistory')}
             activeOpacity={0.8}
           >
-            <Text
-              style={[
-                styles.featureTabText,
-                { color: activeFeatureTab === 'chat' ? '#FFFFFF' : isDark ? colors.foreground : '#18181B' },
-              ]}
-            >
-              CIRCLE & CHAT
+            <Ionicons name="time" size={14} color="#3B82F6" />
+            <Text style={[styles.actionPillText, { color: isDark ? colors.foreground : '#18181B' }]}>
+              2-DAY HISTORY
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.actionPillBtn,
+              { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' },
+            ]}
+            onPress={() => navigation.navigate('DrivingReports')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="speedometer" size={14} color="#EF4444" />
+            <Text style={[styles.actionPillText, { color: isDark ? colors.foreground : '#18181B' }]}>
+              DRIVING REPORT
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.actionPillBtn,
+              { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' },
+            ]}
+            onPress={() => navigation.navigate('Chat')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="chatbubbles" size={14} color="#10B981" />
+            <Text style={[styles.actionPillText, { color: isDark ? colors.foreground : '#18181B' }]}>
+              CIRCLE CHAT
             </Text>
           </TouchableOpacity>
         </ScrollView>
-
-        {/* Action Tiles Grid Filtered by Sub-Tab */}
-        <View style={styles.actionsGrid}>
-          {(activeFeatureTab === 'all' || activeFeatureTab === 'safety') && (
-            <TouchableOpacity
-              style={[styles.actionTileCard, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}
-              onPress={handleShareLocation}
-              activeOpacity={0.85}
-            >
-              <View style={[styles.tileIconWrap, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
-                <Ionicons name="location" size={20} color="#3B82F6" />
-              </View>
-              <Text style={[styles.tileTitle, { color: isDark ? colors.foreground : '#18181B' }]}>Share GPS</Text>
-              <Text style={[styles.tileSub, { color: isDark ? colors.textMuted : '#71717A' }]}>Broadcast position</Text>
-            </TouchableOpacity>
-          )}
-
-          {(activeFeatureTab === 'all' || activeFeatureTab === 'safety') && (
-            <TouchableOpacity
-              style={[styles.actionTileCard, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}
-              onPress={() => navigation.navigate('SafePlaces')}
-              activeOpacity={0.85}
-            >
-              <View style={[styles.tileIconWrap, { backgroundColor: 'rgba(180, 139, 30, 0.1)' }]}>
-                <Ionicons name="compass" size={20} color="#B48B1E" />
-              </View>
-              <Text style={[styles.tileTitle, { color: isDark ? colors.foreground : '#18181B' }]}>Safe Places</Text>
-              <Text style={[styles.tileSub, { color: isDark ? colors.textMuted : '#71717A' }]}>Pin geofences</Text>
-            </TouchableOpacity>
-          )}
-
-          {(activeFeatureTab === 'all' || activeFeatureTab === 'safety') && (
-            <TouchableOpacity
-              style={[styles.actionTileCard, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}
-              onPress={() => setFakeCallVisible(true)}
-              activeOpacity={0.85}
-            >
-              <View style={[styles.tileIconWrap, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
-                <Ionicons name="call" size={20} color="#F59E0B" />
-              </View>
-              <Text style={[styles.tileTitle, { color: isDark ? colors.foreground : '#18181B' }]}>Ghost Escort</Text>
-              <Text style={[styles.tileSub, { color: isDark ? colors.textMuted : '#71717A' }]}>Fake call escort</Text>
-            </TouchableOpacity>
-          )}
-
-          {(activeFeatureTab === 'all' || activeFeatureTab === 'chat') && (
-            <TouchableOpacity
-              style={[styles.actionTileCard, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}
-              onPress={() => navigation.navigate('Chat')}
-              activeOpacity={0.85}
-            >
-              <View style={[styles.tileIconWrap, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
-                <Ionicons name="chatbubbles" size={20} color="#10B981" />
-              </View>
-              <Text style={[styles.tileTitle, { color: isDark ? colors.foreground : '#18181B' }]}>Circle Chat</Text>
-              <Text style={[styles.tileSub, { color: isDark ? colors.textMuted : '#71717A' }]}>Realtime msgs</Text>
-            </TouchableOpacity>
-          )}
-
-          {(activeFeatureTab === 'all' || activeFeatureTab === 'reports') && (
-            <TouchableOpacity
-              style={[styles.actionTileCard, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}
-              onPress={() => navigation.navigate('LocationHistory')}
-              activeOpacity={0.85}
-            >
-              <View style={[styles.tileIconWrap, { backgroundColor: 'rgba(180, 139, 30, 0.1)' }]}>
-                <Ionicons name="time" size={20} color="#B48B1E" />
-              </View>
-              <Text style={[styles.tileTitle, { color: isDark ? colors.foreground : '#18181B' }]}>2-Day History</Text>
-              <Text style={[styles.tileSub, { color: isDark ? colors.textMuted : '#71717A' }]}>Traveled routes</Text>
-            </TouchableOpacity>
-          )}
-
-          {(activeFeatureTab === 'all' || activeFeatureTab === 'reports') && (
-            <TouchableOpacity
-              style={[styles.actionTileCard, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}
-              onPress={() => navigation.navigate('DrivingReports')}
-              activeOpacity={0.85}
-            >
-              <View style={[styles.tileIconWrap, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
-                <Ionicons name="speedometer" size={20} color="#EF4444" />
-              </View>
-              <Text style={[styles.tileTitle, { color: isDark ? colors.foreground : '#18181B' }]}>Driving Report</Text>
-              <Text style={[styles.tileSub, { color: isDark ? colors.textMuted : '#71717A' }]}>Speed telemetry</Text>
-            </TouchableOpacity>
-          )}
-        </View>
 
         {/* Activity Log Feed Header */}
         <View style={styles.activityHeader}>
@@ -810,54 +722,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 12,
   },
-  featureTabScrollContainer: {
+  actionPillsContainer: {
     gap: 8,
-    marginBottom: 18,
+    marginBottom: 28,
   },
-  featureTabPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  actionPillBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderRadius: 20,
     borderWidth: 1,
   },
-  featureTabText: {
+  actionPillText: {
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.8,
-  },
-  actionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    justifyContent: 'space-between',
-    marginBottom: 28,
-  },
-  actionTileCard: {
-    width: '48%',
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  tileIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  tileTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  tileSub: {
-    fontSize: 11,
   },
   activityHeader: {
     flexDirection: 'row',
