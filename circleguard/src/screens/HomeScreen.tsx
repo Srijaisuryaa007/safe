@@ -27,6 +27,7 @@ import FakeCallModal from '../components/FakeCallModal';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import ShareLocationModal from '../components/ShareLocationModal';
 import SwiggyHeaderBar from '../components/SwiggyHeaderBar';
+import MagnificationDock, { DockItemData } from '../components/MagnificationDock';
 
 export default function HomeScreen() {
   const { colors, isDark } = useThemeStore();
@@ -142,9 +143,61 @@ export default function HomeScreen() {
   const onlineCount = safeMembers.filter((m) => m.isOnline).length;
   const offlineCount = Math.max(0, safeMembers.length - onlineCount);
 
+  // Magnification Dock Item Definitions for Safety Suite
+  const dockItems: DockItemData[] = [
+    {
+      id: 'gps',
+      iconName: 'location',
+      label: 'Share GPS',
+      badgeColor: 'rgba(59, 130, 246, 0.12)',
+      iconColor: '#3B82F6',
+      onClick: handleShareLocation,
+    },
+    {
+      id: 'ghost',
+      iconName: 'call',
+      label: 'Ghost Escort',
+      badgeColor: 'rgba(245, 158, 11, 0.12)',
+      iconColor: '#F59E0B',
+      onClick: () => setFakeCallVisible(true),
+    },
+    {
+      id: 'places',
+      iconName: 'compass',
+      label: 'Safe Places',
+      badgeColor: 'rgba(16, 185, 129, 0.12)',
+      iconColor: '#10B981',
+      onClick: () => navigation.navigate('SafePlaces'),
+    },
+    {
+      id: 'history',
+      iconName: 'time',
+      label: '2-Day History',
+      badgeColor: 'rgba(180, 139, 30, 0.12)',
+      iconColor: '#B48B1E',
+      onClick: () => navigation.navigate('LocationHistory'),
+    },
+    {
+      id: 'driving',
+      iconName: 'speedometer',
+      label: 'Driving Report',
+      badgeColor: 'rgba(239, 68, 68, 0.12)',
+      iconColor: '#EF4444',
+      onClick: () => navigation.navigate('DrivingReports'),
+    },
+    {
+      id: 'chat',
+      iconName: 'chatbubbles',
+      label: 'Circle Chat',
+      badgeColor: 'rgba(16, 185, 129, 0.12)',
+      iconColor: '#10B981',
+      onClick: () => navigation.navigate('Chat'),
+    },
+  ];
+
   return (
     <View style={[styles.container, { backgroundColor: isDark ? colors.background : '#FAF9F5' }]}>
-      {/* Top Location Header with Increased Safe Area Padding */}
+      {/* Top Location Header */}
       <SwiggyHeaderBar hasNotification={recentActivities.length > 0} />
 
       <ScrollView
@@ -386,96 +439,8 @@ export default function HomeScreen() {
           <View style={[styles.accentLine, { backgroundColor: isDark ? colors.border : '#E4E4E7' }]} />
         </View>
 
-        {/* Horizontal Direct Action Pill Buttons Only (No Big Square Cards) */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.actionPillsContainer}
-        >
-          <TouchableOpacity
-            style={[
-              styles.actionPillBtn,
-              { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: '#B48B1E' },
-            ]}
-            onPress={handleShareLocation}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="location" size={14} color="#B48B1E" />
-            <Text style={[styles.actionPillText, { color: isDark ? colors.foreground : '#18181B' }]}>
-              SHARE GPS
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionPillBtn,
-              { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: '#B48B1E' },
-            ]}
-            onPress={() => setFakeCallVisible(true)}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="call" size={14} color="#F59E0B" />
-            <Text style={[styles.actionPillText, { color: isDark ? colors.foreground : '#18181B' }]}>
-              GHOST ESCORT
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionPillBtn,
-              { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' },
-            ]}
-            onPress={() => navigation.navigate('SafePlaces')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="compass" size={14} color="#10B981" />
-            <Text style={[styles.actionPillText, { color: isDark ? colors.foreground : '#18181B' }]}>
-              SAFE PLACES
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionPillBtn,
-              { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' },
-            ]}
-            onPress={() => navigation.navigate('LocationHistory')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="time" size={14} color="#3B82F6" />
-            <Text style={[styles.actionPillText, { color: isDark ? colors.foreground : '#18181B' }]}>
-              2-DAY HISTORY
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionPillBtn,
-              { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' },
-            ]}
-            onPress={() => navigation.navigate('DrivingReports')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="speedometer" size={14} color="#EF4444" />
-            <Text style={[styles.actionPillText, { color: isDark ? colors.foreground : '#18181B' }]}>
-              DRIVING REPORT
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionPillBtn,
-              { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' },
-            ]}
-            onPress={() => navigation.navigate('Chat')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="chatbubbles" size={14} color="#10B981" />
-            <Text style={[styles.actionPillText, { color: isDark ? colors.foreground : '#18181B' }]}>
-              CIRCLE CHAT
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
+        {/* macOS-Inspired Magnification Dock Component */}
+        <MagnificationDock items={dockItems} />
 
         {/* Activity Log Feed Header */}
         <View style={styles.activityHeader}>
@@ -721,24 +686,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     textAlign: 'center',
     lineHeight: 12,
-  },
-  actionPillsContainer: {
-    gap: 8,
-    marginBottom: 28,
-  },
-  actionPillBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  actionPillText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.8,
   },
   activityHeader: {
     flexDirection: 'row',
