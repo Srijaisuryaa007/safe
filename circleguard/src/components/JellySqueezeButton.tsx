@@ -1,10 +1,7 @@
 import React, { useRef } from 'react';
-import {
-  Animated,
-  TouchableWithoutFeedback,
-  StyleSheet,
-  ViewStyle,
-} from 'react-native';
+import { Animated, TouchableOpacity, ViewStyle } from 'react-native';
+
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
 interface JellySqueezeButtonProps {
   children: React.ReactNode;
@@ -17,17 +14,16 @@ export default function JellySqueezeButton({ children, onPress, style }: JellySq
   const scaleY = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
-    // Squishy Jelly compression: wide scaleX, compressed scaleY
     Animated.parallel([
       Animated.spring(scaleX, {
         toValue: 0.94,
-        useNativeDriver: true,
+        useNativeDriver: false,
         speed: 35,
         bounciness: 2,
       }),
       Animated.spring(scaleY, {
         toValue: 0.86,
-        useNativeDriver: true,
+        useNativeDriver: false,
         speed: 35,
         bounciness: 2,
       }),
@@ -35,18 +31,17 @@ export default function JellySqueezeButton({ children, onPress, style }: JellySq
   };
 
   const handlePressOut = () => {
-    // Realistic 3D Jelly bounce back inertia
     Animated.sequence([
       Animated.parallel([
         Animated.spring(scaleX, {
           toValue: 1.04,
-          useNativeDriver: true,
+          useNativeDriver: false,
           speed: 25,
           bounciness: 12,
         }),
         Animated.spring(scaleY, {
           toValue: 1.06,
-          useNativeDriver: true,
+          useNativeDriver: false,
           speed: 25,
           bounciness: 12,
         }),
@@ -54,13 +49,13 @@ export default function JellySqueezeButton({ children, onPress, style }: JellySq
       Animated.parallel([
         Animated.spring(scaleX, {
           toValue: 1.0,
-          useNativeDriver: true,
+          useNativeDriver: false,
           speed: 20,
           bounciness: 8,
         }),
         Animated.spring(scaleY, {
           toValue: 1.0,
-          useNativeDriver: true,
+          useNativeDriver: false,
           speed: 20,
           bounciness: 8,
         }),
@@ -69,26 +64,22 @@ export default function JellySqueezeButton({ children, onPress, style }: JellySq
   };
 
   return (
-    <TouchableWithoutFeedback
+    <AnimatedTouchableOpacity
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       onPress={onPress}
+      activeOpacity={0.9}
+      style={[
+        style,
+        {
+          transform: [
+            { scaleX: scaleX },
+            { scaleY: scaleY },
+          ],
+        },
+      ]}
     >
-      <Animated.View
-        style={[
-          style,
-          {
-            transform: [
-              { scaleX: scaleX },
-              { scaleY: scaleY },
-            ],
-          },
-        ]}
-      >
-        {children}
-      </Animated.View>
-    </TouchableWithoutFeedback>
+      {children}
+    </AnimatedTouchableOpacity>
   );
 }
-
-const styles = StyleSheet.create({});
