@@ -14,7 +14,7 @@ interface SwiggyHeaderBarProps {
 }
 
 export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }: SwiggyHeaderBarProps) {
-  const { colors } = useThemeStore();
+  const { colors, themeMode } = useThemeStore();
   const { profile } = useAuthStore();
   const { activeCircle, circles, setActiveCircle } = useCircleStore();
   const navigation = useNavigation<any>();
@@ -54,37 +54,26 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
 
         if (geo && geo.length > 0) {
           const item = geo[0];
-          
-          const streetPart = cleanAddressPart(item.street) || cleanAddressPart(item.name);
-          const areaPart = cleanAddressPart(item.subregion) || cleanAddressPart(item.district) || cleanAddressPart(item.city);
-          const cityPart = cleanAddressPart(item.city) || cleanAddressPart(item.region);
+          setFullAddressDetails(item);
 
-          const parts = [streetPart, areaPart, cityPart].filter(Boolean);
+          const street = cleanAddressPart(item.street || item.name);
+          const district = cleanAddressPart(item.district || item.subregion);
+          const city = cleanAddressPart(item.city);
 
-          let displayStr = 'Live GPS Location Active';
-          if (parts.length > 0) {
-            displayStr = parts.slice(0, 2).join(', ');
-          } else if (item.city) {
-            displayStr = item.city;
+          if (district && city) {
+            setAddressTitle(district.toUpperCase());
+            setFormattedAddress(`${street ? street + ', ' : ''}${city}`);
+          } else if (city) {
+            setAddressTitle(city.toUpperCase());
+            setFormattedAddress(street || city);
+          } else {
+            setAddressTitle((item.name || 'CURRENT LOCATION').toUpperCase());
+            setFormattedAddress(item.street || 'Nearby');
           }
-
-          setFormattedAddress(displayStr);
-          setFullAddressDetails({
-            ...item,
-            cleanStreet: streetPart || item.street || item.name || 'N/A',
-            cleanArea: areaPart || item.district || item.subregion || 'N/A',
-            cleanCity: cityPart || item.city || 'N/A',
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            accuracy: loc.coords.accuracy,
-          });
-        } else {
-          setFormattedAddress('Current Location Active');
         }
       }
     } catch (e) {
-      console.warn('Error reverse geocoding address:', e);
-      setFormattedAddress('Live GPS Location Active');
+      setFormattedAddress('Live Position Active');
     } finally {
       setLoadingAddress(false);
     }
@@ -101,15 +90,24 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
 
   return (
     <>
-      <View style={[styles.headerContainer, { backgroundColor: colors.background }]}>
+      <View
+        style={[
+          styles.headerContainer,
+          {
+            backgroundColor: colors.background,
+            borderBottomWidth: themeMode === 'bauhaus' ? 4 : (themeMode === 'minimalist_monochrome' ? 1 : 0),
+            borderBottomColor: colors.border,
+          },
+        ]}
+      >
         {/* Left Side: Swiggy-Style Location Address Bar */}
         <TouchableOpacity
           style={styles.locationSelector}
           onPress={() => setModalVisible(true)}
           activeOpacity={0.7}
         >
-          <View style={[styles.pinCircle, { backgroundColor: 'rgba(212, 175, 55, 0.15)' }]}>
-            <Ionicons name="location" size={20} color={colors.accentGold} />
+          <View style={[styles.pinCircle, { backgroundColor: themeMode === 'bauhaus' ? '#F0C020' : 'rgba(212, 175, 55, 0.15)', borderWidth: themeMode === 'bauhaus' ? 2 : 0, borderColor: '#121212' }]}>
+            <Ionicons name="location" size={20} color={themeMode === 'bauhaus' ? '#121212' : colors.accentGold} />
           </View>
 
           <View style={styles.addressTextBox}>
