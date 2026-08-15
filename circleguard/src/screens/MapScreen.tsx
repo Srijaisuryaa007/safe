@@ -11,6 +11,7 @@ import { useCircleStore } from '../store/useCircleStore';
 import AlertModal from '../components/AlertModal';
 import AddPlaceModal from '../components/AddPlaceModal';
 import SearchFilterModal from '../components/SearchFilterModal';
+import MapLayerModal, { MapStyleType } from '../components/MapLayerModal';
 import { LUXURY_THEME } from '../constants/theme';
 import { evaluateGeofenceBreaches } from '../services/GeofenceEngine';
 import { fetchCategoryPois, generateFallbackPois } from '../services/PoiService';
@@ -118,14 +119,15 @@ export default function MapScreen() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const [distanceUnit, setDistanceUnit] = useState<'km' | 'mi'>('km');
-  const [mapStyleSetting, setMapStyleSetting] = useState<'vector' | 'satellite'>('vector');
+  const [mapStyleSetting, setMapStyleSetting] = useState<MapStyleType>('vector');
+  const [showMapLayerModal, setShowMapLayerModal] = useState(false);
 
   useEffect(() => {
     const loadAppSettings = async () => {
       const u = await AsyncStorage.getItem('@circleguard_distance_unit');
       const m = await AsyncStorage.getItem('@circleguard_map_style');
       if (u) setDistanceUnit(u as 'km' | 'mi');
-      if (m) setMapStyleSetting(m as 'vector' | 'satellite');
+      if (m) setMapStyleSetting(m as MapStyleType);
     };
     loadAppSettings();
   }, []);
@@ -705,6 +707,7 @@ export default function MapScreen() {
 
     const mapData = {
       isDark: isDark,
+      mapStyle: mapStyleSetting,
       center: [centerLat, centerLng],
       userLocation: userLoc,
       members: members
@@ -782,9 +785,9 @@ export default function MapScreen() {
 
   useEffect(() => {
     pushMapData();
-  }, [userLoc, locations, places, members, poiList, isDark]);
+  }, [userLoc, locations, places, members, poiList, isDark, mapStyleSetting]);
 
-  // Leaflet map with CartoDB Positron luxury light monochrome tiles
+  // Leaflet map with multi-style tiles (Vector, Satellite, Dark, Terrain)
   const leafletHtml = `
     <!DOCTYPE html>
     <html>
@@ -868,9 +871,15 @@ export default function MapScreen() {
         window.updateMapData = function(data) {
           if (!data) return;
 
-          if (data.isDark) {
+          if (data.mapStyle === 'satellite') {
+            document.body.style.background = '#1C2E1E';
+            tileLayer.setUrl('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}');
+          } else if (data.mapStyle === 'dark' || (data.isDark && data.mapStyle !== 'vector' && data.mapStyle !== 'terrain')) {
             document.body.style.background = '#0D0E12';
             tileLayer.setUrl('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png');
+          } else if (data.mapStyle === 'terrain') {
+            document.body.style.background = '#2D281E';
+            tileLayer.setUrl('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png');
           } else {
             document.body.style.background = '#F9F8F6';
             tileLayer.setUrl('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png');
@@ -1526,14 +1535,28 @@ export default function MapScreen() {
         userLoc={userLoc}
       />
 
-      {/* Floating Map Controls: Zoom Controls */}
+      <MapLayerModal
+        visible={showMapLayerModal}
+        onClose={() => setShowMapLayerModal(false)}
+        selectedStyle={mapStyleSetting}
+        onSelectStyle={(s) => {
+          setMapStyleSetting(s);
+          AsyncStorage.setItem('@circleguard_map_style', s);
+        }}
+      />
+
+      {/* Floating Map Controls: Layers Selector & Zoom Controls */}
       <View style={[styles.floatingControls, selectedMember || selectedPlace || selectedPoi ? { bottom: 275 } : { bottom: 25 }]}>
+        <TouchableOpacity style={styles.controlBtn} onPress={() => setShowMapLayerModal(true)} activeOpacity={0.8}>
+          <Ionicons name="layers" size={20} color={colors.accentGold} />
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.controlBtn} onPress={handleZoomIn} activeOpacity={0.8}>
-          <Ionicons name="add" size={22} color={LUXURY_THEME.colors.foreground} />
+          <Ionicons name="add" size={22} color={colors.foreground} />
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.controlBtn} onPress={handleZoomOut} activeOpacity={0.8}>
-          <Ionicons name="remove" size={22} color={LUXURY_THEME.colors.foreground} />
+          <Ionicons name="remove" size={22} color={colors.foreground} />
         </TouchableOpacity>
       </View>
     </View>
