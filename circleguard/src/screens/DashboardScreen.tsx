@@ -32,12 +32,96 @@ export default function DashboardScreen() {
 
   const [selectedRoleMember, setSelectedRoleMember] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState<Array<{
+    id: string;
+    user_id: string;
+    memberName: string;
+    feature: string;
+    created_at: string;
+  }>>([]);
 
   React.useEffect(() => {
     if (profile?.id && !activeCircle) {
       fetchActiveCircle(profile.id);
     }
-  }, [profile?.id, activeCircle?.id]);
+    if (activeCircle?.id && canManageRanks) {
+      fetchPendingRequests();
+    }
+  }, [profile?.id, activeCircle?.id, canManageRanks]);
+
+  const fetchPendingRequests = async () => {
+    if (!activeCircle?.id) return;
+    try {
+      const { data } = await supabase
+        .from('messages')
+        .select('id, user_id, content, created_at, profiles(full_name)')
+        .eq('circle_id', activeCircle.id)
+        .ilike('content', '%PERMISSION REQUEST%')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (data) {
+        const formatted = data.map((m: any) => {
+          let prof = m.profiles;
+          if (Array.isArray(prof)) prof = prof[0];
+          return {
+            id: m.id,
+            user_id: m.user_id,
+            memberName: prof?.full_name || 'Member',
+            feature: m.content.includes('Ghost') ? 'Ghost Privacy Mode' : 'Hide Location',
+            created_at: m.created_at,
+          };
+        });
+        setPendingRequests(formatted);
+      }
+    } catch (e) {
+      console.warn('Error fetching pending requests:', e);
+    }
+  };
+
+  const handleApproveRequest = async (req: any) => {
+    try {
+      await supabase.from('profiles').update({ is_ghost_mode: true }).eq('id', req.user_id);
+      await supabase.from('messages').insert({
+        circle_id: activeCircle?.id,
+        user_id: profile?.id,
+        content: `✅ PERMISSION GRANTED: Leader approved Ghost Mode for ${req.memberName}.`,
+      });
+      await supabase.from('messages').delete().eq('id', req.id);
+
+      const { sendExpoPushNotification } = require('../services/PushNotificationService');
+      await sendExpoPushNotification(
+        req.user_id,
+        '👑 Leader Approved Ghost Mode',
+        `Your Circle Leader approved your request to activate ${req.feature}!`,
+        { type: 'privacy_approved' }
+      );
+
+      Alert.alert('Permission Granted ✅', `Approved ${req.feature} for ${req.memberName}.`);
+      setPendingRequests(prev => prev.filter(r => r.id !== req.id));
+      if (activeCircle?.id) {
+        await useCircleStore.getState().fetchMembers(activeCircle.id);
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to approve request');
+    }
+  };
+
+  const handleDenyRequest = async (req: any) => {
+    try {
+      await supabase.from('messages').insert({
+        circle_id: activeCircle?.id,
+        user_id: profile?.id,
+        content: `❌ PERMISSION DENIED: Leader maintained 24/7 Safety Mode for ${req.memberName}.`,
+      });
+      await supabase.from('messages').delete().eq('id', req.id);
+
+      Alert.alert('Request Denied ❌', `Maintained 24/7 Safety Mode for ${req.memberName}.`);
+      setPendingRequests(prev => prev.filter(r => r.id !== req.id));
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to deny request');
+    }
+  };
 
   const onRefresh = async () => {
     if (!profile) return;
@@ -227,6 +311,49 @@ export default function DashboardScreen() {
           </View>
         </View>
       </View>
+
+      {/* Pending Member Permission Requests (Leader Panel) */}
+      {canManageRanks && pendingRequests.length > 0 ? (
+        <View style={[styles.trackingModeCard, { backgroundColor: 'rgba(245, 158, 11, 0.08)', borderColor: '#F59E0B', borderWidth: 1.5 }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <Ionicons name="notifications-circle-outline" size={24} color="#F59E0B" />
+            <Text style={[styles.trackingModeTitle, { color: colors.foreground, fontSize: 13, fontWeight: '800' }]}>
+              PENDING PRIVACY REQUESTS ({pendingRequests.length})
+            </Text>
+          </View>
+
+          {pendingRequests.map((req) => (
+            <View key={req.id} style={{ backgroundColor: colors.background, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.border, marginBottom: 8 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.foreground, marginBottom: 2 }}>
+                {req.memberName} requested permission
+              </Text>
+              <Text style={{ fontSize: 11, color: colors.textMuted, marginBottom: 10 }}>
+                Feature: <Text style={{ color: colors.accentGold, fontWeight: '700' }}>{req.feature}</Text> under Option B 24/7 Safety
+              </Text>
+
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  style={{ flex: 1, height: 36, backgroundColor: '#10B981', borderRadius: 8, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 4 }}
+                  onPress={() => handleApproveRequest(req)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="checkmark-sharp" size={14} color="#FFFFFF" />
+                  <Text style={{ color: '#FFFFFF', fontSize: 10.5, fontWeight: '900' }}>APPROVE ✅</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={{ flex: 1, height: 36, backgroundColor: 'rgba(239, 68, 68, 0.15)', borderRadius: 8, borderWidth: 1, borderColor: '#EF4444', justifyContent: 'center', alignItems: 'center', flexDirection: 'row', gap: 4 }}
+                  onPress={() => handleDenyRequest(req)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="close-sharp" size={14} color="#EF4444" />
+                  <Text style={{ color: '#EF4444', fontSize: 10.5, fontWeight: '900' }}>DENY ❌</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       {/* Invite Code Luxury Card */}
       <View style={[styles.inviteCard, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}>
