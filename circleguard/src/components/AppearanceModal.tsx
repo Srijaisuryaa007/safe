@@ -40,6 +40,14 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
       mode: 'bauhaus' as ThemeMode,
     },
     {
+      id: 'maximalism_dopamine',
+      title: 'MAXIMALISM / DOPAMINE (DESIGN #3)',
+      subtitle: 'Y2K Cosmic Void, Clashing Cyan/Magenta/Yellow, 4px Neon Borders',
+      iconName: 'sparkles-outline' as const,
+      badge: themeMode === 'maximalism_dopamine' ? 'ACTIVE' : undefined,
+      mode: 'maximalism_dopamine' as ThemeMode,
+    },
+    {
       id: 'light',
       title: 'EDITORIAL LIGHT MODE',
       subtitle: 'Warm Alabaster canvas & Rich Charcoal typography',

@@ -92,7 +92,30 @@ export const BAUHAUS_THEME = {
   } as ThemeColors,
 };
 
+export const MAXIMALISM_DOPAMINE_THEME = {
+  colors: {
+    background: '#0D0D1A', // Deep Cosmic Purple-Black Void
+    foreground: '#FFFFFF', // Pure White Maximum Contrast
+    surface: '#2D1B4E', // Dark Purple Container
+    surfaceMuted: '#1A0E33', // Deep Void Accent Surface
+    textMuted: '#00F5D4', // Electric Cyan Text
+    accentGold: '#FFE600', // Screaming Yellow
+    accentGoldLight: '#FF3AF2', // Hot Pink / Magenta
+    sosRed: '#FF6B35', // Electric Orange / Crimson Chaos
+    border: '#FF3AF2', // Hot Magenta 4px Border
+    borderDark: '#7B2FFF', // Vivid Purple
+    borderGold: '#00F5D4', // Electric Cyan Border
+  } as ThemeColors,
+};
+
 export const getThemeBorderStyles = (themeMode?: string) => {
+  if (themeMode === 'maximalism_dopamine') {
+    return {
+      borderWidth: 4,
+      borderRadius: 24,
+      borderColor: '#FF3AF2',
+    };
+  }
   if (themeMode === 'bauhaus') {
     return {
       borderWidth: 3,
@@ -114,6 +137,18 @@ export const getThemeBorderStyles = (themeMode?: string) => {
 };
 
 export const getThemeCardStyles = (themeMode?: string) => {
+  if (themeMode === 'maximalism_dopamine') {
+    return {
+      borderWidth: 4,
+      borderRadius: 24,
+      borderColor: '#FF3AF2',
+      shadowColor: '#00F5D4',
+      shadowOffset: { width: 6, height: 6 },
+      shadowOpacity: 0.9,
+      shadowRadius: 12,
+      elevation: 8,
+    };
+  }
   if (themeMode === 'bauhaus') {
     return {
       borderWidth: 3,
@@ -150,6 +185,22 @@ export const getThemeCardStyles = (themeMode?: string) => {
 };
 
 export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 'secondary' | 'danger' = 'primary') => {
+  if (themeMode === 'maximalism_dopamine') {
+    const bg = variant === 'danger' ? '#FF6B35' : variant === 'secondary' ? '#00F5D4' : '#FF3AF2';
+    const text = variant === 'secondary' ? '#0D0D1A' : '#FFFFFF';
+    return {
+      borderWidth: 4,
+      borderRadius: 100,
+      borderColor: '#FFE600', // Clashing Screaming Yellow Border
+      backgroundColor: bg,
+      textColor: text,
+      shadowColor: '#7B2FFF',
+      shadowOffset: { width: 4, height: 4 },
+      shadowOpacity: 0.9,
+      shadowRadius: 10,
+      elevation: 6,
+    };
+  }
   if (themeMode === 'bauhaus') {
     const bg = variant === 'danger' ? '#D02020' : variant === 'secondary' ? '#1040C0' : '#F0C020';
     const text = variant === 'primary' ? '#121212' : '#FFFFFF';
