@@ -19,6 +19,7 @@ interface MemberRoleModalProps {
     };
   } | null;
   circleId: string;
+  canEdit?: boolean;
 }
 
 export default function MemberRoleModal({
@@ -26,6 +27,7 @@ export default function MemberRoleModal({
   onClose,
   member,
   circleId,
+  canEdit = true,
 }: MemberRoleModalProps) {
   const { colors } = useThemeStore();
   const { fetchMembers } = useCircleStore();
@@ -35,6 +37,7 @@ export default function MemberRoleModal({
 
   const currentRole = member.role || 'member';
   const name = member.profile?.full_name || 'Circle Member';
+  const isTargetOwner = currentRole === 'owner';
 
   const roleOptions: Array<{
     id: CircleRole;
@@ -71,6 +74,14 @@ export default function MemberRoleModal({
   ];
 
   const handleAssignRole = async (newRole: CircleRole) => {
+    if (!canEdit) {
+      Alert.alert('Permission Info 👑', 'Only the Circle Founder & Leader or Co-Leaders can change member ranks.');
+      return;
+    }
+    if (isTargetOwner) {
+      Alert.alert('Circle Owner 👑', 'The Circle Founder rank cannot be changed.');
+      return;
+    }
     if (newRole === currentRole) {
       onClose();
       return;
@@ -102,14 +113,32 @@ export default function MemberRoleModal({
         <View style={[styles.sheetContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           {/* Header */}
           <View style={styles.headerRow}>
-            <View>
+            <View style={{ flex: 1, paddingRight: 12 }}>
               <Text style={[styles.overline, { color: colors.accentGold }]}>MEMBER HIERARCHY & RANKS</Text>
-              <Text style={[styles.title, { color: colors.foreground }]}>Promote {name}</Text>
+              <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>
+                {isTargetOwner ? `${name} (Founder)` : (canEdit ? `Promote ${name}` : `${name}'s Rank`)}
+              </Text>
             </View>
             <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7} disabled={updating}>
               <Ionicons name="close" size={22} color={colors.foreground} />
             </TouchableOpacity>
           </View>
+
+          {isTargetOwner ? (
+            <View style={[styles.infoBanner, { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: colors.accentGold }]}>
+              <Ionicons name="star" size={18} color={colors.accentGold} />
+              <Text style={[styles.infoBannerText, { color: colors.accentGold }]}>
+                {name} is the Circle Founder & Leader with full administrative access.
+              </Text>
+            </View>
+          ) : !canEdit ? (
+            <View style={[styles.infoBanner, { backgroundColor: 'rgba(59, 130, 246, 0.12)', borderColor: '#3B82F6' }]}>
+              <Ionicons name="information-circle" size={18} color="#3B82F6" />
+              <Text style={[styles.infoBannerText, { color: '#3B82F6' }]}>
+                Only Circle Founders and Co-Leaders can change member ranks.
+              </Text>
+            </View>
+          ) : null}
 
           {updating ? (
             <View style={styles.loaderBox}>
@@ -130,7 +159,7 @@ export default function MemberRoleModal({
                       isSelected && styles.roleCardActive,
                     ]}
                     onPress={() => handleAssignRole(opt.id)}
-                    activeOpacity={0.8}
+                    activeOpacity={canEdit ? 0.8 : 0.95}
                   >
                     <View style={[styles.iconBox, { backgroundColor: `${opt.color}15`, borderColor: opt.color }]}>
                       <Ionicons name={opt.icon} size={22} color={opt.color} />
@@ -166,6 +195,7 @@ export default function MemberRoleModal({
   );
 }
 
+
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -183,7 +213,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
+  },
+  infoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  infoBannerText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 16,
   },
   overline: {
     fontSize: 10,

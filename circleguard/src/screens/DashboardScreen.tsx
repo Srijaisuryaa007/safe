@@ -239,16 +239,12 @@ export default function DashboardScreen() {
             roleIcon = 'shield-outline';
           }
 
-          const canClickToManage = canManageRanks && !isTargetOwner && !isSelf;
-
           return (
             <TouchableOpacity
               key={item.user_id}
               style={[styles.memberCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
-              onPress={() => {
-                if (canClickToManage) setSelectedRoleMember(item);
-              }}
-              activeOpacity={canClickToManage ? 0.75 : 1.0}
+              onPress={() => setSelectedRoleMember(item)}
+              activeOpacity={0.75}
             >
               <View style={styles.memberTopRow}>
                 <View style={styles.memberLeft}>
@@ -270,12 +266,12 @@ export default function DashboardScreen() {
                   </View>
                 </View>
 
-                {canClickToManage ? (
-                  <View style={[styles.manageRoleBtn, { borderColor: roleColor, backgroundColor: `${roleColor}15` }]}>
-                    <Ionicons name="ribbon-outline" size={13} color={roleColor} />
-                    <Text style={[styles.manageRoleText, { color: roleColor }]}>RANK 👑</Text>
-                  </View>
-                ) : null}
+                <View style={[styles.manageRoleBtn, { borderColor: roleColor, backgroundColor: `${roleColor}15` }]}>
+                  <Ionicons name={canManageRanks && !isTargetOwner && !isSelf ? "ribbon-outline" : "information-circle-outline"} size={13} color={roleColor} />
+                  <Text style={[styles.manageRoleText, { color: roleColor }]}>
+                    {canManageRanks && !isTargetOwner && !isSelf ? "RANK 👑" : "INFO"}
+                  </Text>
+                </View>
               </View>
 
               <View style={[styles.statusChip, { backgroundColor: colors.background, borderColor: item.isOnline ? '#10B981' : colors.border }]}>
@@ -297,6 +293,7 @@ export default function DashboardScreen() {
         visible={!!selectedRoleMember}
         member={selectedRoleMember}
         circleId={activeCircle.id}
+        canEdit={canManageRanks}
         onClose={() => setSelectedRoleMember(null)}
       />
     </ScrollView>
