@@ -76,6 +76,22 @@ export const MINIMALIST_MONOCHROME_THEME = {
   } as ThemeColors,
 };
 
+export const BAUHAUS_THEME = {
+  colors: {
+    background: '#F0F0F0', // Off-White Canvas
+    foreground: '#121212', // Stark Bauhaus Black
+    surface: '#FFFFFF', // Clean White Cards with 4px black borders
+    surfaceMuted: '#E0E0E0', // Muted Gray
+    textMuted: '#525252', // Dark Gray for secondary text
+    accentGold: '#F0C020', // Bauhaus Primary Yellow
+    accentGoldLight: '#FFF9C4', // Soft Yellow Accent
+    sosRed: '#D02020', // Primary Bauhaus Red
+    border: '#121212', // Thick 4px Stark Black Border
+    borderDark: '#121212',
+    borderGold: '#1040C0', // Primary Bauhaus Blue
+  } as ThemeColors,
+};
+
 // Global reactive theme instance
 export const LUXURY_THEME = {
   colors: { ...LIGHT_THEME.colors },

@@ -32,6 +32,14 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
       mode: 'minimalist_monochrome' as ThemeMode,
     },
     {
+      id: 'bauhaus',
+      title: 'BAUHAUS CONSTRUCTIVIST (DESIGN #2)',
+      subtitle: 'Geometric Primaries (Red/Blue/Yellow), 4px Thick Black Borders',
+      iconName: 'shapes-outline' as const,
+      badge: themeMode === 'bauhaus' ? 'ACTIVE' : undefined,
+      mode: 'bauhaus' as ThemeMode,
+    },
+    {
       id: 'light',
       title: 'EDITORIAL LIGHT MODE',
       subtitle: 'Warm Alabaster canvas & Rich Charcoal typography',
