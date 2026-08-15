@@ -13,6 +13,9 @@ import JoinCircleScreen from '../screens/JoinCircleScreen';
 import SOSAlertScreen from '../screens/SOSAlertScreen';
 import SafePlacesScreen from '../screens/SafePlacesScreen';
 import ActivityScreen from '../screens/ActivityScreen';
+import LocationHistoryScreen from '../screens/LocationHistoryScreen';
+import DrivingReportsScreen from '../screens/DrivingReportsScreen';
+import ChatScreen from '../screens/ChatScreen';
 
 import GlobalSOSModal from '../components/GlobalSOSModal';
 import GlobalLocationShareModal from '../components/GlobalLocationShareModal';
@@ -27,6 +30,9 @@ export type RootStackParamList = {
   SOSAlert: undefined;
   SafePlaces: undefined;
   Activity: undefined;
+  LocationHistory: undefined;
+  DrivingReports: undefined;
+  Chat: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -83,6 +89,9 @@ export default function AppNavigator() {
             />
             <Stack.Screen name="SafePlaces" component={SafePlacesScreen} />
             <Stack.Screen name="Activity" component={ActivityScreen} />
+            <Stack.Screen name="LocationHistory" component={LocationHistoryScreen} />
+            <Stack.Screen name="DrivingReports" component={DrivingReportsScreen} />
+            <Stack.Screen name="Chat" component={ChatScreen} />
           </>
         )}
       </Stack.Navigator>
