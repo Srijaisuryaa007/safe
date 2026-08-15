@@ -16,6 +16,7 @@ import AppearanceModal from '../components/AppearanceModal';
 import PrivacySecurityModal from '../components/PrivacySecurityModal';
 import NotificationsModal from '../components/NotificationsModal';
 import SettingsModal from '../components/SettingsModal';
+import AboutCircleGuardModal from '../components/AboutCircleGuardModal';
 
 export default function ProfileScreen() {
   const { colors } = useThemeStore();
@@ -41,6 +42,7 @@ export default function ProfileScreen() {
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
   const [notifModalVisible, setNotifModalVisible] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [aboutModalVisible, setAboutModalVisible] = useState(false);
 
   const handleLogout = async () => {
     Alert.alert('Logout', 'Are you sure you want to log out of CircleGuard?', [
@@ -134,7 +136,7 @@ export default function ProfileScreen() {
         setPrivacyModalVisible(true);
         break;
       case 'About CircleGuard':
-        Alert.alert('About CircleGuard', 'CircleGuard Luxury Editorial Edition v1.0.0\nHigh-end Family Safety Tracker.');
+        setAboutModalVisible(true);
         break;
       default:
         Alert.alert(label, `${label} settings are up to date.`);
@@ -244,6 +246,11 @@ export default function ProfileScreen() {
       <SettingsModal
         visible={settingsModalVisible}
         onClose={() => setSettingsModalVisible(false)}
+      />
+
+      <AboutCircleGuardModal
+        visible={aboutModalVisible}
+        onClose={() => setAboutModalVisible(false)}
       />
     </ScrollView>
   );
