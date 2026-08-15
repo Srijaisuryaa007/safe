@@ -22,7 +22,7 @@ import {
   stopBackgroundLocation,
 } from '../services/LocationBackgroundService';
 import { useThemeStore } from '../store/useThemeStore';
-import { getThemeBorderStyles } from '../constants/theme';
+import { getThemeBorderStyles, getThemeCardStyles, getThemeButtonStyles } from '../constants/theme';
 
 import FakeCallModal from '../components/FakeCallModal';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
@@ -218,10 +218,9 @@ export default function HomeScreen() {
         <View
           style={[
             styles.heroCard,
-            getThemeBorderStyles(themeMode),
+            getThemeCardStyles(themeMode),
             {
               backgroundColor: isDark ? colors.surface : '#FFFFFF',
-              borderColor: colors.border,
             },
           ]}
         >
@@ -387,18 +386,17 @@ export default function HomeScreen() {
           <TouchableOpacity
             style={[
               styles.metricCardBox,
-              getThemeBorderStyles(themeMode),
+              getThemeCardStyles(themeMode),
               {
-                borderColor: colors.border,
                 backgroundColor: colors.surface,
               },
             ]}
             activeOpacity={0.8}
           >
-            <Text style={[styles.metricBigNumber, { color: '#10B981' }]}>
+            <Text style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#1040C0' : '#10B981' }]}>
               {onlineCount || 2}
             </Text>
-            <Text style={[styles.metricCardLabel, { color: '#10B981' }]}>
+            <Text style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#1040C0' : '#10B981' }]}>
               MEMBERS{'\n'}ONLINE
             </Text>
           </TouchableOpacity>
@@ -406,9 +404,8 @@ export default function HomeScreen() {
           <TouchableOpacity
             style={[
               styles.metricCardBox,
-              getThemeBorderStyles(themeMode),
+              getThemeCardStyles(themeMode),
               {
-                borderColor: colors.border,
                 backgroundColor: colors.surface,
               },
             ]}
@@ -425,18 +422,17 @@ export default function HomeScreen() {
           <TouchableOpacity
             style={[
               styles.metricCardBox,
-              getThemeBorderStyles(themeMode),
+              getThemeCardStyles(themeMode),
               {
-                borderColor: colors.accentGold,
                 backgroundColor: colors.surface,
               },
             ]}
             activeOpacity={0.8}
           >
-            <Text style={[styles.metricBigNumber, { color: colors.accentGold }]}>
+            <Text style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#D02020' : colors.accentGold }]}>
               {recentActivities.length || 5}
             </Text>
-            <Text style={[styles.metricCardLabel, { color: colors.accentGold }]}>
+            <Text style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#D02020' : colors.accentGold }]}>
               ALERTS{'\n'}LOGGED
             </Text>
           </TouchableOpacity>

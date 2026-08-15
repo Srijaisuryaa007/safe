@@ -97,17 +97,97 @@ export const getThemeBorderStyles = (themeMode?: string) => {
     return {
       borderWidth: 3,
       borderRadius: 0,
+      borderColor: '#121212',
     };
   }
   if (themeMode === 'minimalist_monochrome') {
     return {
       borderWidth: 1,
       borderRadius: 0,
+      borderColor: '#000000',
     };
   }
   return {
     borderWidth: 1,
     borderRadius: 16,
+  };
+};
+
+export const getThemeCardStyles = (themeMode?: string) => {
+  if (themeMode === 'bauhaus') {
+    return {
+      borderWidth: 3,
+      borderRadius: 0,
+      borderColor: '#121212',
+      shadowColor: '#121212',
+      shadowOffset: { width: 5, height: 5 },
+      shadowOpacity: 1.0,
+      shadowRadius: 0,
+      elevation: 6,
+    };
+  }
+  if (themeMode === 'minimalist_monochrome') {
+    return {
+      borderWidth: 1,
+      borderRadius: 0,
+      borderColor: '#000000',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0,
+      shadowRadius: 0,
+      elevation: 0,
+    };
+  }
+  return {
+    borderWidth: 1,
+    borderRadius: 16,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+  };
+};
+
+export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 'secondary' | 'danger' = 'primary') => {
+  if (themeMode === 'bauhaus') {
+    const bg = variant === 'danger' ? '#D02020' : variant === 'secondary' ? '#1040C0' : '#F0C020';
+    const text = variant === 'primary' ? '#121212' : '#FFFFFF';
+    return {
+      borderWidth: 3,
+      borderRadius: 0,
+      borderColor: '#121212',
+      backgroundColor: bg,
+      textColor: text,
+      shadowColor: '#121212',
+      shadowOffset: { width: 4, height: 4 },
+      shadowOpacity: 1.0,
+      shadowRadius: 0,
+      elevation: 5,
+    };
+  }
+  if (themeMode === 'minimalist_monochrome') {
+    return {
+      borderWidth: 1,
+      borderRadius: 0,
+      borderColor: '#000000',
+      backgroundColor: '#000000',
+      textColor: '#FFFFFF',
+      shadowOpacity: 0,
+      elevation: 0,
+    };
+  }
+  return {
+    borderWidth: 1,
+    borderRadius: 24,
+    borderColor: 'transparent',
+    backgroundColor: variant === 'danger' ? '#EF4444' : '#D4AF37',
+    textColor: '#FFFFFF',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
   };
 };
 
