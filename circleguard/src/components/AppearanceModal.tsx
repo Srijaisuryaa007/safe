@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Alert } fr
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore, ThemeMode } from '../store/useThemeStore';
 import AnimatedListDropdown from './AnimatedListDropdown';
+import CardSwapShowcase, { CardSwapThemeItem } from './CardSwapShowcase';
 
 interface AppearanceModalProps {
   visible: boolean;
@@ -21,6 +22,61 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
   };
 
   if (!visible) return null;
+
+  const cardSwapItems: CardSwapThemeItem[] = [
+    {
+      id: 'minimalist_monochrome',
+      title: 'MINIMALIST MONOCHROME',
+      subtitle: 'High-Fashion Editorial, Pure Black & White, Hairline 1px Borders, Zero Shadows',
+      iconName: 'contrast-outline',
+      badge: 'DESIGN #1',
+      mode: 'minimalist_monochrome',
+      previewBg: '#FFFFFF',
+      previewText: '#000000',
+      previewBorder: '#000000',
+      previewAccent: '#000000',
+      previewShadow: '#000000',
+    },
+    {
+      id: 'bauhaus',
+      title: 'BAUHAUS CONSTRUCTIVIST',
+      subtitle: '1920s Modernism, Primary Red/Blue/Yellow Color Blocks, 4px Hard Black Shadows',
+      iconName: 'shapes-outline',
+      badge: 'DESIGN #2',
+      mode: 'bauhaus',
+      previewBg: '#F0F0F0',
+      previewText: '#121212',
+      previewBorder: '#121212',
+      previewAccent: '#D02020',
+      previewShadow: '#121212',
+    },
+    {
+      id: 'maximalism_dopamine',
+      title: 'MAXIMALISM / DOPAMINE',
+      subtitle: 'Y2K Cosmic Purple-Black Void, Screaming Yellow, Hot Magenta Neon Glow',
+      iconName: 'sparkles-outline',
+      badge: 'DESIGN #3',
+      mode: 'maximalism_dopamine',
+      previewBg: '#0D0D1A',
+      previewText: '#FFFFFF',
+      previewBorder: '#FF3AF2',
+      previewAccent: '#00F5D4',
+      previewShadow: '#00F5D4',
+    },
+    {
+      id: 'playful_geometric',
+      title: 'PLAYFUL GEOMETRIC',
+      subtitle: 'Memphis 80s Pop UI, Warm Cream Canvas, Speech-Bubble Cards & Pop Shadows',
+      iconName: 'color-palette-outline',
+      badge: 'DESIGN #4',
+      mode: 'playful_geometric',
+      previewBg: '#FFFDF5',
+      previewText: '#1E293B',
+      previewBorder: '#1E293B',
+      previewAccent: '#8B5CF6',
+      previewShadow: '#1E293B',
+    },
+  ];
 
   const themeOptions = [
     {
@@ -96,10 +152,18 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
 
         <ScrollView contentContainerStyle={styles.content}>
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            Choose your preferred visual aesthetic for CircleGuard. Changes apply immediately across all screens.
+            Experience 3D perspective theme switching. Choose your preferred visual aesthetic for CircleGuard.
           </Text>
 
-          <View style={{ marginBottom: 20 }}>
+          {/* 3D Perspective CardSwap Theme Showcase */}
+          <CardSwapShowcase
+            items={cardSwapItems}
+            activeMode={themeMode}
+            onSelectTheme={handleSelectTheme}
+          />
+
+          <View style={{ marginBottom: 20, marginTop: 10 }}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>ALL THEME OPTIONS</Text>
             <AnimatedListDropdown
               items={themeOptions}
               selectedIndex={themeOptions.findIndex((o) => o.mode === themeMode)}
@@ -152,6 +216,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginBottom: 24,
     lineHeight: 18,
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    marginBottom: 12,
   },
   themeOptions: {
     gap: 16,
