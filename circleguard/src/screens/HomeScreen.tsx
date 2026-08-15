@@ -73,7 +73,7 @@ export default function HomeScreen() {
     setShareModalVisible(true);
   };
 
-  const safeMembers = members || [];
+  const safeMembers = activeCircle ? (members || []) : [];
   const firstName = String(profile?.full_name || 'User').split(' ')[0];
 
   const onRefresh = async () => {
@@ -144,8 +144,8 @@ export default function HomeScreen() {
     }
   };
 
-  const onlineCount = safeMembers.filter((m) => m.isOnline).length;
-  const offlineCount = Math.max(0, safeMembers.length - onlineCount);
+  const onlineCount = activeCircle ? safeMembers.filter((m) => m.isOnline).length : 0;
+  const offlineCount = activeCircle ? Math.max(0, safeMembers.length - onlineCount) : 0;
 
   // Magnification Dock Item Definitions for Safety Suite
   const dockItems: DockItemData[] = [
@@ -279,52 +279,26 @@ export default function HomeScreen() {
 
           {/* Circle Title & Connected Status */}
           <Text style={[styles.circleNameTitle, { color: colors.foreground }]}>
-            {activeCircle ? activeCircle.name : 'friends'}
+            {activeCircle ? activeCircle.name : 'No Active Circle'}
           </Text>
 
           <Text style={[styles.circleSubtitle, { color: colors.textMuted }]}>
             {activeCircle
-              ? `${safeMembers.length || 7} members connected in real time`
-              : '7 members connected in real time'}
+              ? `${safeMembers.length} members connected in real time`
+              : 'Join or create a family group to start 24/7 live location tracking.'}
           </Text>
 
           {/* Member Avatar Stack */}
-          <View style={styles.avatarRowContainer}>
-            {safeMembers.length > 0
-              ? safeMembers.slice(0, 4).map((m, idx) => {
-                  const name = m.profile?.full_name || 'Member';
-                  const initial = name.charAt(0).toUpperCase();
-                  const avatarUrl = m.profile?.avatar_url;
+          {activeCircle && safeMembers.length > 0 ? (
+            <View style={styles.avatarRowContainer}>
+              {safeMembers.slice(0, 4).map((m, idx) => {
+                const name = m.profile?.full_name || 'Member';
+                const initial = name.charAt(0).toUpperCase();
+                const avatarUrl = m.profile?.avatar_url;
 
-                  return (
-                    <View
-                      key={m.user_id || idx}
-                      style={[
-                        styles.avatarCircle,
-                        {
-                          backgroundColor: isDark ? colors.surfaceMuted : '#F4F4F5',
-                          borderColor: colors.border,
-                        },
-                      ]}
-                    >
-                      {avatarUrl ? (
-                        <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
-                      ) : (
-                        <Text style={[styles.avatarInitialText, { color: colors.foreground }]}>
-                          {initial}
-                        </Text>
-                      )}
-                    </View>
-                  );
-                })
-              : [
-                  { initial: 'S' },
-                  { initial: 'B' },
-                  { initial: 'M' },
-                  { initial: 'A' },
-                ].map((item, idx) => (
+                return (
                   <View
-                    key={idx}
+                    key={m.user_id || idx}
                     style={[
                       styles.avatarCircle,
                       {
@@ -333,46 +307,75 @@ export default function HomeScreen() {
                       },
                     ]}
                   >
-                    <Text style={[styles.avatarInitialText, { color: colors.foreground }]}>
-                      {item.initial}
-                    </Text>
+                    {avatarUrl ? (
+                      <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
+                    ) : (
+                      <Text style={[styles.avatarInitialText, { color: colors.foreground }]}>
+                        {initial}
+                      </Text>
+                    )}
                   </View>
-                ))}
+                );
+              })}
 
-            <View style={[styles.moreAvatarGoldBadge, { backgroundColor: colors.accentGold }]}>
-              <Text style={styles.moreAvatarText}>
-                +{safeMembers.length > 4 ? safeMembers.length - 4 : 3}
-              </Text>
+              {safeMembers.length > 4 ? (
+                <View style={[styles.moreAvatarGoldBadge, { backgroundColor: colors.accentGold }]}>
+                  <Text style={styles.moreAvatarText}>
+                    +{safeMembers.length - 4}
+                  </Text>
+                </View>
+              ) : null}
             </View>
-          </View>
+          ) : (
+            <View style={{ marginBottom: 16 }} />
+          )}
 
-          {/* Interactive Jelly Squeeze Physics Button */}
-          <JellySqueezeButton
-            glowColor={isTrackingActive ? '#EF4444' : '#10B981'}
-            style={[
-              styles.pauseTrackingBtn,
-              getThemeBorderStyles(themeMode),
-              {
-                borderColor: isTrackingActive ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)',
-                backgroundColor: isTrackingActive ? (themeMode === 'minimalist_monochrome' || themeMode === 'bauhaus' ? '#000000' : '#FFF1F1') : 'rgba(16, 185, 129, 0.12)',
-              },
-            ]}
-            onPress={toggleLocationTracking}
-          >
-            <Ionicons
-              name={isTrackingActive ? 'pause-circle-outline' : 'play-circle-outline'}
-              size={18}
-              color={isTrackingActive ? (themeMode === 'minimalist_monochrome' || themeMode === 'bauhaus' ? '#FFFFFF' : '#DC2626') : '#10B981'}
-            />
-            <Text
+          {/* Interactive Action Button */}
+          {activeCircle ? (
+            <JellySqueezeButton
+              glowColor={isTrackingActive ? '#EF4444' : '#10B981'}
               style={[
-                styles.pauseBtnText,
-                { color: isTrackingActive ? (themeMode === 'minimalist_monochrome' || themeMode === 'bauhaus' ? '#FFFFFF' : '#DC2626') : '#10B981' },
+                styles.pauseTrackingBtn,
+                getThemeBorderStyles(themeMode),
+                {
+                  borderColor: isTrackingActive ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)',
+                  backgroundColor: isTrackingActive ? (themeMode === 'minimalist_monochrome' || themeMode === 'bauhaus' ? '#000000' : '#FFF1F1') : 'rgba(16, 185, 129, 0.12)',
+                },
               ]}
+              onPress={toggleLocationTracking}
             >
-              {isTrackingActive ? 'PAUSE BACKGROUND TRACKING' : 'RESUME BACKGROUND SHIELD'}
-            </Text>
-          </JellySqueezeButton>
+              <Ionicons
+                name={isTrackingActive ? 'pause-circle-outline' : 'play-circle-outline'}
+                size={18}
+                color={isTrackingActive ? (themeMode === 'minimalist_monochrome' || themeMode === 'bauhaus' ? '#FFFFFF' : '#DC2626') : '#10B981'}
+              />
+              <Text
+                style={[
+                  styles.pauseBtnText,
+                  { color: isTrackingActive ? (themeMode === 'minimalist_monochrome' || themeMode === 'bauhaus' ? '#FFFFFF' : '#DC2626') : '#10B981' },
+                ]}
+              >
+                {isTrackingActive ? 'PAUSE BACKGROUND TRACKING' : 'RESUME BACKGROUND SHIELD'}
+              </Text>
+            </JellySqueezeButton>
+          ) : (
+            <TouchableOpacity
+              style={[
+                styles.pauseTrackingBtn,
+                {
+                  backgroundColor: colors.accentGold,
+                  borderColor: colors.accentGold,
+                },
+              ]}
+              onPress={() => navigation.navigate('Circle')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add-circle-outline" size={18} color="#1A1A1A" />
+              <Text style={[styles.pauseBtnText, { color: '#1A1A1A', fontWeight: '900' }]}>
+                JOIN OR CREATE A CIRCLE 👥
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Section Header: Circle Metrics */}
