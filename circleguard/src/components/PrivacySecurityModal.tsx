@@ -35,16 +35,47 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
   const [approvalFeature, setApprovalFeature] = useState<'ghost_mode' | 'hide_online' | 'location_off'>('ghost_mode');
 
   useEffect(() => {
-    if (visible) {
+    if (visible && profile?.id) {
       loadSettings();
+
+      const channel = supabase
+        .channel(`public:profiles:${profile.id}`)
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${profile.id}` },
+          (payload) => {
+            if (payload.new) {
+              useAuthStore.getState().setProfile(payload.new as any);
+              setGhostMode(!!payload.new.is_ghost_mode);
+              setHideOnline(!!payload.new.hide_online_presence);
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
-  }, [visible]);
+  }, [visible, profile?.id]);
 
   const loadSettings = async () => {
     try {
-      if (profile) {
-        setGhostMode(!!profile.is_ghost_mode);
-        setHideOnline(!!profile.hide_online_presence);
+      if (profile?.id) {
+        const { data: latestProfile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', profile.id)
+          .single();
+
+        if (latestProfile) {
+          useAuthStore.getState().setProfile(latestProfile);
+          setGhostMode(!!latestProfile.is_ghost_mode);
+          setHideOnline(!!latestProfile.hide_online_presence);
+        } else {
+          setGhostMode(!!profile.is_ghost_mode);
+          setHideOnline(!!profile.hide_online_presence);
+        }
       } else {
         const g = await AsyncStorage.getItem(KEYS.GHOST_MODE);
         const h = await AsyncStorage.getItem(KEYS.HIDE_ONLINE);
@@ -67,12 +98,15 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
       const members = useCircleStore.getState().members;
       const is247Mode = activeCircle?.tracking_mode === 'continuous' || activeCircle?.tracking_mode === '24_7';
       const myRole = members.find(m => m.user_id === profile?.id)?.role;
-      const isLeader = (activeCircle && profile && activeCircle.owner_id === profile.id) || myRole === 'owner';
+      const isLeader = (activeCircle && profile && activeCircle.owner_id === profile.id) || myRole === 'owner' || myRole === 'co_leader';
 
-      if (is247Mode && !isLeader) {
+      // Check if Leader has already approved / granted this permission in user profile
+      const isApproved = key === KEYS.GHOST_MODE ? !!profile?.is_ghost_mode : !!profile?.hide_online_presence;
+
+      if (is247Mode && !isLeader && !isApproved) {
         setApprovalFeature(key === KEYS.GHOST_MODE ? 'ghost_mode' : 'hide_online');
         setApprovalModalVisible(true);
-        return; // Block direct toggle for members under Option B
+        return; // Block direct toggle for members under Option B only if NOT approved
       }
     }
 

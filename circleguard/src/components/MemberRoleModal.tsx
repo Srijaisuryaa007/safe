@@ -20,6 +20,7 @@ interface MemberRoleModalProps {
   } | null;
   circleId: string;
   canEdit?: boolean;
+  onRoleUpdated?: (userId: string, newRole: CircleRole) => void;
 }
 
 export default function MemberRoleModal({
@@ -28,10 +29,19 @@ export default function MemberRoleModal({
   member,
   circleId,
   canEdit = true,
+  onRoleUpdated,
 }: MemberRoleModalProps) {
   const { colors } = useThemeStore();
   const { fetchMembers } = useCircleStore();
   const [updating, setUpdating] = useState(false);
+  const [activeRole, setActiveRole] = useState<CircleRole | null>(null);
+
+  React.useEffect(() => {
+    if (member) {
+      setActiveRole(member.role || 'member');
+    }
+  }, [member?.user_id, member?.role]);
+
   const [alertState, setAlertState] = useState<{
     visible: boolean;
     title: string;
@@ -49,7 +59,7 @@ export default function MemberRoleModal({
 
   if (!visible || !member) return null;
 
-  const currentRole = member.role || 'member';
+  const currentRole = activeRole || member.role || 'member';
   const name = member.profile?.full_name || 'Circle Member';
   const isTargetOwner = currentRole === 'owner';
 
@@ -65,8 +75,8 @@ export default function MemberRoleModal({
     {
       id: 'co_leader',
       title: 'Co-Leader',
-      badgeText: 'CO-LEADER',
-      description: 'High privilege administrative role with executive circle management powers.',
+      badgeText: 'SPECIAL PRIORITY ⚡',
+      description: 'High privilege administrative role with executive circle management powers and Special Priority.',
       permissions: ['Geofences & Safe Places', 'Invite Code Sharing', 'Promote Guardians', 'Emergency Broadcasts'],
       icon: 'shield-checkmark',
       color: '#A855F7',
@@ -74,8 +84,8 @@ export default function MemberRoleModal({
     {
       id: 'guardian',
       title: 'Safety Guardian',
-      badgeText: 'GUARDIAN',
-      description: 'Safety moderator responsible for monitoring family geofences and emergency dispatch.',
+      badgeText: 'PRIORITY SOS 🛡️',
+      description: 'Safety moderator responsible for monitoring family geofences and priority emergency dispatch.',
       permissions: ['Priority SOS Alerts', 'Geofence Breach Radar', 'Location History Access', 'Battery Monitoring'],
       icon: 'shield-outline',
       color: '#3B82F6',
@@ -127,13 +137,18 @@ export default function MemberRoleModal({
 
       if (error) throw error;
 
+      setActiveRole(newRole);
       await fetchMembers(circleId);
+      if (onRoleUpdated) {
+        onRoleUpdated(member.user_id, newRole);
+      }
+
       setAlertState({
         visible: true,
-        title: 'Rank Updated 👑',
-        message: `Successfully updated ${name}'s rank to ${newRole.toUpperCase().replace('_', ' ')}.`,
+        title: 'Rank & Special Priority Updated 👑',
+        message: `Successfully promoted ${name} to ${newRole.toUpperCase().replace('_', ' ')} with Special Priority Status.`,
         icon: 'checkmark-circle',
-        color: '#10B981',
+        color: newRole === 'co_leader' ? '#A855F7' : (newRole === 'guardian' ? '#3B82F6' : '#10B981'),
         onPress: onClose,
       });
     } catch (err: any) {

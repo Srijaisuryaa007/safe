@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,10 +9,45 @@ import {
   Alert,
   Image,
   RefreshControl,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useAuthStore } from '../store/useAuthStore';
+
+function AnimatedActivityItem({ children, index }: { children: React.ReactNode; index: number }) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 380,
+      delay: Math.min(index * 70, 350),
+      useNativeDriver: true,
+    }).start();
+  }, [index]);
+
+  const translateY = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [18, 0],
+  });
+
+  const scale = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.96, 1],
+  });
+
+  return (
+    <Animated.View
+      style={{
+        opacity: anim,
+        transform: [{ translateY }, { scale }],
+      }}
+    >
+      {children}
+    </Animated.View>
+  );
+}
 import { useCircleStore } from '../store/useCircleStore';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -30,6 +65,7 @@ import ShareLocationModal from '../components/ShareLocationModal';
 import SwiggyHeaderBar from '../components/SwiggyHeaderBar';
 import MagnificationDock, { DockItemData } from '../components/MagnificationDock';
 import JellySqueezeButton from '../components/JellySqueezeButton';
+import AnimatedList from '../components/AnimatedList';
 
 export default function HomeScreen() {
   const { colors, isDark, themeMode } = useThemeStore();
@@ -107,27 +143,83 @@ export default function HomeScreen() {
   const fetchCircleActivity = async (circleId: string) => {
     setLoadingActivity(true);
     try {
-      const { data: sosData } = await supabase
-        .from('sos_alerts')
-        .select('id, created_at, status, user_id, profiles(full_name)')
-        .eq('circle_id', circleId)
-        .order('created_at', { ascending: false })
-        .limit(5);
+      const [sosRes, msgRes] = await Promise.all([
+        supabase
+          .from('sos_alerts')
+          .select('id, created_at, status, user_id, profiles(full_name)')
+          .eq('circle_id', circleId)
+          .order('created_at', { ascending: false })
+          .limit(5),
+        supabase
+          .from('circle_messages')
+          .select('id, created_at, content, sender_id, profiles:sender_id(full_name)')
+          .eq('circle_id', circleId)
+          .or('content.ilike.%PERMISSION REQUEST%,content.ilike.%PERMISSION GRANTED%,content.ilike.%PERMISSION DENIED%')
+          .order('created_at', { ascending: false })
+          .limit(5)
+      ]);
 
-      const formatted = (sosData || []).map((item) => {
+      const sosActivities = (sosRes.data || []).map((item) => {
         let name = 'A member';
         if (item.profiles) {
           name = Array.isArray(item.profiles) ? item.profiles[0]?.full_name : (item.profiles as any).full_name;
         }
         return {
           id: item.id,
-          title: `${name || 'Member'} triggered SOS alert`,
+          title: `${name || 'Member'} triggered an emergency distress signal!`,
+          badgeText: 'EMERGENCY SOS',
+          icon: 'alert-circle-sharp',
           time: new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          color: colors.accentGold,
+          color: '#EF4444',
+          timestamp: new Date(item.created_at).getTime(),
         };
       });
 
-      setRecentActivities(formatted);
+      const msgActivities = (msgRes.data || []).map((item) => {
+        let name = 'Member';
+        if (item.profiles) {
+          name = Array.isArray(item.profiles) ? item.profiles[0]?.full_name : (item.profiles as any).full_name;
+        }
+        let cleanTitle = item.content
+          .replace(/^✅\s*PERMISSION GRANTED:\s*/i, '')
+          .replace(/^❌\s*PERMISSION DENIED:\s*/i, '')
+          .replace(/^🔒\s*PERMISSION REQUEST:\s*/i, '');
+
+        let color = colors.accentGold;
+        let icon: any = 'shield-outline';
+        let badgeText = 'PRIVACY LOG';
+
+        if (item.content.includes('GRANTED')) {
+          color = '#10B981';
+          icon = 'checkmark-circle-outline';
+          badgeText = 'REQUEST APPROVED';
+        } else if (item.content.includes('DENIED')) {
+          color = '#EF4444';
+          icon = 'close-circle-outline';
+          badgeText = 'REQUEST DENIED';
+        } else if (item.content.includes('REQUEST')) {
+          color = '#F59E0B';
+          icon = 'lock-closed-outline';
+          badgeText = 'PRIVACY REQUEST';
+          cleanTitle = `${name} requested Ghost Mode permission under Option B 24/7 Safety`;
+        }
+
+        return {
+          id: item.id,
+          title: cleanTitle,
+          badgeText: badgeText,
+          icon: icon,
+          time: new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          color: color,
+          timestamp: new Date(item.created_at).getTime(),
+        };
+      });
+
+      const combined = [...sosActivities, ...msgActivities]
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 5);
+
+      setRecentActivities(combined);
     } catch (err) {
       console.warn('Error fetching activity:', err);
     } finally {
@@ -454,30 +546,39 @@ export default function HomeScreen() {
         {/* macOS-Inspired Magnification Dock Component */}
         <MagnificationDock items={dockItems} />
 
-        {/* Activity Log Feed Header */}
-        <View style={styles.activityHeader}>
-          <Text style={[styles.sectionTitle, { color: isDark ? colors.foreground : '#18181B' }]}>ACTIVITY LOG</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('Activity')} activeOpacity={0.7}>
-            <Text style={[styles.seeAllText, { color: '#B48B1E' }]}>VIEW ALL →</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Activity Log Box Container */}
+        <View style={[styles.activityContainerBox, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}>
+          {/* Inner Header Row */}
+          <View style={styles.activityBoxHeader}>
+            <View style={styles.activityBoxTitleRow}>
+              <View style={styles.pulseLiveDot} />
+              <Text style={[styles.sectionTitle, { color: isDark ? colors.foreground : '#18181B', fontSize: 13 }]}>ACTIVITY LOG</Text>
+            </View>
+            <TouchableOpacity onPress={() => navigation.navigate('Activity')} activeOpacity={0.7}>
+              <Text style={[styles.seeAllText, { color: '#B48B1E' }]}>VIEW ALL →</Text>
+            </TouchableOpacity>
+          </View>
 
-        <View style={[styles.activityList, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}>
-          {loadingActivity ? (
-            <ActivityIndicator size="small" color="#B48B1E" />
-          ) : recentActivities.length > 0 ? (
-            recentActivities.map((act) => (
-              <View key={act.id} style={styles.activityItem}>
-                <View style={[styles.goldIndicatorDot, { backgroundColor: '#B48B1E' }]} />
-                <View style={styles.activityInfo}>
-                  <Text style={[styles.activityTitle, { color: isDark ? colors.foreground : '#18181B' }]}>{act.title}</Text>
-                  <Text style={[styles.activityTime, { color: isDark ? colors.textMuted : '#71717A' }]}>{act.time}</Text>
-                </View>
+          <View style={styles.activityBoxInnerContent}>
+            {loadingActivity ? (
+              <ActivityIndicator size="small" color="#B48B1E" style={{ paddingVertical: 20 }} />
+            ) : recentActivities.length > 0 ? (
+              <AnimatedList
+                items={recentActivities}
+                maxHeight={410}
+                showGradients={true}
+                displayScrollbar={true}
+                onItemSelect={(item) => navigation.navigate('Activity')}
+              />
+            ) : (
+              <View style={styles.emptyActivityBox}>
+                <Ionicons name="shield-checkmark-outline" size={24} color={colors.textMuted} />
+                <Text style={[styles.emptyActivityText, { color: isDark ? colors.textMuted : '#71717A' }]}>
+                  No activity recorded in your circle yet.
+                </Text>
               </View>
-            ))
-          ) : (
-            <Text style={[styles.emptyActivityText, { color: isDark ? colors.textMuted : '#71717A' }]}>No activity recorded in your circle yet.</Text>
-          )}
+            )}
+          </View>
         </View>
       </ScrollView>
 
@@ -505,7 +606,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 110,
+    paddingBottom: 24,
   },
   heroCard: {
     borderRadius: 24,
@@ -699,49 +800,106 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 12,
   },
-  activityHeader: {
+  activityContainerBox: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 16,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+    marginBottom: 12,
+  },
+  activityBoxHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    justifyContent: 'space-between',
+    paddingBottom: 12,
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(150, 150, 150, 0.15)',
+  },
+  activityBoxTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pulseLiveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
   },
   seeAllText: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.5,
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 1.2,
   },
-  activityList: {
+  activityBoxInnerContent: {
+    width: '100%',
+  },
+  activityCard: {
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderLeftWidth: 4,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  activityCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  activityBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  activityIconBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activityBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  activityTimePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  activityTimeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  activityTitleText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  emptyActivityBox: {
+    padding: 24,
     borderRadius: 16,
     borderWidth: 1,
-    padding: 20,
-    gap: 16,
-  },
-  activityItem: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-  },
-  goldIndicatorDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  activityInfo: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  activityTitle: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  activityTime: {
-    fontSize: 11,
+    justifyContent: 'center',
+    gap: 8,
   },
   emptyActivityText: {
-    fontSize: 13,
+    fontSize: 12,
+    fontWeight: '600',
     textAlign: 'center',
-    paddingVertical: 12,
   },
 });

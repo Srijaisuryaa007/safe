@@ -90,6 +90,13 @@ try {
           geom: point,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'user_id' });
+
+        // 2. Insert authentic GPS coordinate into location_history for 2-day historical logging
+        await supabase.from('location_history').insert({
+          user_id: userId,
+          geom: point,
+          recorded_at: new Date().toISOString(),
+        });
           if (memberCircle && memberCircle.length > 0) {
             const circleId = memberCircle[0].circle_id;
             const { data: placesData } = await supabase

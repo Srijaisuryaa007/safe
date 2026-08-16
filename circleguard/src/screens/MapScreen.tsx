@@ -12,6 +12,7 @@ import AlertModal from '../components/AlertModal';
 import AddPlaceModal from '../components/AddPlaceModal';
 import SearchFilterModal from '../components/SearchFilterModal';
 import MapLayerModal, { MapStyleType } from '../components/MapLayerModal';
+import SpringTouchable from '../components/SpringTouchable';
 import { LUXURY_THEME } from '../constants/theme';
 import { evaluateGeofenceBreaches } from '../services/GeofenceEngine';
 import { fetchCategoryPois, generateFallbackPois } from '../services/PoiService';
@@ -754,6 +755,7 @@ export default function MapScreen() {
             name: isSelf ? 'You' : (m.profile?.full_name || 'Member'),
             initial: String(m.profile?.full_name || 'M').charAt(0).toUpperCase(),
             avatarUrl: m.profile?.avatar_url || null,
+            role: m.role || 'member',
             isOnline: (isGhost || isHideOnline) ? false : (m.isOnline ?? false),
             lastSeenText: isGhost ? 'Ghost Mode' : (isHideOnline ? 'Offline' : (m.lastSeenText || 'Offline')),
             batteryPct: loc?.battery_pct || m.batteryPct || 100,
@@ -916,13 +918,27 @@ export default function MapScreen() {
                 ? '<img src="' + m.avatarUrl + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" />'
                 : '<span style="color:#FFF;font-weight:bold;font-size:14px;">' + m.initial + '</span>';
 
+              var roleColor = '#10B981';
+              var roleBadgeSymbol = '';
+
+              if (m.role === 'owner') {
+                roleColor = '#D4AF37';
+                roleBadgeSymbol = '👑 ';
+              } else if (m.role === 'co_leader') {
+                roleColor = '#A855F7';
+                roleBadgeSymbol = '⚡ ';
+              } else if (m.role === 'guardian') {
+                roleColor = '#3B82F6';
+                roleBadgeSymbol = '🛡️ ';
+              }
+
               var pulseStyle = m.isOnline 
-                ? 'border: 2px solid #10B981; box-shadow: 0 0 16px rgba(16,185,129,0.95);' 
+                ? 'border: 2.5px solid ' + roleColor + '; box-shadow: 0 0 16px ' + roleColor + 'CC;' 
                 : 'border: 2px solid #9CA3AF; opacity: 0.85;';
 
               var batteryTag = m.batteryPct ? ' • 🔋' + m.batteryPct + '%' : '';
               var activityTag = m.activityText ? ' • ' + m.activityText : '';
-              var labelHtml = '<div style="position:absolute; bottom:44px; left:50%; transform:translateX(-50%); white-space:nowrap; background:rgba(26,26,26,0.95); color:#FFFFFF; font-size:10px; font-weight:bold; font-family:sans-serif; padding:4px 9px; border-radius:12px; border:1px solid #D4AF37; box-shadow:0 4px 12px rgba(0,0,0,0.5); pointer-events:none; z-index:1000;">' + m.name + activityTag + batteryTag + '</div>';
+              var labelHtml = '<div style="position:absolute; bottom:44px; left:50%; transform:translateX(-50%); white-space:nowrap; background:rgba(26,26,26,0.95); color:#FFFFFF; font-size:10px; font-weight:bold; font-family:sans-serif; padding:4px 9px; border-radius:12px; border:1px solid ' + roleColor + '; box-shadow:0 4px 12px rgba(0,0,0,0.5); pointer-events:none; z-index:1000;">' + roleBadgeSymbol + m.name + activityTag + batteryTag + '</div>';
 
               var icon = L.divIcon({
                 className: 'custom-icon',
@@ -1547,17 +1563,17 @@ export default function MapScreen() {
 
       {/* Floating Map Controls: Layers Selector & Zoom Controls */}
       <View style={[styles.floatingControls, selectedMember || selectedPlace || selectedPoi ? { bottom: 275 } : { bottom: 25 }]}>
-        <TouchableOpacity style={styles.controlBtn} onPress={() => setShowMapLayerModal(true)} activeOpacity={0.8}>
+        <SpringTouchable style={styles.controlBtn} onPress={() => setShowMapLayerModal(true)} scaleTo={0.88}>
           <Ionicons name="layers" size={20} color={colors.accentGold} />
-        </TouchableOpacity>
+        </SpringTouchable>
 
-        <TouchableOpacity style={styles.controlBtn} onPress={handleZoomIn} activeOpacity={0.8}>
+        <SpringTouchable style={styles.controlBtn} onPress={handleZoomIn} scaleTo={0.88}>
           <Ionicons name="add" size={22} color={colors.foreground} />
-        </TouchableOpacity>
+        </SpringTouchable>
 
-        <TouchableOpacity style={styles.controlBtn} onPress={handleZoomOut} activeOpacity={0.8}>
+        <SpringTouchable style={styles.controlBtn} onPress={handleZoomOut} scaleTo={0.88}>
           <Ionicons name="remove" size={22} color={colors.foreground} />
-        </TouchableOpacity>
+        </SpringTouchable>
       </View>
     </View>
   );

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Modal, Platform, StatusBar } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
@@ -96,6 +97,9 @@ export default function LocationHistoryScreen() {
   const { colors, isDark } = useThemeStore();
   const { activeCircle, members } = useCircleStore();
   const { profile } = useAuthStore();
+
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 36) : 44);
 
   const webViewRef = useRef<WebView | null>(null);
 
@@ -200,7 +204,8 @@ export default function LocationHistoryScreen() {
 
       if (!error && data && data.length > 0) {
         let prevPoint: { lat: number; lng: number; timeMs: number } | null = null;
-        data.forEach((item: any, idx: number) => {
+        for (let idx = 0; idx < data.length; idx++) {
+          const item = data[idx];
           const coords = parsePointGeom(item.geom);
           if (coords) {
             const timeMs = new Date(item.recorded_at).getTime();
@@ -216,6 +221,16 @@ export default function LocationHistoryScreen() {
             }
             prevPoint = { lat: coords.latitude, lng: coords.longitude, timeMs };
 
+            let streetAddr = `Location • ${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`;
+            try {
+              const geoRes = await Location.reverseGeocodeAsync({ latitude: coords.latitude, longitude: coords.longitude });
+              if (geoRes && geoRes.length > 0) {
+                const place = geoRes[0];
+                const nameParts = [place.name, place.street, place.district || place.subregion || place.city].filter(Boolean);
+                if (nameParts.length > 0) streetAddr = nameParts.join(', ');
+              }
+            } catch (e) {}
+
             fetchedPoints.push({
               id: item.id?.toString() || idx.toString(),
               latitude: coords.latitude,
@@ -224,13 +239,14 @@ export default function LocationHistoryScreen() {
               rawTimeMs: timeMs,
               speedKmh: speed,
               activity: speed > 15 ? 'Driving / Traveling' : speed > 3 ? 'Walking' : 'Stationary',
+              address: streetAddr,
             });
           }
-        });
+        }
       }
 
-      // 2. Fallback to latest position in locations table if history is sparse
-      if (fetchedPoints.length < 3) {
+      // 2. Fallback to authentic single location point if no multi-point history yet logged for selected date
+      if (fetchedPoints.length === 0) {
         const { data: latestLoc } = await supabase
           .from('locations')
           .select('*')
@@ -239,7 +255,7 @@ export default function LocationHistoryScreen() {
 
         let baseLat = 13.0827; // Default fallback (e.g. Chennai / Metro)
         let baseLng = 80.2707;
-        let locationName = 'City Area';
+        let realAddress = 'Recorded Position';
 
         if (latestLoc?.geom) {
           const coords = parsePointGeom(latestLoc.geom);
@@ -257,44 +273,32 @@ export default function LocationHistoryScreen() {
           } catch (e) {}
         }
 
-        // Reverse Geocode user's real location to get actual street/neighborhood name!
+        // Reverse Geocode user's real location to get actual street & neighborhood name
         try {
           const geoRes = await Location.reverseGeocodeAsync({ latitude: baseLat, longitude: baseLng });
           if (geoRes && geoRes.length > 0) {
             const place = geoRes[0];
-            locationName = place.district || place.subregion || place.city || place.street || 'Current Area';
+            const nameParts = [place.name, place.street, place.district || place.subregion || place.city].filter(Boolean);
+            realAddress = nameParts.length > 0 ? nameParts.join(', ') : 'Current Area';
           }
         } catch (e) {}
 
         const dayOffset = selectedDate === 'today' ? 0 : (selectedDate === 'yesterday' ? 1 : 2);
         const startTime = new Date();
         startTime.setDate(startTime.getDate() - dayOffset);
-        startTime.setHours(8, 30, 0, 0);
 
-        const routeWaypoints = [
-          { name: `Residence • ${locationName}`, offsetLat: 0, offsetLng: 0, speed: 0, act: 'Stationary (Home)' },
-          { name: `Avenue Link • ${locationName}`, offsetLat: 0.0035, offsetLng: 0.0025, speed: 34, act: 'Driving' },
-          { name: `Local Plaza • ${locationName}`, offsetLat: 0.0075, offsetLng: 0.0060, speed: 0, act: 'Stationary (Coffee Stop)' },
-          { name: `Express Bypass • ${locationName}`, offsetLat: 0.0140, offsetLng: 0.0110, speed: 58, act: 'Driving' },
-          { name: `Work / Office Hub • ${locationName}`, offsetLat: 0.0210, offsetLng: 0.0180, speed: 0, act: 'Stationary (Office)' },
-          { name: `Return Route • ${locationName}`, offsetLat: 0.0110, offsetLng: 0.0090, speed: 42, act: 'Driving' },
-          { name: `Supermarket • ${locationName}`, offsetLat: 0.0040, offsetLng: 0.0015, speed: 0, act: 'Stationary (Shopping)' },
-          { name: `Residence Return • ${locationName}`, offsetLat: 0.0005, offsetLng: 0.0005, speed: 0, act: 'Stationary (Home)' },
+        fetchedPoints = [
+          {
+            id: 'real_pos_0',
+            latitude: baseLat,
+            longitude: baseLng,
+            timestamp: startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            rawTimeMs: startTime.getTime(),
+            speedKmh: 0,
+            activity: 'Stationary / Recorded Position',
+            address: realAddress,
+          }
         ];
-
-        fetchedPoints = routeWaypoints.map((wpt, idx) => {
-          const pointTime = new Date(startTime.getTime() + idx * 50 * 60000);
-          return {
-            id: `hist_${idx}`,
-            latitude: baseLat + wpt.offsetLat,
-            longitude: baseLng + wpt.offsetLng,
-            timestamp: pointTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            rawTimeMs: pointTime.getTime(),
-            speedKmh: wpt.speed,
-            activity: wpt.act,
-            address: wpt.name,
-          };
-        });
       }
 
       // Apply 3-point moving average smoothing to the raw GPS trajectory
@@ -340,32 +344,59 @@ export default function LocationHistoryScreen() {
       setRoadCoords(allRoadCoords);
       setRoadBearings(allBearings);
 
-      // 4. Compute max speed, travel duration, and stationary stops
+      // 4. Compute max speed, travel duration, and cluster authentic stationary stay locations (>= 5 mins)
       let maxSpd = 0;
       const stops: StationaryStop[] = [];
 
       if (fetchedPoints.length > 0) {
-        for (let i = 0; i < fetchedPoints.length; i++) {
-          const pt = fetchedPoints[i];
+        fetchedPoints.forEach((pt) => {
           if (pt.speedKmh > maxSpd) maxSpd = pt.speedKmh;
+        });
 
-          if (pt.activity.includes('Stationary') || pt.speedKmh === 0) {
-            stops.push({
-              id: `stop_${i}`,
-              name: pt.address || `Stationary Stop #${stops.length + 1}`,
-              latitude: pt.latitude,
-              longitude: pt.longitude,
-              arrivalTime: pt.timestamp,
-              departureTime: pt.timestamp,
-              durationMinutes: 30,
-            });
+        // Cluster consecutive stationary points (speed === 0) into authentic stays >= 5 mins
+        let currentGroup: HistoryPoint[] = [];
+
+        fetchedPoints.forEach((pt) => {
+          if (pt.speedKmh === 0 || pt.activity.includes('Stationary')) {
+            currentGroup.push(pt);
+          } else {
+            if (currentGroup.length >= 2) {
+              const first = currentGroup[0];
+              const last = currentGroup[currentGroup.length - 1];
+              const dwellMins = Math.max(5, Math.round((last.rawTimeMs - first.rawTimeMs) / 60000));
+              stops.push({
+                id: `stop_${first.id}`,
+                name: first.address || 'Recorded Stay Location',
+                latitude: first.latitude,
+                longitude: first.longitude,
+                arrivalTime: first.timestamp,
+                departureTime: last.timestamp,
+                durationMinutes: dwellMins,
+              });
+            }
+            currentGroup = [];
           }
+        });
+
+        if (currentGroup.length >= 2) {
+          const first = currentGroup[0];
+          const last = currentGroup[currentGroup.length - 1];
+          const dwellMins = Math.max(5, Math.round((last.rawTimeMs - first.rawTimeMs) / 60000));
+          stops.push({
+            id: `stop_${first.id}`,
+            name: first.address || 'Recorded Stay Location',
+            latitude: first.latitude,
+            longitude: first.longitude,
+            arrivalTime: first.timestamp,
+            departureTime: last.timestamp,
+            durationMinutes: dwellMins,
+          });
         }
       }
 
-      setTotalDistanceKm(totalDist > 0 ? totalDist : 0);
+      setTotalDistanceKm(totalDist > 0 ? parseFloat(totalDist.toFixed(1)) : 0);
       setTopSpeedKmh(maxSpd);
-      setTravelDurationMinutes(totalDur > 0 ? totalDur : Math.max(15, fetchedPoints.length * 18));
+      setTravelDurationMinutes(totalDur > 0 ? totalDur : 0);
       setStationaryStops(stops);
 
     } catch (err) {
@@ -580,7 +611,7 @@ export default function LocationHistoryScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border, paddingTop: topInset + 14, paddingBottom: 14 }]}>
         <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Ionicons name="chevron-back" size={22} color={colors.foreground} />
         </TouchableOpacity>
@@ -602,7 +633,14 @@ export default function LocationHistoryScreen() {
             onPress={() => setSelectedDate('today')}
             activeOpacity={0.8}
           >
-            <Text style={[styles.datePillText, { color: selectedDate === 'today' ? '#FFFFFF' : '#D4AF37' }]}>TODAY</Text>
+            <Text 
+              style={[styles.datePillText, { color: selectedDate === 'today' ? '#FFFFFF' : '#D4AF37' }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
+              TODAY
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -610,7 +648,14 @@ export default function LocationHistoryScreen() {
             onPress={() => setSelectedDate('yesterday')}
             activeOpacity={0.8}
           >
-            <Text style={[styles.datePillText, { color: selectedDate === 'yesterday' ? '#FFFFFF' : '#D4AF37' }]}>YESTERDAY</Text>
+            <Text 
+              style={[styles.datePillText, { color: selectedDate === 'yesterday' ? '#FFFFFF' : '#D4AF37' }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
+              YESTERDAY
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -618,7 +663,14 @@ export default function LocationHistoryScreen() {
             onPress={() => setSelectedDate('2daysAgo')}
             activeOpacity={0.8}
           >
-            <Text style={[styles.datePillText, { color: selectedDate === '2daysAgo' ? '#FFFFFF' : '#D4AF37' }]}>2 DAYS AGO</Text>
+            <Text 
+              style={[styles.datePillText, { color: selectedDate === '2daysAgo' ? '#FFFFFF' : '#D4AF37' }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
+              2 DAYS
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -747,7 +799,7 @@ export default function LocationHistoryScreen() {
             <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
               <Ionicons name="navigate-outline" size={18} color={colors.accentGold} />
             </View>
-            <Text style={[styles.metricVal, { color: colors.foreground }]}>{totalDistanceKm} km</Text>
+            <Text style={[styles.metricVal, { color: colors.foreground }]}>{typeof totalDistanceKm === 'number' ? totalDistanceKm.toFixed(1) : totalDistanceKm} km</Text>
             <Text style={[styles.metricLbl, { color: colors.textMuted }]}>TOTAL DISTANCE</Text>
           </View>
 
@@ -863,20 +915,20 @@ const styles = StyleSheet.create({
   controlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 10,
-    gap: 10,
+    gap: 8,
   },
   dateSelectorContainer: {
     flexDirection: 'row',
-    padding: 4,
-    borderRadius: 24,
+    padding: 3,
+    borderRadius: 20,
     borderWidth: 1,
   },
   datePill: {
     flex: 1,
-    height: 34,
-    borderRadius: 20,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -888,19 +940,21 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   datePillText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    paddingHorizontal: 2,
+    textAlign: 'center',
   },
   memberDropdownBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    height: 42,
-    borderRadius: 21,
+    gap: 6,
+    paddingHorizontal: 10,
+    height: 38,
+    borderRadius: 19,
     borderWidth: 1,
-    maxWidth: 135,
+    maxWidth: 120,
   },
   avatarCircleMini: {
     width: 24,

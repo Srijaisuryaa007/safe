@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, ActivityIndicator, Dimensions, Platform, StatusBar } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
@@ -30,6 +31,21 @@ interface TripItem {
   speedingEvents: number;
   routeCoords: { lat: number; lng: number; speed: number }[];
   isOutbound?: boolean;
+}
+
+function calculateHaversineDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371e3; // Earth radius in meters
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
 }
 
 function parseEWKBPoint(hex: string): { latitude: number; longitude: number } | null {
@@ -63,7 +79,7 @@ function parseEWKBPoint(hex: string): { latitude: number; longitude: number } | 
         return { latitude: lat, longitude: lng };
       }
     }
-  } catch (e) {}
+  } catch (e) { }
   return null;
 }
 
@@ -94,6 +110,9 @@ export default function DrivingReportsScreen() {
   const { colors, isDark } = useThemeStore();
   const { activeCircle, members } = useCircleStore();
   const { profile } = useAuthStore();
+
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 36) : 44);
 
   const [selectedDate, setSelectedDate] = useState<'today' | 'yesterday' | '2daysAgo'>('today');
   const [selectedMemberId, setSelectedMemberId] = useState<string>(profile?.id || '');
@@ -179,7 +198,7 @@ export default function DrivingReportsScreen() {
               baseLat = cur.coords.latitude;
               baseLng = cur.coords.longitude;
             }
-          } catch (e) {}
+          } catch (e) { }
         }
       }
 
@@ -190,86 +209,79 @@ export default function DrivingReportsScreen() {
           const p = geo[0];
           realCity = p.district || p.subregion || p.city || p.street || 'Current Area';
         }
-      } catch (e) {}
+      } catch (e) { }
 
-      // Generate points for an out-and-back trip
-      const nowMs = Date.now();
-      const points = [
-        // Outbound Leg
-        { lat: baseLat, lng: baseLng, timeMs: nowMs - 60*60*1000, speed: 20 },
-        { lat: baseLat + 0.005, lng: baseLng + 0.005, timeMs: nowMs - 55*60*1000, speed: 45 },
-        { lat: baseLat + 0.010, lng: baseLng + 0.010, timeMs: nowMs - 50*60*1000, speed: 60 },
-        
-        // Stationary for 10 minutes at destination (Will cause a split!)
-        { lat: baseLat + 0.010, lng: baseLng + 0.010, timeMs: nowMs - 40*60*1000, speed: 0 },
-        
-        // Return Leg (Same road)
-        { lat: baseLat + 0.005, lng: baseLng + 0.005, timeMs: nowMs - 35*60*1000, speed: 45 },
-        { lat: baseLat, lng: baseLng, timeMs: nowMs - 30*60*1000, speed: 30 },
-      ];
+      // 2. Query Supabase location_history table for selectedDate
+      const dayOffset = selectedDate === 'today' ? 0 : (selectedDate === 'yesterday' ? 1 : 2);
+      const start = new Date();
+      start.setDate(start.getDate() - dayOffset);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setHours(23, 59, 59, 999);
 
-      // Segment trips by stops > 5 mins
-      const tripLegs = segmentTripsByStops(
-        points,
-        (p) => p.timeMs,
-        (p) => p.lat,
-        (p) => p.lng,
-        5,
-        50
-      );
+      const { data: histData } = await supabase
+        .from('location_history')
+        .select('*')
+        .eq('user_id', targetUserId)
+        .gte('recorded_at', start.toISOString())
+        .lte('recorded_at', end.toISOString())
+        .order('recorded_at', { ascending: true });
 
-      const generatedTrips: TripItem[] = tripLegs.map((leg, idx) => {
-        const isOutbound = leg.isOutbound;
-        return {
-          id: `trip_${idx}_${selectedDate}`,
-          title: isOutbound ? 'Outbound Journey' : 'Return Journey',
-          startTime: new Date(leg.startTimeMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          endTime: new Date(leg.endTimeMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          startAddress: isOutbound ? `Home • ${realCity}` : `Destination • ${realCity}`,
-          endAddress: isOutbound ? `Destination • ${realCity}` : `Home • ${realCity}`,
-          distanceKm: 5.2,
-          durationMins: Math.round((leg.endTimeMs - leg.startTimeMs) / 60000) || 1,
-          topSpeedKmh: 60,
-          avgSpeedKmh: 35,
-          score: 98,
-          hardBrakes: 0,
-          rapidAccels: 0,
-          speedingEvents: 0,
-          routeCoords: leg.points,
-          isOutbound: isOutbound, // Store direction for rendering
-        };
-      });
+      let generatedTrips: TripItem[] = [];
 
-      // Add one more trip that is a quick out-and-back WITHOUT a long stop (No split)
-      const quickPoints = [
-        { lat: baseLat, lng: baseLng + 0.02, timeMs: nowMs - 20*60*1000, speed: 20 },
-        { lat: baseLat + 0.002, lng: baseLng + 0.022, timeMs: nowMs - 18*60*1000, speed: 40 },
-        { lat: baseLat + 0.002, lng: baseLng + 0.022, timeMs: nowMs - 16*60*1000, speed: 0 }, // 2 min stop
-        { lat: baseLat, lng: baseLng + 0.02, timeMs: nowMs - 14*60*1000, speed: 30 },
-      ];
-
-      const quickLegs = segmentTripsByStops(quickPoints, (p) => p.timeMs, (p) => p.lat, (p) => p.lng, 5, 50);
-      
-      quickLegs.forEach((leg, idx) => {
-        generatedTrips.push({
-          id: `trip_quick_${idx}_${selectedDate}`,
-          title: 'Quick Errand (No Split)',
-          startTime: new Date(leg.startTimeMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          endTime: new Date(leg.endTimeMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          startAddress: `Store • ${realCity}`,
-          endAddress: `Home • ${realCity}`,
-          distanceKm: 2.1,
-          durationMins: 6,
-          topSpeedKmh: 40,
-          avgSpeedKmh: 25,
-          score: 100,
-          hardBrakes: 0,
-          rapidAccels: 0,
-          speedingEvents: 0,
-          routeCoords: leg.points,
-          isOutbound: true,
+      if (histData && histData.length > 1) {
+        const points = histData.map((h: any) => {
+          const coords = parsePointGeom(h.geom);
+          return {
+            lat: coords?.latitude || baseLat,
+            lng: coords?.longitude || baseLng,
+            timeMs: new Date(h.recorded_at).getTime(),
+            speed: Math.round((h.speed_mps || 0) * 3.6),
+          };
         });
-      });
+
+        const tripLegs = segmentTripsByStops(points, (p) => p.timeMs, (p) => p.lat, (p) => p.lng, 5, 50);
+
+        for (let idx = 0; idx < tripLegs.length; idx++) {
+          const leg = tripLegs[idx];
+          let startAddr = `Location • ${realCity}`;
+          let endAddr = `Location • ${realCity}`;
+
+          try {
+            const startGeo = await Location.reverseGeocodeAsync({ latitude: leg.startLat, longitude: leg.startLng });
+            if (startGeo && startGeo.length > 0) {
+              const p = startGeo[0];
+              startAddr = [p.name, p.street, p.district || p.city].filter(Boolean).join(', ') || realCity;
+            }
+            const endGeo = await Location.reverseGeocodeAsync({ latitude: leg.endLat, longitude: leg.endLng });
+            if (endGeo && endGeo.length > 0) {
+              const p = endGeo[0];
+              endAddr = [p.name, p.street, p.district || p.city].filter(Boolean).join(', ') || realCity;
+            }
+          } catch (e) {}
+
+          const distKm = (calculateHaversineDistanceMeters(leg.startLat, leg.startLng, leg.endLat, leg.endLng) / 1000).toFixed(1);
+
+          generatedTrips.push({
+            id: `trip_${idx}_${selectedDate}`,
+            title: leg.isOutbound ? 'Outbound Journey' : 'Return Journey',
+            startTime: new Date(leg.startTimeMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            endTime: new Date(leg.endTimeMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            startAddress: startAddr,
+            endAddress: endAddr,
+            distanceKm: parseFloat(distKm) || 0.5,
+            durationMins: Math.round((leg.endTimeMs - leg.startTimeMs) / 60000) || 1,
+            topSpeedKmh: Math.max(...leg.points.map((p: any) => p.speed || 0), 25),
+            avgSpeedKmh: 30,
+            score: 100,
+            hardBrakes: 0,
+            rapidAccels: 0,
+            speedingEvents: 0,
+            routeCoords: leg.points,
+            isOutbound: leg.isOutbound,
+          });
+        }
+      }
 
       setTrips(generatedTrips);
 
@@ -402,7 +414,7 @@ export default function DrivingReportsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header Bar */}
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border, paddingTop: topInset + 14, paddingBottom: 14 }]}>
         <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Ionicons name="chevron-back" size={22} color={colors.foreground} />
         </TouchableOpacity>
@@ -424,7 +436,14 @@ export default function DrivingReportsScreen() {
             onPress={() => setSelectedDate('today')}
             activeOpacity={0.8}
           >
-            <Text style={[styles.datePillText, { color: selectedDate === 'today' ? '#FFFFFF' : '#D4AF37' }]}>TODAY</Text>
+            <Text
+              style={[styles.datePillText, { color: selectedDate === 'today' ? '#FFFFFF' : '#D4AF37' }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
+              TODAY
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -432,7 +451,14 @@ export default function DrivingReportsScreen() {
             onPress={() => setSelectedDate('yesterday')}
             activeOpacity={0.8}
           >
-            <Text style={[styles.datePillText, { color: selectedDate === 'yesterday' ? '#FFFFFF' : '#D4AF37' }]}>YESTERDAY</Text>
+            <Text
+              style={[styles.datePillText, { color: selectedDate === 'yesterday' ? '#FFFFFF' : '#D4AF37' }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
+              YESTERDAY
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -440,7 +466,14 @@ export default function DrivingReportsScreen() {
             onPress={() => setSelectedDate('2daysAgo')}
             activeOpacity={0.8}
           >
-            <Text style={[styles.datePillText, { color: selectedDate === '2daysAgo' ? '#FFFFFF' : '#D4AF37' }]}>2 DAYS AGO</Text>
+            <Text
+              style={[styles.datePillText, { color: selectedDate === '2daysAgo' ? '#FFFFFF' : '#D4AF37' }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
+              2 DAYS
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -505,10 +538,30 @@ export default function DrivingReportsScreen() {
         ) : (
           <>
             {/* Safety Score Card */}
-            <View style={[styles.scoreCard, { backgroundColor: colors.surface, borderColor: '#D4AF37' }]}>
+            <View style={[styles.scoreCard, { backgroundColor: colors.surface, borderColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.4)' : (driverScore >= 80 ? 'rgba(212, 175, 55, 0.4)' : 'rgba(255, 83, 106, 0.4)') }]}>
+              {/* Header Badge */}
+              <View style={styles.scoreBadgeHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="shield-checkmark" size={14} color={colors.accentGold} />
+                  <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.accentGold, letterSpacing: 1.2 }}>
+                    TELEMETRY SAFETY EVALUATION
+                  </Text>
+                </View>
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(212, 175, 55, 0.15)' }}>
+                  <Text style={{ fontSize: 9, fontWeight: '900', color: driverScore >= 90 ? '#10B981' : '#D4AF37', letterSpacing: 1 }}>
+                    {driverScore >= 90 ? 'GRADE A+' : 'GRADE B'}
+                  </Text>
+                </View>
+              </View>
+
               <View style={styles.scoreTopRow}>
-                <View style={[styles.scoreCircleBg, { borderColor: driverScore >= 90 ? '#10B981' : driverScore >= 80 ? '#D4AF37' : '#FF536A' }]}>
-                  <Text style={[styles.scoreNum, { color: driverScore >= 90 ? '#10B981' : driverScore >= 80 ? '#D4AF37' : '#FF536A' }]}>
+                <View style={[styles.scoreCircleBg, { borderColor: driverScore >= 90 ? '#10B981' : driverScore >= 80 ? '#D4AF37' : '#FF536A', backgroundColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.08)' : 'rgba(212, 175, 55, 0.08)' }]}>
+                  <Text 
+                    style={[styles.scoreNum, { color: driverScore >= 90 ? '#10B981' : driverScore >= 80 ? '#D4AF37' : '#FF536A' }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
                     {driverScore}
                   </Text>
                   <Text style={styles.scoreDenom}>/100</Text>
@@ -527,18 +580,18 @@ export default function DrivingReportsScreen() {
               {/* Safety Event Badges Row */}
               <View style={styles.eventBadgesRow}>
                 <View style={[styles.eventBadge, { backgroundColor: 'rgba(16, 185, 129, 0.12)', borderColor: 'rgba(16, 185, 129, 0.3)' }]}>
-                  <Ionicons name="hand-right-outline" size={14} color="#10B981" />
+                  <Ionicons name="hand-right" size={13} color="#10B981" />
                   <Text style={[styles.eventBadgeText, { color: '#10B981' }]}>{totalHardBrakes} HARD BRAKES</Text>
                 </View>
 
                 <View style={[styles.eventBadge, { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: 'rgba(212, 175, 55, 0.3)' }]}>
-                  <Ionicons name="flash-outline" size={14} color="#D4AF37" />
+                  <Ionicons name="flash" size={13} color="#D4AF37" />
                   <Text style={[styles.eventBadgeText, { color: '#D4AF37' }]}>{totalRapidAccels} RAPID ACCELS</Text>
                 </View>
 
-                <View style={[styles.eventBadge, { backgroundColor: 'rgba(255, 83, 106, 0.12)', borderColor: 'rgba(255, 83, 106, 0.3)' }]}>
-                  <Ionicons name="speedometer-outline" size={14} color="#FF536A" />
-                  <Text style={[styles.eventBadgeText, { color: '#FF536A' }]}>{totalSpeedingEvents} SPEEDING</Text>
+                <View style={[styles.eventBadge, { backgroundColor: totalSpeedingEvents > 0 ? 'rgba(255, 83, 106, 0.12)' : 'rgba(16, 185, 129, 0.12)', borderColor: totalSpeedingEvents > 0 ? 'rgba(255, 83, 106, 0.3)' : 'rgba(16, 185, 129, 0.3)' }]}>
+                  <Ionicons name="speedometer" size={13} color={totalSpeedingEvents > 0 ? '#FF536A' : '#10B981'} />
+                  <Text style={[styles.eventBadgeText, { color: totalSpeedingEvents > 0 ? '#FF536A' : '#10B981' }]}>{totalSpeedingEvents} SPEEDING</Text>
                 </View>
               </View>
             </View>
@@ -587,56 +640,66 @@ export default function DrivingReportsScreen() {
             </View>
 
             {/* Trips List Cards */}
-            {trips.map(trip => {
-              const isSpeeding = trip.topSpeedKmh > 80;
-              return (
-                <TouchableOpacity
-                  key={trip.id}
-                  style={[styles.tripCard, { backgroundColor: colors.surface, borderColor: isSpeeding ? 'rgba(255,82,102,0.3)' : colors.border }]}
-                  onPress={() => setSelectedTrip(trip)}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.tripCardHeader}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.tripTitle, { color: colors.foreground, textTransform: 'none', fontWeight: '700' }]}>{trip.title || 'Recorded Trip'}</Text>
-                      <Text style={[styles.tripTime, { color: colors.textMuted }]}>
-                        {trip.startTime || '08:00 AM'} → {trip.endTime || '08:30 AM'} ({trip.durationMins || 30} mins)
+            {trips.length === 0 ? (
+              <View style={[styles.emptyTripsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Ionicons name="car-sport-outline" size={40} color={colors.textMuted} style={{ marginBottom: 8 }} />
+                <Text style={[styles.emptyTripsTitle, { color: colors.foreground }]}>NO DRIVING TRAIL RECORDED</Text>
+                <Text style={[styles.emptyTripsSub, { color: colors.textMuted }]}>
+                  No driving journeys logged for {selectedMemberName} on {selectedDate.toUpperCase()}. GPS will automatically log upcoming driving routes.
+                </Text>
+              </View>
+            ) : (
+              trips.map((trip) => {
+                const isSpeeding = trip.topSpeedKmh > 80;
+                return (
+                  <TouchableOpacity
+                    key={trip.id}
+                    style={[styles.tripCard, { backgroundColor: colors.surface, borderColor: isSpeeding ? 'rgba(255,82,102,0.3)' : colors.border }]}
+                    onPress={() => setSelectedTrip(trip)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.tripCardHeader}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.tripTitle, { color: colors.foreground, textTransform: 'none', fontWeight: '700' }]}>{trip.title || 'Recorded Trip'}</Text>
+                        <Text style={[styles.tripTime, { color: colors.textMuted }]}>
+                          {trip.startTime || '08:00 AM'} → {trip.endTime || '08:30 AM'} ({trip.durationMins || 30} mins)
+                        </Text>
+                      </View>
+
+                      <View style={[styles.tripScoreBadge, { backgroundColor: trip.score >= 90 ? '#16B889' : trip.score >= 75 ? '#D4AF37' : '#FF5266' }]}>
+                        <Text style={[styles.tripScoreText, { color: '#FFFFFF' }]}>{trip.score || 85}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.tripRoutePoints}>
+                      <View style={styles.routePointRow}>
+                        <Ionicons name="ellipse" size={10} color="#16B889" />
+                        <Text style={[styles.routePointText, { color: colors.foreground }]} numberOfLines={1}>{trip.startAddress || 'Start Point'}</Text>
+                      </View>
+                      <View style={styles.routeLineDot} />
+                      <View style={styles.routePointRow}>
+                        <Ionicons name="location" size={12} color="#FF5266" />
+                        <Text style={[styles.routePointText, { color: colors.foreground }]} numberOfLines={1}>{trip.endAddress || 'Destination'}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.tripFooterStats}>
+                      <Text style={[styles.tripStatText, { color: colors.textMuted }]}>
+                        Distance: <Text style={{ color: colors.foreground, fontWeight: '800' }}>{trip.distanceKm} km</Text>
                       </Text>
-                    </View>
-
-                    <View style={[styles.tripScoreBadge, { backgroundColor: trip.score >= 90 ? '#16B889' : trip.score >= 75 ? '#D4AF37' : '#FF5266' }]}>
-                      <Text style={[styles.tripScoreText, { color: '#FFFFFF' }]}>{trip.score || 85}</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.tripRoutePoints}>
-                    <View style={styles.routePointRow}>
-                      <Ionicons name="ellipse" size={10} color="#16B889" />
-                      <Text style={[styles.routePointText, { color: colors.foreground }]} numberOfLines={1}>{trip.startAddress || 'Start Point'}</Text>
-                    </View>
-                    <View style={styles.routeLineDot} />
-                    <View style={styles.routePointRow}>
-                      <Ionicons name="location" size={12} color="#FF5266" />
-                      <Text style={[styles.routePointText, { color: colors.foreground }]} numberOfLines={1}>{trip.endAddress || 'Destination'}</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.tripFooterStats}>
-                    <Text style={[styles.tripStatText, { color: colors.textMuted }]}>
-                      Distance: <Text style={{ color: colors.foreground, fontWeight: '800' }}>{trip.distanceKm} km</Text>
-                    </Text>
-                    <Text style={[styles.tripStatText, { color: colors.textMuted }]}>
-                      Top Speed: <Text style={{ color: isSpeeding ? '#FF5266' : colors.foreground, fontWeight: '800' }}>
-                        {trip.topSpeedKmh} km/h {isSpeeding ? ' ⚠️' : ''}
+                      <Text style={[styles.tripStatText, { color: colors.textMuted }]}>
+                        Top Speed: <Text style={{ color: isSpeeding ? '#FF5266' : colors.foreground, fontWeight: '800' }}>
+                          {trip.topSpeedKmh} km/h {isSpeeding ? ' ⚠️' : ''}
+                        </Text>
                       </Text>
-                    </Text>
-                    <View style={styles.inspectBtn}>
-                      <Text style={[styles.viewDetailsText, { color: '#D4AF37', fontWeight: '800' }]}>INSPECT ROUTE →</Text>
+                      <View style={styles.inspectBtn}>
+                        <Text style={[styles.viewDetailsText, { color: '#D4AF37', fontWeight: '800' }]}>INSPECT ROUTE →</Text>
+                      </View>
                     </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+                  </TouchableOpacity>
+                );
+              })
+            )}
           </>
         )}
       </ScrollView>
@@ -735,20 +798,20 @@ const styles = StyleSheet.create({
   controlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 10,
-    gap: 10,
+    gap: 8,
   },
   dateSelectorContainer: {
     flexDirection: 'row',
-    padding: 4,
-    borderRadius: 24,
+    padding: 3,
+    borderRadius: 20,
     borderWidth: 1,
   },
   datePill: {
     flex: 1,
-    height: 34,
-    borderRadius: 20,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -760,19 +823,21 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   datePillText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    paddingHorizontal: 2,
+    textAlign: 'center',
   },
   memberDropdownBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    height: 42,
-    borderRadius: 21,
+    gap: 6,
+    paddingHorizontal: 10,
+    height: 38,
+    borderRadius: 19,
     borderWidth: 1,
-    maxWidth: 135,
+    maxWidth: 120,
   },
   avatarCircleMini: {
     width: 24,
@@ -850,10 +915,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   scoreCard: {
-    padding: 20,
-    borderRadius: 20,
-    borderWidth: 1,
-    marginBottom: 16,
+    padding: 18,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  scoreBadgeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(150, 150, 150, 0.15)',
   },
   scoreTopRow: {
     flexDirection: 'row',
@@ -862,23 +941,27 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   scoreCircleBg: {
-    width: 72,
-    height: 72,
-    borderWidth: 3,
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    borderWidth: 3.5,
     justifyContent: 'center',
     alignItems: 'center',
-    flexDirection: 'row',
+    flexDirection: 'column',
+    padding: 4,
+    elevation: 3,
   },
   scoreNum: {
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 26,
+    fontWeight: '900',
+    lineHeight: 28,
+    letterSpacing: -0.5,
   },
   scoreDenom: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '800',
     color: '#9CA3AF',
-    marginLeft: 1,
-    marginTop: 8,
+    marginTop: 0,
   },
   scoreInfo: {
     flex: 1,
@@ -1089,11 +1172,30 @@ const styles = StyleSheet.create({
   modalStatVal: {
     fontSize: 16,
     fontWeight: '800',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   modalStatLbl: {
     fontSize: 9,
     fontWeight: '700',
     letterSpacing: 0.8,
+  },
+  emptyTripsCard: {
+    padding: 24,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 12,
+  },
+  emptyTripsTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  emptyTripsSub: {
+    fontSize: 11,
+    textAlign: 'center',
+    lineHeight: 16,
   },
 });

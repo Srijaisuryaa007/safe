@@ -5,6 +5,7 @@ import { useThemeStore } from '../store/useThemeStore';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
+import JellySqueezeButton from './JellySqueezeButton';
 
 interface LogoutModalProps {
   visible: boolean;
@@ -15,7 +16,7 @@ export default function LogoutModal({
   visible,
   onClose,
 }: LogoutModalProps) {
-  const { colors } = useThemeStore();
+  const { colors, isDark } = useThemeStore();
   const { profile } = useAuthStore();
   const { activeCircle } = useCircleStore();
   const [loggingOut, setLoggingOut] = useState(false);
@@ -37,26 +38,37 @@ export default function LogoutModal({
   const displayName = profile?.full_name || 'CircleGuard User';
 
   return (
-    <Modal visible={visible} animationType="fade" transparent>
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: '#EF4444' }]}>
+        <View
+          style={[
+            styles.modalCard,
+            {
+              backgroundColor: isDark ? colors.surface : '#FFFFFF',
+              borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : '#FCA5A5',
+            },
+          ]}
+        >
+          {/* Glowing Crimson Top Stripe */}
+          <View style={styles.topAccentStripe} />
+
           {/* Crimson Icon Emblem */}
-          <View style={styles.iconCircle}>
-            <Ionicons name="log-out" size={32} color="#EF4444" />
+          <View style={[styles.iconCircle, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+            <Ionicons name="power" size={30} color="#EF4444" />
           </View>
 
           {/* Title & Subtitle */}
           <Text style={[styles.title, { color: colors.foreground }]}>Disconnect Session?</Text>
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            Logging out will temporarily pause live GPS circle tracking for {displayName}.
+            Logging out will sign you out of your encrypted profile and temporarily pause live location sharing for <Text style={{ color: colors.foreground, fontWeight: '700' }}>{displayName}</Text>.
           </Text>
 
           {/* Active Session Info Box */}
-          <View style={[styles.sessionBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
+          <View style={[styles.sessionBox, { backgroundColor: isDark ? colors.background : '#F8FAFC', borderColor: colors.border }]}>
             <View style={styles.sessionRow}>
               <Ionicons name="person-circle-outline" size={18} color={colors.accentGold} />
               <Text style={[styles.sessionText, { color: colors.foreground }]} numberOfLines={1}>
-                {displayName}
+                User: {displayName}
               </Text>
             </View>
 
@@ -64,15 +76,15 @@ export default function LogoutModal({
               <View style={styles.sessionRow}>
                 <Ionicons name="people-outline" size={18} color="#10B981" />
                 <Text style={[styles.sessionText, { color: colors.textMuted }]} numberOfLines={1}>
-                  Active Circle: {activeCircle.name}
+                  Circle: {activeCircle.name}
                 </Text>
               </View>
             ) : null}
 
             <View style={styles.sessionRow}>
-              <Ionicons name="lock-closed-outline" size={18} color="#A855F7" />
+              <Ionicons name="shield-checkmark-outline" size={18} color="#A855F7" />
               <Text style={[styles.sessionText, { color: colors.textMuted }]}>
-                AES-256 Encrypted Session Vault
+                AES-256 Encrypted Session Storage
               </Text>
             </View>
           </View>
@@ -81,21 +93,21 @@ export default function LogoutModal({
           {loggingOut ? (
             <View style={styles.loaderBox}>
               <ActivityIndicator size="small" color="#EF4444" />
-              <Text style={[styles.loaderText, { color: colors.textMuted }]}>Disconnecting session...</Text>
+              <Text style={[styles.loaderText, { color: colors.textMuted }]}>Disconnecting active session...</Text>
             </View>
           ) : (
             <View style={styles.buttonCol}>
-              <TouchableOpacity
-                style={styles.confirmBtn}
+              <JellySqueezeButton
+                glowColor="#EF4444"
+                style={styles.confirmJellyBtn}
                 onPress={handleConfirmLogout}
-                activeOpacity={0.8}
               >
-                <Ionicons name="power-outline" size={18} color="#FFFFFF" />
-                <Text style={styles.confirmBtnText}>LOGOUT OF CIRCLEGUARD</Text>
-              </TouchableOpacity>
+                <Ionicons name="power" size={18} color="#FFFFFF" />
+                <Text style={styles.confirmBtnText}>LOGOUT OF ACCOUNT</Text>
+              </JellySqueezeButton>
 
               <TouchableOpacity
-                style={[styles.cancelBtn, { backgroundColor: colors.background, borderColor: colors.border }]}
+                style={[styles.cancelBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F1F5F9', borderColor: colors.border }]}
                 onPress={onClose}
                 activeOpacity={0.8}
               >
@@ -112,7 +124,7 @@ export default function LogoutModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
@@ -121,42 +133,53 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 350,
     borderRadius: 24,
-    borderWidth: 1.5,
+    borderWidth: 1,
     padding: 24,
     alignItems: 'center',
+    position: 'relative',
+    overflow: 'hidden',
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  topAccentStripe: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 4,
+    backgroundColor: '#EF4444',
   },
   iconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderWidth: 2,
-    borderColor: '#EF4444',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 1.5,
+    borderColor: 'rgba(239, 68, 68, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
+    marginTop: 6,
   },
   title: {
-    fontSize: 20,
+    fontSize: 19,
     fontWeight: '800',
     textAlign: 'center',
     marginBottom: 8,
+    letterSpacing: -0.3,
   },
   subtitle: {
     fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
     lineHeight: 18,
-    marginBottom: 20,
+    marginBottom: 18,
   },
   sessionBox: {
     width: '100%',
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     padding: 14,
     gap: 10,
@@ -169,7 +192,7 @@ const styles = StyleSheet.create({
   },
   sessionText: {
     fontSize: 11.5,
-    fontWeight: '700',
+    fontWeight: '600',
     flex: 1,
   },
   loaderBox: {
@@ -185,20 +208,13 @@ const styles = StyleSheet.create({
     width: '100%',
     gap: 10,
   },
-  confirmBtn: {
+  confirmJellyBtn: {
     width: '100%',
     height: 48,
     backgroundColor: '#EF4444',
-    borderRadius: 12,
-    flexDirection: 'row',
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
-    shadowColor: '#EF4444',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
   },
   confirmBtnText: {
     color: '#FFFFFF',
@@ -209,7 +225,7 @@ const styles = StyleSheet.create({
   cancelBtn: {
     width: '100%',
     height: 44,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',

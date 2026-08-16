@@ -52,9 +52,9 @@ export default function LeaderApprovalModal({
       }
 
       // 2. Insert into circle messages so the request is logged in circle chat
-      await supabase.from('messages').insert({
+      await supabase.from('circle_messages').insert({
         circle_id: activeCircle.id,
-        user_id: profile.id,
+        sender_id: profile.id,
         content: `🔒 PERMISSION REQUEST: Requesting Circle Leader authorization to enable ${featureName}.`,
       });
 

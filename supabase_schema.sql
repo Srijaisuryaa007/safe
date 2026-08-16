@@ -33,7 +33,7 @@ create table if not exists public.circles (
 create table if not exists public.circle_members (
   circle_id uuid references public.circles(id) on delete cascade,
   user_id uuid references public.profiles(id) on delete cascade,
-  role text check (role in ('owner','member')) default 'member',
+  role text check (role in ('owner','co_leader','guardian','member')) default 'member',
   joined_at timestamptz default now(),
   primary key (circle_id, user_id)
 );
@@ -104,6 +104,17 @@ create table if not exists public.sos_alerts (
   resolved_at timestamptz
 );
 
+-- Circle Messages (In-App Realtime Chat)
+create table if not exists public.circle_messages (
+  id uuid primary key default gen_random_uuid(),
+  circle_id uuid references public.circles(id) on delete cascade not null,
+  sender_id uuid references public.profiles(id) on delete cascade not null,
+  content text not null,
+  message_type text default 'text',
+  media_url text,
+  created_at timestamptz default now()
+);
+
 
 -- 3. MIGRATION ALTER STATEMENTS (Safe for existing databases)
 
@@ -119,7 +130,9 @@ alter table public.circle_members
   drop constraint if exists circle_members_circle_id_fkey,
   add constraint circle_members_circle_id_fkey foreign key (circle_id) references public.circles(id) on delete cascade,
   drop constraint if exists circle_members_user_id_fkey,
-  add constraint circle_members_user_id_fkey foreign key (user_id) references public.profiles(id) on delete cascade;
+  add constraint circle_members_user_id_fkey foreign key (user_id) references public.profiles(id) on delete cascade,
+  drop constraint if exists circle_members_role_check,
+  add constraint circle_members_role_check check (role in ('owner','co_leader','guardian','member'));
 
 alter table public.locations 
   drop constraint if exists locations_user_id_fkey,
@@ -218,7 +231,17 @@ drop policy if exists "Users can insert their own profile" on public.profiles;
 create policy "Users can insert their own profile" on public.profiles for insert with check (auth.uid() = id);
 
 drop policy if exists "Users can update their own profile" on public.profiles;
-create policy "Users can update their own profile" on public.profiles for update using (auth.uid() = id);
+drop policy if exists "Users or circle leaders can update profiles" on public.profiles;
+create policy "Users or circle leaders can update profiles" on public.profiles for update using (
+  auth.uid() = id
+  or exists (
+    select 1 from public.circle_members cm_leader
+    join public.circle_members cm_target on cm_target.circle_id = cm_leader.circle_id
+    where cm_leader.user_id = auth.uid()
+    and cm_target.user_id = profiles.id
+    and cm_leader.role in ('owner', 'co_leader')
+  )
+);
 
 -- Circles
 drop policy if exists "Users can view circles they are a member of" on public.circles;
@@ -245,6 +268,9 @@ create policy "Users can join a circle" on public.circle_members for insert with
 
 drop policy if exists "Users can leave a circle" on public.circle_members;
 create policy "Users can leave a circle" on public.circle_members for delete using (auth.uid() = user_id);
+
+drop policy if exists "Circle members update role" on public.circle_members;
+create policy "Circle members update role" on public.circle_members for update using (true) with check (true);
 
 -- Locations (Allows instant cross-member reading & updating)
 drop policy if exists "circle members see each other locations" on public.locations;
@@ -303,7 +329,48 @@ drop policy if exists "Users can delete their own avatar" on storage.objects;
 create policy "Users can delete their own avatar" on storage.objects for delete using (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1]);
 
 
--- 9. SAFE REALTIME PUBLICATION ENABLEMENT (Ignores duplicate table errors)
+-- 9. CIRCLE MESSAGES RLS POLICIES
+alter table public.circle_messages enable row level security;
+
+drop policy if exists "Members can read circle messages" on public.circle_messages;
+create policy "Members can read circle messages" on public.circle_messages
+  for select using (
+    exists (
+      select 1 from public.circle_members cm
+      where cm.circle_id = circle_messages.circle_id
+      and cm.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "Members can insert circle messages" on public.circle_messages;
+create policy "Members can insert circle messages" on public.circle_messages
+  for insert with check (
+    exists (
+      select 1 from public.circle_members cm
+      where cm.circle_id = circle_messages.circle_id
+      and cm.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "Senders can delete their own circle messages" on public.circle_messages;
+drop policy if exists "Circle leaders or senders can delete circle messages" on public.circle_messages;
+create policy "Circle leaders or senders can delete circle messages" on public.circle_messages
+  for delete using (
+    sender_id = auth.uid()
+    or exists (
+      select 1 from public.circles c
+      where c.id = circle_messages.circle_id
+      and c.owner_id = auth.uid()
+    )
+    or exists (
+      select 1 from public.circle_members cm
+      where cm.circle_id = circle_messages.circle_id
+      and cm.user_id = auth.uid()
+      and cm.role in ('owner', 'co_leader')
+    )
+  );
+
+-- 10. SAFE REALTIME PUBLICATION ENABLEMENT (Ignores duplicate table errors)
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'locations') THEN
@@ -321,4 +388,225 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'location_shares') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.location_shares;
   END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'circle_messages') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'circle_messages') THEN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.circle_messages;
+    END IF;
+  END IF;
 END $$;
+
+
+-- ============================================================================
+-- 11. DISAPPEARING MESSAGES ARCHITECTURE & AUTOMATED WORKER FUNCTIONS
+-- ============================================================================
+
+-- Columns for public.circle_messages
+ALTER TABLE public.circle_messages 
+  ADD COLUMN IF NOT EXISTS expires_at timestamptz,
+  ADD COLUMN IF NOT EXISTS max_ttl_expires_at timestamptz DEFAULT (now() + interval '2 days'),
+  ADD COLUMN IF NOT EXISTS deleted_at timestamptz,
+  ADD COLUMN IF NOT EXISTS hard_delete_at timestamptz,
+  ADD COLUMN IF NOT EXISTS is_all_viewed boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS grace_period_days int DEFAULT 1;
+
+-- Table: public.message_views (Per-user read receipts)
+CREATE TABLE IF NOT EXISTS public.message_views (
+  message_id uuid REFERENCES public.circle_messages(id) ON DELETE CASCADE,
+  user_id uuid REFERENCES public.profiles(id) ON DELETE CASCADE,
+  viewed_at timestamptz DEFAULT now() NOT NULL,
+  viewport_duration_ms int DEFAULT 1500,
+  PRIMARY KEY (message_id, user_id)
+);
+
+ALTER TABLE public.message_views ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Members can view receipts in their circle" ON public.message_views;
+CREATE POLICY "Members can view receipts in their circle" ON public.message_views
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.circle_messages cm
+      JOIN public.circle_members cmemb ON cmemb.circle_id = cm.circle_id
+      WHERE cm.id = message_views.message_id
+      AND cmemb.user_id = auth.uid()
+    )
+  );
+
+DROP POLICY IF EXISTS "Users can insert their own view receipts" ON public.message_views;
+CREATE POLICY "Users can insert their own view receipts" ON public.message_views
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- Table: public.message_audit_log (Compliance & moderation before purge)
+CREATE TABLE IF NOT EXISTS public.message_audit_log (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id uuid NOT NULL,
+  circle_id uuid NOT NULL,
+  sender_id uuid NOT NULL,
+  event_type text CHECK (event_type IN ('created', 'viewed', 'soft_deleted', 'hard_purged')) NOT NULL,
+  event_timestamp timestamptz DEFAULT now() NOT NULL,
+  content_sha256 text NOT NULL,
+  viewers_count int DEFAULT 0
+);
+
+ALTER TABLE public.message_audit_log ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Circle owners can view audit logs" ON public.message_audit_log;
+CREATE POLICY "Circle owners can view audit logs" ON public.message_audit_log
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.circles c
+      WHERE c.id = message_audit_log.circle_id
+      AND c.owner_id = auth.uid()
+    )
+  );
+
+-- High-Performance Indexes
+CREATE INDEX IF NOT EXISTS idx_messages_soft_delete_scan 
+  ON public.circle_messages (deleted_at, expires_at, max_ttl_expires_at) 
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_messages_hard_purge_scan 
+  ON public.circle_messages (hard_delete_at) 
+  WHERE deleted_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_message_views_lookup 
+  ON public.message_views (message_id, user_id);
+
+-- RPC 1: mark_message_viewed
+CREATE OR REPLACE FUNCTION public.mark_message_viewed(
+  p_message_id uuid,
+  p_viewport_ms int DEFAULT 1500
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_circle_id uuid;
+  v_sender_id uuid;
+  v_total_eligible int;
+  v_total_viewed int;
+  v_is_all_viewed boolean;
+  v_grace_days int;
+  v_expires_at timestamptz;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required';
+  END IF;
+
+  SELECT circle_id, sender_id, is_all_viewed, grace_period_days
+  INTO v_circle_id, v_sender_id, v_is_all_viewed, v_grace_days
+  FROM circle_messages
+  WHERE id = p_message_id AND deleted_at IS NULL;
+
+  IF v_circle_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'Message not found or deleted');
+  END IF;
+
+  -- Record user view receipt using server timestamp
+  INSERT INTO message_views (message_id, user_id, viewed_at, viewport_duration_ms)
+  VALUES (p_message_id, v_user_id, now(), GREATEST(p_viewport_ms, 1500))
+  ON CONFLICT (message_id, user_id) DO NOTHING;
+
+  IF v_is_all_viewed THEN
+    RETURN jsonb_build_object('success', true, 'status', 'already_all_viewed');
+  END IF;
+
+  -- Total eligible recipients excluding sender
+  SELECT COUNT(*) INTO v_total_eligible
+  FROM circle_members
+  WHERE circle_id = v_circle_id AND user_id != v_sender_id;
+
+  IF v_total_eligible <= 0 THEN
+    v_total_eligible := 1;
+  END IF;
+
+  -- Total distinct views excluding sender
+  SELECT COUNT(DISTINCT mv.user_id) INTO v_total_viewed
+  FROM message_views mv
+  WHERE mv.message_id = p_message_id AND mv.user_id != v_sender_id;
+
+  IF v_total_viewed >= v_total_eligible THEN
+    v_expires_at := now() + (v_grace_days || ' days')::interval;
+
+    UPDATE circle_messages
+    SET is_all_viewed = true,
+        expires_at = v_expires_at
+    WHERE id = p_message_id;
+
+    RETURN jsonb_build_object(
+      'success', true, 
+      'status', 'transitioned_to_all_viewed', 
+      'expires_at', v_expires_at
+    );
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', true, 
+    'status', 'partially_viewed', 
+    'viewed_count', v_total_viewed, 
+    'eligible_count', v_total_eligible
+  );
+END;
+$$;
+
+-- RPC 2: process_disappearing_messages (Worker Cron Procedure)
+CREATE OR REPLACE FUNCTION public.process_disappearing_messages()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_soft_deleted_count int := 0;
+  v_hard_purged_count int := 0;
+  r RECORD;
+BEGIN
+  -- STAGE 1: SOFT-DELETE EXPIRED MESSAGES
+  WITH expired_candidates AS (
+    SELECT id FROM public.circle_messages
+    WHERE deleted_at IS NULL
+      AND (
+        (is_all_viewed = true AND expires_at IS NOT NULL AND now() >= expires_at)
+        OR (now() >= max_ttl_expires_at)
+      )
+  )
+  UPDATE public.circle_messages cm
+  SET deleted_at = now(),
+      hard_delete_at = now() + interval '7 days'
+  FROM expired_candidates ec
+  WHERE cm.id = ec.id;
+
+  GET DIAGNOSTICS v_soft_deleted_count = ROW_COUNT;
+
+  -- STAGE 2: HARD-PURGE BUFFERED MESSAGES & AUDIT
+  FOR r IN 
+    SELECT id, circle_id, sender_id, content, created_at
+    FROM public.circle_messages
+    WHERE deleted_at IS NOT NULL
+      AND now() >= hard_delete_at
+  LOOP
+    INSERT INTO public.message_audit_log (
+      message_id, circle_id, sender_id, event_type, event_timestamp, content_sha256, viewers_count
+    ) VALUES (
+      r.id,
+      r.circle_id,
+      r.sender_id,
+      'hard_purged',
+      now(),
+      encode(digest(r.content, 'sha256'), 'hex'),
+      (SELECT COUNT(*) FROM public.message_views WHERE message_id = r.id)
+    );
+
+    DELETE FROM public.circle_messages WHERE id = r.id;
+    v_hard_purged_count := v_hard_purged_count + 1;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'soft_deleted_count', v_soft_deleted_count,
+    'hard_purged_count', v_hard_purged_count,
+    'executed_at', now()
+  );
+END;
+$$;

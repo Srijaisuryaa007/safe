@@ -8,6 +8,7 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  StatusBar,
   ActivityIndicator,
   Image,
   Alert,
@@ -15,12 +16,15 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
+import TypingIndicator from '../components/TypingIndicator';
+import ReadReceiptCheckmarks from '../components/ReadReceiptCheckmarks';
 
 export interface ChatMessage {
   id: string;
@@ -37,6 +41,7 @@ export interface ChatMessage {
   sender_name?: string;
   sender_avatar?: string;
   is_viewed_by_me?: boolean;
+  reactions?: Record<string, string[]>;
 }
 
 export default function ChatScreen() {
@@ -45,16 +50,48 @@ export default function ChatScreen() {
   const { profile } = useAuthStore();
   const { activeCircle, members } = useCircleStore();
 
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 36) : 44);
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [selectedReactionMsgId, setSelectedReactionMsgId] = useState<string | null>(null);
+
   const flatListRef = useRef<FlatList>(null);
+  const channelRef = useRef<any>(null);
+  const typingTimeoutRef = useRef<any>(null);
 
   // Set of viewed message IDs to prevent duplicate RPC calls
   const viewedSetRef = useRef<Set<string>>(new Set());
 
   const quickPills = ["I'm Safe", "On My Way", "Heading Home", "Call Me ASAP"];
+
+  const handleInputChange = (text: string) => {
+    setInputText(text);
+
+    if (channelRef.current && profile?.id) {
+      const senderFirstName = profile?.full_name?.split(' ')[0] || 'Member';
+      const isTyping = text.trim().length > 0;
+
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { user_id: profile.id, user_name: senderFirstName, is_typing: isTyping },
+      });
+
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        channelRef.current?.send({
+          type: 'broadcast',
+          event: 'typing',
+          payload: { user_id: profile.id, user_name: senderFirstName, is_typing: false },
+        });
+      }, 2500);
+    }
+  };
 
   useEffect(() => {
     if (activeCircle?.id) {
@@ -64,6 +101,18 @@ export default function ChatScreen() {
       setLoading(false);
     }
   }, [activeCircle?.id]);
+
+  const isPermissionOrSystemMsg = (content?: string) => {
+    if (!content) return false;
+    const upper = content.toUpperCase();
+    return (
+      upper.includes('PERMISSION REQUEST') ||
+      upper.includes('PERMISSION GRANTED') ||
+      upper.includes('PERMISSION DENIED') ||
+      upper.includes('PERMISSION REVOKED') ||
+      upper.includes('SYSTEM NOTIFICATION')
+    );
+  };
 
   const fetchMessages = async (circleId: string) => {
     setLoading(true);
@@ -94,12 +143,14 @@ export default function ChatScreen() {
         }
       }
 
-      const formatted: ChatMessage[] = (data || []).map((msg: any) => ({
-        ...msg,
-        sender_name: msg.profiles?.full_name || 'Member',
-        sender_avatar: msg.profiles?.avatar_url,
-        is_viewed_by_me: myViewsSet.has(msg.id) || msg.sender_id === profile?.id,
-      }));
+      const formatted: ChatMessage[] = (data || [])
+        .filter((msg: any) => !isPermissionOrSystemMsg(msg.content))
+        .map((msg: any) => ({
+          ...msg,
+          sender_name: msg.profiles?.full_name || 'Member',
+          sender_avatar: msg.profiles?.avatar_url,
+          is_viewed_by_me: myViewsSet.has(msg.id) || msg.sender_id === profile?.id,
+        }));
 
       setMessages(formatted);
     } catch (err) {
@@ -110,7 +161,14 @@ export default function ChatScreen() {
   };
 
   const subscribeToRealtimeChat = (circleId: string) => {
-    const channelTopic = `chat_${circleId}_${Date.now()}`;
+    const channelTopic = `chat_room_${circleId}`;
+
+    // Safely remove any existing channel with matching topic to prevent reuse errors after subscribe
+    const existingChannel = supabase.getChannels().find((ch) => ch.topic === `realtime:${channelTopic}` || ch.topic === channelTopic);
+    if (existingChannel) {
+      supabase.removeChannel(existingChannel);
+    }
+
     const channel = supabase
       .channel(channelTopic)
       .on(
@@ -124,7 +182,7 @@ export default function ChatScreen() {
         async (payload) => {
           if (payload.eventType === 'INSERT') {
             const newMsg = payload.new as any;
-            if (newMsg.deleted_at) return;
+            if (newMsg.deleted_at || isPermissionOrSystemMsg(newMsg.content)) return;
 
             const { data: prof } = await supabase
               .from('profiles')
@@ -164,9 +222,57 @@ export default function ChatScreen() {
           }
         }
       )
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        const { user_id, user_name, is_typing } = payload.payload || {};
+        if (!user_id || user_id === profile?.id) return;
+
+        setTypingUsers((prev) => {
+          if (is_typing) {
+            if (!prev.includes(user_name)) return [...prev, user_name];
+            return prev;
+          } else {
+            return prev.filter((name) => name !== user_name);
+          }
+        });
+      })
+      .on('broadcast', { event: 'reaction' }, (payload) => {
+        const { message_id, emoji, user_id, action } = payload.payload || {};
+        if (!message_id || !emoji || !user_id) return;
+
+        setMessages((prev) =>
+          prev.map((msg) => {
+            if (msg.id !== message_id) return msg;
+
+            const currentReactions = msg.reactions || {};
+            const userList = currentReactions[emoji] || [];
+
+            const updatedList = action === 'add'
+              ? (userList.includes(user_id) ? userList : [...userList, user_id])
+              : userList.filter((id) => id !== user_id);
+
+            return { ...msg, reactions: { ...currentReactions, [emoji]: updatedList } };
+          })
+        );
+      })
+      .on('broadcast', { event: 'read_receipt' }, (payload) => {
+        const { message_id, user_id } = payload.payload || {};
+        if (!message_id) return;
+
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id === message_id) {
+              return { ...m, is_all_viewed: true };
+            }
+            return m;
+          })
+        );
+      })
       .subscribe();
 
+    channelRef.current = channel;
+
     return () => {
+      channelRef.current = null;
       supabase.removeChannel(channel);
     };
   };
@@ -195,6 +301,14 @@ export default function ChatScreen() {
         setMessages((prev) =>
           prev.map((m) => (m.id === msg.id ? { ...m, is_viewed_by_me: true } : m))
         );
+
+        if (channelRef.current) {
+          channelRef.current.send({
+            type: 'broadcast',
+            event: 'read_receipt',
+            payload: { message_id: msg.id, user_id: profile.id },
+          });
+        }
 
         // Server RPC call to record view receipt and evaluate grace period countdown
         supabase
@@ -243,6 +357,41 @@ export default function ChatScreen() {
     );
   };
 
+  const EMOJI_OPTIONS = ['❤️', '🛡️', '👍', '🔥', '🚨', '🛑'];
+
+  const handleToggleReaction = (messageId: string, emoji: string) => {
+    if (!profile?.id) return;
+    const currentUserId = profile.id;
+
+    setMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.id !== messageId) return msg;
+
+        const currentReactions = msg.reactions || {};
+        const userList = currentReactions[emoji] || [];
+        const hasReacted = userList.includes(currentUserId);
+
+        const updatedList = hasReacted
+          ? userList.filter((id) => id !== currentUserId)
+          : [...userList, currentUserId];
+
+        const action = hasReacted ? 'remove' : 'add';
+
+        if (channelRef.current) {
+          channelRef.current.send({
+            type: 'broadcast',
+            event: 'reaction',
+            payload: { message_id: messageId, emoji, user_id: currentUserId, action },
+          });
+        }
+
+        return { ...msg, reactions: { ...currentReactions, [emoji]: updatedList } };
+      })
+    );
+
+    setSelectedReactionMsgId(null);
+  };
+
   const handleSendText = async (customContent?: string, messageType: 'text' | 'location' | 'safety_pill' = 'text') => {
     const textToSend = customContent || inputText.trim();
     if (!textToSend || !profile?.id || !activeCircle?.id) return;
@@ -250,9 +399,19 @@ export default function ChatScreen() {
     if (!customContent) setInputText('');
     setSending(true);
 
+    const senderFirstName = profile?.full_name?.split(' ')[0] || 'Member';
+
+    if (channelRef.current && profile?.id) {
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { user_id: profile.id, user_name: senderFirstName, is_typing: false },
+      });
+    }
+
     try {
       const now = new Date();
-      const maxTtl = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const maxTtl = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
 
       const { data, error } = await supabase
         .from('circle_messages')
@@ -263,7 +422,7 @@ export default function ChatScreen() {
           message_type: messageType,
           created_at: now.toISOString(),
           max_ttl_expires_at: maxTtl.toISOString(),
-          grace_period_days: 3,
+          grace_period_days: 1,
         })
         .select('*, profiles!circle_messages_sender_id_fkey(full_name, avatar_url)')
         .single();
@@ -337,17 +496,21 @@ export default function ChatScreen() {
   };
 
   const getTimeRemainingText = (msg: ChatMessage) => {
-    if (msg.expires_at) {
-      const diffMs = new Date(msg.expires_at).getTime() - Date.now();
-      if (diffMs <= 0) return 'Expiring now';
-      const hours = Math.floor(diffMs / (1000 * 60 * 60));
-      const days = Math.floor(hours / 24);
-      const remHours = hours % 24;
-      if (days > 0) return `${days}d ${remHours}h remaining`;
-      return `${hours}h remaining`;
-    }
-    if (msg.is_all_viewed) {
-      return '3-day grace period';
+    const rawExpire = msg.expires_at || msg.max_ttl_expires_at;
+    const createdAtMs = new Date(msg.created_at).getTime();
+
+    // Strict 2 Days Maximum Hard Cap (48 Hours from creation)
+    const maxExpiryMs = createdAtMs + (2 * 24 * 60 * 60 * 1000);
+    const targetExpiryMs = rawExpire ? Math.min(new Date(rawExpire).getTime(), maxExpiryMs) : maxExpiryMs;
+
+    const diffMs = targetExpiryMs - Date.now();
+    if (diffMs <= 0) return 'Expiring soon';
+
+    const totalHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+    // Only display countdown text when <= 12 hours remaining to keep chat bubbles sleek and clean
+    if (totalHours <= 12) {
+      return `${totalHours}h left`;
     }
     return '';
   };
@@ -357,6 +520,9 @@ export default function ChatScreen() {
     const initial = String(item.sender_name || 'M').charAt(0).toUpperCase();
 
     const isLocationMsg = item.message_type === 'location' || item.content.includes('Shared Live Location');
+    const isReactionOpen = selectedReactionMsgId === item.id;
+
+    const reactionEntries = Object.entries(item.reactions || {}).filter(([_, users]) => users && users.length > 0);
 
     return (
       <View style={[styles.messageRow, isMe ? styles.myMessageRow : styles.theirMessageRow]}>
@@ -370,20 +536,42 @@ export default function ChatScreen() {
           </View>
         ) : null}
 
-        <View style={{ maxWidth: '80%' }}>
+        <View style={{ maxWidth: '80%', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
           {!isMe ? (
             <Text style={[styles.senderName, { color: colors.foreground, fontSize: 11, fontWeight: '700', marginBottom: 2 }]}>{item.sender_name}</Text>
           ) : null}
 
+          {/* Floating Quick Emoji Reaction Bar */}
+          {isReactionOpen ? (
+            <View style={[styles.floatingEmojiBar, { backgroundColor: colors.surface, borderColor: colors.accentGold }]}>
+              {EMOJI_OPTIONS.map((emoji) => {
+                const userList = (item.reactions && item.reactions[emoji]) || [];
+                const isReacted = profile?.id ? userList.includes(profile.id) : false;
+                return (
+                  <TouchableOpacity
+                    key={emoji}
+                    style={[styles.emojiPickerBtn, isReacted && { backgroundColor: 'rgba(212, 175, 55, 0.25)' }]}
+                    onPress={() => handleToggleReaction(item.id, emoji)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ fontSize: 18 }}>{emoji}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ) : null}
+
+          {/* 3D Glassmorphic Chat Bubble */}
           <TouchableOpacity
             activeOpacity={0.85}
+            onPress={() => setSelectedReactionMsgId(prev => prev === item.id ? null : item.id)}
             onLongPress={() => handleDeleteMessage(item)}
-            delayLongPress={250}
+            delayLongPress={300}
             style={[
-              styles.bubble,
+              styles.bubble3D,
               isMe
-                ? [styles.myBubble, { backgroundColor: '#D4AF37' }]
-                : [styles.theirBubble, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }],
+                ? [styles.myBubble3D, { backgroundColor: '#D4AF37' }]
+                : [styles.theirBubble3D, { backgroundColor: colors.surface, borderColor: colors.border }],
             ]}
           >
             {isLocationMsg ? (
@@ -424,10 +612,10 @@ export default function ChatScreen() {
               </Text>
             )}
 
-            {/* Time Readout */}
+            {/* Time Readout & iMessage Read Receipts */}
             <View style={styles.bubbleFooter}>
               {getTimeRemainingText(item) ? (
-                <View style={styles.disappearingTag}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <Ionicons name="time-outline" size={11} color={isMe ? 'rgba(255,255,255,0.7)' : colors.accentGold} />
                   <Text style={[styles.disappearingTagText, { color: isMe ? 'rgba(255,255,255,0.8)' : colors.accentGold }]}>
                     {getTimeRemainingText(item)}
@@ -435,11 +623,38 @@ export default function ChatScreen() {
                 </View>
               ) : null}
 
-              <Text style={[styles.timeText, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.textMuted }]}>
-                {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                <Text style={[styles.timeText, { color: isMe ? 'rgba(255,255,255,0.75)' : colors.textMuted }]}>
+                  {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+                {isMe ? (
+                  <ReadReceiptCheckmarks
+                    isSent={true}
+                    isDelivered={true}
+                    isReadByAll={item.is_all_viewed}
+                    color="rgba(255, 255, 255, 0.85)"
+                  />
+                ) : null}
+              </View>
             </View>
           </TouchableOpacity>
+
+          {/* Floating Emoji Reaction Badges */}
+          {reactionEntries.length > 0 ? (
+            <View style={[styles.reactionBadgesRow, { alignSelf: isMe ? 'flex-end' : 'flex-start' }]}>
+              {reactionEntries.map(([emoji, userList]) => (
+                <TouchableOpacity
+                  key={emoji}
+                  style={[styles.reactionBadgePill, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                  onPress={() => handleToggleReaction(item.id, emoji)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{ fontSize: 11 }}>{emoji}</Text>
+                  <Text style={[styles.reactionCountText, { color: colors.foreground }]}>{userList.length}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
         </View>
       </View>
     );
@@ -452,19 +667,24 @@ export default function ChatScreen() {
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border, paddingTop: topInset + 12, paddingBottom: 12 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.foreground} />
         </TouchableOpacity>
 
-        <View style={{ flex: 1, marginLeft: 10 }}>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]}>
+        <View style={{ flex: 1, marginLeft: 10, marginRight: 6 }}>
+          <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
             {activeCircle?.name || 'Circle Chat'}
           </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Ionicons name="time-outline" size={12} color={colors.accentGold} />
-            <Text style={[styles.headerSub, { color: colors.accentGold }]}>
-              DISAPPEARING MESSAGES ACTIVE (3-DAY GRACE)
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 }}>
+            <Ionicons name="time-outline" size={11} color={colors.accentGold} />
+            <Text 
+              style={[styles.headerSub, { color: colors.accentGold }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
+              DISAPPEARING CHAT (MIN 1D / MAX 2D)
             </Text>
           </View>
         </View>
@@ -503,7 +723,7 @@ export default function ChatScreen() {
           <Ionicons name="chatbubbles-outline" size={48} color={colors.textMuted} style={{ marginBottom: 12 }} />
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>NO MESSAGES YET</Text>
           <Text style={[styles.emptySub, { color: colors.textMuted }]}>
-            Start a secure conversation with your circle. Messages automatically disappear 3 days post-viewed.
+            Start a secure conversation with your circle. Chat messages automatically purge between 1 to 2 days maximum.
           </Text>
         </View>
       ) : (
@@ -519,6 +739,9 @@ export default function ChatScreen() {
         />
       )}
 
+      {/* Live Typing Indicator Animation */}
+      <TypingIndicator typingUsers={typingUsers} />
+
       {/* Input Bar */}
       <View style={[styles.inputBar, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
         <TouchableOpacity
@@ -533,7 +756,7 @@ export default function ChatScreen() {
           placeholder="Write a message..."
           placeholderTextColor={colors.textMuted}
           value={inputText}
-          onChangeText={setInputText}
+          onChangeText={handleInputChange}
           multiline
         />
 
@@ -652,14 +875,65 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     marginLeft: 4,
   },
-  bubble: {
-    padding: 12,
+  bubble3D: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+  },
+  myBubble3D: {
+    borderBottomRightRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  theirBubble3D: {
+    borderBottomLeftRadius: 4,
     borderWidth: 1,
   },
-  myBubble: {
-    borderColor: '#D4AF37',
+  floatingEmojiBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    marginBottom: 6,
+    gap: 4,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
   },
-  theirBubble: {},
+  emojiPickerBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  reactionBadgesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+    flexWrap: 'wrap',
+  },
+  reactionBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  reactionCountText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
   bubbleText: {
     fontSize: 14,
     lineHeight: 20,

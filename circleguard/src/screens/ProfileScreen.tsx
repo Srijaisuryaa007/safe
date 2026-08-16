@@ -19,8 +19,10 @@ import SettingsModal from '../components/SettingsModal';
 import AboutCircleGuardModal from '../components/AboutCircleGuardModal';
 import LogoutModal from '../components/LogoutModal';
 
+import SpringTouchable from '../components/SpringTouchable';
+
 export default function ProfileScreen() {
-  const { colors } = useThemeStore();
+  const { colors, isDark } = useThemeStore();
   const { profile, setProfile } = useAuthStore();
   const [uploading, setUploading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -45,19 +47,6 @@ export default function ProfileScreen() {
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [aboutModalVisible, setAboutModalVisible] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
-
-  const handleLogout = async () => {
-    Alert.alert('Logout', 'Are you sure you want to log out of CircleGuard?', [
-      { text: 'Cancel', style: 'cancel' },
-      { 
-        text: 'Logout', 
-        style: 'destructive', 
-        onPress: async () => {
-          await supabase.auth.signOut();
-        } 
-      },
-    ]);
-  };
 
   const handlePickAvatar = async () => {
     if (!profile) return;
@@ -166,7 +155,7 @@ export default function ProfileScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.accentGold]} tintColor={colors.accentGold} />
       }
     >
-      {/* Profile Header */}
+      {/* Profile Header Card */}
       <View style={[styles.headerCard, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, padding: 20 }]}>
         <TouchableOpacity style={styles.avatarWrapper} onPress={handlePickAvatar} disabled={uploading}>
           {profile?.avatar_url ? (
@@ -194,39 +183,83 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* Menu List */}
-      <View style={[styles.menuContainer, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}>
+      {/* Settings Menu List */}
+      <View style={[styles.menuContainer, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: 16 }]}>
         {menuItems.map((item, index) => (
-          <TouchableOpacity 
+          <SpringTouchable 
             key={index} 
-            style={[styles.menuItem, { borderBottomColor: colors.border }]} 
-            activeOpacity={0.7}
+            style={[styles.menuItem, { borderBottomColor: index === menuItems.length - 1 ? 'transparent' : colors.border }]} 
             onPress={() => handleMenuPress(item.label)}
+            scaleTo={0.97}
           >
             <View style={styles.menuLeft}>
               <Ionicons name={item.icon as any} size={20} color={colors.foreground} />
               <Text style={[styles.menuLabel, { color: colors.foreground }]}>{item.label}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-          </TouchableOpacity>
+          </SpringTouchable>
         ))}
+      </View>
 
-        <TouchableOpacity 
-          style={[styles.menuItem, styles.logoutCard, { backgroundColor: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.3)', borderWidth: 1 }]} 
-          onPress={() => setLogoutModalVisible(true)} 
-          activeOpacity={0.8}
-        >
-          <View style={styles.menuLeft}>
-            <View style={styles.logoutIconBox}>
-              <Ionicons name="power-outline" size={18} color="#EF4444" />
+      {/* Session & Account Security Action Cards */}
+      <View style={styles.actionSectionContainer}>
+        <Text style={[styles.actionSectionTitle, { color: colors.textMuted }]}>
+          SESSION & ACCOUNT SECURITY
+        </Text>
+
+        <View style={styles.actionButtonsCol}>
+          {/* Disconnect GPS Session Button */}
+          <SpringTouchable
+            style={[
+              styles.actionBoxBtn,
+              {
+                backgroundColor: isDark ? 'rgba(245, 158, 11, 0.08)' : '#FFFBEB',
+                borderColor: isDark ? 'rgba(245, 158, 11, 0.3)' : '#FDE68A',
+              },
+            ]}
+            onPress={() => setPrivacyModalVisible(true)}
+            scaleTo={0.96}
+          >
+            <View style={[styles.actionIconCircle, { backgroundColor: 'rgba(245, 158, 11, 0.18)' }]}>
+              <Ionicons name="radio-outline" size={20} color="#F59E0B" />
             </View>
-            <View>
-              <Text style={[styles.logoutLabel, { color: '#EF4444' }]}>DISCONNECT & LOGOUT</Text>
-              <Text style={[styles.logoutSub, { color: colors.textMuted }]}>Sign out of active GPS session</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.actionBtnTitle, { color: isDark ? '#FBBF24' : '#D97706' }]}>
+                DISCONNECT GPS SESSION
+              </Text>
+              <Text style={[styles.actionBtnSub, { color: colors.textMuted }]}>
+                Pause active live circle location broadcast
+              </Text>
             </View>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#EF4444" />
-        </TouchableOpacity>
+            <Ionicons name="chevron-forward" size={16} color="#F59E0B" />
+          </SpringTouchable>
+
+          {/* Logout Account Button */}
+          <SpringTouchable
+            style={[
+              styles.actionBoxBtn,
+              {
+                backgroundColor: isDark ? 'rgba(239, 68, 68, 0.08)' : '#FEF2F2',
+                borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : '#FCA5A5',
+              },
+            ]}
+            onPress={() => setLogoutModalVisible(true)}
+            scaleTo={0.96}
+          >
+            <View style={[styles.actionIconCircle, { backgroundColor: 'rgba(239, 68, 68, 0.18)' }]}>
+              <Ionicons name="power" size={20} color="#EF4444" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.actionBtnTitle, { color: '#EF4444' }]}>
+                LOGOUT OF ACCOUNT
+              </Text>
+              <Text style={[styles.actionBtnSub, { color: colors.textMuted }]}>
+                Sign out of Supabase profile session
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#EF4444" />
+          </SpringTouchable>
+        </View>
       </View>
 
       {/* Interactive Modals */}
@@ -279,13 +312,14 @@ const styles = StyleSheet.create({
     backgroundColor: LUXURY_THEME.colors.background,
   },
   content: {
-    padding: 24,
-    paddingTop: 60,
+    padding: 20,
+    paddingTop: 54,
     paddingBottom: 40,
   },
   headerCard: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
+    borderRadius: 20,
   },
   avatarWrapper: {
     position: 'relative',
@@ -294,6 +328,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 88,
     height: 88,
+    borderRadius: 44,
     backgroundColor: LUXURY_THEME.colors.foreground,
     borderWidth: 2,
     borderColor: LUXURY_THEME.colors.accentGold,
@@ -303,15 +338,17 @@ const styles = StyleSheet.create({
   avatarImage: {
     width: 88,
     height: 88,
+    borderRadius: 44,
     borderWidth: 2,
     borderColor: LUXURY_THEME.colors.accentGold,
   },
   cameraBadge: {
     position: 'absolute',
-    bottom: -4,
-    right: -4,
+    bottom: -2,
+    right: -2,
     width: 28,
     height: 28,
+    borderRadius: 14,
     backgroundColor: LUXURY_THEME.colors.foreground,
     borderWidth: 1,
     borderColor: LUXURY_THEME.colors.accentGold,
@@ -325,7 +362,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   name: {
-    fontSize: 24,
+    fontSize: 22,
     fontFamily: LUXURY_THEME.typography.fontFamilySerif,
     fontWeight: 'bold',
     color: LUXURY_THEME.colors.foreground,
@@ -345,6 +382,7 @@ const styles = StyleSheet.create({
     borderColor: LUXURY_THEME.colors.accentGold,
     paddingHorizontal: 12,
     paddingVertical: 4,
+    borderRadius: 12,
   },
   goldBadgeText: {
     color: LUXURY_THEME.colors.accentGold,
@@ -356,13 +394,15 @@ const styles = StyleSheet.create({
     backgroundColor: LUXURY_THEME.colors.surface,
     borderWidth: 1,
     borderColor: LUXURY_THEME.colors.border,
+    overflow: 'hidden',
+    marginBottom: 24,
   },
   menuItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: LUXURY_THEME.colors.border,
   },
@@ -372,32 +412,46 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   menuLabel: {
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 13.5,
+    fontWeight: '600',
     color: LUXURY_THEME.colors.foreground,
   },
-  logoutCard: {
-    borderBottomWidth: 0,
-    marginTop: 12,
-    borderRadius: 14,
-    paddingVertical: 14,
+  actionSectionContainer: {
+    gap: 10,
+    marginBottom: 20,
   },
-  logoutIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logoutLabel: {
-    fontSize: 12,
+  actionSectionTitle: {
+    fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.2,
+    marginLeft: 4,
   },
-  logoutSub: {
-    fontSize: 10,
+  actionButtonsCol: {
+    gap: 10,
+  },
+  actionBoxBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  actionIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionBtnTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  actionBtnSub: {
+    fontSize: 10.5,
     fontWeight: '500',
-    marginTop: 1,
+    marginTop: 2,
   },
 });

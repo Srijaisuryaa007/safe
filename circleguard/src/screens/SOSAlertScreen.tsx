@@ -7,6 +7,8 @@ import { supabase } from '../lib/supabase';
 import { useCircleStore } from '../store/useCircleStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { LUXURY_THEME } from '../constants/theme';
+import SpringTouchable from '../components/SpringTouchable';
+import JellySqueezeButton from '../components/JellySqueezeButton';
 
 interface EmergencyContact {
   id: string;
@@ -137,31 +139,31 @@ export default function SOSAlertScreen() {
           ]}
         />
         
-        <TouchableOpacity
+        <JellySqueezeButton
           style={styles.sosButton}
           onPress={triggerEmergency}
-          activeOpacity={0.8}
+          glowColor={LUXURY_THEME.colors.sosRed}
         >
-          <Ionicons name="alert-circle" size={64} color={LUXURY_THEME.colors.accentGold} />
+          <Ionicons name="alert-circle" size={60} color={LUXURY_THEME.colors.accentGold} />
           <Text style={styles.sosText}>{isSending ? 'ALERT SENT' : 'PRESS SOS'}</Text>
-        </TouchableOpacity>
+        </JellySqueezeButton>
       </View>
 
       {/* Emergency Call Buttons */}
       <View style={styles.callButtonsRow}>
-        <TouchableOpacity style={styles.quickCallBtn} onPress={() => setCallModalVisible(true)} activeOpacity={0.8}>
+        <SpringTouchable style={styles.quickCallBtn} onPress={() => setCallModalVisible(true)} scaleTo={0.96}>
           <Ionicons name="call" size={20} color="#FFFFFF" />
           <Text style={styles.quickCallText}>CALL EMERGENCY CONTACTS</Text>
-        </TouchableOpacity>
+        </SpringTouchable>
 
-        <TouchableOpacity 
+        <SpringTouchable 
           style={styles.serviceCallBtn} 
           onPress={() => handleCallNumber('112', 'Emergency Services')}
-          activeOpacity={0.8}
+          scaleTo={0.96}
         >
           <Ionicons name="shield-checkmark" size={18} color={LUXURY_THEME.colors.accentGold} />
           <Text style={styles.serviceCallText}>DIAL 112 / 911</Text>
-        </TouchableOpacity>
+        </SpringTouchable>
       </View>
 
       {isSending ? (
