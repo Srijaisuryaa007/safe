@@ -57,12 +57,21 @@ try {
         // Check profile info & Ghost Mode
         const { data: userProf } = await supabase
           .from('profiles')
-          .select('full_name, is_ghost_mode')
+          .select('full_name, is_ghost_mode, hide_online_presence')
           .eq('id', userId)
           .single();
 
         let finalLat = latitude;
         let finalLng = longitude;
+        const isGhost = !!userProf?.is_ghost_mode;
+
+        if (isGhost) {
+          // Obfuscate real GPS coordinates with a deterministic ~1.5km fuzzing offset
+          const charCode = userId.charCodeAt(0) || 65;
+          const fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
+          finalLat = parseFloat((latitude + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
+          finalLng = parseFloat((longitude + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
+        }
 
         // Check active circle tracking mode first (Option A Privacy vs Option B Continuous)
         const { data: memberCircle } = await supabase
@@ -89,12 +98,14 @@ try {
           if (level >= 0) batteryPct = Math.round(level * 100);
         } catch (e) {}
 
-        const rawSpeed = speed || 0;
+        const rawSpeed = isGhost ? 0 : (speed || 0);
         const speedKmh = Math.round(rawSpeed * 3.6);
         const isDriving = rawSpeed > 4.5;
         
         let activityState = 'Stationary / Idle';
-        if (rawSpeed > 4.5) {
+        if (isGhost) {
+          activityState = 'Ghost Mode (Obfuscated)';
+        } else if (rawSpeed > 4.5) {
           activityState = `Traveling • ${speedKmh} km/h`;
         } else if (rawSpeed >= 0.8) {
           activityState = `Walking • ${speedKmh} km/h`;

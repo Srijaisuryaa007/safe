@@ -380,7 +380,10 @@ const LEAFLET_HTML = `
             var roleColor = '#10B981';
             var roleBadgeSymbol = '';
 
-            if (m.role === 'owner') {
+            if (m.isGhost) {
+              roleColor = '#A855F7';
+              roleBadgeSymbol = '👻 ';
+            } else if (m.role === 'owner') {
               roleColor = '#D4AF37';
             } else if (m.role === 'co_leader') {
               roleColor = '#A855F7';
@@ -388,9 +391,11 @@ const LEAFLET_HTML = `
               roleColor = '#3B82F6';
             }
 
-            var pulseStyle = m.isOnline 
-              ? 'border: 2.5px solid ' + roleColor + '; box-shadow: 0 0 16px ' + roleColor + 'CC;' 
-              : 'border: 2px solid #9CA3AF; opacity: 0.85;';
+            var pulseStyle = m.isGhost
+              ? 'border: 2.5px dashed #A855F7; box-shadow: 0 0 16px rgba(168,85,247,0.75); opacity: 0.88;'
+              : (m.isOnline 
+                ? 'border: 2.5px solid ' + roleColor + '; box-shadow: 0 0 16px ' + roleColor + 'CC;' 
+                : 'border: 2px solid #9CA3AF; opacity: 0.85;');
 
             var batteryTag = m.batteryPct ? ' • ' + m.batteryPct + '%' : '';
             var activityTag = m.activityText ? ' • ' + m.activityText : '';
@@ -1623,15 +1628,25 @@ export default function MapScreen() {
             }
 
             const isHideOnline = !!m.profile?.hide_online_presence;
-            const isGhost = !!m.profile?.is_ghost_mode;
+            const isGhost = isSelf ? !!profile?.is_ghost_mode : !!m.profile?.is_ghost_mode;
+
+            if (isGhost && !isSelf && lat !== 0 && lng !== 0) {
+              // Obfuscate coordinates for other circle members (~1.5km privacy fuzz)
+              const charCode = m.user_id.charCodeAt(0) || 65;
+              const fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
+              lat = parseFloat((lat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
+              lng = parseFloat((lng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
+            }
 
             const isMiles = distanceUnit === 'mi';
-            const speedMps = loc?.speed_mps || 0;
+            const speedMps = isGhost ? 0 : (loc?.speed_mps || 0);
             const speedFormatted = isMiles ? Math.round(speedMps * 2.23694) : Math.round(speedMps * 3.6);
             const unitText = isMiles ? 'mph' : 'km/h';
 
             let activityText = 'Stationary';
-            if (!isRealLocation) {
+            if (isGhost) {
+              activityText = 'Ghost Mode (Obfuscated)';
+            } else if (!isRealLocation) {
               activityText = 'Location Pending';
             } else if (loc?.activity_state) {
               activityText = loc.activity_state;
@@ -1651,6 +1666,7 @@ export default function MapScreen() {
               initial: String(m.profile?.full_name || (isSelf ? 'Y' : 'M')).charAt(0).toUpperCase(),
               avatarUrl: m.profile?.avatar_url || null,
               role: m.role || 'member',
+              isGhost,
               isOnline: (isGhost || isHideOnline) ? false : (m.isOnline ?? (isRealLocation ? true : false)),
               lastSeenText: isGhost ? 'Ghost Mode' : (isHideOnline ? 'Offline' : (m.lastSeenText || (isRealLocation ? 'Online' : 'Location Pending'))),
               batteryPct: loc?.battery_pct || m.batteryPct || 100,

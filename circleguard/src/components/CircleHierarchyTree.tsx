@@ -155,6 +155,12 @@ export default function CircleHierarchyTree({
             <Text style={[styles.rolePillText, { color: roleColor }]}>{roleTitle}</Text>
           </View>
 
+          {isGhost && (
+            <View style={[styles.rolePill, { backgroundColor: 'rgba(168,85,247,0.2)', borderColor: '#A855F7', marginTop: 2 }]}>
+              <Text style={[styles.rolePillText, { color: '#A855F7', fontSize: 7.5 }]}>👻 GHOST</Text>
+            </View>
+          )}
+
           {/* Name */}
           <Text style={[styles.nameText, { color: colors.foreground }]} numberOfLines={1}>
             {name}

@@ -134,6 +134,29 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
 
           if (error) console.warn('Supabase profile privacy update notice:', error);
           useAuthStore.getState().setProfile({ ...profile, ...updateData });
+
+          // Optimistically update circle members in global store
+          const currentMembers = useCircleStore.getState().members;
+          const updatedMembers = currentMembers.map(m => {
+            if (m.user_id === profile.id) {
+              return {
+                ...m,
+                profile: {
+                  ...m.profile,
+                  full_name: m.profile?.full_name || 'You',
+                  avatar_url: m.profile?.avatar_url || null,
+                  is_ghost_mode: key === KEYS.GHOST_MODE ? val : m.profile?.is_ghost_mode,
+                  hide_online_presence: key === KEYS.HIDE_ONLINE ? val : m.profile?.hide_online_presence,
+                },
+              };
+            }
+            return m;
+          });
+          useCircleStore.getState().setMembers(updatedMembers);
+
+          // Force background location service to broadcast obfuscated position ping
+          const { sendInstantLocationPing } = require('../services/LocationBackgroundService');
+          sendInstantLocationPing();
         }
       }
 
