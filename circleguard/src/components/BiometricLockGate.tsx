@@ -16,9 +16,14 @@ export default function BiometricLockGate({ children }: BiometricLockGateProps) 
   const [isLocked, setIsLocked] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const appState = useRef<AppStateStatus>(AppState.currentState);
+  const hasUnlockedSession = useRef(false);
 
   const checkAndPromptLock = async () => {
+    if (hasUnlockedSession.current) {
+      setIsLocked(false);
+      return;
+    }
+
     try {
       const lockEnabled = await AsyncStorage.getItem(APP_LOCK_KEY);
       if (lockEnabled === 'true') {
@@ -47,6 +52,7 @@ export default function BiometricLockGate({ children }: BiometricLockGateProps) 
 
       if (!hasHardware || !isEnrolled) {
         // Fallback: If device doesn't have biometric hardware enrolled, allow unlock
+        hasUnlockedSession.current = true;
         setIsLocked(false);
         return;
       }
@@ -59,6 +65,7 @@ export default function BiometricLockGate({ children }: BiometricLockGateProps) 
       });
 
       if (result.success) {
+        hasUnlockedSession.current = true;
         setIsLocked(false);
         setAuthError(null);
       } else {
@@ -72,27 +79,8 @@ export default function BiometricLockGate({ children }: BiometricLockGateProps) 
   };
 
   useEffect(() => {
-    // Initial check on mount
+    // Initial launch check only (Cold Start / Fresh App Open)
     checkAndPromptLock();
-
-    // Re-lock when app moves to background and resumes to active
-    const subscription = AppState.addEventListener('change', async (nextAppState) => {
-      if (
-        appState.current.match(/inactive|background/) &&
-        nextAppState === 'active'
-      ) {
-        const lockEnabled = await AsyncStorage.getItem(APP_LOCK_KEY);
-        if (lockEnabled === 'true') {
-          setIsLocked(true);
-          authenticate();
-        }
-      }
-      appState.current = nextAppState;
-    });
-
-    return () => {
-      subscription.remove();
-    };
   }, []);
 
   if (isLocked) {
