@@ -45,7 +45,7 @@ export default function LeaderApprovalModal({
       if (leaderId) {
         await sendExpoPushNotification(
           leaderId,
-          '👑 Member Permission Request',
+          'Member Permission Request',
           `${memberName} is requesting approval to enable ${featureName} under Option B 24/7 Safety Mode.`,
           { type: 'privacy_request', circle_id: activeCircle.id, member_id: profile.id }
         );
@@ -55,7 +55,7 @@ export default function LeaderApprovalModal({
       await supabase.from('circle_messages').insert({
         circle_id: activeCircle.id,
         sender_id: profile.id,
-        content: `🔒 PERMISSION REQUEST: Requesting Circle Leader authorization to enable ${featureName}.`,
+        content: `PERMISSION REQUEST: Requesting Circle Leader authorization to enable ${featureName}.`,
       });
 
       setRequestSent(true);
@@ -96,7 +96,7 @@ export default function LeaderApprovalModal({
             <View style={[styles.sentBox, { backgroundColor: 'rgba(16, 185, 129, 0.12)', borderColor: '#10B981' }]}>
               <Ionicons name="checkmark-circle" size={24} color="#10B981" />
               <View style={{ flex: 1 }}>
-                <Text style={styles.sentTitle}>Request Dispatched 📩</Text>
+                <Text style={styles.sentTitle}>Request Dispatched</Text>
                 <Text style={styles.sentDesc}>
                   Your request to activate {featureName} has been sent to your Circle Leader. You will be notified once authorized.
                 </Text>
@@ -119,7 +119,7 @@ export default function LeaderApprovalModal({
                   activeOpacity={0.8}
                 >
                   <Ionicons name="paper-plane-outline" size={18} color="#1A1A1A" />
-                  <Text style={styles.requestBtnText}>REQUEST LEADER APPROVAL 📩</Text>
+                  <Text style={styles.requestBtnText}>REQUEST LEADER APPROVAL</Text>
                 </TouchableOpacity>
               ) : null}
 

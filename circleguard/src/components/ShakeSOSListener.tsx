@@ -58,11 +58,11 @@ export default function ShakeSOSListener() {
   const handleShakeDetected = async () => {
     if (!profile?.id || !activeCircle?.id) return;
 
-    // Check live setting from AsyncStorage using matching key
+    // Default is OFF! Only activate if user explicitly enabled it ('true')
     const shakeVal = await AsyncStorage.getItem(SHAKE_KEY);
-    if (shakeVal === 'false') {
-      console.log('[ShakeSOS] Shake gesture detected but Shake SOS toggle is OFF.');
-      return; // Do nothing if toggled OFF
+    if (shakeVal !== 'true') {
+      console.log('[ShakeSOS] Shake gesture detected but Shake SOS is OFF by default.');
+      return;
     }
 
     // 1. Immediate double vibration feedback

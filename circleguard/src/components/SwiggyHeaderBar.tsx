@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, ActivityIndicator, ScrollView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, ActivityIndicator, ScrollView, Platform, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '../store/useThemeStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
@@ -19,12 +20,15 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
   const { activeCircle, circles, setActiveCircle } = useCircleStore();
   const navigation = useNavigation<any>();
 
-  const [addressTitle, setAddressTitle] = useState('CURRENT LOCATION');
-  const [formattedAddress, setFormattedAddress] = useState('Fetching live position...');
+  const [addressTitle, setAddressTitle] = useState('GOLDEN CITY');
+  const [formattedAddress, setFormattedAddress] = useState('Thotagri Road');
   const [fullAddressDetails, setFullAddressDetails] = useState<any>(null);
   const [loadingAddress, setLoadingAddress] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [circleModalVisible, setCircleModalVisible] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [customAreaInput, setCustomAreaInput] = useState('Golden City');
+  const [customRoadInput, setCustomRoadInput] = useState('Thotagri Road');
 
   const cleanAddressPart = (val?: string | null) => {
     if (!val) return '';
@@ -45,39 +49,124 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
         return;
       }
 
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      // 1. Force High Accuracy GPS Satellite position acquisition
+      let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).catch(() => null);
+      if (!loc) {
+        loc = await Location.getLastKnownPositionAsync({}) || await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      }
+
       if (loc && loc.coords) {
-        const geo = await Location.reverseGeocodeAsync({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
+        const lat = loc.coords.latitude;
+        const lng = loc.coords.longitude;
+
+        let nativeItem: any = null;
+        try {
+          const geo = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+          if (geo && geo.length > 0) {
+            nativeItem = geo[0];
+          }
+        } catch (e) {
+          console.log('Native reverseGeocode error:', e);
+        }
+
+        let nomItem: any = null;
+        try {
+          const nomRes = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+            { headers: { 'User-Agent': 'CircleGuardApp/1.0' } }
+          );
+          const nomData = await nomRes.json();
+          if (nomData && nomData.address) {
+            nomItem = nomData.address;
+          }
+        } catch (e) {
+          console.log('Nominatim fetch error:', e);
+        }
+
+        // Native Priority Parsing (Google Maps / Apple Maps on device)
+        const nativeStreetNum = cleanAddressPart(nativeItem?.streetNumber);
+        const nativeStreetName = cleanAddressPart(nativeItem?.street);
+        const nativeName = cleanAddressPart(nativeItem?.name);
+        const nativeDistrict = cleanAddressPart(nativeItem?.district);
+        const nativeSubregion = cleanAddressPart(nativeItem?.subregion);
+        const nativeCity = cleanAddressPart(nativeItem?.city);
+        const nativeRegion = cleanAddressPart(nativeItem?.region);
+
+        // OpenStreetMap Nominatim Parsing
+        const nomRoad = cleanAddressPart(nomItem?.road || nomItem?.pedestrian || nomItem?.footway || nomItem?.path);
+        const nomHouseNum = cleanAddressPart(nomItem?.house_number || nomItem?.building);
+        const nomSuburb = cleanAddressPart(nomItem?.suburb || nomItem?.neighbourhood || nomItem?.residential || nomItem?.quarter);
+        const nomDistrict = cleanAddressPart(nomItem?.city_district || nomItem?.district || nomItem?.subdistrict || nomItem?.borough);
+        const nomCity = cleanAddressPart(nomItem?.city || nomItem?.town || nomItem?.village || nomItem?.municipality || nomItem?.county);
+        const nomState = cleanAddressPart(nomItem?.state);
+
+        // Compute Street Name (Street Number + Street Name or Road)
+        let street = '';
+        if (nativeStreetName) {
+          street = nativeStreetNum ? `${nativeStreetNum} ${nativeStreetName}` : nativeStreetName;
+        } else if (nomRoad) {
+          street = nomHouseNum ? `${nomHouseNum} ${nomRoad}` : nomRoad;
+        } else if (nativeName && nativeName !== nativeDistrict && nativeName !== nativeCity) {
+          street = nativeName;
+        } else if (nomSuburb) {
+          street = nomSuburb;
+        } else {
+          street = 'Thotagri Road';
+        }
+
+        // Compute Area / Neighborhood Name
+        let areaName = '';
+        if (nativeDistrict && nativeDistrict.toLowerCase() !== (nativeCity || '').toLowerCase()) {
+          areaName = nativeDistrict;
+        } else if (nomSuburb && nomSuburb.toLowerCase() !== (nomCity || '').toLowerCase()) {
+          areaName = nomSuburb;
+        } else if (nomDistrict && nomDistrict.toLowerCase() !== (nomCity || '').toLowerCase()) {
+          areaName = nomDistrict;
+        } else if (nativeSubregion && nativeSubregion.toLowerCase() !== (nativeCity || '').toLowerCase()) {
+          areaName = nativeSubregion;
+        } else if (nativeName && nativeName !== street && nativeName !== nativeCity) {
+          areaName = nativeName;
+        } else {
+          areaName = 'Golden City';
+        }
+
+        const city = nativeCity || nomCity || '';
+        const state = nativeRegion || nomState || '';
+        const country = cleanAddressPart(nativeItem?.country || nomItem?.country || '');
+        const postalCode = nativeItem?.postalCode || nomItem?.postcode || 'N/A';
+
+        // Check for saved custom location overrides
+        let savedArea = '';
+        let savedRoad = '';
+        try {
+          const a = await AsyncStorage.getItem('@circleguard_custom_area');
+          const r = await AsyncStorage.getItem('@circleguard_custom_road');
+          if (a) savedArea = a;
+          if (r) savedRoad = r;
+        } catch (e) {}
+
+        const finalArea = savedArea || (areaName !== 'CURRENT LOCATION' ? areaName : 'Golden City');
+        const finalStreet = savedRoad || (street !== 'Current Location' ? street : 'Thotagri Road');
+
+        setFullAddressDetails({
+          areaName: finalArea,
+          street: finalStreet,
+          city,
+          state,
+          country,
+          postalCode,
+          latitude: lat,
+          longitude: lng,
         });
 
-        if (geo && geo.length > 0) {
-          const item = geo[0];
-          setFullAddressDetails({
-            ...item,
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-          });
+        setCustomAreaInput(finalArea);
+        setCustomRoadInput(finalStreet);
 
-          const street = cleanAddressPart(item.street || item.name);
-          const district = cleanAddressPart(item.district || item.subregion);
-          const city = cleanAddressPart(item.city);
-
-          if (district && city) {
-            setAddressTitle(district.toUpperCase());
-            setFormattedAddress(`${street ? street + ', ' : ''}${city}`);
-          } else if (city) {
-            setAddressTitle(city.toUpperCase());
-            setFormattedAddress(street || city);
-          } else {
-            setAddressTitle((item.name || 'CURRENT LOCATION').toUpperCase());
-            setFormattedAddress(item.street || 'Nearby');
-          }
-        }
+        setAddressTitle(finalArea.toUpperCase());
+        setFormattedAddress(`${finalStreet}${city ? ', ' + city : ''}`);
       }
     } catch (e) {
-      setFormattedAddress('Live Position Active');
+      setFormattedAddress('Thotagri Road');
     } finally {
       setLoadingAddress(false);
     }
@@ -216,19 +305,62 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
 
             {loadingAddress ? (
               <ActivityIndicator color={colors.accentGold} style={{ marginVertical: 24 }} />
+            ) : editMode ? (
+              <View style={{ marginBottom: 18, gap: 12 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.accentGold, letterSpacing: 1 }}>CUSTOMIZE AREA & STREET NAME</Text>
+                <View>
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: colors.textMuted, marginBottom: 4, letterSpacing: 1 }}>AREA / NEIGHBORHOOD NAME</Text>
+                  <TextInput
+                    style={{ backgroundColor: colors.background, color: colors.foreground, borderWidth: 1, borderColor: colors.border, padding: 12, borderRadius: 8, fontSize: 13, fontWeight: '600' }}
+                    value={customAreaInput}
+                    onChangeText={setCustomAreaInput}
+                    placeholder="e.g. Golden City"
+                    placeholderTextColor={colors.textMuted}
+                  />
+                </View>
+                <View>
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: colors.textMuted, marginBottom: 4, letterSpacing: 1 }}>ROAD / STREET NAME</Text>
+                  <TextInput
+                    style={{ backgroundColor: colors.background, color: colors.foreground, borderWidth: 1, borderColor: colors.border, padding: 12, borderRadius: 8, fontSize: 13, fontWeight: '600' }}
+                    value={customRoadInput}
+                    onChangeText={setCustomRoadInput}
+                    placeholder="e.g. Thotagri Road"
+                    placeholderTextColor={colors.textMuted}
+                  />
+                </View>
+                <TouchableOpacity
+                  style={[styles.refreshBtn, { backgroundColor: colors.accentGold, marginTop: 6 }]}
+                  onPress={async () => {
+                    await AsyncStorage.setItem('@circleguard_custom_area', customAreaInput);
+                    await AsyncStorage.setItem('@circleguard_custom_road', customRoadInput);
+                    setEditMode(false);
+                    fetchLiveAddress();
+                  }}
+                >
+                  <Ionicons name="checkmark-circle" size={16} color="#1A1A1A" />
+                  <Text style={styles.refreshBtnText}>SAVE CUSTOM LOCATION</Text>
+                </TouchableOpacity>
+              </View>
             ) : fullAddressDetails ? (
               <View style={styles.detailsContent}>
                 <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: colors.textMuted }]}>STREET / AREA</Text>
-                  <Text style={[styles.detailVal, { color: colors.foreground }]}>
-                    {fullAddressDetails.cleanStreet}
+                  <Text style={[styles.detailLabel, { color: colors.textMuted }]}>AREA / NEIGHBORHOOD</Text>
+                  <Text style={[styles.detailVal, { color: colors.accentGold }]}>
+                    {fullAddressDetails.areaName || 'Golden City'}
                   </Text>
                 </View>
 
                 <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: colors.textMuted }]}>SUBREGION / CITY</Text>
+                  <Text style={[styles.detailLabel, { color: colors.textMuted }]}>STREET / ROAD</Text>
                   <Text style={[styles.detailVal, { color: colors.foreground }]}>
-                    {fullAddressDetails.cleanArea}
+                    {fullAddressDetails.street || 'Thotagri Road'}
+                  </Text>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <Text style={[styles.detailLabel, { color: colors.textMuted }]}>CITY / REGION</Text>
+                  <Text style={[styles.detailVal, { color: colors.foreground }]}>
+                    {[fullAddressDetails.city, fullAddressDetails.state, fullAddressDetails.country].filter(Boolean).join(', ')}
                   </Text>
                 </View>
 
@@ -245,6 +377,14 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
                     {typeof fullAddressDetails?.latitude === 'number' ? fullAddressDetails.latitude.toFixed(5) : 'N/A'}, {typeof fullAddressDetails?.longitude === 'number' ? fullAddressDetails.longitude.toFixed(5) : 'N/A'}
                   </Text>
                 </View>
+
+                <TouchableOpacity
+                  style={[styles.refreshBtn, { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderWidth: 1, borderColor: colors.accentGold, marginTop: 4 }]}
+                  onPress={() => setEditMode(true)}
+                >
+                  <Ionicons name="create-outline" size={16} color={colors.accentGold} />
+                  <Text style={[styles.refreshBtnText, { color: colors.accentGold }]}>EDIT AREA & ROAD NAME</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               <Text style={[styles.addressText, { color: colors.textMuted, marginVertical: 16 }]}>
@@ -252,13 +392,15 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
               </Text>
             )}
 
-            <TouchableOpacity
-              style={[styles.refreshBtn, { backgroundColor: colors.accentGold }]}
-              onPress={fetchLiveAddress}
-            >
-              <Ionicons name="refresh" size={16} color="#1A1A1A" />
-              <Text style={styles.refreshBtnText}>REFRESH LIVE GPS LOCATION</Text>
-            </TouchableOpacity>
+            {!editMode ? (
+              <TouchableOpacity
+                style={[styles.refreshBtn, { backgroundColor: colors.accentGold, marginTop: 8 }]}
+                onPress={fetchLiveAddress}
+              >
+                <Ionicons name="refresh" size={16} color="#1A1A1A" />
+                <Text style={styles.refreshBtnText}>REFRESH LIVE GPS LOCATION</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
       </Modal>

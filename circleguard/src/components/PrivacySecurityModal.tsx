@@ -9,6 +9,10 @@ import { supabase } from '../lib/supabase';
 import { useCircleStore } from '../store/useCircleStore';
 import LeaderApprovalModal from './LeaderApprovalModal';
 
+import { useLuxuryAlert } from './LuxuryAlertModal';
+import PrivacyPolicyModal from './PrivacyPolicyModal';
+import TermsOfServiceModal from './TermsOfServiceModal';
+
 interface PrivacySecurityModalProps {
   visible: boolean;
   onClose: () => void;
@@ -24,15 +28,18 @@ const KEYS = {
 export default function PrivacySecurityModal({ visible, onClose }: PrivacySecurityModalProps) {
   const { colors } = useThemeStore();
   const { profile } = useAuthStore();
+  const { showAlert, showConfirm } = useLuxuryAlert();
 
   const [ghostMode, setGhostMode] = useState(false);
   const [hideOnline, setHideOnline] = useState(false);
   const [appLock, setAppLock] = useState(false);
-  const [shakeSos, setShakeSos] = useState(true);
+  const [shakeSos, setShakeSos] = useState(false);
   const [purging, setPurging] = useState(false);
 
   const [approvalModalVisible, setApprovalModalVisible] = useState(false);
   const [approvalFeature, setApprovalFeature] = useState<'ghost_mode' | 'hide_online' | 'location_off'>('ghost_mode');
+  const [policyModalVisible, setPolicyModalVisible] = useState(false);
+  const [termsModalVisible, setTermsModalVisible] = useState(false);
 
   useEffect(() => {
     if (visible && profile?.id) {
@@ -143,33 +150,37 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
   const handlePurgeLocationHistory = async () => {
     if (!profile) return;
 
-    Alert.alert(
-      'Purge Location History',
-      'This will permanently delete all your recorded GPS location trails from the cloud database. Are you sure?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Permanently Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setPurging(true);
-            try {
-              const { error } = await supabase
-                .from('locations')
-                .delete()
-                .eq('user_id', profile.id);
+    showConfirm({
+      title: 'PURGE LOCATION HISTORY',
+      message: 'This will permanently delete all your recorded GPS location trails from the cloud database. Are you sure?',
+      confirmText: 'PERMANENTLY DELETE',
+      cancelText: 'CANCEL',
+      isDestructive: true,
+      onConfirm: async () => {
+        setPurging(true);
+        try {
+          const { error } = await supabase
+            .from('locations')
+            .delete()
+            .eq('user_id', profile.id);
 
-              if (error) throw error;
-              Alert.alert('Privacy Purge Complete', 'Your location history trail has been wiped from the database.');
-            } catch (err: any) {
-              Alert.alert('Error', err.message || 'Failed to purge location history.');
-            } finally {
-              setPurging(false);
-            }
-          },
-        },
-      ]
-    );
+          if (error) throw error;
+          showAlert({
+            title: 'PURGE COMPLETE',
+            message: 'Your location history trail has been wiped from the database.',
+            type: 'success',
+          });
+        } catch (err: any) {
+          showAlert({
+            title: 'PURGE ERROR',
+            message: err.message || 'Failed to purge location history.',
+            type: 'error',
+          });
+        } finally {
+          setPurging(false);
+        }
+      },
+    });
   };
 
   if (!visible) return null;
@@ -279,23 +290,27 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
             </View>
           </View>
 
-          {/* Section: Data Management */}
-          <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>DATA PURGING</Text>
+          {/* Section: Legal & Compliance */}
+          <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>LEGAL & COMPLIANCE</Text>
 
           <TouchableOpacity
-            style={[styles.purgeBtn, { backgroundColor: colors.surface, borderColor: colors.sosRed }]}
-            onPress={handlePurgeLocationHistory}
-            disabled={purging}
+            style={[styles.policyBtn, { backgroundColor: colors.surface, borderColor: colors.accentGold }]}
+            onPress={() => setPolicyModalVisible(true)}
             activeOpacity={0.8}
           >
-            {purging ? (
-              <ActivityIndicator size="small" color={colors.sosRed} />
-            ) : (
-              <>
-                <Ionicons name="trash-outline" size={20} color={colors.sosRed} />
-                <Text style={[styles.purgeBtnText, { color: colors.sosRed }]}>WIPE LOCATION TRAIL HISTORY</Text>
-              </>
-            )}
+            <Ionicons name="document-text-outline" size={18} color={colors.accentGold} />
+            <Text style={[styles.policyBtnText, { color: colors.accentGold }]}>READ PRIVACY POLICY</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.accentGold} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.policyBtn, { backgroundColor: colors.surface, borderColor: colors.accentGold, marginTop: 8 }]}
+            onPress={() => setTermsModalVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="shield-checkmark-outline" size={18} color={colors.accentGold} />
+            <Text style={[styles.policyBtnText, { color: colors.accentGold }]}>READ TERMS OF SERVICE</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.accentGold} />
           </TouchableOpacity>
         </ScrollView>
 
@@ -303,6 +318,16 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
           visible={approvalModalVisible}
           onClose={() => setApprovalModalVisible(false)}
           requestedFeature={approvalFeature}
+        />
+
+        <PrivacyPolicyModal
+          visible={policyModalVisible}
+          onClose={() => setPolicyModalVisible(false)}
+        />
+
+        <TermsOfServiceModal
+          visible={termsModalVisible}
+          onClose={() => setTermsModalVisible(false)}
         />
       </View>
     </Modal>
@@ -399,5 +424,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: 'bold',
     letterSpacing: 1.5,
+  },
+  policyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  policyBtnText: {
+    fontSize: 11.5,
+    fontWeight: 'bold',
+    letterSpacing: 1.2,
+    flex: 1,
+    marginLeft: 10,
   },
 });

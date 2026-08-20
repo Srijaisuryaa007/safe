@@ -1,21 +1,27 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, ScrollView, Platform, NativeModules, TurboModuleRegistry } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 import { supabase } from '../lib/supabase';
 import { LUXURY_THEME } from '../constants/theme';
 
 import AnimatedCircleGuardLogo from '../components/AnimatedCircleGuardLogo';
 
+WebBrowser.maybeCompleteAuthSession();
+
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const navigation = useNavigation();
 
   const handleLogin = async () => {
     setErrorMsg('');
+
     if (!email || !password) {
       setErrorMsg('Please enter both email and password.');
       return;
@@ -41,10 +47,159 @@ export default function LoginScreen() {
   const handleGoogleSignIn = async () => {
     try {
       setLoading(true);
-      const { error } = await supabase.auth.signInWithOAuth({
+
+      const hasNativeModule = Platform.OS !== 'web' && (
+        !!(NativeModules as any)?.RNGoogleSignin ||
+        !!(TurboModuleRegistry && typeof TurboModuleRegistry.get === 'function' && TurboModuleRegistry.get('RNGoogleSignin'))
+      );
+
+      if (hasNativeModule) {
+        try {
+          const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+          GoogleSignin.configure({
+            webClientId: '648921591929-dspid5vmlhk9hm9213vcln5v5tftr079.apps.googleusercontent.com',
+            offlineAccess: true,
+          });
+          await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+          try {
+            await GoogleSignin.signOut();
+          } catch (e) {}
+          const response = await GoogleSignin.signIn();
+          
+          const idToken = response?.data?.idToken || response?.idToken || (response as any)?.data?.idToken || (response as any)?.idToken;
+
+          if (!idToken) {
+            throw new Error('Google did not return an ID token. Please verify your Web Client ID and SHA-1 in Google Cloud Console.');
+          }
+
+          const { data: sessionData, error: sessionErr } = await supabase.auth.signInWithIdToken({
+            provider: 'google',
+            token: idToken,
+          });
+
+          if (sessionErr) throw sessionErr;
+
+          if (sessionData?.session) {
+            const { useAuthStore } = require('../store/useAuthStore');
+            useAuthStore.getState().setSession(sessionData.session);
+
+            const user = sessionData.session.user;
+            let { data: prof } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', user.id)
+              .maybeSingle();
+
+            if (!prof) {
+              const fullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Circle Member';
+              const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+
+              const { data: newProf } = await supabase
+                .from('profiles')
+                .upsert([
+                  {
+                    id: user.id,
+                    full_name: fullName,
+                    avatar_url: avatarUrl,
+                    phone: user.phone || null,
+                  }
+                ])
+                .select()
+                .single();
+
+              if (newProf) prof = newProf;
+            }
+
+            if (prof) {
+              useAuthStore.getState().setProfile(prof);
+            }
+            return;
+          }
+        } catch (nativeErr: any) {
+          console.error('Native Google sign in error:', nativeErr);
+          const isCancelled = nativeErr?.code === '13' || nativeErr?.code === 'SIGN_IN_CANCELLED' || nativeErr?.message?.toLowerCase()?.includes('cancel');
+          if (!isCancelled) {
+            Alert.alert('Google Sign-In Error', nativeErr?.message || 'Failed to authenticate with Google.');
+          }
+          return;
+        }
+      }
+
+      const redirectUrl = Platform.OS === 'web' 
+        ? window.location.origin 
+        : Linking.createURL('auth/callback', { scheme: 'circleguard' });
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: Platform.OS !== 'web',
+        },
       });
-      if (error) Alert.alert('Google Sign-In', error.message);
+
+      if (error) {
+        Alert.alert('Google Sign-In Error', error.message);
+        return;
+      }
+
+      if (Platform.OS !== 'web' && data?.url) {
+        const res = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+        if (res.type === 'success' && res.url) {
+          const params: Record<string, string> = {};
+          const match = res.url.match(/[#?](.*)/);
+          if (match && match[1]) {
+            match[1].split('&').forEach(pair => {
+              const [k, v] = pair.split('=');
+              if (k && v) params[k] = decodeURIComponent(v);
+            });
+          }
+
+          if (params.access_token && params.refresh_token) {
+            const { data: sessionData, error: sessionErr } = await supabase.auth.setSession({
+              access_token: params.access_token,
+              refresh_token: params.refresh_token,
+            });
+
+            if (sessionErr) throw sessionErr;
+
+            if (sessionData?.session) {
+              const { useAuthStore } = require('../store/useAuthStore');
+              useAuthStore.getState().setSession(sessionData.session);
+
+              const user = sessionData.session.user;
+              let { data: prof } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', user.id)
+                .maybeSingle();
+
+              if (!prof) {
+                const fullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Circle Member';
+                const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+
+                const { data: newProf } = await supabase
+                  .from('profiles')
+                  .upsert([
+                    {
+                      id: user.id,
+                      full_name: fullName,
+                      avatar_url: avatarUrl,
+                      phone: user.phone || null,
+                    }
+                  ])
+                  .select()
+                  .single();
+
+                if (newProf) prof = newProf;
+              }
+
+              if (prof) {
+                useAuthStore.getState().setProfile(prof);
+              }
+            }
+          }
+        }
+      }
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to initialize Google sign in');
     } finally {
@@ -53,7 +208,8 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      {/* Brand Header */}
       <View style={styles.brandContainer}>
         <AnimatedCircleGuardLogo size={180} showText={true} />
       </View>
@@ -73,14 +229,19 @@ export default function LoginScreen() {
         />
 
         <Text style={styles.inputLabel}>PASSWORD</Text>
-        <TextInput
-          style={styles.underlineInput}
-          placeholder="••••••••"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          placeholderTextColor={LUXURY_THEME.colors.textMuted}
-        />
+        <View style={styles.passwordContainer}>
+          <TextInput
+            style={[styles.underlineInput, { flex: 1, marginBottom: 0 }]}
+            placeholder="••••••••"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            placeholderTextColor={LUXURY_THEME.colors.textMuted}
+          />
+          <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(!showPassword)}>
+            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={LUXURY_THEME.colors.accentGold} />
+          </TouchableOpacity>
+        </View>
 
         <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
           {loading ? (
@@ -96,8 +257,8 @@ export default function LoginScreen() {
           <View style={styles.dividerLine} />
         </View>
 
-        <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn} disabled={loading}>
-          <Ionicons name="logo-google" size={18} color={LUXURY_THEME.colors.foreground} />
+        <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn} disabled={loading} activeOpacity={0.8}>
+          <Ionicons name="logo-google" size={18} color="#FFFFFF" />
           <Text style={styles.googleButtonText}>CONTINUE WITH GOOGLE</Text>
         </TouchableOpacity>
 
@@ -109,53 +270,20 @@ export default function LoginScreen() {
           <Text style={styles.linkText}>CREATE AN ACCOUNT</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    flexGrow: 1,
     backgroundColor: LUXURY_THEME.colors.background,
     padding: 28,
     justifyContent: 'center',
   },
   brandContainer: {
     alignItems: 'center',
-    marginBottom: 44,
-  },
-  shieldBg: {
-    width: 80,
-    height: 80,
-    backgroundColor: LUXURY_THEME.colors.foreground,
-    borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.accentGold,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  logoImage: {
-    width: 140,
-    height: 140,
-    marginBottom: 16,
-  },
-  overline: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: LUXURY_THEME.colors.accentGold,
-    letterSpacing: 2.5,
-    marginBottom: 4,
-  },
-  brandTitle: {
-    fontSize: 32,
-    fontFamily: LUXURY_THEME.typography.fontFamilySerif,
-    fontWeight: 'bold',
-    color: LUXURY_THEME.colors.foreground,
-    marginBottom: 4,
-  },
-  brandSubtitle: {
-    fontSize: 13,
-    color: LUXURY_THEME.colors.textMuted,
+    marginBottom: 40,
   },
   form: {
     gap: 16,
@@ -175,6 +303,16 @@ const styles = StyleSheet.create({
     color: LUXURY_THEME.colors.foreground,
     letterSpacing: 1.5,
   },
+  passwordContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: LUXURY_THEME.colors.foreground,
+    marginBottom: 8,
+  },
+  eyeBtn: {
+    padding: 8,
+  },
   underlineInput: {
     borderBottomWidth: 1,
     borderBottomColor: LUXURY_THEME.colors.foreground,
@@ -184,18 +322,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   button: {
-    backgroundColor: LUXURY_THEME.colors.foreground,
+    backgroundColor: LUXURY_THEME.colors.accentGold,
     height: 50,
-    borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.accentGold,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 16,
   },
   buttonText: {
-    color: LUXURY_THEME.colors.accentGold,
+    color: '#1A1A1A',
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
     letterSpacing: 2,
   },
   dividerRow: {
@@ -219,14 +356,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     height: 50,
     borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.foreground,
-    backgroundColor: LUXURY_THEME.colors.surface,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 10,
   },
   googleButtonText: {
-    color: LUXURY_THEME.colors.foreground,
+    color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1.5,
@@ -236,7 +374,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   linkText: {
-    color: LUXURY_THEME.colors.foreground,
+    color: '#D4AF37',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 2,

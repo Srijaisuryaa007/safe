@@ -6,6 +6,8 @@ import { useThemeStore } from '../store/useThemeStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from '../lib/supabase';
 
+import { useLuxuryAlert } from './LuxuryAlertModal';
+
 interface NotificationsModalProps {
   visible: boolean;
   onClose: () => void;
@@ -21,6 +23,7 @@ const KEYS = {
 export default function NotificationsModal({ visible, onClose }: NotificationsModalProps) {
   const { colors } = useThemeStore();
   const { profile, setProfile } = useAuthStore();
+  const { showAlert } = useLuxuryAlert();
 
   const [phone, setPhone] = useState(profile?.phone || '');
   const [savingPhone, setSavingPhone] = useState(false);
@@ -65,7 +68,11 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
   const handleUpdatePhone = async () => {
     if (!profile) return;
     if (!phone.trim()) {
-      Alert.alert('Invalid Input', 'Please enter a valid phone number.');
+      showAlert({
+        title: 'INVALID PHONE NUMBER',
+        message: 'Please enter a valid emergency phone number.',
+        type: 'warning',
+      });
       return;
     }
 
@@ -79,9 +86,17 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
       if (error) throw error;
 
       setProfile({ ...profile, phone: phone.trim() });
-      Alert.alert('Phone Updated', 'Your registered phone number has been updated for SMS & emergency calls.');
+      showAlert({
+        title: 'PHONE NUMBER UPDATED',
+        message: 'Your registered phone number has been updated for SMS & emergency calls.',
+        type: 'success',
+      });
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to update phone number.');
+      showAlert({
+        title: 'UPDATE ERROR',
+        message: err.message || 'Failed to update phone number.',
+        type: 'error',
+      });
     } finally {
       setSavingPhone(false);
     }

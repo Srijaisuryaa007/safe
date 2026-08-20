@@ -10,9 +10,11 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { LUXURY_THEME } from '../constants/theme';
-import { segmentTripsByStops } from '../services/TripSegmentationService';
+import { segmentTripsByStops, analyzeTripTelemetry } from '../services/TripSegmentationService';
 import { fetchRoadSnappedRoute } from '../services/RoadRoutingService';
 import AnimatedListDropdown from '../components/AnimatedListDropdown';
+import { usePaywall } from '../hooks/usePaywall';
+import PaywallModal from '../components/PaywallModal';
 
 interface TripItem {
   id: string;
@@ -110,6 +112,8 @@ export default function DrivingReportsScreen() {
   const { colors, isDark } = useThemeStore();
   const { activeCircle, members } = useCircleStore();
   const { profile } = useAuthStore();
+  const { isPremium, paywallVisible, gatedFeatureName, presentPaywall, dismissPaywall } = usePaywall();
+  const userIsPremium = isPremium || !!profile?.is_premium;
 
   const insets = useSafeAreaInsets();
   const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 36) : 44);
@@ -248,19 +252,25 @@ export default function DrivingReportsScreen() {
           let endAddr = `Location • ${realCity}`;
 
           try {
-            const startGeo = await Location.reverseGeocodeAsync({ latitude: leg.startLat, longitude: leg.startLng });
+            const startGeo = await Location.reverseGeocodeAsync({ latitude: leg.startLat || baseLat, longitude: leg.startLng || baseLng });
             if (startGeo && startGeo.length > 0) {
               const p = startGeo[0];
               startAddr = [p.name, p.street, p.district || p.city].filter(Boolean).join(', ') || realCity;
             }
-            const endGeo = await Location.reverseGeocodeAsync({ latitude: leg.endLat, longitude: leg.endLng });
+            const endGeo = await Location.reverseGeocodeAsync({ latitude: leg.endLat || baseLat, longitude: leg.endLng || baseLng });
             if (endGeo && endGeo.length > 0) {
               const p = endGeo[0];
               endAddr = [p.name, p.street, p.district || p.city].filter(Boolean).join(', ') || realCity;
             }
           } catch (e) {}
 
-          const distKm = (calculateHaversineDistanceMeters(leg.startLat, leg.startLng, leg.endLat, leg.endLng) / 1000).toFixed(1);
+          const analysis = analyzeTripTelemetry(
+            leg.points,
+            p => p.timeMs,
+            p => p.lat,
+            p => p.lng,
+            p => p.speed
+          );
 
           generatedTrips.push({
             id: `trip_${idx}_${selectedDate}`,
@@ -269,15 +279,15 @@ export default function DrivingReportsScreen() {
             endTime: new Date(leg.endTimeMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             startAddress: startAddr,
             endAddress: endAddr,
-            distanceKm: parseFloat(distKm) || 0.5,
-            durationMins: Math.round((leg.endTimeMs - leg.startTimeMs) / 60000) || 1,
-            topSpeedKmh: Math.max(...leg.points.map((p: any) => p.speed || 0), 25),
-            avgSpeedKmh: 30,
-            score: 100,
-            hardBrakes: 0,
-            rapidAccels: 0,
-            speedingEvents: 0,
-            routeCoords: leg.points,
+            distanceKm: analysis.distanceKm || 0.8,
+            durationMins: analysis.durationMins || 1,
+            topSpeedKmh: analysis.topSpeedKmh,
+            avgSpeedKmh: analysis.avgSpeedKmh,
+            score: analysis.driverScore,
+            hardBrakes: analysis.hardBrakes,
+            rapidAccels: analysis.rapidAccels,
+            speedingEvents: analysis.speedingEvents,
+            routeCoords: analysis.processedPoints,
             isOutbound: leg.isOutbound,
           });
         }
@@ -292,6 +302,7 @@ export default function DrivingReportsScreen() {
       let hb = 0;
       let ra = 0;
       let spdEvt = 0;
+      let sumScore = 0;
 
       generatedTrips.forEach(t => {
         totDist += t.distanceKm;
@@ -301,17 +312,18 @@ export default function DrivingReportsScreen() {
         hb += t.hardBrakes;
         ra += t.rapidAccels;
         spdEvt += t.speedingEvents;
+        sumScore += t.score;
       });
 
       setTotalDistanceKm(parseFloat(totDist.toFixed(1)));
       setTotalDriveMins(totDur);
       setTopSpeedKmh(maxSpd);
-      setAvgSpeedKmh(Math.round(sumAvgSpd / generatedTrips.length));
+      setAvgSpeedKmh(generatedTrips.length > 0 ? Math.round(sumAvgSpd / generatedTrips.length) : 0);
       setTotalHardBrakes(hb);
       setTotalRapidAccels(ra);
       setTotalSpeedingEvents(spdEvt);
 
-      const calculatedScore = Math.max(75, 100 - hb * 3 - ra * 2 - spdEvt * 2);
+      const calculatedScore = generatedTrips.length > 0 ? Math.round(sumScore / generatedTrips.length) : 100;
       setDriverScore(calculatedScore);
 
     } catch (e) {
@@ -463,17 +475,28 @@ export default function DrivingReportsScreen() {
 
           <TouchableOpacity
             style={[styles.datePill, selectedDate === '2daysAgo' && [styles.datePillActive, { backgroundColor: '#D4AF37' }]]}
-            onPress={() => setSelectedDate('2daysAgo')}
+            onPress={() => {
+              if (userIsPremium) {
+                setSelectedDate('2daysAgo');
+              } else {
+                presentPaywall('3-Day Extended Driving History');
+              }
+            }}
             activeOpacity={0.8}
           >
-            <Text
-              style={[styles.datePillText, { color: selectedDate === '2daysAgo' ? '#FFFFFF' : '#D4AF37' }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.75}
-            >
-              2 DAYS
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <Text
+                style={[styles.datePillText, { color: selectedDate === '2daysAgo' ? '#FFFFFF' : '#D4AF37' }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
+              >
+                2 DAYS
+              </Text>
+              {!userIsPremium && (
+                <Ionicons name="lock-closed" size={10} color={selectedDate === '2daysAgo' ? '#FFFFFF' : '#D4AF37'} />
+              )}
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -689,7 +712,7 @@ export default function DrivingReportsScreen() {
                       </Text>
                       <Text style={[styles.tripStatText, { color: colors.textMuted }]}>
                         Top Speed: <Text style={{ color: isSpeeding ? '#FF5266' : colors.foreground, fontWeight: '800' }}>
-                          {trip.topSpeedKmh} km/h {isSpeeding ? ' ⚠️' : ''}
+                          {trip.topSpeedKmh} km/h
                         </Text>
                       </Text>
                       <View style={styles.inspectBtn}>
@@ -760,6 +783,12 @@ export default function DrivingReportsScreen() {
           </View>
         </Modal>
       ) : null}
+
+      <PaywallModal
+        visible={paywallVisible}
+        onClose={dismissPaywall}
+        gatedFeatureName={gatedFeatureName}
+      />
     </View>
   );
 }

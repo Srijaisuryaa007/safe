@@ -15,7 +15,7 @@ export default function ReadReceiptCheckmarks({
   isReadByAll = false,
   color,
 }: ReadReceiptCheckmarksProps) {
-  // Read by recipient / circle members: WhatsApp & iMessage Electric Blue Double Checkmarks ✓✓
+  // Read by recipient / circle members: Double Checkmarks
   if (isReadByAll) {
     return (
       <View style={styles.container}>
@@ -24,7 +24,7 @@ export default function ReadReceiptCheckmarks({
     );
   }
 
-  // Delivered (Unread): Grey Double Checkmarks ✓✓
+  // Delivered (Unread): Grey Double Checkmarks
   if (isDelivered) {
     return (
       <View style={styles.container}>
@@ -33,7 +33,7 @@ export default function ReadReceiptCheckmarks({
     );
   }
 
-  // Sent: Single Grey Checkmark ✓
+  // Sent: Single Grey Checkmark
   return (
     <View style={styles.container}>
       <Ionicons name="checkmark-sharp" size={13} color={color || 'rgba(255, 255, 255, 0.75)'} />

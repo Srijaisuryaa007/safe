@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — CircleGuard</title>
+<style>
+  :root{
+    --navy-deep:#0a0f1e; --navy:#0f1830; --navy-soft:#1a2648;
+    --cyan:#5eead4; --white:#f4f7fb; --muted:#a9b4c9;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--navy-deep); color:var(--white);
+    font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height:1.65;
+  }
+  .wrap{ max-width:760px; margin:0 auto; padding:64px 24px 100px; }
+  .brand{ display:flex; align-items:center; gap:10px; margin-bottom:40px; }
+  .dot{ width:22px; height:22px; border-radius:50%; border:2px solid var(--cyan);
+        box-shadow:0 0 12px rgba(94,234,212,0.5); position:relative; }
+  .dot::after{ content:''; position:absolute; inset:5px; border-radius:50%; background:var(--cyan); }
+  .brand span{ font-weight:700; letter-spacing:.08em; font-size:18px; color:var(--white); }
+  h1{ font-size:32px; margin:0 0 6px; font-weight:800; }
+  .updated{ color:var(--muted); font-size:14px; margin-bottom:36px; }
+  h2{ font-size:19px; margin:36px 0 10px; color:var(--cyan); }
+  p, li{ color:#d7dee9; font-size:15px; }
+  ul{ padding-left:20px; }
+  .callout{
+    background:var(--navy-soft); border:1px solid rgba(94,234,212,0.25);
+    border-radius:10px; padding:16px 18px; margin:20px 0; font-size:14px; color:var(--muted);
+  }
+  .highlight{ color:#5eead4; font-weight:600; }
+  a{ color:var(--cyan); text-decoration:none; }
+  a:hover{ text-decoration:underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><div class="dot"></div><span>CIRCLEGUARD</span></div>
+
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: <span class="highlight">August 20, 2026</span></p>
+
+  <div class="callout">
+    CircleGuard is dedicated to family safety, real-time geofence alerting, and emergency coordination. We hold your location data and privacy with bank-grade confidentiality and strict member-controlled permissions.
+  </div>
+
+  <h2>1. Who we are</h2>
+  <p>
+    CircleGuard ("we," "us," "our") provides an app that helps families and trusted circles stay
+    connected and safe. This policy explains what information we collect, how we use it, and the
+    choices you have. This policy applies to the CircleGuard mobile application and backend services (together, the
+    "Service"), operated by <span class="highlight">CircleGuard Safety Technologies</span>.
+  </p>
+
+  <h2>2. Information we collect</h2>
+  <p>We collect the following categories of information:</p>
+  <ul>
+    <li><strong>Account information</strong> — name, email address, and profile photo, including information provided when you sign in with Google or email authentication.</li>
+    <li><strong>Location information</strong> — with your permission, your device's real-time or periodic GPS location, used to display your position to members of your private circle and power safety geofences and emergency SOS alerts.</li>
+    <li><strong>Circle & Family Data</strong> — the circle groups, member roles, emergency contacts, and safe place zones configured within your private circles.</li>
+    <li><strong>Device information</strong> — device type, battery level, operating system, and app version for real-time safety telemetry and reliability.</li>
+    <li><strong>Usage & Telemetry data</strong> — connection health and delivery status collected to ensure 24/7 safety alerts dispatch reliably.</li>
+  </ul>
+
+  <h2>3. How we use your information</h2>
+  <ul>
+    <li>To provide core safety features — showing circle members' live locations, geofence enter/exit alerts, and emergency SOS dispatch.</li>
+    <li>To authenticate your session securely using Supabase authentication and Google Sign-In.</li>
+    <li>To dispatch instant push notifications and alerts when family members request assistance.</li>
+    <li>To troubleshoot and maintain continuous service reliability.</li>
+  </ul>
+  <p>We do <strong>NOT</strong> sell your personal information or your location history to advertisers or third parties.</p>
+
+  <h2>4. Who we share information with</h2>
+  <ul>
+    <li><strong>Members of your private circle</strong> — by design, your location and safety status are visible strictly to members within circles you actively join.</li>
+    <li><strong>Infrastructure Service Providers</strong> — cloud database and authentication providers (Supabase), push notification delivery services (Expo), who process data under strict encryption and contractual confidentiality.</li>
+    <li><strong>Legal requirements</strong> — only when strictly required by applicable law or emergency life-safety protocols.</li>
+  </ul>
+
+  <h2>5. Children & Family Privacy</h2>
+  <div class="callout">
+    CircleGuard is designed for family circles and trusted groups. All circles are private, invite-only, and managed by Circle Leaders. Parents and guardians retain full control over membership, location sharing, and emergency protocols.
+  </div>
+
+  <h2>6. Your choices and rights</h2>
+  <ul>
+    <li>You can enable <strong>Ghost Privacy Mode</strong> or <strong>Hide Online Presence</strong> at any time in your Privacy & Security settings.</li>
+    <li>You can wipe or permanently purge your recorded GPS trail history anytime with a single tap.</li>
+    <li>You can leave a circle, revoke location permissions, or delete your account whenever you choose.</li>
+    <li>For inquiries or data deletion requests, contact us at <a href="mailto:privacy@circleguard.app">privacy@circleguard.app</a>.</li>
+  </ul>
+
+  <h2>7. Data Retention & Purging</h2>
+  <p>
+    Location telemetry is retained only as long as necessary to power your circle's travel history and safety geofences. You have complete control to wipe your location history directly inside the app under Privacy & Security Settings.
+  </p>
+
+  <h2>8. Security & Encryption</h2>
+  <p>
+    We utilize end-to-end transport layer security (TLS 1.3), Row-Level Security (RLS) policies in cloud databases, and cryptographic token verification to ensure your location data is inaccessible to unauthorized parties.
+  </p>
+
+  <h2>9. Contact Us</h2>
+  <p>
+    For any privacy-related questions or data requests, reach us directly at:
+    <br>
+    <strong>Email:</strong> <a href="mailto:privacy@circleguard.app">privacy@circleguard.app</a>
+  </p>
+</div>
+</body>
+</html>

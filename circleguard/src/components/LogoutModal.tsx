@@ -26,7 +26,14 @@ export default function LogoutModal({
   const handleConfirmLogout = async () => {
     setLoggingOut(true);
     try {
+      try {
+        const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+        await GoogleSignin.signOut();
+      } catch (e) {}
+
       await supabase.auth.signOut();
+      useAuthStore.getState().setSession(null);
+      useAuthStore.getState().setProfile(null);
       onClose();
     } catch (err) {
       console.error('Logout error:', err);

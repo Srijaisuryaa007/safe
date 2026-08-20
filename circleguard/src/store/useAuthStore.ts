@@ -8,6 +8,7 @@ export interface Profile {
   avatar_url: string | null;
   is_ghost_mode?: boolean;
   hide_online_presence?: boolean;
+  is_premium?: boolean;
   created_at: string;
 }
 

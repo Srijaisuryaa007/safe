@@ -75,7 +75,7 @@ export default function MemberRoleModal({
     {
       id: 'co_leader',
       title: 'Co-Leader',
-      badgeText: 'SPECIAL PRIORITY ⚡',
+      badgeText: 'SPECIAL PRIORITY',
       description: 'High privilege administrative role with executive circle management powers and Special Priority.',
       permissions: ['Geofences & Safe Places', 'Invite Code Sharing', 'Promote Guardians', 'Emergency Broadcasts'],
       icon: 'shield-checkmark',
@@ -84,7 +84,7 @@ export default function MemberRoleModal({
     {
       id: 'guardian',
       title: 'Safety Guardian',
-      badgeText: 'PRIORITY SOS 🛡️',
+      badgeText: 'PRIORITY SOS',
       description: 'Safety moderator responsible for monitoring family geofences and priority emergency dispatch.',
       permissions: ['Priority SOS Alerts', 'Geofence Breach Radar', 'Location History Access', 'Battery Monitoring'],
       icon: 'shield-outline',
@@ -105,7 +105,7 @@ export default function MemberRoleModal({
     if (!canEdit) {
       setAlertState({
         visible: true,
-        title: 'Permission Notice 👑',
+        title: 'Permission Notice',
         message: 'Only the Circle Founder & Leader or Co-Leaders can change member ranks.',
         icon: 'shield-outline',
         color: '#F59E0B',
@@ -115,7 +115,7 @@ export default function MemberRoleModal({
     if (isTargetOwner) {
       setAlertState({
         visible: true,
-        title: 'Circle Founder 👑',
+        title: 'Circle Founder',
         message: 'The Circle Founder rank cannot be modified.',
         icon: 'star',
         color: '#D4AF37',
@@ -145,7 +145,7 @@ export default function MemberRoleModal({
 
       setAlertState({
         visible: true,
-        title: 'Rank & Special Priority Updated 👑',
+        title: 'Rank & Special Priority Updated',
         message: `Successfully promoted ${name} to ${newRole.toUpperCase().replace('_', ' ')} with Special Priority Status.`,
         icon: 'checkmark-circle',
         color: newRole === 'co_leader' ? '#A855F7' : (newRole === 'guardian' ? '#3B82F6' : '#10B981'),

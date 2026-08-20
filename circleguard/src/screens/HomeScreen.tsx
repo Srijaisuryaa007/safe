@@ -66,6 +66,8 @@ import SwiggyHeaderBar from '../components/SwiggyHeaderBar';
 import MagnificationDock, { DockItemData } from '../components/MagnificationDock';
 import JellySqueezeButton from '../components/JellySqueezeButton';
 import AnimatedList from '../components/AnimatedList';
+import HomeMiniMapCard from '../components/HomeMiniMapCard';
+import * as Location from 'expo-location';
 
 export default function HomeScreen() {
   const { colors, isDark, themeMode } = useThemeStore();
@@ -73,15 +75,71 @@ export default function HomeScreen() {
   const { profile } = useAuthStore();
   const { activeCircle, members } = useCircleStore();
 
+  const [userLoc, setUserLoc] = useState<{ latitude: number; longitude: number } | null>(null);
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
   const [sharingLocation, setSharingLocation] = useState(false);
   const [isTrackingActive, setIsTrackingActive] = useState(true);
+  const [circlePlaces, setCirclePlaces] = useState<any[]>([]);
   const [fakeCallVisible, setFakeCallVisible] = useState(false);
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-
   const { showAlert } = useLuxuryAlert();
+
+  const fetchHomePlaces = async (circleId: string) => {
+    try {
+      const { data } = await supabase
+        .from('places')
+        .select('*')
+        .eq('circle_id', circleId);
+      if (data) {
+        setCirclePlaces(data);
+      }
+    } catch (e) {}
+  };
+
+  const parsePlaceCoords = (p: any): { latitude: number; longitude: number } => {
+    let lat = parseFloat(p.start_lat || p.latitude || 0);
+    let lng = parseFloat(p.start_lng || p.longitude || 0);
+
+    if ((!lat || !lng || isNaN(lat) || isNaN(lng)) && p.geom) {
+      if (typeof p.geom === 'string') {
+        const match = p.geom.match(/POINT\s*\(\s*([-\d.]+)[,\s]+([-\d.]+)\s*\)/i);
+        if (match && match.length >= 3) {
+          lng = parseFloat(match[1]);
+          lat = parseFloat(match[2]);
+        }
+      } else if (typeof p.geom === 'object' && Array.isArray(p.geom.coordinates)) {
+        lng = parseFloat(p.geom.coordinates[0]);
+        lat = parseFloat(p.geom.coordinates[1]);
+      }
+    }
+    return { latitude: lat || 0, longitude: lng || 0 };
+  };
+
+  const getMemberHomeStatus = (m: any) => {
+    if (!circlePlaces || circlePlaces.length === 0 || !m.latitude || !m.longitude) {
+      return 'Away';
+    }
+    const { getHaversineDistanceInMeters } = require('../services/GeofenceEngine');
+
+    for (const place of circlePlaces) {
+      const { latitude: pLat, longitude: pLng } = parsePlaceCoords(place);
+      if (!pLat || !pLng) continue;
+
+      const dist = getHaversineDistanceInMeters(m.latitude, m.longitude, pLat, pLng);
+      const radius = place.radius_m || 150;
+
+      if (dist <= radius) {
+        const cat = String(place.category || '').toLowerCase();
+        if (cat === 'home' || place.name?.toLowerCase().includes('home')) {
+          return 'At Home';
+        }
+        return `At ${place.name || 'Safe Zone'}`;
+      }
+    }
+    return 'Away';
+  };
 
   const toggleLocationTracking = async () => {
     if (isTrackingActive) {
@@ -133,10 +191,24 @@ export default function HomeScreen() {
   useEffect(() => {
     sendInstantLocationPing();
     startBatteryOptimizedBackgroundLocation();
+
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          if (loc?.coords) {
+            setUserLoc({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+          }
+        }
+      } catch (e) {}
+    })();
+
     if (profile?.id && !activeCircle) {
       useCircleStore.getState().fetchActiveCircle(profile.id);
     } else if (activeCircle?.id) {
       fetchCircleActivity(activeCircle.id);
+      fetchHomePlaces(activeCircle.id);
     }
   }, [profile?.id, activeCircle?.id]);
 
@@ -181,9 +253,9 @@ export default function HomeScreen() {
           name = Array.isArray(item.profiles) ? item.profiles[0]?.full_name : (item.profiles as any).full_name;
         }
         let cleanTitle = item.content
-          .replace(/^✅\s*PERMISSION GRANTED:\s*/i, '')
-          .replace(/^❌\s*PERMISSION DENIED:\s*/i, '')
-          .replace(/^🔒\s*PERMISSION REQUEST:\s*/i, '');
+          .replace(/^PERMISSION GRANTED:\s*/i, '')
+          .replace(/^PERMISSION DENIED:\s*/i, '')
+          .replace(/^PERMISSION REQUEST:\s*/i, '');
 
         let color = colors.accentGold;
         let icon: any = 'shield-outline';
@@ -230,7 +302,12 @@ export default function HomeScreen() {
   const handleInviteMember = async () => {
     if (activeCircle?.invite_code) {
       await Clipboard.setStringAsync(activeCircle.invite_code);
-      Alert.alert('Invite Code Copied', `Invite Code: ${activeCircle.invite_code}\n\nCopied to clipboard.`);
+      showAlert({
+        title: 'Invite Code Copied',
+        message: `Invite Code: ${activeCircle.invite_code}\n\nCopied to clipboard. Share this key to invite members.`,
+        type: 'success',
+        buttonText: 'DONE',
+      });
     } else {
       navigation.navigate('Circle');
     }
@@ -343,12 +420,20 @@ export default function HomeScreen() {
                   styles.liveShieldText,
                   { color: isTrackingActive ? '#10B981' : '#F59E0B' },
                 ]}
+                adjustsFontSizeToFit={true}
+                minimumFontScale={0.8}
+                numberOfLines={1}
               >
                 {isTrackingActive ? 'LIVE SHIELD ACTIVE' : 'SHIELD PAUSED'}
               </Text>
             </View>
 
-            <Text style={[styles.cardDateText, { color: isDark ? colors.textMuted : '#A1A1AA' }]}>
+            <Text 
+              style={[styles.cardDateText, { color: isDark ? colors.textMuted : '#A1A1AA' }]}
+              adjustsFontSizeToFit={true}
+              minimumFontScale={0.8}
+              numberOfLines={1}
+            >
               {new Date().toLocaleDateString('en-US', {
                 weekday: 'short',
                 month: 'short',
@@ -370,7 +455,12 @@ export default function HomeScreen() {
           </View>
 
           {/* Circle Title & Connected Status */}
-          <Text style={[styles.circleNameTitle, { color: colors.foreground }]}>
+          <Text 
+            style={[styles.circleNameTitle, { color: colors.foreground }]}
+            adjustsFontSizeToFit={true}
+            minimumFontScale={0.75}
+            numberOfLines={1}
+          >
             {activeCircle ? activeCircle.name : 'No Active Circle'}
           </Text>
 
@@ -446,6 +536,9 @@ export default function HomeScreen() {
                   styles.pauseBtnText,
                   { color: isTrackingActive ? (themeMode === 'minimalist_monochrome' || themeMode === 'bauhaus' ? '#FFFFFF' : '#DC2626') : '#10B981' },
                 ]}
+                adjustsFontSizeToFit={true}
+                minimumFontScale={0.8}
+                numberOfLines={1}
               >
                 {isTrackingActive ? 'PAUSE BACKGROUND TRACKING' : 'RESUME BACKGROUND SHIELD'}
               </Text>
@@ -463,8 +556,13 @@ export default function HomeScreen() {
               activeOpacity={0.8}
             >
               <Ionicons name="add-circle-outline" size={18} color="#1A1A1A" />
-              <Text style={[styles.pauseBtnText, { color: '#1A1A1A', fontWeight: '900' }]}>
-                JOIN OR CREATE A CIRCLE 👥
+              <Text 
+                style={[styles.pauseBtnText, { color: '#1A1A1A', fontWeight: '900' }]}
+                adjustsFontSizeToFit={true}
+                minimumFontScale={0.8}
+                numberOfLines={1}
+              >
+                JOIN OR CREATE A CIRCLE
               </Text>
             </TouchableOpacity>
           )}
@@ -472,7 +570,12 @@ export default function HomeScreen() {
 
         {/* Section Header: Circle Metrics */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+          <Text 
+            style={[styles.sectionTitle, { color: colors.foreground }]}
+            adjustsFontSizeToFit={true}
+            minimumFontScale={0.85}
+            numberOfLines={1}
+          >
             CIRCLE METRICS
           </Text>
           <View style={[styles.accentLine, { backgroundColor: colors.border }]} />
@@ -490,10 +593,20 @@ export default function HomeScreen() {
             ]}
             activeOpacity={0.8}
           >
-            <Text style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#1040C0' : '#10B981' }]}>
+            <Text 
+              style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#1040C0' : '#10B981' }]}
+              adjustsFontSizeToFit={true}
+              minimumFontScale={0.7}
+              numberOfLines={1}
+            >
               {activeCircle ? onlineCount : 0}
             </Text>
-            <Text style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#1040C0' : '#10B981' }]}>
+            <Text 
+              style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#1040C0' : '#10B981' }]}
+              adjustsFontSizeToFit={true}
+              minimumFontScale={0.75}
+              numberOfLines={2}
+            >
               MEMBERS{'\n'}ONLINE
             </Text>
           </TouchableOpacity>
@@ -508,10 +621,20 @@ export default function HomeScreen() {
             ]}
             activeOpacity={0.8}
           >
-            <Text style={[styles.metricBigNumber, { color: colors.textMuted }]}>
+            <Text 
+              style={[styles.metricBigNumber, { color: colors.textMuted }]}
+              adjustsFontSizeToFit={true}
+              minimumFontScale={0.7}
+              numberOfLines={1}
+            >
               {activeCircle ? offlineCount : 0}
             </Text>
-            <Text style={[styles.metricCardLabel, { color: colors.textMuted }]}>
+            <Text 
+              style={[styles.metricCardLabel, { color: colors.textMuted }]}
+              adjustsFontSizeToFit={true}
+              minimumFontScale={0.75}
+              numberOfLines={2}
+            >
               MEMBERS{'\n'}OFFLINE
             </Text>
           </TouchableOpacity>
@@ -526,10 +649,20 @@ export default function HomeScreen() {
             ]}
             activeOpacity={0.8}
           >
-            <Text style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#D02020' : colors.accentGold }]}>
+            <Text 
+              style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#D02020' : colors.accentGold }]}
+              adjustsFontSizeToFit={true}
+              minimumFontScale={0.7}
+              numberOfLines={1}
+            >
               {activeCircle ? recentActivities.length : 0}
             </Text>
-            <Text style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#D02020' : colors.accentGold }]}>
+            <Text 
+              style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#D02020' : colors.accentGold }]}
+              adjustsFontSizeToFit={true}
+              minimumFontScale={0.75}
+              numberOfLines={2}
+            >
               ALERTS{'\n'}LOGGED
             </Text>
           </TouchableOpacity>
@@ -537,7 +670,12 @@ export default function HomeScreen() {
 
         {/* Section Header: Safety Suite & Controls */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: isDark ? colors.foreground : '#18181B' }]}>
+          <Text 
+            style={[styles.sectionTitle, { color: isDark ? colors.foreground : '#18181B' }]}
+            adjustsFontSizeToFit={true}
+            minimumFontScale={0.85}
+            numberOfLines={1}
+          >
             SAFETY SUITE & CONTROLS
           </Text>
           <View style={[styles.accentLine, { backgroundColor: isDark ? colors.border : '#E4E4E7' }]} />
@@ -753,6 +891,45 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.8,
+  },
+  memberStatusPillCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 10,
+  },
+  miniStatusAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniAvatarText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  statusMemberName: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  statusBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  statusBadgeText: {
+    fontSize: 8.5,
+    fontWeight: '900',
+    letterSpacing: 0.5,
   },
   sectionHeaderRow: {
     flexDirection: 'row',

@@ -7,6 +7,25 @@ import { supabase } from '../lib/supabase';
 
 export const LOCATION_BACKGROUND_TASK = 'CIRCLEGUARD_BACKGROUND_LOCATION_TASK';
 
+let lastProcessedLat = 0;
+let lastProcessedLng = 0;
+let lastProcessedTimestamp = 0;
+let lastBgHistorySavedPoint: { [userId: string]: { lat: number; lng: number; timeMs: number } } = {};
+
+function calculateHaversineMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371e3;
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 try {
   if (!TaskManager.isTaskDefined(LOCATION_BACKGROUND_TASK)) {
     TaskManager.defineTask(LOCATION_BACKGROUND_TASK, async ({ data, error }) => {
@@ -18,6 +37,17 @@ try {
 
       const latest = locations[locations.length - 1];
       const { latitude, longitude, speed } = latest.coords;
+
+      // Noise Filter: Skip redundant database hits if position moved < ~0.5 meters and updated < 4 seconds ago
+      const now = Date.now();
+      const deltaLat = Math.abs(latitude - lastProcessedLat);
+      const deltaLng = Math.abs(longitude - lastProcessedLng);
+      if (deltaLat < 0.000005 && deltaLng < 0.000005 && (now - lastProcessedTimestamp < 4000)) {
+        return;
+      }
+      lastProcessedLat = latitude;
+      lastProcessedLng = longitude;
+      lastProcessedTimestamp = now;
 
       try {
         const { data: sessionData } = await supabase.auth.getSession();
@@ -33,12 +63,6 @@ try {
 
         let finalLat = latitude;
         let finalLng = longitude;
-
-        if (userProf?.is_ghost_mode) {
-          // Fuzz position by ~500m to obscure real position
-          finalLat += (Math.random() - 0.5) * 0.009;
-          finalLng += (Math.random() - 0.5) * 0.009;
-        }
 
         // Check active circle tracking mode first (Option A Privacy vs Option B Continuous)
         const { data: memberCircle } = await supabase
@@ -83,6 +107,8 @@ try {
         // 1. Live location upsert to keep user ONLINE continuously in background
         await supabase.from('locations').upsert({
           user_id: userId,
+          latitude: finalLat,
+          longitude: finalLng,
           battery_pct: batteryPct,
           is_driving: isDriving,
           speed_mps: rawSpeed,
@@ -91,12 +117,30 @@ try {
           updated_at: new Date().toISOString(),
         }, { onConflict: 'user_id' });
 
-        // 2. Insert authentic GPS coordinate into location_history for 2-day historical logging
-        await supabase.from('location_history').insert({
-          user_id: userId,
-          geom: point,
-          recorded_at: new Date().toISOString(),
-        });
+        // 2. Insert authentic GPS coordinate into location_history for 2-day historical logging (with 15m noise filter)
+        const lastSaved = lastBgHistorySavedPoint[userId];
+        let shouldSaveBgHistory = false;
+
+        if (!lastSaved) {
+          shouldSaveBgHistory = true;
+        } else {
+          const distMeters = calculateHaversineMeters(lastSaved.lat, lastSaved.lng, latitude, longitude);
+          const timeDiffSec = (now - lastSaved.timeMs) / 1000;
+          if (distMeters >= 15 || timeDiffSec >= 300) {
+            shouldSaveBgHistory = true;
+          }
+        }
+
+        if (shouldSaveBgHistory) {
+          const authenticPoint = `POINT(${longitude} ${latitude})`;
+          await supabase.from('location_history').insert({
+            user_id: userId,
+            geom: authenticPoint,
+            speed_mps: rawSpeed,
+            recorded_at: new Date(now).toISOString(),
+          });
+          lastBgHistorySavedPoint[userId] = { lat: latitude, lng: longitude, timeMs: now };
+        }
           if (memberCircle && memberCircle.length > 0) {
             const circleId = memberCircle[0].circle_id;
             const { data: placesData } = await supabase
@@ -107,24 +151,33 @@ try {
             if (placesData && placesData.length > 0) {
               const { evaluateGeofenceBreaches } = require('./GeofenceEngine');
               const formattedPlaces = placesData.map((p: any) => {
-                let lat = 20.5937;
-                let lng = 78.9629;
+                let directLat = parseFloat(p.latitude ?? p.start_lat ?? p.lat);
+                let directLng = parseFloat(p.longitude ?? p.start_lng ?? p.lng);
+
+                if (!isNaN(directLat) && !isNaN(directLng) && directLat !== 0 && directLng !== 0) {
+                  return { ...p, latitude: directLat, longitude: directLng };
+                }
+
+                let lat = 0;
+                let lng = 0;
+
                 if (p.geom) {
                   if (typeof p.geom === 'string') {
-                    const match = p.geom.match(/POINT\(([-0-9.]+)\s+([-0-9.]+)\)/);
-                    if (match) {
-                      lng = parseFloat(match[1]);
-                      lat = parseFloat(match[2]);
+                    const matches = p.geom.match(/POINT\s*\(\s*([-\d.]+)[,\s]+([-\d.]+)\s*\)/i);
+                    if (matches && matches.length >= 3) {
+                      lng = parseFloat(matches[1]);
+                      lat = parseFloat(matches[2]);
                     }
-                  } else if (p.geom.coordinates) {
-                    lng = p.geom.coordinates[0];
-                    lat = p.geom.coordinates[1];
+                  } else if (typeof p.geom === 'object' && Array.isArray(p.geom.coordinates)) {
+                    lng = parseFloat(p.geom.coordinates[0]);
+                    lat = parseFloat(p.geom.coordinates[1]);
                   }
                 }
+
                 return {
                   ...p,
-                  latitude: lat,
-                  longitude: lng,
+                  latitude: lat || directLat || 20.5937,
+                  longitude: lng || directLng || 78.9629,
                 };
               });
 
@@ -249,9 +302,13 @@ export const startBatteryOptimizedBackgroundLocation = async (): Promise<boolean
       accuracy = Location.Accuracy.Balanced;
     }
 
-    const isRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_BACKGROUND_TASK);
-    if (isRegistered) {
-      await Location.stopLocationUpdatesAsync(LOCATION_BACKGROUND_TASK);
+    try {
+      const isRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_BACKGROUND_TASK);
+      if (isRegistered) {
+        await Location.stopLocationUpdatesAsync(LOCATION_BACKGROUND_TASK);
+      }
+    } catch (e) {
+      // Task not active yet, safe to proceed
     }
 
     await Location.startLocationUpdatesAsync(LOCATION_BACKGROUND_TASK, {
@@ -289,19 +346,8 @@ export const sendInstantLocationPing = async () => {
 
     const { latitude, longitude, speed } = loc.coords;
 
-    const { data: userProf } = await supabase
-      .from('profiles')
-      .select('is_ghost_mode')
-      .eq('id', userId)
-      .single();
-
     let finalLat = latitude;
     let finalLng = longitude;
-
-    if (userProf?.is_ghost_mode) {
-      finalLat += (Math.random() - 0.5) * 0.009;
-      finalLng += (Math.random() - 0.5) * 0.009;
-    }
 
     let batteryPct = 100;
     try {

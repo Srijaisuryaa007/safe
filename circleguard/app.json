@@ -2,6 +2,7 @@
   "expo": {
     "name": "circleguard",
     "slug": "circleguard",
+    "scheme": "circleguard",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -19,7 +20,10 @@
         "NSLocationAlwaysUsageDescription": "CircleGuard needs continuous location access to alert your circle when entering or leaving geofence zones."
       },
       "infoPlistKeys": {
-        "UIBackgroundModes": ["location", "fetch"]
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ]
       }
     },
     "android": {
@@ -70,12 +74,15 @@
         }
       ],
       "expo-status-bar",
-      "expo-font"
+      "expo-font",
+      "expo-web-browser",
+      "@react-native-google-signin/google-signin"
     ],
     "extra": {
       "eas": {
-        "projectId": "2bb380ef-fd88-47d6-8e70-14709d733fc2"
+        "projectId": "fd9a8389-8971-4f1e-9b2f-10bef6c53d13"
       }
-    }
+    },
+    "owner": "jaisuryaa"
   }
 }

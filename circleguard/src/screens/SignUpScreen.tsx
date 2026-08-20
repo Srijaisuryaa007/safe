@@ -1,37 +1,41 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Alert, Platform, NativeModules, TurboModuleRegistry } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 import { supabase } from '../lib/supabase';
 import { LUXURY_THEME } from '../constants/theme';
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function SignUpScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
 
   const handleSignUp = async () => {
-    setErrorMsg('');
-    setSuccessMsg('');
-    if (!email || !password) {
+    if (!email.trim() || !password.trim()) {
       setErrorMsg('Please enter both email and password.');
       return;
     }
-
-    setLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
+      setLoading(true);
+      setErrorMsg(null);
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password: password.trim(),
       });
 
       if (error) {
         setErrorMsg(error.message);
+      } else if (data.session) {
+        Alert.alert('Account Created', 'Your account has been created successfully!');
       } else {
-        setSuccessMsg('Account initialized successfully. You can now log in.');
+        Alert.alert('Verification Sent', 'Please check your email to confirm your account.');
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Something went wrong during sign up.');
@@ -43,10 +47,159 @@ export default function SignUpScreen() {
   const handleGoogleSignIn = async () => {
     try {
       setLoading(true);
-      const { error } = await supabase.auth.signInWithOAuth({
+
+      const hasNativeModule = Platform.OS !== 'web' && (
+        !!(NativeModules as any)?.RNGoogleSignin ||
+        !!(TurboModuleRegistry && typeof TurboModuleRegistry.get === 'function' && TurboModuleRegistry.get('RNGoogleSignin'))
+      );
+
+      if (hasNativeModule) {
+        try {
+          const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+          GoogleSignin.configure({
+            webClientId: '648921591929-dspid5vmlhk9hm9213vcln5v5tftr079.apps.googleusercontent.com',
+            offlineAccess: true,
+          });
+          await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+          try {
+            await GoogleSignin.signOut();
+          } catch (e) {}
+          const response = await GoogleSignin.signIn();
+          
+          const idToken = response?.data?.idToken || response?.idToken || (response as any)?.data?.idToken || (response as any)?.idToken;
+
+          if (!idToken) {
+            throw new Error('Google did not return an ID token. Please verify your Web Client ID and SHA-1 in Google Cloud Console.');
+          }
+
+          const { data: sessionData, error: sessionErr } = await supabase.auth.signInWithIdToken({
+            provider: 'google',
+            token: idToken,
+          });
+
+          if (sessionErr) throw sessionErr;
+
+          if (sessionData?.session) {
+            const { useAuthStore } = require('../store/useAuthStore');
+            useAuthStore.getState().setSession(sessionData.session);
+
+            const user = sessionData.session.user;
+            let { data: prof } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', user.id)
+              .maybeSingle();
+
+            if (!prof) {
+              const fullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Circle Member';
+              const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+
+              const { data: newProf } = await supabase
+                .from('profiles')
+                .upsert([
+                  {
+                    id: user.id,
+                    full_name: fullName,
+                    avatar_url: avatarUrl,
+                    phone: user.phone || null,
+                  }
+                ])
+                .select()
+                .single();
+
+              if (newProf) prof = newProf;
+            }
+
+            if (prof) {
+              useAuthStore.getState().setProfile(prof);
+            }
+            return;
+          }
+        } catch (nativeErr: any) {
+          console.error('Native Google sign in error:', nativeErr);
+          const isCancelled = nativeErr?.code === '13' || nativeErr?.code === 'SIGN_IN_CANCELLED' || nativeErr?.message?.toLowerCase()?.includes('cancel');
+          if (!isCancelled) {
+            Alert.alert('Google Sign-In Error', nativeErr?.message || 'Failed to authenticate with Google.');
+          }
+          return;
+        }
+      }
+
+      const redirectUrl = Platform.OS === 'web' 
+        ? window.location.origin 
+        : Linking.createURL('auth/callback', { scheme: 'circleguard' });
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: Platform.OS !== 'web',
+        },
       });
-      if (error) Alert.alert('Google Sign-In', error.message);
+
+      if (error) {
+        Alert.alert('Google Sign-In Error', error.message);
+        return;
+      }
+
+      if (Platform.OS !== 'web' && data?.url) {
+        const res = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+        if (res.type === 'success' && res.url) {
+          const params: Record<string, string> = {};
+          const match = res.url.match(/[#?](.*)/);
+          if (match && match[1]) {
+            match[1].split('&').forEach(pair => {
+              const [k, v] = pair.split('=');
+              if (k && v) params[k] = decodeURIComponent(v);
+            });
+          }
+
+          if (params.access_token && params.refresh_token) {
+            const { data: sessionData, error: sessionErr } = await supabase.auth.setSession({
+              access_token: params.access_token,
+              refresh_token: params.refresh_token,
+            });
+
+            if (sessionErr) throw sessionErr;
+
+            if (sessionData?.session) {
+              const { useAuthStore } = require('../store/useAuthStore');
+              useAuthStore.getState().setSession(sessionData.session);
+
+              const user = sessionData.session.user;
+              let { data: prof } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', user.id)
+                .maybeSingle();
+
+              if (!prof) {
+                const fullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Circle Member';
+                const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+
+                const { data: newProf } = await supabase
+                  .from('profiles')
+                  .upsert([
+                    {
+                      id: user.id,
+                      full_name: fullName,
+                      avatar_url: avatarUrl,
+                      phone: user.phone || null,
+                    }
+                  ])
+                  .select()
+                  .single();
+
+                if (newProf) prof = newProf;
+              }
+
+              if (prof) {
+                useAuthStore.getState().setProfile(prof);
+              }
+            }
+          }
+        }
+      }
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to initialize Google sign in');
     } finally {
@@ -105,8 +258,8 @@ export default function SignUpScreen() {
           <View style={styles.dividerLine} />
         </View>
 
-        <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn} disabled={loading}>
-          <Ionicons name="logo-google" size={18} color={LUXURY_THEME.colors.foreground} />
+        <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn} disabled={loading} activeOpacity={0.8}>
+          <Ionicons name="logo-google" size={18} color="#FFFFFF" />
           <Text style={styles.googleButtonText}>CONTINUE WITH GOOGLE</Text>
         </TouchableOpacity>
 
@@ -202,18 +355,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   button: {
-    backgroundColor: LUXURY_THEME.colors.foreground,
+    backgroundColor: LUXURY_THEME.colors.accentGold,
     height: 50,
-    borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.accentGold,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 16,
   },
   buttonText: {
-    color: LUXURY_THEME.colors.accentGold,
+    color: '#1A1A1A',
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
     letterSpacing: 2,
   },
   dividerRow: {
@@ -237,14 +389,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     height: 50,
     borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.foreground,
-    backgroundColor: LUXURY_THEME.colors.surface,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 10,
   },
   googleButtonText: {
-    color: LUXURY_THEME.colors.foreground,
+    color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1.5,
@@ -254,7 +407,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   linkText: {
-    color: LUXURY_THEME.colors.foreground,
+    color: '#D4AF37',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 2,

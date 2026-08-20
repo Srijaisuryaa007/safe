@@ -16,6 +16,7 @@ create table if not exists public.profiles (
   push_token text,
   is_ghost_mode boolean default false,
   hide_online_presence boolean default false,
+  is_premium boolean default false,
   created_at timestamptz default now()
 );
 
@@ -34,6 +35,7 @@ create table if not exists public.circle_members (
   circle_id uuid references public.circles(id) on delete cascade,
   user_id uuid references public.profiles(id) on delete cascade,
   role text check (role in ('owner','co_leader','guardian','member')) default 'member',
+  supervisor_id uuid references public.profiles(id) on delete set null,
   joined_at timestamptz default now(),
   primary key (circle_id, user_id)
 );
@@ -41,7 +43,9 @@ create table if not exists public.circle_members (
 -- Live Locations (Latest position per user)
 create table if not exists public.locations (
   user_id uuid references public.profiles(id) on delete cascade primary key,
-  geom geography(Point, 4326) not null,
+  latitude float,
+  longitude float,
+  geom geography(Point, 4326),
   accuracy_m float,
   speed_mps float default 0,
   battery_pct int,
@@ -55,6 +59,7 @@ create table if not exists public.location_history (
   id bigint generated always as identity primary key,
   user_id uuid references public.profiles(id) on delete cascade,
   geom geography(Point, 4326) not null,
+  speed_mps float default 0,
   recorded_at timestamptz default now()
 );
 create index if not exists location_history_geom_idx on public.location_history using gist (geom);
@@ -72,7 +77,19 @@ create table if not exists public.places (
   end_lat float,
   end_lng float,
   target_user_id uuid references public.profiles(id) on delete cascade,
-  category text default 'home'
+  category text default 'home',
+  speed_adaptive boolean default false,
+  active_hours_start text,
+  active_hours_end text,
+  active_days text[]
+);
+
+-- Place Members (Join table linking safe zones to assigned circle members)
+create table if not exists public.place_members (
+  place_id uuid references public.places(id) on delete cascade,
+  user_id uuid references public.profiles(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (place_id, user_id)
 );
 
 -- Place Events (Arrival & Departure logs)
@@ -167,13 +184,90 @@ alter table public.places add column if not exists end_lat float;
 alter table public.places add column if not exists end_lng float;
 alter table public.places add column if not exists target_user_id uuid references public.profiles(id) on delete cascade;
 alter table public.places add column if not exists category text default 'home';
+alter table public.places add column if not exists speed_adaptive boolean default false;
+alter table public.places add column if not exists active_hours_start text;
+alter table public.places add column if not exists active_hours_end text;
+alter table public.places add column if not exists active_days text[];
 
 alter table public.profiles add column if not exists push_token text;
 alter table public.profiles add column if not exists is_ghost_mode boolean default false;
 alter table public.profiles add column if not exists hide_online_presence boolean default false;
+alter table public.profiles add column if not exists is_premium boolean default false;
+
+alter table public.location_history add column if not exists speed_mps float default 0;
+
+-- 3B. Postgres Server-Side Premium Gating Trigger (Enforces 2-Place Limit, Speed-Adaptive, Schedules & Routes)
+create or replace function public.enforce_place_premium_gating()
+returns trigger as $$
+declare
+  creator_is_premium boolean;
+  current_place_count integer;
+begin
+  -- Retrieve creator premium status from profiles table (source of truth)
+  select coalesce(is_premium, false) into creator_is_premium
+  from public.profiles
+  where id = NEW.created_by;
+
+  -- If creator is premium, allow all operations
+  if creator_is_premium is true then
+    return NEW;
+  end if;
+
+  -- Server-Side Enforcement for Free Tier Users:
+  -- 1. Reject speed_adaptive = true
+  if NEW.speed_adaptive is true then
+    raise exception 'Speed-Adaptive Geofencing requires Circle Guard Plus.' using errcode = 'P0001';
+  end if;
+
+  -- 2. Reject ROUTE category
+  if NEW.category = 'route' then
+    raise exception 'Commute Corridor Route geofencing requires Circle Guard Plus.' using errcode = 'P0001';
+  end if;
+
+  -- 3. Reject Active Hours/Days schedules
+  if NEW.active_hours_start is not null or NEW.active_hours_end is not null or NEW.active_days is not null then
+    raise exception 'Geofence active scheduling requires Circle Guard Plus.' using errcode = 'P0001';
+  end if;
+
+  -- 4. Reject 3rd+ place creation for the circle (Limit = 2 places)
+  if TG_OP = 'INSERT' then
+    select count(*) into current_place_count
+    from public.places
+    where circle_id = NEW.circle_id;
+
+    if current_place_count >= 2 then
+      raise exception 'Free tier is limited to 2 saved safe places per circle.' using errcode = 'P0002';
+    end if;
+  end if;
+
+  return NEW;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists trigger_enforce_place_premium_gating on public.places;
+create trigger trigger_enforce_place_premium_gating
+  before insert or update on public.places
+  for each row execute function public.enforce_place_premium_gating();
+
+-- 3C. RevenueCat Webhook Entitlement Handler (Initial Purchase / Renewal / Cancellation / Expiration)
+create or replace function public.handle_revenuecat_webhook(
+  event_type text,
+  target_user_id uuid
+) returns void as $$
+begin
+  if event_type in ('INITIAL_PURCHASE', 'RENEWAL', 'PRODUCT_CHANGE', 'UNCANCEL') then
+    update public.profiles set is_premium = true where id = target_user_id;
+  elsif event_type in ('CANCELLATION', 'EXPIRATION', 'REFUND') then
+    update public.profiles set is_premium = false where id = target_user_id;
+  end if;
+end;
+$$ language plpgsql security definer;
 
 alter table public.circles add column if not exists tracking_mode text default 'continuous';
+alter table public.circle_members add column if not exists supervisor_id uuid references public.profiles(id) on delete set null;
 
+alter table public.locations add column if not exists latitude float;
+alter table public.locations add column if not exists longitude float;
 alter table public.locations add column if not exists speed_mps float default 0;
 alter table public.locations add column if not exists activity_state text default 'Stationary';
 
@@ -208,6 +302,7 @@ alter table public.location_history enable row level security;
 alter table public.places enable row level security;
 alter table public.place_events enable row level security;
 alter table public.sos_alerts enable row level security;
+alter table public.location_shares enable row level security;
 
 
 -- 6. HELPER FUNCTION TO AVOID RLS RECURSION
@@ -293,6 +388,11 @@ drop policy if exists "Users can update places they created" on public.places;
 drop policy if exists "Circle members can delete places for their circle" on public.places;
 drop policy if exists "Places authenticated all" on public.places;
 create policy "Places authenticated all" on public.places for all using (true) with check (true);
+
+-- Place Members
+alter table public.place_members enable row level security;
+drop policy if exists "Place members authenticated all" on public.place_members;
+create policy "Place members authenticated all" on public.place_members for all using (true) with check (true);
 
 -- Place Events
 drop policy if exists "circle members see place events for their circle" on public.place_events;
@@ -384,6 +484,9 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'places') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.places;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'place_members') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.place_members;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'location_shares') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.location_shares;
@@ -606,6 +709,54 @@ BEGIN
     'success', true,
     'soft_deleted_count', v_soft_deleted_count,
     'hard_purged_count', v_hard_purged_count,
+    'executed_at', now()
+  );
+END;
+$$;
+
+
+-- ============================================================================
+-- 10. AUTOMATED TTL DATA RETENTION & CLEANUP (48-HOUR ROLLING WINDOW)
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.cleanup_expired_telemetry_and_messages()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_msgs_deleted int := 0;
+  v_events_deleted int := 0;
+  v_sos_deleted int := 0;
+  v_history_deleted int := 0;
+BEGIN
+  -- 1. Purge chat messages older than 48 hours
+  DELETE FROM public.circle_messages
+  WHERE created_at < (now() - INTERVAL '48 hours');
+  GET DIAGNOSTICS v_msgs_deleted = ROW_COUNT;
+
+  -- 2. Purge geofence place arrival/departure events older than 48 hours
+  DELETE FROM public.place_events
+  WHERE occurred_at < (now() - INTERVAL '48 hours');
+  GET DIAGNOSTICS v_events_deleted = ROW_COUNT;
+
+  -- 3. Purge resolved SOS alerts older than 48 hours
+  DELETE FROM public.sos_alerts
+  WHERE created_at < (now() - INTERVAL '48 hours');
+  GET DIAGNOSTICS v_sos_deleted = ROW_COUNT;
+
+  -- 4. Purge raw GPS breadcrumb location history older than 48 hours
+  DELETE FROM public.location_history
+  WHERE recorded_at < (now() - INTERVAL '48 hours');
+  GET DIAGNOSTICS v_history_deleted = ROW_COUNT;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'messages_purged', v_msgs_deleted,
+    'place_events_purged', v_events_deleted,
+    'sos_alerts_purged', v_sos_deleted,
+    'location_history_purged', v_history_deleted,
     'executed_at', now()
   );
 END;

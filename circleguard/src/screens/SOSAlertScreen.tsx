@@ -125,8 +125,22 @@ export default function SOSAlertScreen() {
         <Ionicons name="close" size={28} color="#FFFFFF" />
       </TouchableOpacity>
 
-      <Text style={styles.overline}>EMERGENCY PROTOCOL</Text>
-      <Text style={styles.title}>EMERGENCY SOS</Text>
+      <Text 
+        style={styles.overline}
+        adjustsFontSizeToFit={true}
+        minimumFontScale={0.8}
+        numberOfLines={1}
+      >
+        EMERGENCY PROTOCOL
+      </Text>
+      <Text 
+        style={styles.title}
+        adjustsFontSizeToFit={true}
+        minimumFontScale={0.75}
+        numberOfLines={1}
+      >
+        EMERGENCY SOS
+      </Text>
       <Text style={styles.subtitle}>Hold button for instant multi-channel distress signal</Text>
 
       <View style={styles.circleContainer}>
@@ -145,7 +159,14 @@ export default function SOSAlertScreen() {
           glowColor={LUXURY_THEME.colors.sosRed}
         >
           <Ionicons name="alert-circle" size={60} color={LUXURY_THEME.colors.accentGold} />
-          <Text style={styles.sosText}>{isSending ? 'ALERT SENT' : 'PRESS SOS'}</Text>
+          <Text 
+            style={styles.sosText}
+            adjustsFontSizeToFit={true}
+            minimumFontScale={0.8}
+            numberOfLines={1}
+          >
+            {isSending ? 'ALERT SENT' : 'PRESS SOS'}
+          </Text>
         </JellySqueezeButton>
       </View>
 
@@ -153,7 +174,14 @@ export default function SOSAlertScreen() {
       <View style={styles.callButtonsRow}>
         <SpringTouchable style={styles.quickCallBtn} onPress={() => setCallModalVisible(true)} scaleTo={0.96}>
           <Ionicons name="call" size={20} color="#FFFFFF" />
-          <Text style={styles.quickCallText}>CALL EMERGENCY CONTACTS</Text>
+          <Text 
+            style={styles.quickCallText}
+            adjustsFontSizeToFit={true}
+            minimumFontScale={0.8}
+            numberOfLines={1}
+          >
+            CALL EMERGENCY CONTACTS
+          </Text>
         </SpringTouchable>
 
         <SpringTouchable 
@@ -162,13 +190,27 @@ export default function SOSAlertScreen() {
           scaleTo={0.96}
         >
           <Ionicons name="shield-checkmark" size={18} color={LUXURY_THEME.colors.accentGold} />
-          <Text style={styles.serviceCallText}>DIAL 112 / 911</Text>
+          <Text 
+            style={styles.serviceCallText}
+            adjustsFontSizeToFit={true}
+            minimumFontScale={0.8}
+            numberOfLines={1}
+          >
+            DIAL 112 / 911
+          </Text>
         </SpringTouchable>
       </View>
 
       {isSending ? (
         <View style={styles.activeStatusBox}>
-          <Text style={styles.activeStatusText}>DISTRESS SIGNAL BROADCASTING...</Text>
+          <Text 
+            style={styles.activeStatusText}
+            adjustsFontSizeToFit={true}
+            minimumFontScale={0.8}
+            numberOfLines={1}
+          >
+            DISTRESS SIGNAL BROADCASTING...
+          </Text>
           <View style={styles.checkList}>
             <View style={styles.checkItem}>
               <Ionicons name="checkmark-circle" size={18} color={LUXURY_THEME.colors.accentGold} />
@@ -181,12 +223,26 @@ export default function SOSAlertScreen() {
           </View>
 
           <TouchableOpacity style={styles.cancelBtn} onPress={cancelEmergency}>
-            <Text style={styles.cancelText}>CANCEL ALARM</Text>
+            <Text 
+              style={styles.cancelText}
+              adjustsFontSizeToFit={true}
+              minimumFontScale={0.8}
+              numberOfLines={1}
+            >
+              CANCEL ALARM
+            </Text>
           </TouchableOpacity>
         </View>
       ) : (
         <TouchableOpacity style={styles.cancelLink} onPress={() => navigation.goBack()}>
-          <Text style={styles.cancelLinkText}>DISMISS EMERGENCY SCREEN</Text>
+          <Text 
+            style={styles.cancelLinkText}
+            adjustsFontSizeToFit={true}
+            minimumFontScale={0.8}
+            numberOfLines={1}
+          >
+            DISMISS EMERGENCY SCREEN
+          </Text>
         </TouchableOpacity>
       )}
 
@@ -315,7 +371,7 @@ export default function SOSAlertScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: LUXURY_THEME.colors.foreground,
+    backgroundColor: '#0D0E12',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -481,7 +537,7 @@ const styles = StyleSheet.create({
   /* Modal Styling */
   modalContainer: {
     flex: 1,
-    backgroundColor: LUXURY_THEME.colors.foreground,
+    backgroundColor: '#0D0E12',
   },
   modalHeader: {
     flexDirection: 'row',

@@ -46,7 +46,7 @@ export default function GlobalLocationShareModal() {
 
             // 2. Drop down local system notification banner
             scheduleLocalNotification(
-              '📍 Live Location Shared',
+              'Live Location Shared',
               `${senderName} is now sharing live location details with you! Tap to view on main map.`,
               { screen: 'Map', senderId: row.sender_id }
             );

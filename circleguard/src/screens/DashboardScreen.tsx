@@ -14,6 +14,10 @@ import { LUXURY_THEME } from '../constants/theme';
 import { useThemeStore } from '../store/useThemeStore';
 import MemberRoleModal from '../components/MemberRoleModal';
 import SpringTouchable from '../components/SpringTouchable';
+import { useLuxuryAlert } from '../components/LuxuryAlertModal';
+import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
+import CircleHierarchyTree from '../components/CircleHierarchyTree';
+import BranchAssignmentModal from '../components/BranchAssignmentModal';
 
 type DashboardNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Circle'>,
@@ -22,6 +26,7 @@ type DashboardNavigationProp = CompositeNavigationProp<
 
 export default function DashboardScreen() {
   const { colors } = useThemeStore();
+  const { showAlert } = useLuxuryAlert();
   const navigation = useNavigation<DashboardNavigationProp>();
   const { profile } = useAuthStore();
   const { activeCircle, members, circleFetched, isLoading, fetchActiveCircle, setActiveCircle, setMembers } = useCircleStore();
@@ -32,6 +37,8 @@ export default function DashboardScreen() {
   const canManageRanks = isOwner || myRole === 'co_leader';
 
   const [selectedRoleMember, setSelectedRoleMember] = useState<any>(null);
+  const [branchModalMember, setBranchModalMember] = useState<any>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'tree'>('tree');
   const [refreshing, setRefreshing] = useState(false);
   const [pendingRequests, setPendingRequests] = useState<Array<{
     id: string;
@@ -52,8 +59,9 @@ export default function DashboardScreen() {
 
   React.useEffect(() => {
     if (!activeCircle?.id) return;
+    const channelUid = Math.random().toString(36).substring(2, 9);
     const channel = supabase
-      .channel('public:dashboard_circle_members')
+      .channel(`dashboard_circle_members_${activeCircle.id}_${channelUid}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'circle_members', filter: `circle_id=eq.${activeCircle.id}` },
@@ -80,10 +88,12 @@ export default function DashboardScreen() {
   const fetchPendingRequests = async () => {
     if (!activeCircle?.id) return;
     try {
+      const cutoffTime = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
       const { data } = await supabase
         .from('circle_messages')
         .select('id, sender_id, content, created_at, profiles:sender_id(full_name)')
         .eq('circle_id', activeCircle.id)
+        .gte('created_at', cutoffTime)
         .ilike('content', '%PERMISSION REQUEST%')
         .order('created_at', { ascending: false })
         .limit(10);
@@ -116,25 +126,33 @@ export default function DashboardScreen() {
       await supabase.from('circle_messages').insert({
         circle_id: activeCircle?.id,
         sender_id: profile?.id,
-        content: `✅ PERMISSION GRANTED: Leader approved ${req.feature} for ${req.memberName}.`,
+        content: `PERMISSION GRANTED: Leader approved ${req.feature} for ${req.memberName}.`,
       });
       await supabase.from('circle_messages').delete().eq('id', req.id);
 
       const { sendExpoPushNotification } = require('../services/PushNotificationService');
       await sendExpoPushNotification(
         req.user_id,
-        '👑 Leader Approved Privacy Request',
+        'Leader Approved Privacy Request',
         `Your Circle Leader approved your request to activate ${req.feature}!`,
         { type: 'privacy_approved' }
       );
 
-      Alert.alert('Permission Granted ✅', `Approved ${req.feature} for ${req.memberName}.`);
+      showAlert({
+        title: 'Permission Granted',
+        message: `Approved ${req.feature} for ${req.memberName}.`,
+        type: 'success',
+      });
       setPendingRequests(prev => prev.filter(r => r.id !== req.id));
       if (activeCircle?.id) {
         await useCircleStore.getState().fetchMembers(activeCircle.id);
       }
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to approve request');
+      showAlert({
+        title: 'Error',
+        message: err.message || 'Failed to approve request',
+        type: 'error',
+      });
     }
   };
 
@@ -143,14 +161,22 @@ export default function DashboardScreen() {
       await supabase.from('circle_messages').insert({
         circle_id: activeCircle?.id,
         sender_id: profile?.id,
-        content: `❌ PERMISSION DENIED: Leader maintained 24/7 Safety Mode for ${req.memberName}.`,
+        content: `PERMISSION DENIED: Leader maintained 24/7 Safety Mode for ${req.memberName}.`,
       });
       await supabase.from('circle_messages').delete().eq('id', req.id);
 
-      Alert.alert('Request Denied ❌', `Maintained 24/7 Safety Mode for ${req.memberName}.`);
+      showAlert({
+        title: 'Request Denied',
+        message: `Maintained 24/7 Safety Mode for ${req.memberName}.`,
+        type: 'warning',
+      });
       setPendingRequests(prev => prev.filter(r => r.id !== req.id));
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to deny request');
+      showAlert({
+        title: 'Error',
+        message: err.message || 'Failed to deny request',
+        type: 'error',
+      });
     }
   };
 
@@ -172,7 +198,12 @@ export default function DashboardScreen() {
   const handleCopyCode = async () => {
     if (activeCircle?.invite_code) {
       await Clipboard.setStringAsync(activeCircle.invite_code);
-      Alert.alert('Copied', 'Invite code copied to clipboard!');
+      showAlert({
+        title: 'Invite Code Copied',
+        message: `Share this 6-character encryption key (${activeCircle.invite_code}) to add members.`,
+        type: 'success',
+        buttonText: 'DONE',
+      });
     }
   };
 
@@ -197,9 +228,17 @@ export default function DashboardScreen() {
                 setActiveCircle(null);
                 setMembers([]);
                 await useCircleStore.getState().fetchActiveCircle(userId);
-                Alert.alert('Circle Deleted', 'Your circle has been removed.');
+                showAlert({
+                  title: 'Circle Deleted',
+                  message: 'Your circle has been removed.',
+                  type: 'info',
+                });
               } catch (err: any) {
-                Alert.alert('Error', err.message || 'Failed to delete circle.');
+                showAlert({
+                  title: 'Error',
+                  message: err.message || 'Failed to delete circle.',
+                  type: 'error',
+                });
               }
             } 
           }
@@ -227,9 +266,17 @@ export default function DashboardScreen() {
                 setActiveCircle(null);
                 setMembers([]);
                 await useCircleStore.getState().fetchActiveCircle(userId);
-                Alert.alert('Left Circle', 'You have left the circle.');
+                showAlert({
+                  title: 'Left Circle',
+                  message: 'You have left the circle.',
+                  type: 'info',
+                });
               } catch (err: any) {
-                Alert.alert('Error', err.message || 'Failed to leave circle.');
+                showAlert({
+                  title: 'Error',
+                  message: err.message || 'Failed to leave circle.',
+                  type: 'error',
+                });
               }
             } 
           }
@@ -238,14 +285,15 @@ export default function DashboardScreen() {
     }
   };
 
-  // Display loading spinner while circle syncs from cloud database
+  // Display luxury custom loading animation while circle syncs from cloud database
   if (isLoading || !circleFetched) {
     return (
       <View style={[styles.container, styles.centerContent, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.accentGold} />
-        <Text style={{ color: colors.textMuted, marginTop: 16, fontSize: 11, fontWeight: '800', letterSpacing: 1.5 }}>
-          SYNCING FAMILY CIRCLE...
-        </Text>
+        <LuxuryRadarLoading
+          message="SYNCING FAMILY CIRCLE..."
+          subMessage="Fetching encrypted circle data & member status"
+          size={130}
+        />
       </View>
     );
   }
@@ -307,7 +355,7 @@ export default function DashboardScreen() {
           <Text style={[styles.statValue, { color: colors.foreground }]}>
             {myRole === 'owner' ? 'FOUNDER' : myRole.toUpperCase().replace('_', ' ')}
           </Text>
-          <Text style={[styles.statLabel, { color: colors.textMuted }]}>YOUR RANK 👑</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted }]}>YOUR RANK</Text>
         </View>
 
         <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -369,7 +417,7 @@ export default function DashboardScreen() {
                   activeOpacity={0.8}
                 >
                   <Ionicons name="checkmark-sharp" size={14} color="#FFFFFF" />
-                  <Text style={{ color: '#FFFFFF', fontSize: 10.5, fontWeight: '900' }}>APPROVE ✅</Text>
+                  <Text style={{ color: '#FFFFFF', fontSize: 10.5, fontWeight: '900' }}>APPROVE</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -378,7 +426,7 @@ export default function DashboardScreen() {
                   activeOpacity={0.8}
                 >
                   <Ionicons name="close-sharp" size={14} color="#EF4444" />
-                  <Text style={{ color: '#EF4444', fontSize: 10.5, fontWeight: '900' }}>DENY ❌</Text>
+                  <Text style={{ color: '#EF4444', fontSize: 10.5, fontWeight: '900' }}>DENY</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -405,96 +453,126 @@ export default function DashboardScreen() {
         <Text style={[styles.inviteTip, { color: colors.textMuted }]}>Share this 6-character encryption key to add members.</Text>
       </View>
 
-      {/* Members List Header */}
+      {/* Members Directory Header & View Switcher */}
       <View style={styles.sectionHeaderRow}>
-        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>MEMBERS DIRECTORY ({members.length})</Text>
-        <View style={[styles.accentLine, { backgroundColor: colors.border }]} />
+        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>MEMBERS ({members.length})</Text>
+        
+        <View style={[styles.viewModeToggle, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <TouchableOpacity
+            style={[styles.toggleBtn, viewMode === 'tree' && { backgroundColor: colors.accentGold }]}
+            onPress={() => setViewMode('tree')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="git-network" size={13} color={viewMode === 'tree' ? '#1A1A1A' : colors.textMuted} />
+            <Text style={[styles.toggleBtnText, { color: viewMode === 'tree' ? '#1A1A1A' : colors.textMuted }]}>TREE</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.toggleBtn, viewMode === 'list' && { backgroundColor: colors.accentGold }]}
+            onPress={() => setViewMode('list')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="list" size={13} color={viewMode === 'list' ? '#1A1A1A' : colors.textMuted} />
+            <Text style={[styles.toggleBtnText, { color: viewMode === 'list' ? '#1A1A1A' : colors.textMuted }]}>LIST</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <View style={styles.membersList}>
-        {[...members]
-          .sort((a, b) => {
-            const weights: Record<string, number> = { owner: 1, co_leader: 2, guardian: 3, member: 4 };
-            return (weights[a.role] || 99) - (weights[b.role] || 99);
-          })
-          .map((item) => {
-            const fullName = item?.profile?.full_name;
-            const displayName = (typeof fullName === 'string' && fullName.trim().length > 0) ? fullName : 'Member';
-            const initial = String(displayName).charAt(0).toUpperCase();
-            const avatarUrl = item?.profile?.avatar_url;
-            const isTargetOwner = item.role === 'owner';
-            const isSelf = item.user_id === profile?.id;
+      {viewMode === 'tree' ? (
+        <CircleHierarchyTree
+          members={members}
+          currentUserId={profile?.id}
+          isOwner={isOwner}
+          canManageRanks={canManageRanks}
+          onSelectMember={(m) => setSelectedRoleMember(m)}
+          onMoveBranch={(m) => setBranchModalMember(m)}
+        />
+      ) : (
+        <View style={styles.membersList}>
+          {[...members]
+            .sort((a, b) => {
+              const weights: Record<string, number> = { owner: 1, co_leader: 2, guardian: 3, member: 4 };
+              return (weights[a.role] || 99) - (weights[b.role] || 99);
+            })
+            .map((item) => {
+              const fullName = item?.profile?.full_name;
+              const displayName = (typeof fullName === 'string' && fullName.trim().length > 0) ? fullName : 'Member';
+              const initial = String(displayName).charAt(0).toUpperCase();
+              const avatarUrl = item?.profile?.avatar_url;
+              const isTargetOwner = item.role === 'owner';
+              const isSelf = item.user_id === profile?.id;
 
-            let roleTitle = 'MEMBER';
-            let roleColor = '#10B981';
-            let roleIcon: keyof typeof Ionicons.glyphMap = 'person-outline';
+              let roleTitle = 'MEMBER';
+              let roleColor = '#10B981';
+              let roleIcon: keyof typeof Ionicons.glyphMap = 'person-outline';
 
-            if (item.role === 'owner') {
-              roleTitle = '👑 FOUNDER & LEADER';
-              roleColor = '#D4AF37';
-              roleIcon = 'star-sharp';
-            } else if (item.role === 'co_leader') {
-              roleTitle = '⚡ SPECIAL PRIORITY CO-LEADER';
-              roleColor = '#A855F7';
-              roleIcon = 'shield-checkmark-sharp';
-            } else if (item.role === 'guardian') {
-              roleTitle = '🛡️ SAFETY GUARDIAN (PRIORITY SOS)';
-              roleColor = '#3B82F6';
-              roleIcon = 'shield-outline';
-            }
+              if (item.role === 'owner') {
+                roleTitle = 'FOUNDER & LEADER';
+                roleColor = '#D4AF37';
+                roleIcon = 'star-sharp';
+              } else if (item.role === 'co_leader') {
+                roleTitle = 'CO-LEADER';
+                roleColor = '#A855F7';
+                roleIcon = 'shield-checkmark-sharp';
+              } else if (item.role === 'guardian') {
+                roleTitle = 'SAFETY GUARDIAN';
+                roleColor = '#3B82F6';
+                roleIcon = 'shield-outline';
+              }
 
-            return (
-              <SpringTouchable
-                key={item.user_id}
-                style={[
-                  styles.memberCard,
-                  {
-                    backgroundColor: colors.surface,
-                    borderColor: item.role === 'co_leader' ? '#A855F7' : (item.role === 'guardian' ? '#3B82F6' : (item.role === 'owner' ? colors.accentGold : colors.border)),
-                    borderWidth: item.role !== 'member' ? 1.5 : 1,
-                  },
-                ]}
-                onPress={() => setSelectedRoleMember(item)}
-                scaleTo={0.96}
-              >
-                <View style={styles.memberTopRow}>
-                  <View style={styles.memberLeft}>
-                    <View style={[styles.memberAvatar, { overflow: 'hidden', borderColor: roleColor, borderWidth: 1.5 }]}>
-                      {avatarUrl ? (
-                        <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} />
-                      ) : (
-                        <Text style={styles.avatarText}>{initial}</Text>
-                      )}
-                    </View>
-                    <View style={styles.memberInfo}>
-                      <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>
-                        {displayName} {isSelf ? '(You)' : ''}
-                      </Text>
-                      <View style={styles.roleBadgeRow}>
-                        <Ionicons name={roleIcon} size={12} color={roleColor} />
-                        <Text style={[styles.memberRole, { color: roleColor }]}>{roleTitle}</Text>
+              return (
+                <SpringTouchable
+                  key={item.user_id}
+                  style={[
+                    styles.memberCard,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: item.role === 'co_leader' ? '#A855F7' : (item.role === 'guardian' ? '#3B82F6' : (item.role === 'owner' ? colors.accentGold : colors.border)),
+                      borderWidth: item.role !== 'member' ? 1.5 : 1,
+                    },
+                  ]}
+                  onPress={() => setSelectedRoleMember(item)}
+                  scaleTo={0.96}
+                >
+                  <View style={styles.memberTopRow}>
+                    <View style={styles.memberLeft}>
+                      <View style={[styles.memberAvatar, { overflow: 'hidden', borderColor: roleColor, borderWidth: 1.5 }]}>
+                        {avatarUrl ? (
+                          <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} />
+                        ) : (
+                          <Text style={styles.avatarText}>{initial}</Text>
+                        )}
+                      </View>
+                      <View style={styles.memberInfo}>
+                        <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>
+                          {displayName} {isSelf ? '(You)' : ''}
+                        </Text>
+                        <View style={styles.roleBadgeRow}>
+                          <Ionicons name={roleIcon} size={12} color={roleColor} />
+                          <Text style={[styles.memberRole, { color: roleColor }]} numberOfLines={1}>{roleTitle}</Text>
+                        </View>
                       </View>
                     </View>
+
+                    <View style={[styles.manageRoleBtn, { borderColor: roleColor, backgroundColor: `${roleColor}15` }]}>
+                      <Ionicons name={canManageRanks && !isTargetOwner && !isSelf ? "ribbon-outline" : "information-circle-outline"} size={13} color={roleColor} />
+                      <Text style={[styles.manageRoleText, { color: roleColor }]}>
+                        {canManageRanks && !isTargetOwner && !isSelf ? "RANK" : "INFO"}
+                      </Text>
+                    </View>
                   </View>
 
-                  <View style={[styles.manageRoleBtn, { borderColor: roleColor, backgroundColor: `${roleColor}15` }]}>
-                    <Ionicons name={canManageRanks && !isTargetOwner && !isSelf ? "ribbon-outline" : "information-circle-outline"} size={13} color={roleColor} />
-                    <Text style={[styles.manageRoleText, { color: roleColor }]}>
-                      {canManageRanks && !isTargetOwner && !isSelf ? "RANK 👑" : "INFO"}
+                  <View style={[styles.statusChip, { backgroundColor: colors.background, borderColor: item.isOnline ? '#10B981' : colors.border }]}>
+                    <View style={[styles.statusDot, { backgroundColor: item.isOnline ? '#10B981' : '#9CA3AF' }]} />
+                    <Text style={[styles.statusText, { color: item.isOnline ? '#10B981' : colors.textMuted }]} numberOfLines={1}>
+                      {item.isOnline ? 'ONLINE' : (item.lastSeenText || 'OFFLINE').toUpperCase()}
                     </Text>
                   </View>
-                </View>
-
-                <View style={[styles.statusChip, { backgroundColor: colors.background, borderColor: item.isOnline ? '#10B981' : colors.border }]}>
-                  <View style={[styles.statusDot, { backgroundColor: item.isOnline ? '#10B981' : '#9CA3AF' }]} />
-                  <Text style={[styles.statusText, { color: item.isOnline ? '#10B981' : colors.textMuted }]} numberOfLines={1}>
-                    {item.isOnline ? 'ONLINE' : (item.lastSeenText || 'OFFLINE').toUpperCase()}
-                  </Text>
-                </View>
-              </SpringTouchable>
-            );
-          })}
-      </View>
+                </SpringTouchable>
+              );
+            })}
+        </View>
+      )}
 
       <TouchableOpacity style={styles.deleteBtn} onPress={handleLeaveOrDelete}>
         <Text style={styles.deleteBtnText}>{isOwner ? 'DELETE CIRCLE' : 'LEAVE CIRCLE'}</Text>
@@ -509,6 +587,13 @@ export default function DashboardScreen() {
         onRoleUpdated={(userId, newRole) => {
           setSelectedRoleMember((prev: any) => prev ? { ...prev, role: newRole } : null);
         }}
+      />
+
+      <BranchAssignmentModal
+        visible={!!branchModalMember}
+        targetMember={branchModalMember}
+        circleId={activeCircle.id}
+        onClose={() => setBranchModalMember(null)}
       />
     </ScrollView>
   );
@@ -539,22 +624,29 @@ const styles = StyleSheet.create({
   },
   statBox: {
     flex: 1,
-    padding: 14,
-    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+    borderRadius: 16,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
+    gap: 5,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   statValue: {
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '900',
     letterSpacing: 0.5,
+    marginTop: 2,
   },
   statLabel: {
     fontSize: 8.5,
-    fontWeight: '800',
-    letterSpacing: 1,
+    fontWeight: '900',
+    letterSpacing: 1.2,
   },
   overline: {
     fontSize: 10,
@@ -643,7 +735,7 @@ const styles = StyleSheet.create({
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
   sectionTitle: {
@@ -651,6 +743,26 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: LUXURY_THEME.colors.foreground,
     letterSpacing: LUXURY_THEME.typography.letterSpacingWide,
+  },
+  viewModeToggle: {
+    flexDirection: 'row',
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 2,
+    gap: 2,
+  },
+  toggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  toggleBtnText: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
   accentLine: {
     flex: 1,
@@ -696,9 +808,10 @@ const styles = StyleSheet.create({
   memberInfo: {
     flex: 1,
     justifyContent: 'center',
+    marginRight: 6,
   },
   memberName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: LUXURY_THEME.colors.foreground,
     marginBottom: 2,
@@ -707,13 +820,16 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     color: LUXURY_THEME.colors.textMuted,
-    letterSpacing: 1.2,
+    letterSpacing: 0.8,
+    flexShrink: 1,
   },
   roleBadgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     marginTop: 2,
+    flexWrap: 'wrap',
+    flexShrink: 1,
   },
   manageRoleBtn: {
     flexDirection: 'row',
@@ -723,6 +839,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 8,
     borderWidth: 1,
+    alignSelf: 'center',
   },
   manageRoleText: {
     fontSize: 10,

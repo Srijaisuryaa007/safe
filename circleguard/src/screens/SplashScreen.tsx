@@ -57,31 +57,31 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
   const logoSize = 220;
 
   useEffect(() => {
-    // Scene 1: Initial Glowing Particle (0ms)
-    initialParticleOpacity.value = withTiming(1, { duration: 400 });
-    initialParticleScale.value = withTiming(1, { duration: 400 });
+    // Scene 1: Simultaneous Outer Circle & Gold Shield Logo Landing (0ms Together!)
+    initialParticleOpacity.value = withTiming(1, { duration: 350 });
+    initialParticleScale.value = withTiming(1, { duration: 350 });
 
-    // Scene 2: Particle Orbit & Golden Circle Draw (400ms)
-    ringDrawOpacity.value = withDelay(400, withTiming(1, { duration: 600 }));
+    // Both Outer Circle Ring and Inner Shield Logo emerge AT THE EXACT SAME TIME!
+    ringDrawOpacity.value = withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) });
+    shieldOpacity.value = withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) });
+    shieldScale.value = withSpring(1, { damping: 14, stiffness: 90 });
+
     ringOrbitRotation.value = withRepeat(
       withTiming(360, { duration: 8000, easing: Easing.linear }),
       -1,
       false
     );
 
-    // Scene 3: Gold Shield & Staggered Family Silhouettes (1000ms)
-    shieldOpacity.value = withDelay(1000, withTiming(1, { duration: 600 }));
-    shieldScale.value = withDelay(1000, withSpring(1, { damping: 14, stiffness: 85 }));
+    // Scene 2: Family Silhouettes inside Shield (250ms & 380ms)
+    familyCenterOpacity.value = withDelay(250, withTiming(1, { duration: 350 }));
+    familySideOpacity.value = withDelay(380, withTiming(1, { duration: 350 }));
 
-    familyCenterOpacity.value = withDelay(1300, withTiming(1, { duration: 400 }));
-    familySideOpacity.value = withDelay(1450, withTiming(1, { duration: 400 }));
-
-    // Scene 4: Location Pin Drop with Spring Bounce & Concentric Ripples (1700ms)
-    pinOpacity.value = withDelay(1700, withTiming(1, { duration: 300 }));
-    pinDropY.value = withDelay(1700, withSpring(0, { damping: 11, stiffness: 110 }));
+    // Scene 3: Location Pin Drop with Spring Bounce & Concentric Ripples (600ms)
+    pinOpacity.value = withDelay(600, withTiming(1, { duration: 300 }));
+    pinDropY.value = withDelay(600, withSpring(0, { damping: 11, stiffness: 110 }));
 
     ripple1R.value = withDelay(
-      1900,
+      800,
       withRepeat(
         withTiming(50, { duration: 2500, easing: Easing.out(Easing.quad) }),
         -1,
@@ -89,7 +89,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
       )
     );
     ripple1Opacity.value = withDelay(
-      1900,
+      800,
       withRepeat(
         withSequence(
           withTiming(0.75, { duration: 350 }),
@@ -101,7 +101,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
     );
 
     ripple2R.value = withDelay(
-      2500,
+      1400,
       withRepeat(
         withTiming(50, { duration: 2500, easing: Easing.out(Easing.quad) }),
         -1,
@@ -109,7 +109,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
       )
     );
     ripple2Opacity.value = withDelay(
-      2500,
+      1400,
       withRepeat(
         withSequence(
           withTiming(0.75, { duration: 350 }),
@@ -120,7 +120,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
       )
     );
 
-    // Scene 5: Floating Particles (2200ms)
+    // Scene 4: Floating Particles
     particleFloatY.value = withRepeat(
       withSequence(
         withTiming(-8, { duration: 2000, easing: Easing.inOut(Easing.quad) }),
@@ -130,33 +130,33 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
       true
     );
 
-    // Scene 6: Typography Fade Upward (2600ms)
-    textOpacity.value = withDelay(2600, withTiming(1, { duration: 600 }));
+    // Scene 5: Brand Typography Fade Upward (900ms)
+    textOpacity.value = withDelay(900, withTiming(1, { duration: 500 }));
     textY.value = withDelay(
-      2600,
-      withTiming(0, { duration: 600, easing: Easing.out(Easing.cubic) })
+      900,
+      withTiming(0, { duration: 500, easing: Easing.out(Easing.cubic) })
     );
 
-    // Scene 7: Hold for 1 sec, then Scale Down & Seamless Zoom Transition into App (3600ms)
+    // Scene 6: Seamless Zoom Scale & Fade Out Transition into App (2600ms)
     containerScale.value = withDelay(
-      3600,
-      withTiming(0.92, { duration: 600, easing: Easing.inOut(Easing.cubic) })
+      2600,
+      withTiming(0.94, { duration: 500, easing: Easing.inOut(Easing.cubic) })
     );
     containerOpacity.value = withDelay(
-      3600,
-      withTiming(0, { duration: 600, easing: Easing.inOut(Easing.cubic) }, (finished) => {
+      2600,
+      withTiming(0, { duration: 500, easing: Easing.inOut(Easing.cubic) }, (finished) => {
         if (onFinish) {
           runOnJS(onFinish)();
         }
       })
     );
 
-    // Hard fallback timer (4.2 seconds max) to guarantee splash screen never hangs
+    // Fallback timer (3.2 seconds max) to guarantee splash screen never hangs
     const fallbackTimer = setTimeout(() => {
       if (onFinish) {
         onFinish();
       }
-    }, 4200);
+    }, 3200);
 
     return () => {
       clearTimeout(fallbackTimer);

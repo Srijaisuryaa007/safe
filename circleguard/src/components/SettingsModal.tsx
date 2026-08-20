@@ -5,6 +5,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '../store/useThemeStore';
 import { startBatteryOptimizedBackgroundLocation } from '../services/LocationBackgroundService';
 
+import BatteryOptimizationGuideModal from './BatteryOptimizationGuideModal';
+
 interface SettingsModalProps {
   visible: boolean;
   onClose: () => void;
@@ -23,6 +25,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
   const [syncRate, setSyncRate] = useState<'balanced' | 'high' | 'saver'>('balanced');
   const [mapStyle, setMapStyle] = useState<'vector' | 'satellite'>('vector');
   const [clearing, setClearing] = useState(false);
+  const [batteryGuideVisible, setBatteryGuideVisible] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -183,8 +186,20 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
             </TouchableOpacity>
           </View>
 
+          {/* Section: Android Background GPS Optimization */}
+          <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>BACKGROUND RELIABILITY</Text>
+
+          <TouchableOpacity
+            style={[styles.clearBtn, { backgroundColor: 'rgba(245, 158, 11, 0.12)', borderColor: '#F59E0B', marginBottom: 12 }]}
+            onPress={() => setBatteryGuideVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="battery-dead-outline" size={20} color="#F59E0B" />
+            <Text style={[styles.clearBtnText, { color: '#F59E0B' }]}>UNRESTRICTED BACKGROUND GPS GUIDE</Text>
+          </TouchableOpacity>
+
           {/* Section: Storage & Maintenance */}
-          <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>STORAGE MAINTENANCE</Text>
+          <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 12 }]}>STORAGE MAINTENANCE</Text>
 
           <TouchableOpacity
             style={[styles.clearBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
@@ -202,6 +217,11 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
             )}
           </TouchableOpacity>
         </ScrollView>
+
+        <BatteryOptimizationGuideModal
+          visible={batteryGuideVisible}
+          onClose={() => setBatteryGuideVisible(false)}
+        />
       </View>
     </Modal>
   );

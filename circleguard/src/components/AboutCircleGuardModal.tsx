@@ -20,7 +20,7 @@ export default function AboutCircleGuardModal({
   const handleCopyInfo = async () => {
     const infoText = `CircleGuard Safety Architecture v1.0.0 (Build 2026.8.15)\nEncryption: AES-256 Military Grade\nEngine: React Native • Supabase Realtime • Leaflet 1.9.4\nStatus: Systems Operational`;
     await Clipboard.setStringAsync(infoText);
-    Alert.alert('Copied 📋', 'CircleGuard system build information copied to clipboard.');
+    Alert.alert('Copied', 'CircleGuard system build information copied to clipboard.');
   };
 
   const featureCards = [

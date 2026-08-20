@@ -117,11 +117,13 @@ export default function ChatScreen() {
   const fetchMessages = async (circleId: string) => {
     setLoading(true);
     try {
-      // 1. Fetch active (non-deleted) messages
+      // 1. Fetch active (non-deleted) messages within active window
+      const cutoffTime = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
       const { data, error } = await supabase
         .from('circle_messages')
         .select('*, profiles!circle_messages_sender_id_fkey(full_name, avatar_url)')
         .eq('circle_id', circleId)
+        .gte('created_at', cutoffTime)
         .is('deleted_at', null)
         .order('created_at', { ascending: true });
 
@@ -471,27 +473,39 @@ export default function ChatScreen() {
   };
 
   const dispatchChatPushNotification = async (msgText: string) => {
+    if (!activeCircle?.id || !profile?.id) return;
     try {
-      const tokenSet = new Set<string>();
-      (members || []).forEach((m: any) => {
-        let prof = m.profiles as any;
+      const { data: circleMembers } = await supabase
+        .from('circle_members')
+        .select('user_id, profiles(id, full_name, push_token)')
+        .eq('circle_id', activeCircle.id)
+        .neq('user_id', profile.id);
+
+      if (!circleMembers) return;
+
+      const tokens: string[] = [];
+      circleMembers.forEach((m: any) => {
+        let prof = m.profiles;
         if (Array.isArray(prof)) prof = prof[0];
-        if (prof?.push_token && m.user_id !== profile?.id) {
-          tokenSet.add(prof.push_token);
+        if (prof?.push_token) {
+          tokens.push(prof.push_token);
         }
       });
 
-      const tokens = Array.from(tokenSet);
       if (tokens.length > 0) {
+        const senderName = profile?.full_name || 'Circle Member';
+        const cleanTitle = `${senderName} (Circle Chat)`;
+        const cleanBody = msgText.length > 90 ? `${msgText.substring(0, 90)}...` : msgText;
+
         await sendExpoPushNotification(
           tokens,
-          `💬 ${profile?.full_name || 'Buddy'} (Circle Chat)`,
-          msgText,
-          { screen: 'Chat' }
+          cleanTitle,
+          cleanBody,
+          { screen: 'Chat', circle_id: activeCircle.id }
         );
       }
     } catch (e) {
-      console.warn('Chat push error:', e);
+      console.warn('Chat push notification error:', e);
     }
   };
 
@@ -594,7 +608,32 @@ export default function ChatScreen() {
                     alignSelf: 'flex-start',
                     marginTop: 4,
                   }}
-                  onPress={() => navigation.navigate('Map' as never)}
+                  onPress={() => {
+                    let targetLat: number | undefined;
+                    let targetLng: number | undefined;
+
+                    const pointMatch = item.content.match(/POINT\s*\(\s*([-\d.]+)[,\s]+([-\d.]+)\s*\)/i);
+                    if (pointMatch) {
+                      targetLng = parseFloat(pointMatch[1]);
+                      targetLat = parseFloat(pointMatch[2]);
+                    } else {
+                      const coordsMatch = item.content.match(/(-?\d+\.\d+)[,\s]+(-?\d+\.\d+)/);
+                      if (coordsMatch) {
+                        targetLat = parseFloat(coordsMatch[1]);
+                        targetLng = parseFloat(coordsMatch[2]);
+                      }
+                    }
+
+                    (navigation.navigate as any)('MainTabs', {
+                      screen: 'Map',
+                      params: {
+                        focusUserId: item.sender_id,
+                        focusLat: targetLat,
+                        focusLng: targetLng,
+                        focusUserName: isMe ? 'You' : (item.sender_name || 'Circle Member'),
+                      },
+                    });
+                  }}
                 >
                   <Text style={{ fontSize: 10, fontWeight: '800', color: isMe ? '#FFFFFF' : '#D4AF37' }}>🧭 VIEW ON MAP</Text>
                 </TouchableOpacity>

@@ -9,6 +9,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { startBatteryOptimizedBackgroundLocation } from './src/services/LocationBackgroundService';
 import { registerForPushNotificationsAsync } from './src/services/PushNotificationService';
 import { useThemeStore } from './src/store/useThemeStore';
+import { RevenueCatService } from './src/services/RevenueCatService';
 
 import { LuxuryAlertProvider } from './src/components/LuxuryAlertModal';
 
@@ -55,15 +56,37 @@ function App() {
 
   const fetchProfile = async (userId: string) => {
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') {
-        // PGRST116 means no row returned, which is fine if profile isn't setup yet
-        console.error('Error fetching profile:', error);
+      if (!data) {
+        // Auto-create profile for new Google / OAuth users
+        const session = useAuthStore.getState().session;
+        const user = session?.user;
+        if (user && user.id === userId) {
+          const fullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Circle Member';
+          const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+
+          const { data: createdProfile } = await supabase
+            .from('profiles')
+            .upsert([
+              {
+                id: userId,
+                full_name: fullName,
+                avatar_url: avatarUrl,
+                phone: user.phone || null,
+              }
+            ])
+            .select()
+            .single();
+
+          if (createdProfile) {
+            data = createdProfile;
+          }
+        }
       }
 
       setProfile(data || null);
@@ -71,6 +94,9 @@ function App() {
         useCircleStore.getState().fetchActiveCircle(userId);
         startBatteryOptimizedBackgroundLocation();
         registerForPushNotificationsAsync(userId);
+        RevenueCatService.initialize(userId);
+      } else {
+        RevenueCatService.initialize();
       }
     } catch (err) {
       console.error('Fetch profile err:', err);

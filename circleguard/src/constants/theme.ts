@@ -140,32 +140,7 @@ export const BOTANICAL_ORGANIC_THEME = {
   } as ThemeColors,
 };
 
-export const VAPORWAVE_OUTRUN_THEME = {
-  colors: {
-    background: '#090014', // Deep Void Purple-Black
-    foreground: '#E0E0E0', // Chrome Silver Text
-    surface: '#1A103C', // Glass Panel Deep Purple
-    surfaceMuted: '#120926', // Void Accent Surface
-    textMuted: '#00FFFF', // Electric Cyan Text
-    accentGold: '#FF00FF', // Hot Magenta Primary Accent
-    accentGoldLight: '#00FFFF', // Electric Cyan Secondary Accent
-    sosRed: '#FF9900', // Sunset Orange Pop
-    border: '#FF00FF', // Hot Magenta 2px Border
-    borderDark: '#2D1B4E', // Muted Void Border
-    borderGold: '#00FFFF', // Electric Cyan Border
-  } as ThemeColors,
-};
-
 export const getThemeBorderStyles = (themeMode?: string) => {
-  if (themeMode === 'vaporwave_outrun') {
-    return {
-      borderWidth: 2,
-      borderRadius: 0,
-      borderColor: '#FF00FF',
-      borderTopColor: '#00FFFF',
-      borderTopWidth: 3,
-    };
-  }
   if (themeMode === 'botanical_organic') {
     return {
       borderWidth: 1,
@@ -214,19 +189,6 @@ export const getThemeBorderStyles = (themeMode?: string) => {
 };
 
 export const getThemeCardStyles = (themeMode?: string) => {
-  if (themeMode === 'vaporwave_outrun') {
-    return {
-      borderWidth: 2,
-      borderRadius: 0, // Sharp 0px angular corners
-      borderColor: '#FF00FF',
-      backgroundColor: '#1A103C',
-      shadowColor: '#FF00FF',
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.95,
-      shadowRadius: 16,
-      elevation: 8,
-    };
-  }
   if (themeMode === 'botanical_organic') {
     return {
       borderWidth: 1,
@@ -310,22 +272,6 @@ export const getThemeCardStyles = (themeMode?: string) => {
 };
 
 export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 'secondary' | 'danger' = 'primary') => {
-  if (themeMode === 'vaporwave_outrun') {
-    const bg = variant === 'danger' ? '#FF9900' : variant === 'secondary' ? '#00FFFF' : '#FF00FF';
-    const text = variant === 'secondary' ? '#090014' : '#FFFFFF';
-    return {
-      borderWidth: 2,
-      borderRadius: 0, // Sharp 0px angular corners
-      borderColor: '#00FFFF', // Electric Cyan Border
-      backgroundColor: bg,
-      textColor: text,
-      shadowColor: '#00FFFF',
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.9,
-      shadowRadius: 14,
-      elevation: 8,
-    };
-  }
   if (themeMode === 'botanical_organic') {
     const bg = variant === 'danger' ? '#C27B66' : variant === 'secondary' ? '#DCCFC2' : '#2D3A31';
     const text = variant === 'secondary' ? '#2D3A31' : '#FFFFFF';
@@ -416,21 +362,6 @@ export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 's
 };
 
 export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert' | 'info' = 'live') => {
-  if (themeMode === 'vaporwave_outrun') {
-    const bg = variant === 'alert' ? '#FF9900' : variant === 'info' ? '#00FFFF' : '#FF00FF';
-    const text = variant === 'info' ? '#090014' : '#FFFFFF';
-    return {
-      backgroundColor: bg,
-      borderWidth: 2,
-      borderColor: '#00FFFF',
-      borderRadius: 0,
-      textColor: text,
-      shadowColor: '#00FFFF',
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.9,
-      shadowRadius: 10,
-    };
-  }
   if (themeMode === 'botanical_organic') {
     const bg = variant === 'alert' ? '#C27B66' : variant === 'info' ? '#DCCFC2' : '#8C9A84';
     return {
@@ -508,14 +439,105 @@ export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert
   };
 };
 
+// Global Typography System & Responsive Hierarchy Scale Tokens
+export const TYPOGRAPHY_SCALE = {
+  fontSize: {
+    micro: 9,
+    xs: 10,
+    sm: 12,
+    md: 14,
+    lg: 16,
+    xl: 18,
+    '2xl': 22,
+    '3xl': 28,
+    display: 34,
+  },
+  lineHeight: {
+    micro: 12,
+    xs: 14,
+    sm: 17,
+    md: 20,
+    lg: 23,
+    xl: 25,
+    '2xl': 28,
+    '3xl': 34,
+    display: 40,
+  },
+  letterSpacing: {
+    tight: -0.5,
+    normal: 0,
+    wide: 1.2,
+    uppercaseTag: 1.8,
+    display: 2.5,
+  },
+  fontWeight: {
+    regular: '400' as const,
+    medium: '500' as const,
+    semibold: '600' as const,
+    bold: '700' as const,
+    heavy: '800' as const,
+    black: '900' as const,
+  },
+};
+
+export const typographyStyles = {
+  overline: {
+    fontSize: TYPOGRAPHY_SCALE.fontSize.xs,
+    fontWeight: TYPOGRAPHY_SCALE.fontWeight.heavy,
+    letterSpacing: TYPOGRAPHY_SCALE.letterSpacing.uppercaseTag,
+    textTransform: 'uppercase' as const,
+  },
+  displayHeadline: {
+    fontSize: TYPOGRAPHY_SCALE.fontSize.display,
+    fontWeight: TYPOGRAPHY_SCALE.fontWeight.heavy,
+    letterSpacing: TYPOGRAPHY_SCALE.letterSpacing.tight,
+    lineHeight: TYPOGRAPHY_SCALE.lineHeight.display,
+  },
+  titleHeader: {
+    fontSize: TYPOGRAPHY_SCALE.fontSize['2xl'],
+    fontWeight: TYPOGRAPHY_SCALE.fontWeight.bold,
+    letterSpacing: TYPOGRAPHY_SCALE.letterSpacing.tight,
+    lineHeight: TYPOGRAPHY_SCALE.lineHeight['2xl'],
+  },
+  cardTitle: {
+    fontSize: TYPOGRAPHY_SCALE.fontSize.lg,
+    fontWeight: TYPOGRAPHY_SCALE.fontWeight.semibold,
+    lineHeight: TYPOGRAPHY_SCALE.lineHeight.lg,
+  },
+  subtitle: {
+    fontSize: TYPOGRAPHY_SCALE.fontSize.sm,
+    fontWeight: TYPOGRAPHY_SCALE.fontWeight.regular,
+    lineHeight: TYPOGRAPHY_SCALE.lineHeight.sm,
+    opacity: 0.7,
+  },
+  body: {
+    fontSize: TYPOGRAPHY_SCALE.fontSize.md,
+    fontWeight: TYPOGRAPHY_SCALE.fontWeight.regular,
+    lineHeight: TYPOGRAPHY_SCALE.lineHeight.md,
+  },
+  badgeText: {
+    fontSize: TYPOGRAPHY_SCALE.fontSize.xs,
+    fontWeight: TYPOGRAPHY_SCALE.fontWeight.heavy,
+    letterSpacing: TYPOGRAPHY_SCALE.letterSpacing.wide,
+    textTransform: 'uppercase' as const,
+  },
+  metricNumber: {
+    fontSize: TYPOGRAPHY_SCALE.fontSize['3xl'],
+    fontWeight: TYPOGRAPHY_SCALE.fontWeight.black,
+    lineHeight: TYPOGRAPHY_SCALE.lineHeight['3xl'],
+  },
+};
+
 // Global reactive theme instance
 export const LUXURY_THEME = {
-  colors: { ...LIGHT_THEME.colors },
+  colors: { ...DARK_THEME.colors },
   typography: {
     fontFamilySerif: 'serif',
     fontFamilySans: 'sans-serif',
     letterSpacingWide: 2.5,
     letterSpacingNormal: 0,
+    scale: TYPOGRAPHY_SCALE,
+    styles: typographyStyles,
   },
   radii: {
     sharp: 0,
@@ -544,3 +566,4 @@ export const LUXURY_THEME = {
     },
   },
 };
+
