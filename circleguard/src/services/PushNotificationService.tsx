@@ -79,14 +79,27 @@ export async function registerForPushNotificationsAsync(userId: string): Promise
   const isExpoGo = Constants.appOwnership === 'expo' || (Constants as any).executionEnvironment === 'storeClient';
 
   try {
-    // 1. Android Notification Channel setup with HIGH/MAX importance for Native Pop-Up Heads-Up Banners
+    // 1. Android Notification Channel setup with MAX importance & Lockscreen Visibility for Emergency Distress
     if (Platform.OS === 'android' && Notifications.setNotificationChannelAsync) {
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'CircleGuard Emergency Safety',
+      await Notifications.setNotificationChannelAsync('emergency-distress-v2', {
+        name: 'CircleGuard Emergency Distress',
         importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 600, 300, 600, 300, 600],
+        lightColor: '#EF4444',
+        sound: 'default',
+        enableLights: true,
+        enableVibrate: true,
+        bypassDnd: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      });
+
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'CircleGuard General Notifications',
+        importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#D4AF37',
         sound: 'default',
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       });
     }
 
@@ -155,6 +168,8 @@ export async function sendExpoPushNotification(
       to: token,
       sound: 'default',
       priority: 'high',
+      channelId: 'emergency-distress-v2',
+      _displayInForeground: true,
       title,
       body,
       data,
@@ -243,6 +258,8 @@ export async function scheduleLocalNotification(title: string, body: string, dat
         title,
         body,
         sound: 'default',
+        priority: 'high',
+        categoryIdentifier: 'emergency',
         data,
       },
       trigger: null, // Triggers native mobile top pop-up system banner immediately!
