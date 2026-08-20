@@ -469,13 +469,17 @@ const LEAFLET_HTML = `
               placeCircles[circleKey].setLatLng(pLatLng);
               placeCircles[circleKey].setRadius(p.radius);
             } else {
-              placeCircles[circleKey] = L.circle(pLatLng, {
+              var pCircle = L.circle(pLatLng, {
                 radius: p.radius,
                 color: '#D4AF37',
                 fillColor: '#D4AF37',
                 fillOpacity: 0.28,
                 weight: 2.5
               }).addTo(map);
+
+              pCircle._placeId = p.id;
+              pCircle._placeKey = circleKey;
+              placeCircles[circleKey] = pCircle;
 
               placeCircles[circleKey].on('click', function() {
                 sendAppMessage({ type: 'PLACE_CLICK', placeId: p.id });
@@ -498,7 +502,11 @@ const LEAFLET_HTML = `
               placeCircles[markerKey].setLatLng(pLatLng);
               placeCircles[markerKey].setIcon(badgeIcon);
             } else {
-              placeCircles[markerKey] = L.marker(pLatLng, { icon: badgeIcon, zIndexOffset: 800 }).addTo(map);
+              var pMarker = L.marker(pLatLng, { icon: badgeIcon, zIndexOffset: 800 }).addTo(map);
+              pMarker._placeId = p.id;
+              pMarker._placeKey = markerKey;
+              placeCircles[markerKey] = pMarker;
+
               placeCircles[markerKey].on('click', function() {
                 sendAppMessage({ type: 'PLACE_CLICK', placeId: p.id });
               });
@@ -518,33 +526,50 @@ const LEAFLET_HTML = `
               if (placeCircles[startKey]) {
                 placeCircles[startKey].setLatLng(pLatLng);
               } else {
-                placeCircles[startKey] = L.marker(pLatLng, {
+                var sMarker = L.marker(pLatLng, {
                   icon: L.divIcon({ className: 'custom-icon', html: '<div style="background:#10B981;border:2px solid #FFF;border-radius:50%;width:16px;height:16px;box-shadow:0 0 10px rgba(16,185,129,0.9);"></div>', iconSize: [16, 16] })
                 }).addTo(map).bindPopup("Start Point: " + p.name);
+                sMarker._placeId = p.id;
+                sMarker._placeKey = startKey;
+                placeCircles[startKey] = sMarker;
               }
 
               if (placeCircles[endKey]) {
                 placeCircles[endKey].setLatLng(endLatLng);
               } else {
-                placeCircles[endKey] = L.marker(endLatLng, {
+                var eMarker = L.marker(endLatLng, {
                   icon: L.divIcon({ className: 'custom-icon', html: '<div style="background:#EF4444;border:2px solid #FFF;border-radius:50%;width:16px;height:16px;box-shadow:0 0 10px rgba(239,68,68,0.9);"></div>', iconSize: [16, 16] })
                 }).addTo(map).bindPopup("End Point: " + p.name);
+                eMarker._placeId = p.id;
+                eMarker._placeKey = endKey;
+                placeCircles[endKey] = eMarker;
               }
 
               if (placeCircles[lineKey]) {
                 placeCircles[lineKey].setLatLngs([pLatLng, endLatLng]);
               } else {
-                placeCircles[lineKey] = L.polyline([pLatLng, endLatLng], {
+                var rPolyline = L.polyline([pLatLng, endLatLng], {
                   color: '#60A5FA', weight: 3, dashArray: '6, 6'
                 }).addTo(map);
+                rPolyline._placeId = p.id;
+                rPolyline._placeKey = lineKey;
+                placeCircles[lineKey] = rPolyline;
               }
             }
           });
 
+          // Purge deleted places
           Object.keys(placeCircles).forEach(function(id) {
             if (!currentPlaceIds[id]) {
-              map.removeLayer(placeCircles[id]);
+              try { map.removeLayer(placeCircles[id]); } catch(e) {}
               delete placeCircles[id];
+            }
+          });
+
+          // Universal layer purge: Remove any orphaned circle or place marker from the map
+          map.eachLayer(function(layer) {
+            if (layer._placeId && !currentPlaceIds['circle_' + layer._placeId] && !currentPlaceIds[layer._placeId]) {
+              try { map.removeLayer(layer); } catch(e) {}
             }
           });
         }
@@ -777,15 +802,24 @@ export default function MapScreen() {
               // Instantly remove Leaflet map circle layers from Webview with 0ms lag
               if (webViewRef.current) {
                 const js = `
-                  if (window.map && window.placeCircles) {
-                    var keys = ["circle_${placeId}", "marker_${placeId}", "${placeId}", "start_${placeId}", "end_${placeId}", "line_${placeId}"];
-                    keys.forEach(function(k) {
-                      if (window.placeCircles[k]) {
-                        try { window.map.removeLayer(window.placeCircles[k]); } catch(e) {}
-                        delete window.placeCircles[k];
-                      }
-                    });
-                  }
+                  (function() {
+                    if (window.map && window.placeCircles) {
+                      var keys = ["circle_${placeId}", "marker_${placeId}", "${placeId}", "start_${placeId}", "end_${placeId}", "line_${placeId}"];
+                      keys.forEach(function(k) {
+                        if (window.placeCircles[k]) {
+                          try { window.map.removeLayer(window.placeCircles[k]); } catch(e) {}
+                          delete window.placeCircles[k];
+                        }
+                      });
+                    }
+                    if (window.map) {
+                      window.map.eachLayer(function(layer) {
+                        if (layer._placeId === "${placeId}" || (layer._placeKey && layer._placeKey.indexOf("${placeId}") !== -1)) {
+                          try { window.map.removeLayer(layer); } catch(e) {}
+                        }
+                      });
+                    }
+                  })();
                   true;
                 `;
                 webViewRef.current.injectJavaScript(js);
@@ -1674,7 +1708,7 @@ export default function MapScreen() {
             };
           });
       })(),
-      places: places.map(p => {
+      places: (useCircleStore.getState().places || places).map(p => {
         const pt = parseLocationPoint(p);
         const radiusNum = typeof p.radius_m === 'number' ? p.radius_m : parseFloat((p as any).radius_m || (p as any).radius || 150);
         return {
