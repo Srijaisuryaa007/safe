@@ -41,6 +41,7 @@ import SplashScreen from '../screens/SplashScreen';
 import { registerForPushNotificationsAsync } from '../services/PushNotificationService';
 import ShakeSOSListener from '../components/ShakeSOSListener';
 import { LuxuryAlertProvider, useLuxuryAlert } from '../components/LuxuryAlertModal';
+import BiometricLockGate from '../components/BiometricLockGate';
 import { supabase } from '../lib/supabase';
 import { useCircleStore } from '../store/useCircleStore';
 
@@ -175,46 +176,48 @@ export default function AppNavigator() {
 
   return (
     <LuxuryAlertProvider>
-      <NavigationContainer>
-        {session && profile ? (
-          <>
-            <GlobalSOSModal />
-            <GlobalLocationShareModal />
-            <ShakeSOSListener />
-            <PrivacyPermissionListener />
-            <GlobalChatNotificationListener />
-          </>
-        ) : null}
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          {!session ? (
-            // Unauthenticated Flow
+      <BiometricLockGate>
+        <NavigationContainer>
+          {session && profile ? (
             <>
-              <Stack.Screen name="Login" component={LoginScreen} />
-              <Stack.Screen name="SignUp" component={SignUpScreen} />
+              <GlobalSOSModal />
+              <GlobalLocationShareModal />
+              <ShakeSOSListener />
+              <PrivacyPermissionListener />
+              <GlobalChatNotificationListener />
             </>
-          ) : !profile ? (
-            // Profile Setup Flow
-            <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
-          ) : (
-            // Authenticated Flow
-            <>
-              <Stack.Screen name="MainTabs" component={MainTabNavigator} />
-              <Stack.Screen name="CreateCircle" component={CreateCircleScreen} />
-              <Stack.Screen name="JoinCircle" component={JoinCircleScreen} />
-              <Stack.Screen 
-                name="SOSAlert" 
-                component={SOSAlertScreen} 
-                options={{ presentation: 'fullScreenModal', animation: 'fade' }}
-              />
-              <Stack.Screen name="SafePlaces" component={SafePlacesScreen} />
-              <Stack.Screen name="Activity" component={ActivityScreen} />
-              <Stack.Screen name="LocationHistory" component={LocationHistoryScreen} />
-              <Stack.Screen name="DrivingReports" component={DrivingReportsScreen} />
-              <Stack.Screen name="Chat" component={ChatScreen} />
-            </>
-          )}
-        </Stack.Navigator>
-      </NavigationContainer>
+          ) : null}
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            {!session ? (
+              // Unauthenticated Flow
+              <>
+                <Stack.Screen name="Login" component={LoginScreen} />
+                <Stack.Screen name="SignUp" component={SignUpScreen} />
+              </>
+            ) : !profile ? (
+              // Profile Setup Flow
+              <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
+            ) : (
+              // Authenticated Flow
+              <>
+                <Stack.Screen name="MainTabs" component={MainTabNavigator} />
+                <Stack.Screen name="CreateCircle" component={CreateCircleScreen} />
+                <Stack.Screen name="JoinCircle" component={JoinCircleScreen} />
+                <Stack.Screen 
+                  name="SOSAlert" 
+                  component={SOSAlertScreen} 
+                  options={{ presentation: 'fullScreenModal', animation: 'fade' }}
+                />
+                <Stack.Screen name="SafePlaces" component={SafePlacesScreen} />
+                <Stack.Screen name="Activity" component={ActivityScreen} />
+                <Stack.Screen name="LocationHistory" component={LocationHistoryScreen} />
+                <Stack.Screen name="DrivingReports" component={DrivingReportsScreen} />
+                <Stack.Screen name="Chat" component={ChatScreen} />
+              </>
+            )}
+          </Stack.Navigator>
+        </NavigationContainer>
+      </BiometricLockGate>
     </LuxuryAlertProvider>
   );
 }

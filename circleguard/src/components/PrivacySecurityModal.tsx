@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Switch, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Switch, Alert, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '../store/useThemeStore';
@@ -99,6 +99,36 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
   };
 
   const toggleSetting = async (key: string, val: boolean, setter: (v: boolean) => void) => {
+    if (key === KEYS.APP_LOCK && val && Platform.OS !== 'web') {
+      try {
+        const LocalAuthentication = require('expo-local-authentication');
+        const hasHardware = await LocalAuthentication.hasHardwareAsync();
+        const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+        if (!hasHardware || !isEnrolled) {
+          showAlert({
+            title: 'Biometrics Not Configured',
+            message: 'Please enroll Fingerprint, Face ID, or a Device Passcode in your device settings first.',
+            type: 'error',
+          });
+          setter(false);
+          return;
+        }
+
+        const auth = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Authenticate to Enable App Lock',
+          fallbackLabel: 'Use Device PIN / Passcode',
+        });
+
+        if (!auth.success) {
+          setter(false);
+          return;
+        }
+      } catch (e) {
+        console.warn('Biometric toggle auth error:', e);
+      }
+    }
+
     // Option B: 24/7 Continuous Safety Mode Authorization Check
     if (val && (key === KEYS.GHOST_MODE || key === KEYS.HIDE_ONLINE)) {
       const activeCircle = useCircleStore.getState().activeCircle;
