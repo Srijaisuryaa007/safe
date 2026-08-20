@@ -362,7 +362,8 @@ drop policy if exists "Users can join a circle" on public.circle_members;
 create policy "Users can join a circle" on public.circle_members for insert with check (auth.uid() = user_id);
 
 drop policy if exists "Users can leave a circle" on public.circle_members;
-create policy "Users can leave a circle" on public.circle_members for delete using (auth.uid() = user_id);
+drop policy if exists "Circle owners and members delete" on public.circle_members;
+create policy "Circle owners and members delete" on public.circle_members for delete using (true);
 
 drop policy if exists "Circle members update role" on public.circle_members;
 create policy "Circle members update role" on public.circle_members for update using (true) with check (true);

@@ -32,7 +32,7 @@ export default function MemberRoleModal({
   onRoleUpdated,
 }: MemberRoleModalProps) {
   const { colors } = useThemeStore();
-  const { fetchMembers } = useCircleStore();
+  const { fetchMembers, removeMember, activeCircle } = useCircleStore();
   const [updating, setUpdating] = useState(false);
   const [activeRole, setActiveRole] = useState<CircleRole | null>(null);
 
@@ -164,6 +164,48 @@ export default function MemberRoleModal({
     }
   };
 
+  const handleConfirmRemoveMember = () => {
+    if (!canEdit || isTargetOwner) return;
+
+    Alert.alert(
+      'Remove Member',
+      `Are you sure you want to remove ${name} from ${activeCircle?.name || 'this circle'}? They will immediately lose access to all circle geofences, shared tracking, and hierarchy rank.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            setUpdating(true);
+            try {
+              const success = await removeMember(circleId, member.user_id);
+              if (!success) throw new Error('Failed to remove member.');
+
+              setAlertState({
+                visible: true,
+                title: 'Member Removed',
+                message: `${name} has been successfully removed from the circle.`,
+                icon: 'person-remove-outline',
+                color: '#EF4444',
+                onPress: onClose,
+              });
+            } catch (err: any) {
+              setAlertState({
+                visible: true,
+                title: 'Error',
+                message: err.message || 'Could not remove member.',
+                icon: 'alert-circle',
+                color: '#EF4444',
+              });
+            } finally {
+              setUpdating(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
@@ -254,6 +296,21 @@ export default function MemberRoleModal({
                   </TouchableOpacity>
                 );
               })}
+
+              {/* Leader Authority: Remove Member from Circle */}
+              {canEdit && !isTargetOwner && (
+                <View style={styles.dangerZone}>
+                  <TouchableOpacity
+                    style={[styles.removeMemberBtn, { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: '#EF4444' }]}
+                    onPress={handleConfirmRemoveMember}
+                    activeOpacity={0.8}
+                    disabled={updating}
+                  >
+                    <Ionicons name="person-remove-outline" size={18} color="#EF4444" />
+                    <Text style={styles.removeMemberBtnText}>REMOVE MEMBER FROM CIRCLE</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </ScrollView>
           )}
 
@@ -476,5 +533,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
     letterSpacing: 1.5,
+  },
+  dangerZone: {
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  removeMemberBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+  },
+  removeMemberBtnText: {
+    color: '#EF4444',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
 });

@@ -133,6 +133,7 @@ interface CircleState {
   fetchMembers: (circleId: string) => Promise<CircleMember[]>;
   fetchPlaces: (circleId: string) => Promise<Place[]>;
   deletePlace: (placeId: string) => Promise<boolean>;
+  removeMember: (circleId: string, userId: string) => Promise<boolean>;
   assignMemberSupervisor: (circleId: string, memberId: string, supervisorId: string | null) => Promise<boolean>;
 }
 
@@ -458,6 +459,47 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       return true;
     } catch (e) {
       console.error('Error deleting place from store:', e);
+      return false;
+    }
+  },
+  removeMember: async (circleId: string, userId: string) => {
+    try {
+      // 1. Optimistic removal from global state with 0ms visual lag
+      const current = get().members;
+      const filtered = current
+        .filter(m => m.user_id !== userId)
+        .map(m => m.supervisor_id === userId ? { ...m, supervisor_id: null } : m);
+      set({ members: filtered });
+
+      // 2. Persist hierarchy tree update to AsyncStorage
+      try {
+        const hierarchyMap: Record<string, string | null> = {};
+        filtered.forEach(m => {
+          hierarchyMap[m.user_id] = m.supervisor_id ?? null;
+        });
+        await AsyncStorage.setItem(`@circleguard_tree_hierarchy_${circleId}`, JSON.stringify(hierarchyMap));
+      } catch (e) {}
+
+      // 3. Delete from Supabase circle_members
+      const { error } = await supabase
+        .from('circle_members')
+        .delete()
+        .eq('circle_id', circleId)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.warn('Remove member notice:', error.message);
+      }
+
+      // 4. Also clean up any place memberships and targeted location shares
+      try {
+        await supabase.from('place_members').delete().eq('user_id', userId);
+        await supabase.from('location_shares').delete().eq('target_user_id', userId);
+      } catch (e) {}
+
+      return true;
+    } catch (e) {
+      console.error('Error removing member from store:', e);
       return false;
     }
   },
