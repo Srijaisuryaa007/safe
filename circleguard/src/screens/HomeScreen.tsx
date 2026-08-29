@@ -905,7 +905,7 @@ export default function HomeScreen() {
         )}
 
         {/* Activity Log Box Container */}
-        <View style={[styles.activityContainerBox, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}>
+        <View style={[styles.activityContainerBox, { backgroundColor: isDark ? 'rgba(18, 20, 28, 0.95)' : '#FFFFFF', borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E4E4E7' }]}>
           {/* Inner Header Row */}
           <View style={styles.activityBoxHeader}>
             <View style={styles.activityBoxTitleRow}>
@@ -913,19 +913,19 @@ export default function HomeScreen() {
               <Text style={[styles.sectionTitle, { color: isDark ? colors.foreground : '#18181B', fontSize: 13 }]}>ACTIVITY LOG</Text>
             </View>
             <TouchableOpacity onPress={() => navigation.navigate('Activity')} activeOpacity={0.7}>
-              <Text style={[styles.seeAllText, { color: '#B48B1E' }]}>VIEW ALL →</Text>
+              <Text style={[styles.seeAllText, { color: colors.accentGold }]}>VIEW ALL →</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.activityBoxInnerContent}>
             {loadingActivity ? (
-              <ActivityIndicator size="small" color="#B48B1E" style={{ paddingVertical: 20 }} />
+              <ActivityIndicator size="small" color={colors.accentGold} style={{ paddingVertical: 20 }} />
             ) : recentActivities.length > 0 ? (
               <AnimatedList
                 items={recentActivities}
-                maxHeight={410}
+                maxHeight={200}
                 showGradients={true}
-                displayScrollbar={true}
+                displayScrollbar={false}
                 onItemSelect={(item) => navigation.navigate('Activity')}
               />
             ) : (
@@ -1198,24 +1198,25 @@ const styles = StyleSheet.create({
     lineHeight: 12,
   },
   activityContainerBox: {
-    borderRadius: 20,
+    borderRadius: 18,
     borderWidth: 1,
-    padding: 16,
+    padding: 12,
+    paddingBottom: 10,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 10,
     elevation: 3,
-    marginBottom: 12,
+    marginBottom: 16,
   },
   activityBoxHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingBottom: 12,
-    marginBottom: 8,
+    paddingBottom: 8,
+    marginBottom: 6,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(150, 150, 150, 0.15)',
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
   },
   activityBoxTitleRow: {
     flexDirection: 'row',

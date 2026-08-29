@@ -41,8 +41,8 @@ const AnimatedItem: React.FC<AnimatedItemProps> = ({ children, index, isSelected
   useEffect(() => {
     Animated.timing(anim, {
       toValue: 1,
-      duration: 350,
-      delay: Math.min(index * 60, 300),
+      duration: 280,
+      delay: Math.min(index * 40, 200),
       useNativeDriver: true,
     }).start();
   }, [index]);
@@ -64,19 +64,14 @@ const AnimatedItem: React.FC<AnimatedItemProps> = ({ children, index, isSelected
 
   const translateY = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: [18, 0],
-  });
-
-  const entranceScale = anim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.94, 1],
+    outputRange: [10, 0],
   });
 
   return (
     <Animated.View
       style={{
         opacity: anim,
-        transform: [{ translateY }, { scale: Animated.multiply(entranceScale, scaleTouch) }],
+        transform: [{ translateY }, { scale: scaleTouch }],
       }}
     >
       <TouchableOpacity
@@ -110,7 +105,7 @@ export const AnimatedList: React.FC<AnimatedListProps> = ({
   onItemSelect,
   showGradients = true,
   enableArrowNavigation = true,
-  displayScrollbar = true,
+  displayScrollbar = false,
   initialSelectedIndex = -1,
   maxHeight,
   isNestedInParentScroll = false,
@@ -141,11 +136,11 @@ export const AnimatedList: React.FC<AnimatedListProps> = ({
     const clientHeight = layoutMeasurement.height;
     const maxScroll = scrollHeight - clientHeight;
 
-    setTopGradientOpacity(Math.min(y / 40, 1));
+    setTopGradientOpacity(Math.min(y / 20, 1));
     if (maxScroll <= 0) {
       setBottomGradientOpacity(0);
     } else {
-      setBottomGradientOpacity(Math.min((maxScroll - y) / 40, 1));
+      setBottomGradientOpacity(Math.min((maxScroll - y) / 20, 1));
     }
   };
 
@@ -167,54 +162,55 @@ export const AnimatedList: React.FC<AnimatedListProps> = ({
             ) : (
               <View
                 style={[
-                  styles.cardContainer,
+                  styles.compactRowCard,
                   {
-                    backgroundColor: isSelected
-                      ? isDark
-                        ? 'rgba(212, 175, 55, 0.12)'
-                        : '#F4F4F5'
-                      : isDark
-                      ? colors.surface
-                      : '#FFFFFF',
-                    borderColor: isSelected ? accentColor : isDark ? colors.border : '#E4E4E7',
-                    borderLeftColor: accentColor,
-                    borderLeftWidth: 4,
+                    backgroundColor: isDark ? 'rgba(21, 23, 30, 0.7)' : 'rgba(249, 250, 251, 0.9)',
+                    borderColor: isSelected ? `${accentColor}80` : isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)',
+                  },
+                  isSelected && {
+                    shadowColor: accentColor,
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.2,
+                    shadowRadius: 6,
+                    elevation: 2,
                   },
                   itemStyle,
                 ]}
               >
-                {/* Top Header Row with Icon Box, Badge Tag & Aligned Time */}
-                <View style={styles.cardHeader}>
-                  <View style={styles.badgeRow}>
-                    <View style={[styles.iconBox, { backgroundColor: `${accentColor}18`, borderColor: `${accentColor}40` }]}>
-                      <Ionicons name={item.icon || 'shield-outline'} size={13} color={accentColor} />
-                    </View>
-                    {item.badgeText ? (
-                      <Text style={[styles.badgeText, { color: accentColor }]}>
-                        {item.badgeText}
-                      </Text>
-                    ) : null}
-                  </View>
+                {/* Left Compact Icon Orb */}
+                <View style={[styles.compactOrb, { backgroundColor: `${accentColor}15`, borderColor: `${accentColor}40` }]}>
+                  <Ionicons name={item.icon || 'shield-outline'} size={13} color={accentColor} />
+                </View>
 
-                  {item.time ? (
-                    <View style={styles.timePill}>
-                      <Ionicons name="time-outline" size={11} color={colors.textMuted} />
-                      <Text style={[styles.timeText, { color: colors.textMuted }]}>{item.time}</Text>
+                {/* Center Content */}
+                <View style={styles.compactContentCol}>
+                  <Text style={[styles.compactTitleText, { color: colors.foreground }]} numberOfLines={1}>
+                    {item.title}
+                  </Text>
+                  
+                  {item.badgeText || item.message ? (
+                    <View style={styles.compactSubRow}>
+                      {item.badgeText ? (
+                        <View style={[styles.compactBadge, { backgroundColor: `${accentColor}15` }]}>
+                          <Text style={[styles.compactBadgeText, { color: accentColor }]}>{item.badgeText}</Text>
+                        </View>
+                      ) : null}
+                      {item.message ? (
+                        <Text style={[styles.compactMessageText, { color: colors.textMuted }]} numberOfLines={1}>
+                          {item.message}
+                        </Text>
+                      ) : null}
                     </View>
                   ) : null}
                 </View>
 
-                {/* Title */}
-                <Text style={[styles.titleText, { color: colors.foreground }]}>
-                  {item.title}
-                </Text>
-
-                {/* Subtitle / Message */}
-                {item.message ? (
-                  <Text style={[styles.messageText, { color: colors.textMuted }]}>
-                    {item.message}
-                  </Text>
-                ) : null}
+                {/* Right Time & Arrow */}
+                <View style={styles.compactRightCol}>
+                  {item.time ? (
+                    <Text style={[styles.compactTimeText, { color: colors.textMuted }]}>{item.time}</Text>
+                  ) : null}
+                  <Ionicons name="chevron-forward" size={11} color={colors.textMuted} />
+                </View>
               </View>
             )}
           </AnimatedItem>
@@ -244,7 +240,7 @@ export const AnimatedList: React.FC<AnimatedListProps> = ({
         {renderContent()}
       </ScrollView>
 
-      {/* Top & Bottom Dynamic Fading Overflow Gradients */}
+      {/* Top & Bottom Subtle Fading Overflows */}
       {showGradients && (
         <>
           <View
@@ -253,7 +249,7 @@ export const AnimatedList: React.FC<AnimatedListProps> = ({
               styles.topGradientOverlay,
               {
                 opacity: topGradientOpacity,
-                backgroundColor: isDark ? colors.surface : '#FFFFFF',
+                backgroundColor: isDark ? 'rgba(18, 20, 28, 0.95)' : '#FFFFFF',
               },
             ]}
           />
@@ -263,7 +259,7 @@ export const AnimatedList: React.FC<AnimatedListProps> = ({
               styles.bottomGradientOverlay,
               {
                 opacity: bottomGradientOpacity,
-                backgroundColor: isDark ? colors.surface : '#FFFFFF',
+                backgroundColor: isDark ? 'rgba(18, 20, 28, 0.95)' : '#FFFFFF',
               },
             ]}
           />
@@ -280,77 +276,77 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   scrollContent: {
-    paddingVertical: 6,
-    gap: 10,
-  },
-  cardContainer: {
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    paddingVertical: 1,
     gap: 6,
-    flex: 1,
   },
-  iconBox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
+  compactRowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 13,
+    borderWidth: 1,
+    gap: 9,
+  },
+  compactOrb: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badgeText: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    letterSpacing: 0.8,
+  compactContentCol: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 2,
   },
-  timePill: {
+  compactTitleText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    letterSpacing: 0.1,
+  },
+  compactSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  compactBadge: {
+    paddingHorizontal: 4.5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  compactBadgeText: {
+    fontSize: 7.5,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  compactMessageText: {
+    fontSize: 10,
+    flex: 1,
+  },
+  compactRightCol: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-  timeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  titleText: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    lineHeight: 18,
-  },
-  messageText: {
-    fontSize: 11.5,
-    lineHeight: 16,
-    marginTop: 4,
+  compactTimeText: {
+    fontSize: 9,
+    fontWeight: '600',
   },
   topGradientOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: 20,
+    height: 14,
   },
   bottomGradientOverlay: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: 26,
+    height: 16,
   },
 });
 
