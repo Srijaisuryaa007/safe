@@ -205,14 +205,23 @@ export default function HomeScreen() {
     })();
 
     if (profile?.id && !activeCircle) {
+      setRecentActivities([]);
+      setCirclePlaces([]);
       useCircleStore.getState().fetchActiveCircle(profile.id);
     } else if (activeCircle?.id) {
       fetchCircleActivity(activeCircle.id);
       fetchHomePlaces(activeCircle.id);
+    } else {
+      setRecentActivities([]);
+      setCirclePlaces([]);
     }
   }, [profile?.id, activeCircle?.id]);
 
   const fetchCircleActivity = async (circleId: string) => {
+    if (!circleId) {
+      setRecentActivities([]);
+      return;
+    }
     setLoadingActivity(true);
     try {
       const [sosRes, msgRes] = await Promise.all([
@@ -316,54 +325,54 @@ export default function HomeScreen() {
   const onlineCount = activeCircle ? safeMembers.filter((m) => m.isOnline).length : 0;
   const offlineCount = activeCircle ? Math.max(0, safeMembers.length - onlineCount) : 0;
 
-  // Magnification Dock Item Definitions for Safety Suite
+  // Magnification Dock Item Definitions for Safety Suite & Controls
   const dockItems: DockItemData[] = [
     {
       id: 'gps',
-      iconName: 'location',
+      iconName: 'navigate-circle',
       label: 'Share GPS',
-      badgeColor: 'rgba(59, 130, 246, 0.12)',
-      iconColor: '#3B82F6',
+      badgeColor: 'rgba(56, 189, 248, 0.12)',
+      iconColor: '#38BDF8',
       onClick: handleShareLocation,
     },
     {
       id: 'ghost',
-      iconName: 'call',
-      label: 'Ghost Escort',
-      badgeColor: 'rgba(245, 158, 11, 0.12)',
-      iconColor: '#F59E0B',
+      iconName: 'call-sharp',
+      label: 'Ghost Call',
+      badgeColor: 'rgba(192, 132, 252, 0.12)',
+      iconColor: '#C084FC',
       onClick: () => setFakeCallVisible(true),
     },
     {
       id: 'places',
-      iconName: 'compass',
+      iconName: 'shield-checkmark',
       label: 'Safe Places',
-      badgeColor: 'rgba(16, 185, 129, 0.12)',
-      iconColor: '#10B981',
+      badgeColor: 'rgba(52, 211, 153, 0.12)',
+      iconColor: '#34D399',
       onClick: () => navigation.navigate('SafePlaces'),
     },
     {
       id: 'history',
-      iconName: 'time',
-      label: '2-Day History',
-      badgeColor: 'rgba(180, 139, 30, 0.12)',
-      iconColor: '#B48B1E',
+      iconName: 'time-sharp',
+      label: 'History Trail',
+      badgeColor: 'rgba(245, 208, 97, 0.12)',
+      iconColor: '#F5D061',
       onClick: () => navigation.navigate('LocationHistory'),
     },
     {
       id: 'driving',
-      iconName: 'speedometer',
-      label: 'Driving Report',
-      badgeColor: 'rgba(239, 68, 68, 0.12)',
-      iconColor: '#EF4444',
+      iconName: 'speedometer-sharp',
+      label: 'Driving Score',
+      badgeColor: 'rgba(255, 69, 58, 0.12)',
+      iconColor: '#FF453A',
       onClick: () => navigation.navigate('DrivingReports'),
     },
     {
       id: 'chat',
-      iconName: 'chatbubbles',
+      iconName: 'chatbubbles-sharp',
       label: 'Circle Chat',
-      badgeColor: 'rgba(16, 185, 129, 0.12)',
-      iconColor: '#10B981',
+      badgeColor: 'rgba(129, 140, 248, 0.12)',
+      iconColor: '#818CF8',
       onClick: () => navigation.navigate('Chat'),
     },
   ];
@@ -385,188 +394,296 @@ export default function HomeScreen() {
           />
         }
       >
-        {/* Main Hero Protection Shield Card */}
-        <View
-          style={[
-            styles.heroCard,
-            getThemeCardStyles(themeMode),
-            {
-              backgroundColor: isDark ? colors.surface : '#FFFFFF',
-            },
-          ]}
-        >
-          {/* Gold Left Accent Stripe */}
-          <View style={[styles.goldLeftStripe, { backgroundColor: colors.accentGold }]} />
-
-          {/* Top Status & Date Row */}
-          <View style={styles.cardTopRow}>
-            <View
-              style={[
-                styles.liveShieldPill,
-                {
-                  borderColor: isTrackingActive ? '#10B981' : '#F59E0B',
-                  backgroundColor: isTrackingActive ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)',
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.statusDot,
-                  { backgroundColor: isTrackingActive ? '#10B981' : '#F59E0B' },
-                ]}
-              />
-              <Text
-                style={[
-                  styles.liveShieldText,
-                  { color: isTrackingActive ? '#10B981' : '#F59E0B' },
-                ]}
-                adjustsFontSizeToFit={true}
-                minimumFontScale={0.8}
-                numberOfLines={1}
-              >
-                {isTrackingActive ? 'LIVE SHIELD ACTIVE' : 'SHIELD PAUSED'}
-              </Text>
-            </View>
-
-            <Text 
-              style={[styles.cardDateText, { color: isDark ? colors.textMuted : '#A1A1AA' }]}
-              adjustsFontSizeToFit={true}
-              minimumFontScale={0.8}
-              numberOfLines={1}
-            >
-              {new Date().toLocaleDateString('en-US', {
-                weekday: 'short',
-                month: 'short',
-                day: 'numeric',
-              }).toUpperCase()}
-            </Text>
-          </View>
-
-          {/* Center 3D Shield Emblem Badge */}
-          <View style={styles.shieldEmblemContainer}>
-            <View style={[styles.outerShieldRing, { backgroundColor: isDark ? 'rgba(212, 175, 55, 0.15)' : '#FAF5DB' }]}>
-              <View style={[styles.innerShieldBadge, { borderColor: colors.accentGold }]}>
-                <Ionicons name="shield-checkmark" size={32} color={colors.accentGold} />
-                <View style={styles.shieldInnerPinWrap}>
-                  <Ionicons name="location" size={14} color="#FF5266" />
+        {/* THEME-SPECIFIC HERO LAYOUT ARCHITECTURE */}
+        {themeMode === 'brand_green' ? (
+          /* BRAND GREEN & AMBER (FLEXY UI): Split Dual-Tone Cockpit */
+          <View style={styles.flexyHeroCard}>
+            {/* Top Brand Green Header */}
+            <View style={styles.flexyHeroTopBanner}>
+              <View style={styles.flexyHeaderRow}>
+                <View style={styles.flexyLogoBadge}>
+                  <Ionicons name="shield-checkmark" size={16} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.flexyBrandLabel}>CIRCLEGUARD LIVE</Text>
+                  <Text style={styles.flexyCircleTitle} numberOfLines={1}>
+                    {activeCircle ? activeCircle.name : 'No Active Circle'}
+                  </Text>
+                </View>
+                <View style={styles.flexyLivePulsePill}>
+                  <View style={styles.flexyPulseDot} />
+                  <Text style={styles.flexyLivePulseText}>24/7 ACTIVE</Text>
                 </View>
               </View>
-            </View>
-          </View>
 
-          {/* Circle Title & Connected Status */}
-          <Text 
-            style={[styles.circleNameTitle, { color: colors.foreground }]}
-            adjustsFontSizeToFit={true}
-            minimumFontScale={0.75}
-            numberOfLines={1}
-          >
-            {activeCircle ? activeCircle.name : 'No Active Circle'}
-          </Text>
-
-          <Text style={[styles.circleSubtitle, { color: colors.textMuted }]}>
-            {activeCircle
-              ? `${safeMembers.length} members connected in real time`
-              : 'Join or create a family group to start 24/7 live location tracking.'}
-          </Text>
-
-          {/* Member Avatar Stack */}
-          {activeCircle && safeMembers.length > 0 ? (
-            <View style={styles.avatarRowContainer}>
-              {safeMembers.slice(0, 4).map((m, idx) => {
-                const name = m.profile?.full_name || 'Member';
-                const initial = name.charAt(0).toUpperCase();
-                const avatarUrl = m.profile?.avatar_url;
-
-                return (
-                  <View
-                    key={m.user_id || idx}
-                    style={[
-                      styles.avatarCircle,
-                      {
-                        backgroundColor: isDark ? colors.surfaceMuted : '#F4F4F5',
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  >
-                    {avatarUrl ? (
-                      <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
-                    ) : (
-                      <Text style={[styles.avatarInitialText, { color: colors.foreground }]}>
-                        {initial}
-                      </Text>
-                    )}
-                  </View>
-                );
-              })}
-
-              {safeMembers.length > 4 ? (
-                <View style={[styles.moreAvatarGoldBadge, { backgroundColor: colors.accentGold }]}>
-                  <Text style={styles.moreAvatarText}>
-                    +{safeMembers.length - 4}
+              {/* Members Avatar Row on Green Canvas */}
+              {activeCircle && safeMembers.length > 0 ? (
+                <View style={styles.flexyAvatarRow}>
+                  {safeMembers.slice(0, 5).map((m, idx) => {
+                    const name = m.profile?.full_name || 'Member';
+                    const initial = name.charAt(0).toUpperCase();
+                    const avatarUrl = m.profile?.avatar_url;
+                    return (
+                      <View key={m.user_id || idx} style={styles.flexyAvatarCircle}>
+                        {avatarUrl ? (
+                          <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
+                        ) : (
+                          <Text style={styles.flexyAvatarInitial}>{initial}</Text>
+                        )}
+                      </View>
+                    );
+                  })}
+                  {safeMembers.length > 5 ? (
+                    <View style={styles.flexyMoreBadge}>
+                      <Text style={styles.flexyMoreText}>+{safeMembers.length - 5}</Text>
+                    </View>
+                  ) : null}
+                  <Text style={styles.flexyConnectedCount}>
+                    {safeMembers.length} family members connected
                   </Text>
                 </View>
               ) : null}
             </View>
-          ) : (
-            <View style={{ marginBottom: 16 }} />
-          )}
 
-          {/* Interactive Action Button */}
-          {activeCircle ? (
-            <JellySqueezeButton
-              glowColor={isTrackingActive ? '#EF4444' : '#10B981'}
-              style={[
-                styles.pauseTrackingBtn,
-                getThemeBorderStyles(themeMode),
-                {
-                  borderColor: isTrackingActive ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)',
-                  backgroundColor: isTrackingActive ? (themeMode === 'minimalist_monochrome' || themeMode === 'bauhaus' ? '#000000' : '#FFF1F1') : 'rgba(16, 185, 129, 0.12)',
-                },
-              ]}
-              onPress={toggleLocationTracking}
-            >
-              <Ionicons
-                name={isTrackingActive ? 'pause-circle-outline' : 'play-circle-outline'}
-                size={18}
-                color={isTrackingActive ? (themeMode === 'minimalist_monochrome' || themeMode === 'bauhaus' ? '#FFFFFF' : '#DC2626') : '#10B981'}
-              />
-              <Text
+            {/* Bottom White Status & Protection Control Panel */}
+            <View style={styles.flexyHeroBottomPanel}>
+              <View style={styles.flexyStatusRow}>
+                <View style={styles.flexyShieldIconBox}>
+                  <Ionicons
+                    name={isTrackingActive ? 'shield-checkmark' : 'pause-circle'}
+                    size={20}
+                    color={isTrackingActive ? '#3DBE6C' : '#F5A623'}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.flexyStatusTitle}>
+                    {isTrackingActive ? 'Real-Time Protection Live' : 'Background Shield Paused'}
+                  </Text>
+                  <Text style={styles.flexyStatusSub}>
+                    {isTrackingActive ? 'GPS broadcasting & geofence alerts active' : 'Tap below to resume 24/7 monitoring'}
+                  </Text>
+                </View>
+              </View>
+
+              {activeCircle ? (
+                <TouchableOpacity
+                  style={[
+                    styles.flexyActionBtn,
+                    { backgroundColor: isTrackingActive ? '#F5F5F5' : '#3DBE6C' },
+                  ]}
+                  onPress={toggleLocationTracking}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name={isTrackingActive ? 'pause' : 'play'}
+                    size={16}
+                    color={isTrackingActive ? '#111111' : '#FFFFFF'}
+                  />
+                  <Text
+                    style={[
+                      styles.flexyActionBtnText,
+                      { color: isTrackingActive ? '#111111' : '#FFFFFF' },
+                    ]}
+                  >
+                    {isTrackingActive ? 'PAUSE LIVE TRACKING' : 'RESUME BACKGROUND SHIELD'}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.flexyActionBtn, { backgroundColor: '#3DBE6C' }]}
+                  onPress={() => navigation.navigate('Circle')}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="add-circle" size={16} color="#FFFFFF" />
+                  <Text style={[styles.flexyActionBtnText, { color: '#FFFFFF' }]}>JOIN OR CREATE A CIRCLE</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        ) : (
+          /* STANDARD / BAUHAUS / PLAYFUL / BOTANICAL HERO CARD */
+          <View
+            style={[
+              styles.heroCard,
+              getThemeCardStyles(themeMode),
+              {
+                backgroundColor: isDark ? colors.surface : '#FFFFFF',
+              },
+            ]}
+          >
+            {/* Gold Left Accent Stripe */}
+            <View style={[styles.goldLeftStripe, { backgroundColor: colors.accentGold }]} />
+
+            {/* Top Status & Date Row */}
+            <View style={styles.cardTopRow}>
+              <View
                 style={[
-                  styles.pauseBtnText,
-                  { color: isTrackingActive ? (themeMode === 'minimalist_monochrome' || themeMode === 'bauhaus' ? '#FFFFFF' : '#DC2626') : '#10B981' },
+                  styles.liveShieldPill,
+                  {
+                    borderColor: isTrackingActive ? '#10B981' : '#F59E0B',
+                    backgroundColor: isTrackingActive ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+                  },
                 ]}
-                adjustsFontSizeToFit={true}
-                minimumFontScale={0.8}
-                numberOfLines={1}
               >
-                {isTrackingActive ? 'PAUSE BACKGROUND TRACKING' : 'RESUME BACKGROUND SHIELD'}
-              </Text>
-            </JellySqueezeButton>
-          ) : (
-            <TouchableOpacity
-              style={[
-                styles.pauseTrackingBtn,
-                {
-                  backgroundColor: colors.accentGold,
-                  borderColor: colors.accentGold,
-                },
-              ]}
-              onPress={() => navigation.navigate('Circle')}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="add-circle-outline" size={18} color="#1A1A1A" />
+                <View
+                  style={[
+                    styles.statusDot,
+                    { backgroundColor: isTrackingActive ? '#10B981' : '#F59E0B' },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.liveShieldText,
+                    { color: isTrackingActive ? '#10B981' : '#F59E0B' },
+                  ]}
+                  adjustsFontSizeToFit={true}
+                  minimumFontScale={0.8}
+                  numberOfLines={1}
+                >
+                  {isTrackingActive ? 'LIVE SHIELD ACTIVE' : 'SHIELD PAUSED'}
+                </Text>
+              </View>
+
               <Text 
-                style={[styles.pauseBtnText, { color: '#1A1A1A', fontWeight: '900' }]}
+                style={[styles.cardDateText, { color: isDark ? colors.textMuted : '#A1A1AA' }]}
                 adjustsFontSizeToFit={true}
                 minimumFontScale={0.8}
                 numberOfLines={1}
               >
-                JOIN OR CREATE A CIRCLE
+                {new Date().toLocaleDateString('en-US', {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                }).toUpperCase()}
               </Text>
-            </TouchableOpacity>
-          )}
-        </View>
+            </View>
+
+            {/* Center 3D Shield Emblem Badge */}
+            <View style={styles.shieldEmblemContainer}>
+              <View style={[styles.outerShieldRing, { backgroundColor: isDark ? 'rgba(212, 175, 55, 0.15)' : '#FAF5DB' }]}>
+                <View style={[styles.innerShieldBadge, { borderColor: colors.accentGold }]}>
+                  <Ionicons name="shield-checkmark" size={32} color={colors.accentGold} />
+                  <View style={styles.shieldInnerPinWrap}>
+                    <Ionicons name="location" size={14} color="#FF5266" />
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            {/* Circle Title & Connected Status */}
+            <Text 
+              style={[styles.circleNameTitle, { color: colors.foreground }]}
+              adjustsFontSizeToFit={true}
+              minimumFontScale={0.75}
+              numberOfLines={1}
+            >
+              {activeCircle ? activeCircle.name : 'No Active Circle'}
+            </Text>
+
+            <Text style={[styles.circleSubtitle, { color: colors.textMuted }]}>
+              {activeCircle
+                ? `${safeMembers.length} members connected in real time`
+                : 'Join or create a family group to start 24/7 live location tracking.'}
+            </Text>
+
+            {/* Member Avatar Stack */}
+            {activeCircle && safeMembers.length > 0 ? (
+              <View style={styles.avatarRowContainer}>
+                {safeMembers.slice(0, 4).map((m, idx) => {
+                  const name = m.profile?.full_name || 'Member';
+                  const initial = name.charAt(0).toUpperCase();
+                  const avatarUrl = m.profile?.avatar_url;
+
+                  return (
+                    <View
+                      key={m.user_id || idx}
+                      style={[
+                        styles.avatarCircle,
+                        {
+                          backgroundColor: isDark ? colors.surfaceMuted : '#F4F4F5',
+                          borderColor: colors.border,
+                        },
+                      ]}
+                    >
+                      {avatarUrl ? (
+                        <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
+                      ) : (
+                        <Text style={[styles.avatarInitialText, { color: colors.foreground }]}>
+                          {initial}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })}
+
+                {safeMembers.length > 4 ? (
+                  <View style={[styles.moreAvatarGoldBadge, { backgroundColor: colors.accentGold }]}>
+                    <Text style={styles.moreAvatarText}>
+                      +{safeMembers.length - 4}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : (
+              <View style={{ marginBottom: 16 }} />
+            )}
+
+            {/* Interactive Action Button */}
+            {activeCircle ? (
+              <JellySqueezeButton
+                glowColor={isTrackingActive ? '#EF4444' : '#10B981'}
+                style={[
+                  styles.pauseTrackingBtn,
+                  getThemeBorderStyles(themeMode),
+                  {
+                    borderColor: isTrackingActive ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)',
+                    backgroundColor: isTrackingActive ? (themeMode === 'bauhaus' ? '#000000' : '#FFF1F1') : 'rgba(16, 185, 129, 0.12)',
+                  },
+                ]}
+                onPress={toggleLocationTracking}
+              >
+                <Ionicons
+                  name={isTrackingActive ? 'pause-circle-outline' : 'play-circle-outline'}
+                  size={18}
+                  color={isTrackingActive ? (themeMode === 'bauhaus' ? '#FFFFFF' : '#DC2626') : '#10B981'}
+                />
+                <Text
+                  style={[
+                    styles.pauseBtnText,
+                    { color: isTrackingActive ? (themeMode === 'bauhaus' ? '#FFFFFF' : '#DC2626') : '#10B981' },
+                  ]}
+                  adjustsFontSizeToFit={true}
+                  minimumFontScale={0.8}
+                  numberOfLines={1}
+                >
+                  {isTrackingActive ? 'PAUSE BACKGROUND TRACKING' : 'RESUME BACKGROUND SHIELD'}
+                </Text>
+              </JellySqueezeButton>
+            ) : (
+              <TouchableOpacity
+                style={[
+                  styles.pauseTrackingBtn,
+                  {
+                    backgroundColor: colors.accentGold,
+                    borderColor: colors.accentGold,
+                  },
+                ]}
+                onPress={() => navigation.navigate('Circle')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add-circle-outline" size={18} color="#1A1A1A" />
+                <Text 
+                  style={[styles.pauseBtnText, { color: '#1A1A1A', fontWeight: '900' }]}
+                  adjustsFontSizeToFit={true}
+                  minimumFontScale={0.8}
+                  numberOfLines={1}
+                >
+                  JOIN OR CREATE A CIRCLE
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {/* Section Header: Circle Metrics */}
         <View style={styles.sectionHeaderRow}>
@@ -594,7 +711,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
           >
             <Text 
-              style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#1040C0' : '#10B981' }]}
+              style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#1040C0' : (themeMode === 'brand_green' ? '#3DBE6C' : '#10B981') }]}
               adjustsFontSizeToFit={true}
               minimumFontScale={0.7}
               numberOfLines={1}
@@ -602,7 +719,7 @@ export default function HomeScreen() {
               {activeCircle ? onlineCount : 0}
             </Text>
             <Text 
-              style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#1040C0' : '#10B981' }]}
+              style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#1040C0' : (themeMode === 'brand_green' ? '#3DBE6C' : '#10B981') }]}
               adjustsFontSizeToFit={true}
               minimumFontScale={0.75}
               numberOfLines={2}
@@ -650,7 +767,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
           >
             <Text 
-              style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#D02020' : colors.accentGold }]}
+              style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#D02020' : (themeMode === 'brand_green' ? '#F5A623' : colors.accentGold) }]}
               adjustsFontSizeToFit={true}
               minimumFontScale={0.7}
               numberOfLines={1}
@@ -658,7 +775,7 @@ export default function HomeScreen() {
               {activeCircle ? recentActivities.length : 0}
             </Text>
             <Text 
-              style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#D02020' : colors.accentGold }]}
+              style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#D02020' : (themeMode === 'brand_green' ? '#F5A623' : colors.accentGold) }]}
               adjustsFontSizeToFit={true}
               minimumFontScale={0.75}
               numberOfLines={2}
@@ -676,13 +793,116 @@ export default function HomeScreen() {
             minimumFontScale={0.85}
             numberOfLines={1}
           >
-            SAFETY SUITE & CONTROLS
+            {themeMode === 'brand_green' ? 'SAFETY SUITE BENTO MATRIX' : 'SAFETY SUITE & CONTROLS'}
           </Text>
           <View style={[styles.accentLine, { backgroundColor: isDark ? colors.border : '#E4E4E7' }]} />
         </View>
 
-        {/* macOS-Inspired Magnification Dock Component */}
-        <MagnificationDock items={dockItems} />
+        {/* THEME SPECIFIC CONTROLS LAYOUT: Bento Matrix vs Dock */}
+        {themeMode === 'brand_green' ? (
+          <View style={styles.bentoContainer}>
+            {/* Row 1 */}
+            <View style={styles.bentoRow}>
+              {/* Card 1: 2-Day Route History & Breadcrumbs */}
+              <TouchableOpacity
+                style={[styles.bentoCard, styles.bentoCardBlue]}
+                onPress={() => navigation.navigate('LocationHistory')}
+                activeOpacity={0.85}
+              >
+                <View style={styles.bentoIconCircleBlue}>
+                  <Ionicons name="navigate-circle" size={24} color="#3B82F6" />
+                </View>
+                <Text style={styles.bentoTitle}>ROUTE HISTORY</Text>
+                <Text style={styles.bentoSubtitle}>2-day historical breadcrumb trail</Text>
+                <View style={styles.bentoActionPillBlue}>
+                  <Text style={styles.bentoActionPillTextBlue}>VIEW TRAIL →</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Card 2: Safe Zones / Geofences */}
+              <TouchableOpacity
+                style={[styles.bentoCard, styles.bentoCardGreen]}
+                onPress={() => navigation.navigate('SafePlaces')}
+                activeOpacity={0.85}
+              >
+                <View style={styles.bentoIconCircleGreen}>
+                  <Ionicons name="location" size={24} color="#3DBE6C" />
+                </View>
+                <Text style={styles.bentoTitle}>SAFE ZONES</Text>
+                <Text style={styles.bentoSubtitle}>{circlePlaces.length} geofences armed</Text>
+                <View style={styles.bentoActionPillGreen}>
+                  <Text style={styles.bentoActionPillTextGreen}>MANAGE →</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            {/* Row 2 */}
+            <View style={styles.bentoRow}>
+              {/* Card 3: Discreet Security (Fake Call) */}
+              <TouchableOpacity
+                style={[styles.bentoCard, styles.bentoCardPurple]}
+                onPress={() => setFakeCallVisible(true)}
+                activeOpacity={0.85}
+              >
+                <View style={styles.bentoIconCirclePurple}>
+                  <Ionicons name="call" size={22} color="#8B5CF6" />
+                </View>
+                <Text style={styles.bentoTitle}>DISCREET SHIELD</Text>
+                <Text style={styles.bentoSubtitle}>Simulate emergency incoming call</Text>
+                <View style={styles.bentoActionPillPurple}>
+                  <Text style={styles.bentoActionPillTextPurple}>TRIGGER →</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Card 4: Live Location Share */}
+              <TouchableOpacity
+                style={[styles.bentoCard, styles.bentoCardAmber]}
+                onPress={handleShareLocation}
+                activeOpacity={0.85}
+              >
+                <View style={styles.bentoIconCircleAmber}>
+                  <Ionicons name="paper-plane" size={22} color="#F5A623" />
+                </View>
+                <Text style={styles.bentoTitle}>LIVE SHARE</Text>
+                <Text style={styles.bentoSubtitle}>Generate position token</Text>
+                <View style={styles.bentoActionPillAmber}>
+                  <Text style={styles.bentoActionPillTextAmber}>BROADCAST →</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            {/* Horizontal Fast-Pills Row for Driving, Chat & Activity */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bentoFastRow}>
+              <TouchableOpacity
+                style={styles.fastPill}
+                onPress={() => navigation.navigate('DrivingReports')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="speedometer-outline" size={15} color="#EF4444" />
+                <Text style={styles.fastPillText}>Driving Report</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.fastPill}
+                onPress={() => navigation.navigate('Chat')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="chatbubbles-outline" size={15} color="#8B5CF6" />
+                <Text style={styles.fastPillText}>Circle Chat</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.fastPill}
+                onPress={() => navigation.navigate('Activity')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="notifications-outline" size={15} color="#F5A623" />
+                <Text style={styles.fastPillText}>Activity Feed</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        ) : (
+          /* STANDARD / BAUHAUS / PLAYFUL DOCK */
+          <MagnificationDock items={dockItems} />
+        )}
 
         {/* Activity Log Box Container */}
         <View style={[styles.activityContainerBox, { backgroundColor: isDark ? colors.surface : '#FFFFFF', borderColor: isDark ? colors.border : '#E4E4E7' }]}>
@@ -1078,5 +1298,327 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  // Flexy UI Dual-Tone Split Cockpit Hero Styles
+  flexyHeroCard: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: '#E0E0E0',
+    backgroundColor: '#FFFFFF',
+    marginBottom: 24,
+    shadowColor: '#3DBE6C',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    elevation: 4,
+  },
+  flexyHeroTopBanner: {
+    backgroundColor: '#3DBE6C',
+    padding: 20,
+    paddingBottom: 16,
+  },
+  flexyHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 14,
+  },
+  flexyLogoBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F5A623',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  flexyBrandLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: 'rgba(255, 255, 255, 0.85)',
+  },
+  flexyCircleTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  flexyLivePulsePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 100,
+  },
+  flexyPulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FFFFFF',
+  },
+  flexyLivePulseText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  flexyAvatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  flexyAvatarCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  flexyAvatarInitial: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  flexyMoreBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F5A623',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  flexyMoreText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  flexyConnectedCount: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.9)',
+    marginLeft: 6,
+  },
+  flexyHeroBottomPanel: {
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+    gap: 12,
+  },
+  flexyStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  flexyShieldIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#F5F5F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  flexyStatusTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111111',
+  },
+  flexyStatusSub: {
+    fontSize: 11,
+    color: '#666666',
+    marginTop: 1,
+  },
+  flexyActionBtn: {
+    height: 44,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  flexyActionBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  // Bento Matrix Layout Styles
+  bentoContainer: {
+    gap: 12,
+    marginBottom: 24,
+  },
+  bentoRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  bentoCard: {
+    flex: 1,
+    backgroundColor: '#12141C',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 3,
+    justifyContent: 'space-between',
+  },
+  bentoCardBlue: {
+    borderColor: 'rgba(56, 189, 248, 0.25)',
+  },
+  bentoCardGreen: {
+    borderColor: 'rgba(52, 211, 153, 0.25)',
+  },
+  bentoCardPurple: {
+    borderColor: 'rgba(192, 132, 252, 0.25)',
+  },
+  bentoCardAmber: {
+    borderColor: 'rgba(245, 208, 97, 0.25)',
+  },
+  bentoIconCircleBlue: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  bentoIconCircleGreen: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(52, 211, 153, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  bentoIconCirclePurple: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(192, 132, 252, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(192, 132, 252, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  bentoIconCircleAmber: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(245, 208, 97, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 208, 97, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  bentoTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+    marginBottom: 3,
+  },
+  bentoSubtitle: {
+    fontSize: 11,
+    color: '#94A3B8',
+    lineHeight: 15,
+    marginBottom: 12,
+  },
+  bentoActionPillBlue: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  bentoActionPillTextBlue: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  bentoActionPillGreen: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#3DBE6C',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  bentoActionPillTextGreen: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  bentoActionPillPurple: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#8B5CF6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  bentoActionPillTextPurple: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  bentoActionPillAmber: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F5A623',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  bentoActionPillTextAmber: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  bentoFastRow: {
+    flexDirection: 'row',
+    marginTop: 4,
+  },
+  fastPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#E0E0E0',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 100,
+    marginRight: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  fastPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#111111',
   },
 });

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, RefreshControl, ActivityIndicator, Linking } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../store/useAuthStore';
@@ -10,8 +10,8 @@ import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { MainTabParamList } from '../navigation/MainTabNavigator';
-import { LUXURY_THEME } from '../constants/theme';
 import { useThemeStore } from '../store/useThemeStore';
+import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBorderStyles } from '../constants/theme';
 import MemberRoleModal from '../components/MemberRoleModal';
 import SpringTouchable from '../components/SpringTouchable';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
@@ -25,7 +25,7 @@ type DashboardNavigationProp = CompositeNavigationProp<
 >;
 
 export default function DashboardScreen() {
-  const { colors } = useThemeStore();
+  const { colors, themeMode, isDark } = useThemeStore();
   const { showAlert } = useLuxuryAlert();
   const navigation = useNavigation<DashboardNavigationProp>();
   const { profile } = useAuthStore();
@@ -338,45 +338,45 @@ export default function DashboardScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.overline, { color: colors.accentGold }]}>FAMILY ARCHITECTURE & SAFETY</Text>
+        <Text style={[styles.overline, { color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}>FAMILY ARCHITECTURE & SAFETY</Text>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>{activeCircle.name}</Text>
       </View>
 
       {/* Circle Overview Statistics Grid */}
       <View style={styles.statsGridRow}>
-        <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Ionicons name="shield-checkmark-sharp" size={20} color={colors.accentGold} />
+        <View style={[styles.statBox, getThemeCardStyles(themeMode), { backgroundColor: colors.surface }]}>
+          <Ionicons name="shield-checkmark-sharp" size={20} color={themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold} />
           <Text style={[styles.statValue, { color: colors.foreground }]}>{members.length} Members</Text>
           <Text style={[styles.statLabel, { color: colors.textMuted }]}>MONITORED 24/7</Text>
         </View>
 
-        <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Ionicons name="key-outline" size={20} color="#10B981" />
+        <View style={[styles.statBox, getThemeCardStyles(themeMode), { backgroundColor: colors.surface }]}>
+          <Ionicons name="key-outline" size={20} color={themeMode === 'brand_green' ? '#3DBE6C' : '#10B981'} />
           <Text style={[styles.statValue, { color: colors.foreground }]}>
             {myRole === 'owner' ? 'FOUNDER' : myRole.toUpperCase().replace('_', ' ')}
           </Text>
           <Text style={[styles.statLabel, { color: colors.textMuted }]}>YOUR RANK</Text>
         </View>
 
-        <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Ionicons name="lock-closed-outline" size={20} color="#A855F7" />
+        <View style={[styles.statBox, getThemeCardStyles(themeMode), { backgroundColor: colors.surface }]}>
+          <Ionicons name="lock-closed-outline" size={20} color={themeMode === 'brand_green' ? '#F5A623' : '#A855F7'} />
           <Text style={[styles.statValue, { color: colors.foreground }]}>AES-256</Text>
           <Text style={[styles.statLabel, { color: colors.textMuted }]}>ENCRYPTED</Text>
         </View>
       </View>
 
       {/* Tracking Mode Protocol Badge Card */}
-      <View style={[styles.trackingModeCard, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}>
+      <View style={[styles.trackingModeCard, getThemeCardStyles(themeMode), { backgroundColor: colors.surface }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <View style={[styles.protocolIconCircle, { backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
+          <View style={[styles.protocolIconCircle, { backgroundColor: themeMode === 'brand_green' ? 'rgba(61, 190, 108, 0.12)' : 'rgba(212, 175, 55, 0.12)' }]}>
             <Ionicons
               name={activeCircle?.tracking_mode === 'privacy' ? 'shield-half-outline' : 'radio-outline'}
               size={22}
-              color={colors.accentGold}
+              color={themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold}
             />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.trackingModeLabel, { color: colors.accentGold }]}>CIRCLE TRACKING PROTOCOL</Text>
+            <Text style={[styles.trackingModeLabel, { color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}>CIRCLE TRACKING PROTOCOL</Text>
             <Text style={[styles.trackingModeTitle, { color: colors.foreground }]}>
               {activeCircle?.tracking_mode === 'privacy'
                 ? 'Option A: Privacy-First Disconnect'
@@ -407,7 +407,7 @@ export default function DashboardScreen() {
                 {req.memberName} requested permission
               </Text>
               <Text style={{ fontSize: 11, color: colors.textMuted, marginBottom: 10 }}>
-                Feature: <Text style={{ color: colors.accentGold, fontWeight: '700' }}>{req.feature}</Text> under Option B 24/7 Safety
+                Feature: <Text style={{ color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold, fontWeight: '700' }}>{req.feature}</Text> under Option B 24/7 Safety
               </Text>
 
               <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -435,15 +435,15 @@ export default function DashboardScreen() {
       ) : null}
 
       {/* Invite Code Luxury Card */}
-      <View style={[styles.inviteCard, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]}>
+      <View style={[styles.inviteCard, getThemeCardStyles(themeMode), { backgroundColor: colors.surface }]}>
         <View style={styles.inviteHeader}>
           <View style={{ flex: 1, marginRight: 12 }}>
-            <Text style={[styles.inviteOverline, { color: colors.accentGold }]}>CIRCLE ACCESS CODE</Text>
+            <Text style={[styles.inviteOverline, { color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}>CIRCLE ACCESS CODE</Text>
             <Text style={[styles.circleName, { color: colors.foreground }]} numberOfLines={1}>{activeCircle.name}</Text>
           </View>
-          <TouchableOpacity style={[styles.copyBtn, { backgroundColor: colors.accentGold }]} onPress={handleCopyCode}>
-            <Ionicons name="copy-outline" size={14} color="#1A1A1A" />
-            <Text style={styles.copyBtnText}>SHARE</Text>
+          <TouchableOpacity style={[styles.copyBtn, { backgroundColor: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]} onPress={handleCopyCode}>
+            <Ionicons name="copy-outline" size={14} color={themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A'} />
+            <Text style={[styles.copyBtnText, { color: themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A' }]}>SHARE</Text>
           </TouchableOpacity>
         </View>
 
@@ -503,70 +503,114 @@ export default function DashboardScreen() {
               const isSelf = item.user_id === profile?.id;
 
               let roleTitle = 'MEMBER';
-              let roleColor = '#10B981';
+              let roleColor = '#34D399';
               let roleIcon: keyof typeof Ionicons.glyphMap = 'person-outline';
 
               if (item.role === 'owner') {
-                roleTitle = 'FOUNDER & LEADER';
-                roleColor = '#D4AF37';
+                roleTitle = 'FOUNDER';
+                roleColor = '#F5D061';
                 roleIcon = 'star-sharp';
               } else if (item.role === 'co_leader') {
                 roleTitle = 'CO-LEADER';
-                roleColor = '#A855F7';
+                roleColor = '#C084FC';
                 roleIcon = 'shield-checkmark-sharp';
               } else if (item.role === 'guardian') {
-                roleTitle = 'SAFETY GUARDIAN';
-                roleColor = '#3B82F6';
+                roleTitle = 'GUARDIAN';
+                roleColor = '#38BDF8';
                 roleIcon = 'shield-outline';
               }
+
+              const isGhost = !!item?.profile?.is_ghost_mode;
+              const isHideOnline = !!item?.profile?.hide_online_presence;
+              const isOnline = (isGhost || isHideOnline) ? false : (item.isOnline ?? true);
+              const battery = item.batteryPct !== undefined && item.batteryPct !== null ? item.batteryPct : 95;
 
               return (
                 <SpringTouchable
                   key={item.user_id}
                   style={[
-                    styles.memberCard,
+                    styles.celestialMemberTile,
                     {
-                      backgroundColor: colors.surface,
-                      borderColor: item.role === 'co_leader' ? '#A855F7' : (item.role === 'guardian' ? '#3B82F6' : (item.role === 'owner' ? colors.accentGold : colors.border)),
-                      borderWidth: item.role !== 'member' ? 1.5 : 1,
+                      backgroundColor: isDark ? 'rgba(21, 23, 30, 0.85)' : 'rgba(255, 255, 255, 0.92)',
+                      borderColor: `${roleColor}30`,
+                    },
+                    item.role === 'owner' && {
+                      borderColor: `${roleColor}60`,
+                      shadowColor: roleColor,
+                      shadowOffset: { width: 0, height: 3 },
+                      shadowOpacity: 0.25,
+                      shadowRadius: 8,
+                      elevation: 4,
                     },
                   ]}
                   onPress={() => setSelectedRoleMember(item)}
-                  scaleTo={0.96}
+                  scaleTo={0.97}
                 >
-                  <View style={styles.memberTopRow}>
-                    <View style={styles.memberLeft}>
-                      <View style={[styles.memberAvatar, { overflow: 'hidden', borderColor: roleColor, borderWidth: 1.5 }]}>
-                        {avatarUrl ? (
-                          <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} />
-                        ) : (
-                          <Text style={styles.avatarText}>{initial}</Text>
-                        )}
-                      </View>
-                      <View style={styles.memberInfo}>
-                        <Text style={[styles.memberName, { color: colors.foreground }]} numberOfLines={1}>
-                          {displayName} {isSelf ? '(You)' : ''}
-                        </Text>
-                        <View style={styles.roleBadgeRow}>
-                          <Ionicons name={roleIcon} size={12} color={roleColor} />
-                          <Text style={[styles.memberRole, { color: roleColor }]} numberOfLines={1}>{roleTitle}</Text>
-                        </View>
-                      </View>
-                    </View>
-
-                    <View style={[styles.manageRoleBtn, { borderColor: roleColor, backgroundColor: `${roleColor}15` }]}>
-                      <Ionicons name={canManageRanks && !isTargetOwner && !isSelf ? "ribbon-outline" : "information-circle-outline"} size={13} color={roleColor} />
-                      <Text style={[styles.manageRoleText, { color: roleColor }]}>
-                        {canManageRanks && !isTargetOwner && !isSelf ? "RANK" : "INFO"}
-                      </Text>
+                  {/* Left Orbit Ring & Avatar */}
+                  <View style={[styles.celestialAvatarOrbit, { borderColor: `${roleColor}25` }]}>
+                    <View style={[styles.celestialAvatarCircle, { borderColor: roleColor, backgroundColor: colors.background }]}>
+                      {avatarUrl ? (
+                        <Image source={{ uri: avatarUrl }} style={styles.celestialAvatarImg} />
+                      ) : (
+                        <Text style={[styles.celestialAvatarText, { color: roleColor }]}>{initial}</Text>
+                      )}
+                      <View
+                        style={[
+                          styles.celestialStatusDot,
+                          {
+                            backgroundColor: isOnline ? '#10B981' : '#6B7280',
+                            borderColor: isDark ? '#15171E' : '#FFFFFF',
+                          },
+                        ]}
+                      />
                     </View>
                   </View>
 
-                  <View style={[styles.statusChip, { backgroundColor: colors.background, borderColor: item.isOnline ? '#10B981' : colors.border }]}>
-                    <View style={[styles.statusDot, { backgroundColor: item.isOnline ? '#10B981' : '#9CA3AF' }]} />
-                    <Text style={[styles.statusText, { color: item.isOnline ? '#10B981' : colors.textMuted }]} numberOfLines={1}>
-                      {item.isOnline ? 'ONLINE' : (item.lastSeenText || 'OFFLINE').toUpperCase()}
-                    </Text>
+                  {/* Center Identity Info */}
+                  <View style={styles.celestialInfoCol}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.celestialName, { color: colors.foreground }]} numberOfLines={1}>
+                        {displayName}
+                      </Text>
+                      {isSelf ? (
+                        <View style={[styles.celestialYouBadge, { backgroundColor: `${colors.accentGold}18` }]}>
+                          <Text style={[styles.celestialYouText, { color: colors.accentGold }]}>YOU</Text>
+                        </View>
+                      ) : null}
+                    </View>
+
+                    <View style={styles.celestialRoleRow}>
+                      <View style={[styles.celestialRolePill, { backgroundColor: `${roleColor}14` }]}>
+                        <Ionicons name={roleIcon} size={8.5} color={roleColor} />
+                        <Text style={[styles.celestialRoleText, { color: roleColor }]}>{roleTitle}</Text>
+                      </View>
+
+                      {isGhost && (
+                        <View style={[styles.celestialRolePill, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
+                          <Text style={[styles.celestialRoleText, { color: '#C084FC' }]}>👻 GHOST</Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Right Telemetry & Chevron */}
+                  <View style={styles.celestialRightCol}>
+                    <View style={[styles.celestialStatusBadge, { backgroundColor: isOnline ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)' }]}>
+                      <View style={[styles.celestialMicroDot, { backgroundColor: isOnline ? '#10B981' : '#6B7280' }]} />
+                      <Text style={[styles.celestialStatusText, { color: isOnline ? '#10B981' : colors.textMuted }]}>
+                        {isOnline ? 'Active' : (item.lastSeenText || 'Offline')}
+                      </Text>
+                    </View>
+
+                    <View style={styles.celestialBatteryRow}>
+                      <Ionicons
+                        name={battery <= 20 ? 'battery-dead' : 'battery-charging-outline'}
+                        size={10}
+                        color={battery <= 20 ? '#EF4444' : colors.textMuted}
+                      />
+                      <Text style={[styles.celestialBatteryText, { color: colors.textMuted }]}>{battery}%</Text>
+                      <Ionicons name="chevron-forward" size={12} color={colors.textMuted} style={{ marginLeft: 2 }} />
+                    </View>
                   </View>
                 </SpringTouchable>
               );
@@ -770,81 +814,118 @@ const styles = StyleSheet.create({
     backgroundColor: LUXURY_THEME.colors.border,
   },
   membersList: {
-    gap: 14,
+    gap: 10,
     marginBottom: 32,
   },
-  memberCard: {
-    backgroundColor: LUXURY_THEME.colors.surface,
+  celestialMemberTile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.border,
-    padding: 16,
     gap: 12,
   },
-  memberTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  memberLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    gap: 14,
-  },
-  memberAvatar: {
-    width: 44,
-    height: 44,
-    backgroundColor: LUXURY_THEME.colors.foreground,
+  celestialAvatarOrbit: {
+    padding: 2.5,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.accentGold,
+  },
+  celestialAvatarCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  avatarText: {
-    color: LUXURY_THEME.colors.accentGold,
-    fontSize: 16,
-    fontWeight: 'bold',
+  celestialAvatarImg: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 20,
   },
-  memberInfo: {
-    flex: 1,
-    justifyContent: 'center',
-    marginRight: 6,
-  },
-  memberName: {
+  celestialAvatarText: {
     fontSize: 15,
-    fontWeight: '600',
-    color: LUXURY_THEME.colors.foreground,
-    marginBottom: 2,
-  },
-  memberRole: {
-    fontSize: 10,
     fontWeight: '800',
-    color: LUXURY_THEME.colors.textMuted,
-    letterSpacing: 0.8,
-    flexShrink: 1,
   },
-  roleBadgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 2,
-    flexWrap: 'wrap',
-    flexShrink: 1,
+  celestialStatusDot: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    borderWidth: 1.5,
   },
-  manageRoleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignSelf: 'center',
+  celestialInfoCol: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 3,
   },
-  manageRoleText: {
-    fontSize: 10,
+  celestialName: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    letterSpacing: 0.1,
+  },
+  celestialYouBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  celestialYouText: {
+    fontSize: 8,
     fontWeight: '900',
-    letterSpacing: 1,
+    letterSpacing: 0.5,
+  },
+  celestialRoleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 1,
+  },
+  celestialRolePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  celestialRoleText: {
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  celestialRightCol: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  celestialStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  celestialMicroDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  celestialStatusText: {
+    fontSize: 8.5,
+    fontWeight: '700',
+  },
+  celestialBatteryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  celestialBatteryText: {
+    fontSize: 9,
+    fontWeight: '600',
   },
   statusChip: {
     flexDirection: 'row',

@@ -102,8 +102,8 @@ export default function HomeMiniMapCard({
           boxZoom: false
         }).setView([${centerLat}, ${centerLng}], 15);
 
-        var tileUrl = '${isDark ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'}';
-        L.tileLayer(tileUrl, { maxZoom: 19 }).addTo(map);
+        var tileUrl = '${isDark ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'}';
+        L.tileLayer(tileUrl, { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(map);
 
         var markers = {};
 

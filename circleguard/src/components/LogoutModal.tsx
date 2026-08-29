@@ -34,6 +34,7 @@ export default function LogoutModal({
       await supabase.auth.signOut();
       useAuthStore.getState().setSession(null);
       useAuthStore.getState().setProfile(null);
+      useCircleStore.getState().resetCircleStore();
       onClose();
     } catch (err) {
       console.error('Logout error:', err);

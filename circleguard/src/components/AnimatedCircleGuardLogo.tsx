@@ -6,6 +6,7 @@ import Animated, {
   withTiming,
   withRepeat,
   withSequence,
+  cancelAnimation,
   Easing,
 } from 'react-native-reanimated';
 import Svg, { Circle, Path, G, Defs, LinearGradient, Stop, Ellipse } from 'react-native-svg';
@@ -19,12 +20,16 @@ interface AnimatedCircleGuardLogoProps {
   size?: number;
   statusMode?: LogoStatusMode;
   showText?: boolean;
+  isLoading?: boolean;
+  isRevolving?: boolean;
 }
 
 export default function AnimatedCircleGuardLogo({
   size = 180,
   statusMode = 'safe',
   showText = true,
+  isLoading = false,
+  isRevolving = true,
 }: AnimatedCircleGuardLogoProps) {
   // Shared Values
   const shieldScale = useSharedValue(1);
@@ -40,6 +45,8 @@ export default function AnimatedCircleGuardLogo({
   const ripple2Opacity = useSharedValue(0);
 
   const glowPulse = useSharedValue(0.85);
+  const outerRingRotation = useSharedValue(0);
+  const ringScale = useSharedValue(1);
 
   const getThemeColors = () => {
     switch (statusMode) {
@@ -53,6 +60,46 @@ export default function AnimatedCircleGuardLogo({
   };
 
   const themeColors = getThemeColors();
+
+  useEffect(() => {
+    if (isRevolving) {
+      cancelAnimation(outerRingRotation);
+      cancelAnimation(ringScale);
+      
+      outerRingRotation.value = 0;
+      outerRingRotation.value = withRepeat(
+        withTiming(360, {
+          duration: isLoading ? 320 : 5000,
+          easing: Easing.linear,
+        }),
+        -1,
+        false
+      );
+
+      if (isLoading) {
+        ringScale.value = withRepeat(
+          withSequence(
+            withTiming(1.08, { duration: 250, easing: Easing.inOut(Easing.ease) }),
+            withTiming(0.96, { duration: 250, easing: Easing.inOut(Easing.ease) })
+          ),
+          -1,
+          true
+        );
+
+        shieldScale.value = withRepeat(
+          withSequence(
+            withTiming(1.12, { duration: 200, easing: Easing.inOut(Easing.quad) }),
+            withTiming(0.98, { duration: 200, easing: Easing.inOut(Easing.quad) })
+          ),
+          -1,
+          true
+        );
+      } else {
+        ringScale.value = withTiming(1, { duration: 300 });
+        shieldScale.value = withTiming(1, { duration: 300 });
+      }
+    }
+  }, [isLoading, isRevolving]);
 
   useEffect(() => {
     ripple1R.value = withRepeat(
@@ -93,6 +140,14 @@ export default function AnimatedCircleGuardLogo({
     );
   }, [statusMode]);
 
+  const outerRingStyle = useAnimatedStyle(() => ({
+    transform: [
+      { perspective: 850 },
+      { scale: ringScale.value },
+      { rotateY: `${outerRingRotation.value}deg` },
+    ],
+  }));
+
   const shieldStyle = useAnimatedStyle(() => ({
     opacity: shieldOpacity.value,
     transform: [{ scale: shieldScale.value }],
@@ -114,22 +169,46 @@ export default function AnimatedCircleGuardLogo({
   return (
     <View style={styles.outerContainer}>
       <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-        {/* Base Outer Glow and Ring Layer */}
+        {/* Base Static Halo Background */}
         <Svg width={size} height={size} viewBox="0 0 200 200" style={{ position: 'absolute' }}>
           <Defs>
-            <LinearGradient id="bgHaloGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <Stop offset="0%" stopColor={themeColors.primary} stopOpacity="0.16" />
-              <Stop offset="100%" stopColor={themeColors.primary} stopOpacity="0.02" />
-            </LinearGradient>
-            <LinearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <Stop offset="0%" stopColor={themeColors.primary} stopOpacity="1" />
-              <Stop offset="50%" stopColor={themeColors.secondary} stopOpacity="0.8" />
-              <Stop offset="100%" stopColor={themeColors.primary} stopOpacity="0.4" />
+            <LinearGradient id="bgHaloGradStatic" x1="0%" y1="0%" x2="100%" y2="100%">
+              <Stop offset="0%" stopColor={themeColors.primary} stopOpacity="0.14" />
+              <Stop offset="100%" stopColor={themeColors.primary} stopOpacity="0.01" />
             </LinearGradient>
           </Defs>
-          <Circle cx="100" cy="100" r="94" fill="url(#bgHaloGrad)" />
-          <Circle cx="100" cy="100" r="90" stroke="url(#ringGrad)" strokeWidth="2.5" fill="none" />
+          <Circle cx="100" cy="100" r="95" fill="url(#bgHaloGradStatic)" />
         </Svg>
+
+        {/* 3D Left-to-Right Revolving Ring Layer */}
+        <Animated.View style={[{ position: 'absolute', width: size, height: size }, outerRingStyle]}>
+          <Svg width={size} height={size} viewBox="0 0 200 200">
+            <Defs>
+              <LinearGradient id="ringGrad3D" x1="0%" y1="0%" x2="100%" y2="100%">
+                <Stop offset="0%" stopColor={themeColors.primary} stopOpacity="1" />
+                <Stop offset="30%" stopColor={themeColors.secondary} stopOpacity="1" />
+                <Stop offset="70%" stopColor={themeColors.primary} stopOpacity="0.8" />
+                <Stop offset="100%" stopColor={themeColors.secondary} stopOpacity="0.9" />
+              </LinearGradient>
+            </Defs>
+            {/* Solid Continuous 3D Ring */}
+            <Circle
+              cx="100"
+              cy="100"
+              r="90"
+              stroke="url(#ringGrad3D)"
+              strokeWidth="3.5"
+              fill="none"
+            />
+            {/* Smooth 3D Orbiting Satellite Nodes */}
+            <Circle cx="100" cy="10" r="5" fill={themeColors.primary} />
+            <Circle cx="100" cy="10" r="2.5" fill="#FFFFFF" />
+            <Circle cx="190" cy="100" r="4.5" fill={themeColors.secondary} />
+            <Circle cx="100" cy="190" r="5" fill={themeColors.primary} />
+            <Circle cx="100" cy="190" r="2.5" fill="#FFFFFF" />
+            <Circle cx="10" cy="100" r="4.5" fill={themeColors.secondary} />
+          </Svg>
+        </Animated.View>
 
         {/* Animated Shield Layer */}
         <Animated.View style={[{ position: 'absolute', width: size, height: size }, shieldStyle]}>

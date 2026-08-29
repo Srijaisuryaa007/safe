@@ -9,7 +9,7 @@ import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
-import { LUXURY_THEME } from '../constants/theme';
+import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBadgeStyles, getThemeBorderStyles } from '../constants/theme';
 import { segmentTripsByStops, analyzeTripTelemetry } from '../services/TripSegmentationService';
 import { fetchRoadSnappedRoute } from '../services/RoadRoutingService';
 import AnimatedListDropdown from '../components/AnimatedListDropdown';
@@ -31,23 +31,10 @@ interface TripItem {
   hardBrakes: number;
   rapidAccels: number;
   speedingEvents: number;
+  cardinalDirection: string;
+  bearingDegrees: number;
   routeCoords: { lat: number; lng: number; speed: number }[];
   isOutbound?: boolean;
-}
-
-function calculateHaversineDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371e3; // Earth radius in meters
-  const φ1 = (lat1 * Math.PI) / 180;
-  const φ2 = (lat2 * Math.PI) / 180;
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
-  const a =
-    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c;
 }
 
 function parseEWKBPoint(hex: string): { latitude: number; longitude: number } | null {
@@ -109,11 +96,16 @@ function parsePointGeom(geom: any): { latitude: number; longitude: number } | nu
 
 export default function DrivingReportsScreen() {
   const navigation = useNavigation();
-  const { colors, isDark } = useThemeStore();
-  const { activeCircle, members } = useCircleStore();
+  const { colors, isDark, themeMode } = useThemeStore();
+  const { activeCircle, members, places } = useCircleStore();
   const { profile } = useAuthStore();
   const { isPremium, paywallVisible, gatedFeatureName, presentPaywall, dismissPaywall } = usePaywall();
   const userIsPremium = isPremium || !!profile?.is_premium;
+
+  const cardStyles = getThemeCardStyles(themeMode);
+  const primaryBtnStyles = getThemeButtonStyles(themeMode, 'primary');
+  const secondaryBtnStyles = getThemeButtonStyles(themeMode, 'secondary');
+  const borderStyles = getThemeBorderStyles(themeMode);
 
   const insets = useSafeAreaInsets();
   const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 36) : 44);
@@ -128,7 +120,7 @@ export default function DrivingReportsScreen() {
   const [tripRoadCoords, setTripRoadCoords] = useState<[number, number][]>([]);
 
   // Overall Daily Metrics
-  const [driverScore, setDriverScore] = useState(96);
+  const [driverScore, setDriverScore] = useState(100);
   const [totalDistanceKm, setTotalDistanceKm] = useState(0);
   const [totalDriveMins, setTotalDriveMins] = useState(0);
   const [topSpeedKmh, setTopSpeedKmh] = useState(0);
@@ -151,16 +143,8 @@ export default function DrivingReportsScreen() {
 
   useEffect(() => {
     if (selectedTrip && selectedTrip.routeCoords && selectedTrip.routeCoords.length > 0) {
-      const waypoints = selectedTrip.routeCoords.map(c => ({ latitude: c.lat, longitude: c.lng }));
-      fetchRoadSnappedRoute(waypoints).then(res => {
-        if (res.roadCoords && res.roadCoords.length > 0) {
-          setTripRoadCoords(res.roadCoords);
-        } else {
-          setTripRoadCoords(selectedTrip.routeCoords.map(c => [c.lat, c.lng]));
-        }
-      }).catch(() => {
-        setTripRoadCoords(selectedTrip.routeCoords.map(c => [c.lat, c.lng]));
-      });
+      // Use 100% genuine recorded GPS breadcrumbs from the trip
+      setTripRoadCoords(selectedTrip.routeCoords.map(c => [c.lat, c.lng]));
     } else {
       setTripRoadCoords([]);
     }
@@ -176,11 +160,10 @@ export default function DrivingReportsScreen() {
   const fetchDrivingReport = async () => {
     setLoading(true);
     try {
-      let baseLat = 13.0827; // Default Chennai / Metro
-      let baseLng = 80.2707;
-      let realCity = 'Metro Area';
+      let baseLat = 20.5937;
+      let baseLng = 78.9629;
+      let realCity = 'Current Area';
 
-      // 1. Check member location in locations table
       const targetUserId = selectedMemberId || profile?.id;
       if (targetUserId) {
         const { data: userLocData } = await supabase
@@ -195,6 +178,9 @@ export default function DrivingReportsScreen() {
             baseLat = coords.latitude;
             baseLng = coords.longitude;
           }
+        } else if (userLocData?.latitude && userLocData?.longitude) {
+          baseLat = userLocData.latitude;
+          baseLng = userLocData.longitude;
         } else {
           try {
             const cur = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
@@ -205,15 +191,6 @@ export default function DrivingReportsScreen() {
           } catch (e) { }
         }
       }
-
-      // Reverse geocode to get actual street & city name
-      try {
-        const geo = await Location.reverseGeocodeAsync({ latitude: baseLat, longitude: baseLng });
-        if (geo && geo.length > 0) {
-          const p = geo[0];
-          realCity = p.district || p.subregion || p.city || p.street || 'Current Area';
-        }
-      } catch (e) { }
 
       // 2. Query Supabase location_history table for selectedDate
       const dayOffset = selectedDate === 'today' ? 0 : (selectedDate === 'yesterday' ? 1 : 2);
@@ -233,34 +210,34 @@ export default function DrivingReportsScreen() {
 
       let generatedTrips: TripItem[] = [];
 
-      if (histData && histData.length > 1) {
+      if (histData && histData.length >= 2) {
         const points = histData.map((h: any) => {
-          const coords = parsePointGeom(h.geom);
+          const coords = parsePointGeom(h.geom) || (h.latitude && h.longitude ? { latitude: h.latitude, longitude: h.longitude } : null);
           return {
             lat: coords?.latitude || baseLat,
             lng: coords?.longitude || baseLng,
             timeMs: new Date(h.recorded_at).getTime(),
             speed: Math.round((h.speed_mps || 0) * 3.6),
           };
-        });
+        }).filter(p => p.lat !== 0 && p.lng !== 0 && !isNaN(p.lat) && !isNaN(p.lng));
 
-        const tripLegs = segmentTripsByStops(points, (p) => p.timeMs, (p) => p.lat, (p) => p.lng, 5, 50);
+        const tripLegs = segmentTripsByStops(points, (p) => p.timeMs, (p) => p.lat, (p) => p.lng, 4, 60);
 
         for (let idx = 0; idx < tripLegs.length; idx++) {
           const leg = tripLegs[idx];
-          let startAddr = `Location • ${realCity}`;
-          let endAddr = `Location • ${realCity}`;
+          let startAddr = `Departure Location`;
+          let endAddr = `Arrival Destination`;
 
           try {
             const startGeo = await Location.reverseGeocodeAsync({ latitude: leg.startLat || baseLat, longitude: leg.startLng || baseLng });
             if (startGeo && startGeo.length > 0) {
               const p = startGeo[0];
-              startAddr = [p.name, p.street, p.district || p.city].filter(Boolean).join(', ') || realCity;
+              startAddr = [p.name, p.street, p.district || p.subregion || p.city].filter(Boolean).join(', ') || realCity;
             }
             const endGeo = await Location.reverseGeocodeAsync({ latitude: leg.endLat || baseLat, longitude: leg.endLng || baseLng });
             if (endGeo && endGeo.length > 0) {
               const p = endGeo[0];
-              endAddr = [p.name, p.street, p.district || p.city].filter(Boolean).join(', ') || realCity;
+              endAddr = [p.name, p.street, p.district || p.subregion || p.city].filter(Boolean).join(', ') || realCity;
             }
           } catch (e) {}
 
@@ -272,21 +249,40 @@ export default function DrivingReportsScreen() {
             p => p.speed
           );
 
+          // Resolve Directional Title
+          const cardDir = analysis.cardinalDirection || leg.cardinalDirection || 'NE';
+          let tripTitle = `${cardDir}-bound Trip to ${endAddr.split(',')[0] || 'Destination'}`;
+
+          // Check if ending near a safe place
+          const homePlace = places.find(p => p.category === 'home' || p.name.toLowerCase().includes('home'));
+          if (homePlace) {
+            const hLat = (homePlace as any).latitude ?? (homePlace as any).start_lat ?? ((homePlace as any).geom ? parsePointGeom((homePlace as any).geom)?.latitude : null);
+            const hLng = (homePlace as any).longitude ?? (homePlace as any).start_lng ?? ((homePlace as any).geom ? parsePointGeom((homePlace as any).geom)?.longitude : null);
+            if (hLat && hLng && leg.endLat && leg.endLng) {
+              const dToHome = Math.hypot((leg.endLat - hLat) * 111000, (leg.endLng - hLng) * 111000);
+              if (dToHome <= (homePlace.radius_m || 200)) {
+                tripTitle = `🏠 Return to ${homePlace.name}`;
+              }
+            }
+          }
+
           generatedTrips.push({
             id: `trip_${idx}_${selectedDate}`,
-            title: leg.isOutbound ? 'Outbound Journey' : 'Return Journey',
+            title: tripTitle,
             startTime: new Date(leg.startTimeMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             endTime: new Date(leg.endTimeMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             startAddress: startAddr,
             endAddress: endAddr,
-            distanceKm: analysis.distanceKm || 0.8,
-            durationMins: analysis.durationMins || 1,
+            distanceKm: analysis.distanceKm,
+            durationMins: analysis.durationMins,
             topSpeedKmh: analysis.topSpeedKmh,
             avgSpeedKmh: analysis.avgSpeedKmh,
             score: analysis.driverScore,
             hardBrakes: analysis.hardBrakes,
             rapidAccels: analysis.rapidAccels,
             speedingEvents: analysis.speedingEvents,
+            cardinalDirection: cardDir,
+            bearingDegrees: analysis.bearingDegrees,
             routeCoords: analysis.processedPoints,
             isOutbound: leg.isOutbound,
           });
@@ -347,76 +343,68 @@ export default function DrivingReportsScreen() {
         <script src="https://unpkg.com/leaflet-polylineoffset@1.1.1/leaflet.polylineoffset.js"></script>
         <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
         <style>
-          body { margin: 0; padding: 0; background-color: #F4F5FB; }
-          #map { width: 100vw; height: 320px; }
+          body, html, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #0D0E12; }
+          .leaflet-control-attribution { display: none !important; }
+          .custom-pin { background: transparent !important; border: none !important; }
         </style>
       </head>
       <body>
         <div id="map"></div>
         <script>
-          var map;
           var coords = ${JSON.stringify(activeTripCoords)};
-          var isOutbound = ${selectedTrip?.isOutbound ?? true};
-          var routeColor = isOutbound ? '#10B981' : '#FF536A'; // Teal for outbound, Coral for return
-          var routeOffset = isOutbound ? 4 : -4;
+          var map = L.map('map', { zoomControl: false, attributionControl: false }).setView(coords[0], 14);
+          
+          L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap contributors'
+          }).addTo(map);
 
-          function initMap() {
-            var tileUrl = 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
-            var fallbackTileUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-            map = L.map('map', { zoomControl: false, attributionControl: false, preferCanvas: true, zoomAnimation: true, fadeAnimation: true, markerZoomAnimation: true }).setView(coords[0], 14);
-            var terrainLayer = L.tileLayer(tileUrl, { maxZoom: 17, keepBuffer: 8, updateWhenIdle: false, updateWhenZooming: false, crossOrigin: true }).addTo(map);
-            terrainLayer.on('tileerror', function(e) {
-              e.tile.src = fallbackTileUrl.replace('{s}', 'a').replace('{z}', e.coords.z).replace('{x}', e.coords.x).replace('{y}', e.coords.y);
-            });
+          var routeColor = '#3B82F6';
 
-            var polylineGlow = L.polyline(coords, {
-              color: routeColor,
-              weight: 10,
-              opacity: 0.25,
-              lineCap: 'round',
-              lineJoin: 'round',
-              offset: routeOffset
-            }).addTo(map);
+          var polylineGlow = L.polyline(coords, {
+            color: routeColor,
+            weight: 9,
+            opacity: 0.28,
+            lineCap: 'round',
+            lineJoin: 'round'
+          }).addTo(map);
 
-            var polylineMain = L.polyline(coords, {
-              color: routeColor,
-              weight: 5,
-              opacity: 0.95,
-              lineCap: 'round',
-              lineJoin: 'round',
-              offset: routeOffset
-            }).addTo(map);
+          var polylineMain = L.polyline(coords, {
+            color: routeColor,
+            weight: 4.5,
+            opacity: 0.95,
+            lineCap: 'round',
+            lineJoin: 'round'
+          }).addTo(map);
 
+          try {
             L.polylineDecorator(polylineMain, {
               patterns: [
-                { offset: 50, repeat: 100, symbol: L.Symbol.arrowHead({ pixelSize: 12, pathOptions: { color: routeColor, fillOpacity: 1, weight: 0 } }) }
+                { offset: 35, repeat: 70, symbol: L.Symbol.arrowHead({ pixelSize: 10, pathOptions: { color: '#FFFFFF', fillOpacity: 1, weight: 0 } }) }
               ]
             }).addTo(map);
+          } catch(e) {}
 
-            map.fitBounds(polylineMain.getBounds(), { padding: [35, 35] });
+          map.fitBounds(polylineMain.getBounds(), { padding: [40, 40] });
 
-            // Start 3D Coral Pin
-            var startPinSvg = '<div style="filter: drop-shadow(0 6px 10px rgba(255,83,106,0.5));">' +
-              '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#FF536A"/>' +
-                '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
-              '</svg>' +
+          // Start Departure Marker (Emerald Green)
+          var startPinHtml = '<div style="display:flex;flex-direction:column;align-items:center;">' +
+            '<div style="background:#10B981;color:#FFFFFF;padding:3px 7px;border-radius:10px;font-size:9px;font-weight:900;font-family:sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.5);margin-bottom:2px;white-space:nowrap;">🟢 DEPARTURE (${selectedTrip.startTime})</div>' +
+            '<div style="width:18px;height:18px;border-radius:50%;background:#10B981;border:2.5px solid #FFFFFF;box-shadow:0 0 12px rgba(16,185,129,0.9);"></div>' +
             '</div>';
-            var startIcon = L.divIcon({ className: 'custom-3d-pin', html: startPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
-            L.marker(coords[0], { icon: startIcon }).addTo(map).bindPopup('Start: ${selectedTrip.startAddress}');
+          var startIcon = L.divIcon({ className: 'custom-pin', html: startPinHtml, iconSize: [120, 36], iconAnchor: [60, 36] });
+          L.marker(coords[0], { icon: startIcon, zIndexOffset: 2000 }).addTo(map);
 
-            // End 3D White Pin (previously Royal Blue)
-            var endPinSvg = '<div style="filter: drop-shadow(0 6px 10px rgba(255,255,255,0.5));">' +
-              '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#FFFFFF"/>' +
-                '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#D4AF37"/>' +
-              '</svg>' +
+          // End Arrival Marker (Crimson Red)
+          var endPinHtml = '<div style="display:flex;flex-direction:column;align-items:center;">' +
+            '<div style="background:#EF4444;color:#FFFFFF;padding:3px 7px;border-radius:10px;font-size:9px;font-weight:900;font-family:sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.5);margin-bottom:2px;white-space:nowrap;">🔴 ARRIVAL (${selectedTrip.endTime})</div>' +
+            '<div style="width:18px;height:18px;border-radius:50%;background:#EF4444;border:2.5px solid #FFFFFF;box-shadow:0 0 12px rgba(239,68,68,0.9);"></div>' +
             '</div>';
-            var endIcon = L.divIcon({ className: 'custom-3d-pin', html: endPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
-            L.marker(coords[coords.length - 1], { icon: endIcon }).addTo(map).bindPopup('Destination: ${selectedTrip.endAddress}');
-          }
-          initMap();
+          var endIcon = L.divIcon({ className: 'custom-pin', html: endPinHtml, iconSize: [120, 36], iconAnchor: [60, 36] });
+          L.marker(coords[coords.length - 1], { icon: endIcon, zIndexOffset: 2000 }).addTo(map);
         </script>
+      </body>
+    </html>
   ` : '';
 
   const selectedMemberObj = (members || []).find(m => m.user_id === selectedMemberId);
@@ -441,19 +429,13 @@ export default function DrivingReportsScreen() {
 
       {/* Date & Member Dropdown Control Row */}
       <View style={styles.controlsRow}>
-        {/* Date Selector Pills */}
         <View style={[styles.dateSelectorContainer, { backgroundColor: 'rgba(212, 175, 55, 0.08)', borderColor: 'rgba(212, 175, 55, 0.15)', flex: 1 }]}>
           <TouchableOpacity
             style={[styles.datePill, selectedDate === 'today' && [styles.datePillActive, { backgroundColor: '#D4AF37' }]]}
             onPress={() => setSelectedDate('today')}
             activeOpacity={0.8}
           >
-            <Text
-              style={[styles.datePillText, { color: selectedDate === 'today' ? '#FFFFFF' : '#D4AF37' }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.75}
-            >
+            <Text style={[styles.datePillText, { color: selectedDate === 'today' ? '#FFFFFF' : '#D4AF37' }]}>
               TODAY
             </Text>
           </TouchableOpacity>
@@ -463,12 +445,7 @@ export default function DrivingReportsScreen() {
             onPress={() => setSelectedDate('yesterday')}
             activeOpacity={0.8}
           >
-            <Text
-              style={[styles.datePillText, { color: selectedDate === 'yesterday' ? '#FFFFFF' : '#D4AF37' }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.75}
-            >
+            <Text style={[styles.datePillText, { color: selectedDate === 'yesterday' ? '#FFFFFF' : '#D4AF37' }]}>
               YESTERDAY
             </Text>
           </TouchableOpacity>
@@ -485,12 +462,7 @@ export default function DrivingReportsScreen() {
             activeOpacity={0.8}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <Text
-                style={[styles.datePillText, { color: selectedDate === '2daysAgo' ? '#FFFFFF' : '#D4AF37' }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.75}
-              >
+              <Text style={[styles.datePillText, { color: selectedDate === '2daysAgo' ? '#FFFFFF' : '#D4AF37' }]}>
                 2 DAYS
               </Text>
               {!userIsPremium && (
@@ -500,7 +472,6 @@ export default function DrivingReportsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Member Selector Dropdown Button */}
         {members && members.length > 0 ? (
           <TouchableOpacity
             style={[styles.memberDropdownBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
@@ -561,8 +532,7 @@ export default function DrivingReportsScreen() {
         ) : (
           <>
             {/* Safety Score Card */}
-            <View style={[styles.scoreCard, { backgroundColor: colors.surface, borderColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.4)' : (driverScore >= 80 ? 'rgba(212, 175, 55, 0.4)' : 'rgba(255, 83, 106, 0.4)') }]}>
-              {/* Header Badge */}
+            <View style={[styles.scoreCard, cardStyles, { backgroundColor: colors.surface, borderColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.4)' : (driverScore >= 80 ? 'rgba(212, 175, 55, 0.4)' : 'rgba(255, 83, 106, 0.4)') }]}>
               <View style={styles.scoreBadgeHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Ionicons name="shield-checkmark" size={14} color={colors.accentGold} />
@@ -570,20 +540,18 @@ export default function DrivingReportsScreen() {
                     TELEMETRY SAFETY EVALUATION
                   </Text>
                 </View>
-                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(212, 175, 55, 0.15)' }}>
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: themeMode === 'bauhaus' ? 0 : 8, backgroundColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(212, 175, 55, 0.15)' }}>
                   <Text style={{ fontSize: 9, fontWeight: '900', color: driverScore >= 90 ? '#10B981' : '#D4AF37', letterSpacing: 1 }}>
-                    {driverScore >= 90 ? 'GRADE A+' : 'GRADE B'}
+                    {driverScore >= 90 ? 'GRADE A+' : (driverScore >= 80 ? 'GRADE A' : 'GRADE B')}
                   </Text>
                 </View>
               </View>
 
               <View style={styles.scoreTopRow}>
-                <View style={[styles.scoreCircleBg, { borderColor: driverScore >= 90 ? '#10B981' : driverScore >= 80 ? '#D4AF37' : '#FF536A', backgroundColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.08)' : 'rgba(212, 175, 55, 0.08)' }]}>
+                <View style={[styles.scoreCircleBg, { borderRadius: themeMode === 'bauhaus' ? 0 : 35, borderColor: driverScore >= 90 ? '#10B981' : driverScore >= 80 ? '#D4AF37' : '#FF536A', backgroundColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.08)' : 'rgba(212, 175, 55, 0.08)' }]}>
                   <Text 
                     style={[styles.scoreNum, { color: driverScore >= 90 ? '#10B981' : driverScore >= 80 ? '#D4AF37' : '#FF536A' }]}
                     numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
                   >
                     {driverScore}
                   </Text>
@@ -592,27 +560,27 @@ export default function DrivingReportsScreen() {
 
                 <View style={styles.scoreInfo}>
                   <Text style={[styles.scoreTitle, { color: colors.foreground }]}>
-                    {driverScore >= 90 ? 'EXCELLENT SAFE DRIVER' : 'MODERATE DRIVING SCORE'}
+                    {driverScore >= 90 ? 'EXCELLENT SAFE DRIVER' : (driverScore >= 80 ? 'GOOD DRIVING RECORD' : 'MODERATE SAFETY SCORE')}
                   </Text>
                   <Text style={[styles.scoreSub, { color: colors.textMuted }]}>
-                    {selectedMemberName}'s overall driving safety evaluation based on 2-day telemetry algorithms.
+                    {selectedMemberName}'s driving evaluation calculated directly from authentic GPS telemetry and vehicle dynamics.
                   </Text>
                 </View>
               </View>
 
-              {/* Safety Event Badges Row */}
+              {/* Safety Event Badges */}
               <View style={styles.eventBadgesRow}>
-                <View style={[styles.eventBadge, { backgroundColor: 'rgba(16, 185, 129, 0.12)', borderColor: 'rgba(16, 185, 129, 0.3)' }]}>
-                  <Ionicons name="hand-right" size={13} color="#10B981" />
-                  <Text style={[styles.eventBadgeText, { color: '#10B981' }]}>{totalHardBrakes} HARD BRAKES</Text>
+                <View style={[styles.eventBadge, { borderRadius: themeMode === 'bauhaus' ? 0 : 8, backgroundColor: totalHardBrakes === 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)', borderColor: totalHardBrakes === 0 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)' }]}>
+                  <Ionicons name="hand-right" size={13} color={totalHardBrakes === 0 ? '#10B981' : '#EF4444'} />
+                  <Text style={[styles.eventBadgeText, { color: totalHardBrakes === 0 ? '#10B981' : '#EF4444' }]}>{totalHardBrakes} HARD BRAKES</Text>
                 </View>
 
-                <View style={[styles.eventBadge, { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: 'rgba(212, 175, 55, 0.3)' }]}>
-                  <Ionicons name="flash" size={13} color="#D4AF37" />
-                  <Text style={[styles.eventBadgeText, { color: '#D4AF37' }]}>{totalRapidAccels} RAPID ACCELS</Text>
+                <View style={[styles.eventBadge, { borderRadius: themeMode === 'bauhaus' ? 0 : 8, backgroundColor: totalRapidAccels === 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(212, 175, 55, 0.12)', borderColor: totalRapidAccels === 0 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(212, 175, 55, 0.3)' }]}>
+                  <Ionicons name="flash" size={13} color={totalRapidAccels === 0 ? '#10B981' : '#D4AF37'} />
+                  <Text style={[styles.eventBadgeText, { color: totalRapidAccels === 0 ? '#10B981' : '#D4AF37' }]}>{totalRapidAccels} RAPID ACCELS</Text>
                 </View>
 
-                <View style={[styles.eventBadge, { backgroundColor: totalSpeedingEvents > 0 ? 'rgba(255, 83, 106, 0.12)' : 'rgba(16, 185, 129, 0.12)', borderColor: totalSpeedingEvents > 0 ? 'rgba(255, 83, 106, 0.3)' : 'rgba(16, 185, 129, 0.3)' }]}>
+                <View style={[styles.eventBadge, { borderRadius: themeMode === 'bauhaus' ? 0 : 8, backgroundColor: totalSpeedingEvents > 0 ? 'rgba(255, 83, 106, 0.12)' : 'rgba(16, 185, 129, 0.12)', borderColor: totalSpeedingEvents > 0 ? 'rgba(255, 83, 106, 0.3)' : 'rgba(16, 185, 129, 0.3)' }]}>
                   <Ionicons name="speedometer" size={13} color={totalSpeedingEvents > 0 ? '#FF536A' : '#10B981'} />
                   <Text style={[styles.eventBadgeText, { color: totalSpeedingEvents > 0 ? '#FF536A' : '#10B981' }]}>{totalSpeedingEvents} SPEEDING</Text>
                 </View>
@@ -621,35 +589,33 @@ export default function DrivingReportsScreen() {
 
             {/* Summary Metrics Cards */}
             <View style={styles.metricsRow}>
-              <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
-                  <Ionicons name="navigate-outline" size={18} color="#D4AF37" />
+              <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface }]}>
+                <View style={[styles.metricIconWrap, { borderRadius: themeMode === 'bauhaus' ? 0 : 18, backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
+                  <Ionicons name="navigate-outline" size={18} color={colors.accentGold} />
                 </View>
                 <Text style={[styles.metricVal, { color: colors.foreground }]}>{totalDistanceKm} km</Text>
                 <Text style={[styles.metricLbl, { color: colors.textMuted }]}>DRIVEN</Text>
               </View>
 
-              <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
+              <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface }]}>
+                <View style={[styles.metricIconWrap, { borderRadius: themeMode === 'bauhaus' ? 0 : 18, backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
                   <Ionicons name="time-outline" size={18} color="#10B981" />
                 </View>
                 <Text style={[styles.metricVal, { color: colors.foreground }]}>{totalDriveMins} mins</Text>
                 <Text style={[styles.metricLbl, { color: colors.textMuted }]}>DRIVE TIME</Text>
               </View>
 
-              <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: topSpeedKmh > 80 ? '#FF5266' : colors.border }]}>
-                <View style={[styles.metricIconWrap, { backgroundColor: topSpeedKmh > 80 ? 'rgba(255, 82, 102, 0.15)' : 'rgba(255, 83, 106, 0.12)' }]}>
-                  <Ionicons name={topSpeedKmh > 80 ? "alert-circle" : "speedometer-outline"} size={18} color={topSpeedKmh > 80 ? "#FF5266" : "#FF536A"} />
+              <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface, borderColor: topSpeedKmh > 80 ? '#FF5266' : colors.border }]}>
+                <View style={[styles.metricIconWrap, { borderRadius: themeMode === 'bauhaus' ? 0 : 18, backgroundColor: topSpeedKmh > 80 ? 'rgba(255, 82, 102, 0.15)' : 'rgba(59, 130, 246, 0.12)' }]}>
+                  <Ionicons name="speedometer-outline" size={18} color={topSpeedKmh > 80 ? "#FF5266" : "#3B82F6"} />
                 </View>
                 <Text style={[styles.metricVal, { color: topSpeedKmh > 80 ? '#FF5266' : colors.foreground }]}>{topSpeedKmh} km/h</Text>
-                <Text style={[styles.metricLbl, { color: topSpeedKmh > 80 ? '#FF5266' : colors.textMuted }]}>
-                  {topSpeedKmh > 80 ? 'HIGH SPEED' : 'TOP SPEED'}
-                </Text>
+                <Text style={[styles.metricLbl, { color: topSpeedKmh > 80 ? '#FF5266' : colors.textMuted }]}>TOP SPEED</Text>
               </View>
 
-              <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
-                  <Ionicons name="bar-chart-outline" size={18} color="#D4AF37" />
+              <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface }]}>
+                <View style={[styles.metricIconWrap, { borderRadius: themeMode === 'bauhaus' ? 0 : 18, backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
+                  <Ionicons name="bar-chart-outline" size={18} color={colors.accentGold} />
                 </View>
                 <Text style={[styles.metricVal, { color: colors.foreground }]}>{avgSpeedKmh} km/h</Text>
                 <Text style={[styles.metricLbl, { color: colors.textMuted }]}>AVG SPEED</Text>
@@ -664,11 +630,11 @@ export default function DrivingReportsScreen() {
 
             {/* Trips List Cards */}
             {trips.length === 0 ? (
-              <View style={[styles.emptyTripsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={[styles.emptyTripsCard, cardStyles, { backgroundColor: colors.surface }]}>
                 <Ionicons name="car-sport-outline" size={40} color={colors.textMuted} style={{ marginBottom: 8 }} />
-                <Text style={[styles.emptyTripsTitle, { color: colors.foreground }]}>NO DRIVING TRAIL RECORDED</Text>
+                <Text style={[styles.emptyTripsTitle, { color: colors.foreground }]}>NO DRIVING TRIPS LOGGED</Text>
                 <Text style={[styles.emptyTripsSub, { color: colors.textMuted }]}>
-                  No driving journeys logged for {selectedMemberName} on {selectedDate.toUpperCase()}. GPS will automatically log upcoming driving routes.
+                  No driving journeys recorded for {selectedMemberName} on {selectedDate.toUpperCase()}. Trips will be segmented and analyzed automatically when driving.
                 </Text>
               </View>
             ) : (
@@ -677,32 +643,37 @@ export default function DrivingReportsScreen() {
                 return (
                   <TouchableOpacity
                     key={trip.id}
-                    style={[styles.tripCard, { backgroundColor: colors.surface, borderColor: isSpeeding ? 'rgba(255,82,102,0.3)' : colors.border }]}
+                    style={[styles.tripCard, cardStyles, { backgroundColor: colors.surface, borderColor: isSpeeding ? 'rgba(255,82,102,0.3)' : colors.border }]}
                     onPress={() => setSelectedTrip(trip)}
                     activeOpacity={0.8}
                   >
                     <View style={styles.tripCardHeader}>
                       <View style={{ flex: 1 }}>
-                        <Text style={[styles.tripTitle, { color: colors.foreground, textTransform: 'none', fontWeight: '700' }]}>{trip.title || 'Recorded Trip'}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                          <Text style={[styles.tripTitle, { color: colors.foreground, textTransform: 'none', fontWeight: '800' }]}>{trip.title}</Text>
+                          <View style={[styles.headingBadge, { borderRadius: themeMode === 'bauhaus' ? 0 : 6 }]}>
+                            <Text style={styles.headingBadgeText}>🧭 {trip.cardinalDirection} ({trip.bearingDegrees}°)</Text>
+                          </View>
+                        </View>
                         <Text style={[styles.tripTime, { color: colors.textMuted }]}>
-                          {trip.startTime || '08:00 AM'} → {trip.endTime || '08:30 AM'} ({trip.durationMins || 30} mins)
+                          {trip.startTime} → {trip.endTime} ({trip.durationMins} mins)
                         </Text>
                       </View>
 
-                      <View style={[styles.tripScoreBadge, { backgroundColor: trip.score >= 90 ? '#16B889' : trip.score >= 75 ? '#D4AF37' : '#FF5266' }]}>
-                        <Text style={[styles.tripScoreText, { color: '#FFFFFF' }]}>{trip.score || 85}</Text>
+                      <View style={[styles.tripScoreBadge, { borderRadius: themeMode === 'bauhaus' ? 0 : 8, backgroundColor: trip.score >= 90 ? '#10B981' : trip.score >= 75 ? '#D4AF37' : '#EF4444' }]}>
+                        <Text style={[styles.tripScoreText, { color: '#FFFFFF' }]}>{trip.score}</Text>
                       </View>
                     </View>
 
                     <View style={styles.tripRoutePoints}>
                       <View style={styles.routePointRow}>
-                        <Ionicons name="ellipse" size={10} color="#16B889" />
-                        <Text style={[styles.routePointText, { color: colors.foreground }]} numberOfLines={1}>{trip.startAddress || 'Start Point'}</Text>
+                        <Ionicons name="ellipse" size={10} color="#10B981" />
+                        <Text style={[styles.routePointText, { color: colors.foreground }]} numberOfLines={1}>{trip.startAddress}</Text>
                       </View>
                       <View style={styles.routeLineDot} />
                       <View style={styles.routePointRow}>
-                        <Ionicons name="location" size={12} color="#FF5266" />
-                        <Text style={[styles.routePointText, { color: colors.foreground }]} numberOfLines={1}>{trip.endAddress || 'Destination'}</Text>
+                        <Ionicons name="location" size={12} color="#EF4444" />
+                        <Text style={[styles.routePointText, { color: colors.foreground }]} numberOfLines={1}>{trip.endAddress}</Text>
                       </View>
                     </View>
 
@@ -716,7 +687,7 @@ export default function DrivingReportsScreen() {
                         </Text>
                       </Text>
                       <View style={styles.inspectBtn}>
-                        <Text style={[styles.viewDetailsText, { color: '#D4AF37', fontWeight: '800' }]}>INSPECT ROUTE →</Text>
+                        <Text style={[styles.viewDetailsText, { color: colors.accentGold, fontWeight: '800' }]}>INSPECT ROUTE →</Text>
                       </View>
                     </View>
                   </TouchableOpacity>
@@ -731,7 +702,7 @@ export default function DrivingReportsScreen() {
       {selectedTrip ? (
         <Modal visible={true} animationType="slide" transparent={false}>
           <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
-            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border, paddingTop: topInset + 10 }]}>
               <TouchableOpacity style={styles.iconBtn} onPress={() => setSelectedTrip(null)} activeOpacity={0.8}>
                 <Ionicons name="close" size={24} color={colors.foreground} />
               </TouchableOpacity>
@@ -749,7 +720,13 @@ export default function DrivingReportsScreen() {
             </View>
 
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20 }} showsVerticalScrollIndicator={false}>
-              <Text style={[styles.modalTripTitle, { color: colors.foreground }]}>{selectedTrip.title}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <Text style={[styles.modalTripTitle, { color: colors.foreground, flex: 1 }]}>{selectedTrip.title}</Text>
+                <View style={styles.headingBadge}>
+                  <Text style={styles.headingBadgeText}>🧭 {selectedTrip.cardinalDirection} ({selectedTrip.bearingDegrees}°)</Text>
+                </View>
+              </View>
+
               <Text style={[styles.modalTripMeta, { color: colors.textMuted }]}>
                 {selectedTrip.startTime} - {selectedTrip.endTime} • {selectedTrip.distanceKm} km • {selectedTrip.durationMins} mins
               </Text>
@@ -776,7 +753,7 @@ export default function DrivingReportsScreen() {
                 </View>
                 <View style={[styles.modalStatBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                   <Text style={[styles.modalStatVal, { color: colors.foreground }]}>{selectedTrip.speedingEvents}</Text>
-                  <Text style={[styles.modalStatLbl, { color: colors.textMuted }]}>SPEEDING EXCEED</Text>
+                  <Text style={[styles.modalStatLbl, { color: colors.textMuted }]}>SPEEDING EVENTS</Text>
                 </View>
               </View>
             </ScrollView>
@@ -801,204 +778,165 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingTop: 54,
-    paddingBottom: 14,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
   },
   iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    letterSpacing: 1.2,
+    fontSize: 13.5,
+    fontWeight: '900',
+    letterSpacing: 1.5,
   },
   headerSubtitle: {
-    fontSize: 10,
+    fontSize: 10.5,
     fontWeight: '700',
-    letterSpacing: 1,
+    letterSpacing: 0.8,
     marginTop: 2,
   },
   controlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 8,
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   dateSelectorContainer: {
     flexDirection: 'row',
-    padding: 3,
-    borderRadius: 20,
+    borderRadius: 12,
     borderWidth: 1,
+    padding: 3,
   },
   datePill: {
     flex: 1,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
+    paddingVertical: 7,
     alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 9,
   },
   datePillActive: {
-    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.2,
     shadowRadius: 4,
+    elevation: 3,
   },
   datePillText: {
-    fontSize: 9.5,
+    fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 0.2,
-    paddingHorizontal: 2,
-    textAlign: 'center',
+    letterSpacing: 0.5,
   },
   memberDropdownBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 10,
-    height: 38,
-    borderRadius: 19,
+    paddingVertical: 6,
+    borderRadius: 12,
     borderWidth: 1,
-    maxWidth: 120,
   },
   avatarCircleMini: {
-    width: 24,
-    height: 24,
-    borderWidth: 1,
-    justifyContent: 'center',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarInitialMini: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: '#1A1A1A',
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#0D0E12',
   },
   memberDropdownText: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
-    flexShrink: 1,
+    maxWidth: 65,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
-    alignItems: 'center',
     padding: 24,
   },
   modalPickerCard: {
-    width: '100%',
-    maxWidth: 340,
     borderRadius: 20,
     borderWidth: 1,
     padding: 20,
-    elevation: 10,
+    maxHeight: 400,
   },
   modalPickerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   modalPickerTitle: {
     fontSize: 15,
-    fontWeight: 'bold',
-  },
-  memberPickerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    marginBottom: 6,
-    borderWidth: 1,
-  },
-  memberPickerName: {
-    fontSize: 13,
+    fontWeight: '800',
   },
   scrollContent: {
     flex: 1,
   },
   content: {
-    paddingHorizontal: 16,
+    padding: 16,
     paddingBottom: 40,
   },
   loadingBox: {
-    height: 300,
-    justifyContent: 'center',
+    paddingVertical: 60,
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'center',
   },
   loadingText: {
+    marginTop: 12,
     fontSize: 12,
     fontWeight: '600',
   },
   scoreCard: {
-    padding: 18,
-    borderRadius: 24,
+    borderRadius: 18,
     borderWidth: 1.5,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 4,
+    padding: 16,
+    marginBottom: 16,
   },
   scoreBadgeHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(150, 150, 150, 0.15)',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   scoreTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
-    marginBottom: 16,
+    gap: 14,
+    marginBottom: 14,
   },
   scoreCircleBg: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
-    borderWidth: 3.5,
-    justifyContent: 'center',
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    borderWidth: 3,
     alignItems: 'center',
-    flexDirection: 'column',
-    padding: 4,
-    elevation: 3,
+    justifyContent: 'center',
   },
   scoreNum: {
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: '900',
-    lineHeight: 28,
-    letterSpacing: -0.5,
   },
   scoreDenom: {
-    fontSize: 10,
-    fontWeight: '800',
+    fontSize: 9.5,
     color: '#9CA3AF',
-    marginTop: 0,
+    marginTop: -2,
   },
   scoreInfo: {
     flex: 1,
   },
   scoreTitle: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '800',
-    letterSpacing: 1,
     marginBottom: 4,
   },
   scoreSub: {
@@ -1007,138 +945,160 @@ const styles = StyleSheet.create({
   },
   eventBadgesRow: {
     flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  eventBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
     gap: 6,
   },
+  eventBadge: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
   eventBadgeText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
-    letterSpacing: 0.8,
+    letterSpacing: 0.3,
   },
   metricsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 18,
+    gap: 8,
+    marginBottom: 20,
   },
   metricCard: {
-    width: (Dimensions.get('window').width - 42) / 2,
-    padding: 14,
-    borderRadius: 16,
+    flex: 1,
+    borderRadius: 14,
     borderWidth: 1,
+    padding: 10,
     alignItems: 'center',
-    gap: 6,
   },
   metricIconWrap: {
-    width: 36,
-    height: 36,
-    borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.border,
-    justifyContent: 'center',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
   },
   metricVal: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '800',
-    marginVertical: 2,
+    marginBottom: 2,
   },
   metricLbl: {
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 0.8,
+    fontSize: 8.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.5,
+    fontSize: 13.5,
   },
   accentLine: {
     flex: 1,
     height: 1,
   },
-  tripCard: {
-    padding: 16,
-    borderRadius: 18,
+  emptyTripsCard: {
+    borderRadius: 16,
     borderWidth: 1,
+    padding: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTripsTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  emptyTripsSub: {
+    fontSize: 11.5,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  tripCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
     marginBottom: 12,
-    gap: 12,
   },
   tripCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    marginBottom: 10,
   },
   tripTitle: {
-    fontSize: 14,
+    fontSize: 13.5,
+  },
+  headingBadge: {
+    backgroundColor: 'rgba(212, 175, 55, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  headingBadgeText: {
+    fontSize: 9,
     fontWeight: '800',
+    color: '#D4AF37',
   },
   tripTime: {
     fontSize: 11,
     marginTop: 2,
   },
   tripScoreBadge: {
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 8,
   },
   tripScoreText: {
-    color: '#1A1A1A',
-    fontWeight: '800',
     fontSize: 12,
+    fontWeight: '900',
   },
   tripRoutePoints: {
-    gap: 4,
-    paddingLeft: 4,
+    marginBottom: 10,
   },
   routePointRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  routePointText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
   routeLineDot: {
     width: 2,
     height: 10,
-    backgroundColor: '#9CA3AF',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     marginLeft: 4,
+    marginVertical: 2,
+  },
+  routePointText: {
+    fontSize: 12,
+    fontWeight: '500',
+    flex: 1,
   },
   tripFooterStats: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
   },
   tripStatText: {
     fontSize: 11,
   },
   inspectBtn: {
-    paddingHorizontal: 8,
     paddingVertical: 2,
   },
   viewDetailsText: {
     fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
   },
   modalContainer: {
     flex: 1,
@@ -1147,44 +1107,41 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingTop: 54,
-    paddingBottom: 14,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
     borderBottomWidth: 1,
   },
   modalHeaderTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: 1.5,
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
   modalMapWrapper: {
     height: 320,
-    width: '100%',
-    overflow: 'hidden',
+    backgroundColor: '#0D0E12',
   },
   modalTripTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
-    marginBottom: 4,
   },
   modalTripMeta: {
     fontSize: 12,
     marginBottom: 16,
   },
   modalScoreCard: {
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    padding: 14,
     marginBottom: 16,
   },
   modalScoreLbl: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '800',
-    letterSpacing: 1,
+    letterSpacing: 0.8,
   },
   modalScoreVal: {
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   modalStatsGrid: {
     flexDirection: 'row',
@@ -1192,39 +1149,21 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   modalStatBox: {
-    width: (Dimensions.get('window').width - 50) / 2,
-    padding: 14,
-    borderRadius: 16,
+    flex: 1,
+    minWidth: '45%',
+    borderRadius: 12,
     borderWidth: 1,
+    padding: 14,
     alignItems: 'center',
   },
   modalStatVal: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
     marginBottom: 4,
   },
   modalStatLbl: {
-    fontSize: 9,
+    fontSize: 9.5,
     fontWeight: '700',
-    letterSpacing: 0.8,
-  },
-  emptyTripsCard: {
-    padding: 24,
-    borderRadius: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 12,
-  },
-  emptyTripsTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: 6,
-  },
-  emptyTripsSub: {
-    fontSize: 11,
-    textAlign: 'center',
-    lineHeight: 16,
+    letterSpacing: 0.5,
   },
 });

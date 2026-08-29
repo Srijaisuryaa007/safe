@@ -6,9 +6,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { useCircleStore } from '../store/useCircleStore';
 import { useAuthStore } from '../store/useAuthStore';
-import { LUXURY_THEME } from '../constants/theme';
+import { useThemeStore } from '../store/useThemeStore';
+import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBorderStyles } from '../constants/theme';
 import SpringTouchable from '../components/SpringTouchable';
 import JellySqueezeButton from '../components/JellySqueezeButton';
+import { useCountryStore } from '../store/useCountryStore';
+import CountrySelectorModal from '../components/CountrySelectorModal';
 
 interface EmergencyContact {
   id: string;
@@ -20,16 +23,21 @@ interface EmergencyContact {
 const STORAGE_KEY = '@circleguard_emergency_contacts';
 
 export default function SOSAlertScreen() {
+  const { colors, themeMode, isDark } = useThemeStore();
+  const { country, countryCode } = useCountryStore();
   const navigation = useNavigation();
   const { activeCircle, members } = useCircleStore();
   const { profile } = useAuthStore();
   const [isSending, setIsSending] = useState(false);
 
-  // Contacts state
+  // Contacts and Country state
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
   const [callModalVisible, setCallModalVisible] = useState(false);
+  const [countryModalVisible, setCountryModalVisible] = useState(false);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  const getStorageKey = () => profile?.id ? `@circleguard_emergency_contacts_${profile.id}` : '@circleguard_emergency_contacts';
 
   useEffect(() => {
     loadEmergencyContacts();
@@ -50,19 +58,15 @@ export default function SOSAlertScreen() {
         }),
       ])
     ).start();
-  }, [pulseAnim]);
+  }, [pulseAnim, profile?.id]);
 
   const loadEmergencyContacts = async () => {
     try {
-      const saved = await AsyncStorage.getItem(STORAGE_KEY);
+      const saved = await AsyncStorage.getItem(getStorageKey());
       if (saved) {
         setEmergencyContacts(JSON.parse(saved));
       } else {
-        // Defaults if none added yet
-        setEmergencyContacts([
-          { id: '1', name: 'Father', relationship: 'Father', phone: '+1 555 0192' },
-          { id: '2', name: 'Mother', relationship: 'Mother', phone: '+1 555 0184' }
-        ]);
+        setEmergencyContacts([]);
       }
     } catch (e) {
       console.error('Error loading emergency contacts on SOS:', e);
@@ -120,13 +124,13 @@ export default function SOSAlertScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <TouchableOpacity style={styles.closeBtn} onPress={() => navigation.goBack()}>
-        <Ionicons name="close" size={28} color="#FFFFFF" />
+        <Ionicons name="close" size={28} color={colors.foreground} />
       </TouchableOpacity>
 
       <Text 
-        style={styles.overline}
+        style={[styles.overline, { color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}
         adjustsFontSizeToFit={true}
         minimumFontScale={0.8}
         numberOfLines={1}
@@ -134,31 +138,41 @@ export default function SOSAlertScreen() {
         EMERGENCY PROTOCOL
       </Text>
       <Text 
-        style={styles.title}
+        style={[styles.title, { color: colors.foreground }]}
         adjustsFontSizeToFit={true}
         minimumFontScale={0.75}
         numberOfLines={1}
       >
         EMERGENCY SOS
       </Text>
-      <Text style={styles.subtitle}>Hold button for instant multi-channel distress signal</Text>
+      <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+        Hold button for instant multi-channel distress signal
+      </Text>
 
       <View style={styles.circleContainer}>
         <Animated.View
           style={[
             styles.pulseRing,
             {
+              borderColor: colors.sosRed,
               transform: [{ scale: pulseAnim }],
             },
           ]}
         />
         
         <JellySqueezeButton
-          style={styles.sosButton}
+          style={[
+            styles.sosButton,
+            {
+              backgroundColor: colors.sosRed,
+              borderColor: themeMode === 'brand_green' ? '#F5A623' : colors.accentGold,
+              shadowColor: colors.sosRed,
+            },
+          ]}
           onPress={triggerEmergency}
-          glowColor={LUXURY_THEME.colors.sosRed}
+          glowColor={colors.sosRed}
         >
-          <Ionicons name="alert-circle" size={60} color={LUXURY_THEME.colors.accentGold} />
+          <Ionicons name="alert-circle" size={60} color="#FFFFFF" />
           <Text 
             style={styles.sosText}
             adjustsFontSizeToFit={true}
@@ -172,7 +186,15 @@ export default function SOSAlertScreen() {
 
       {/* Emergency Call Buttons */}
       <View style={styles.callButtonsRow}>
-        <SpringTouchable style={styles.quickCallBtn} onPress={() => setCallModalVisible(true)} scaleTo={0.96}>
+        <SpringTouchable
+          style={[
+            styles.quickCallBtn,
+            getThemeButtonStyles(themeMode, 'primary'),
+            { backgroundColor: themeMode === 'brand_green' ? '#3DBE6C' : '#10B981' },
+          ]}
+          onPress={() => setCallModalVisible(true)}
+          scaleTo={0.96}
+        >
           <Ionicons name="call" size={20} color="#FFFFFF" />
           <Text 
             style={styles.quickCallText}
@@ -185,26 +207,33 @@ export default function SOSAlertScreen() {
         </SpringTouchable>
 
         <SpringTouchable 
-          style={styles.serviceCallBtn} 
-          onPress={() => handleCallNumber('112', 'Emergency Services')}
+          style={[
+            styles.serviceCallBtn,
+            getThemeBorderStyles(themeMode),
+            {
+              borderColor: themeMode === 'brand_green' ? '#E0E0E0' : colors.border,
+              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : '#F5F5F5',
+            },
+          ]}
+          onPress={() => handleCallNumber(country.primaryEmergency, `${country.name} Emergency Services`)}
           scaleTo={0.96}
         >
-          <Ionicons name="shield-checkmark" size={18} color={LUXURY_THEME.colors.accentGold} />
+          <Ionicons name="shield-checkmark" size={18} color={colors.sosRed} />
           <Text 
-            style={styles.serviceCallText}
+            style={[styles.serviceCallText, { color: colors.foreground }]}
             adjustsFontSizeToFit={true}
             minimumFontScale={0.8}
             numberOfLines={1}
           >
-            DIAL 112 / 911
+            {country.flag} {country.primaryLabel}
           </Text>
         </SpringTouchable>
       </View>
 
       {isSending ? (
-        <View style={styles.activeStatusBox}>
+        <View style={[styles.activeStatusBox, getThemeCardStyles(themeMode), { backgroundColor: colors.surface, borderColor: colors.sosRed }]}>
           <Text 
-            style={styles.activeStatusText}
+            style={[styles.activeStatusText, { color: colors.sosRed }]}
             adjustsFontSizeToFit={true}
             minimumFontScale={0.8}
             numberOfLines={1}
@@ -213,18 +242,18 @@ export default function SOSAlertScreen() {
           </Text>
           <View style={styles.checkList}>
             <View style={styles.checkItem}>
-              <Ionicons name="checkmark-circle" size={18} color={LUXURY_THEME.colors.accentGold} />
-              <Text style={styles.checkText}>GPS Coordinates Transmitted</Text>
+              <Ionicons name="checkmark-circle" size={18} color={themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold} />
+              <Text style={[styles.checkText, { color: colors.foreground }]}>GPS Coordinates Transmitted</Text>
             </View>
             <View style={styles.checkItem}>
-              <Ionicons name="checkmark-circle" size={18} color={LUXURY_THEME.colors.accentGold} />
-              <Text style={styles.checkText}>Circle Members & Emergency Contacts Notified</Text>
+              <Ionicons name="checkmark-circle" size={18} color={themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold} />
+              <Text style={[styles.checkText, { color: colors.foreground }]}>Circle Members & Emergency Contacts Notified</Text>
             </View>
           </View>
 
-          <TouchableOpacity style={styles.cancelBtn} onPress={cancelEmergency}>
+          <TouchableOpacity style={[styles.cancelBtn, { borderColor: colors.border, backgroundColor: colors.surfaceMuted }]} onPress={cancelEmergency}>
             <Text 
-              style={styles.cancelText}
+              style={[styles.cancelText, { color: colors.foreground }]}
               adjustsFontSizeToFit={true}
               minimumFontScale={0.8}
               numberOfLines={1}
@@ -236,7 +265,7 @@ export default function SOSAlertScreen() {
       ) : (
         <TouchableOpacity style={styles.cancelLink} onPress={() => navigation.goBack()}>
           <Text 
-            style={styles.cancelLinkText}
+            style={[styles.cancelLinkText, { color: colors.textMuted }]}
             adjustsFontSizeToFit={true}
             minimumFontScale={0.8}
             numberOfLines={1}
@@ -248,14 +277,14 @@ export default function SOSAlertScreen() {
 
       {/* Interactive Emergency Directory Dialing Modal */}
       <Modal visible={callModalVisible} animationType="slide" transparent={false}>
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
+        <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
             <TouchableOpacity onPress={() => setCallModalVisible(false)} style={styles.modalCloseBtn}>
-              <Ionicons name="close" size={24} color="#FFFFFF" />
+              <Ionicons name="close" size={24} color={colors.foreground} />
             </TouchableOpacity>
             <View style={styles.modalTitleBox}>
-              <Text style={styles.modalOverline}>DIRECT DIAL DIRECTORY</Text>
-              <Text style={styles.modalTitle}>Emergency Call Center</Text>
+              <Text style={[styles.modalOverline, { color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}>DIRECT DIAL DIRECTORY</Text>
+              <Text style={[styles.modalTitle, { color: colors.foreground }]}>Emergency Call Center</Text>
             </View>
           </View>
 
@@ -341,29 +370,60 @@ export default function SOSAlertScreen() {
             )}
 
             {/* Section 3: National Emergency Hotline Speed Dial */}
-            <View style={[styles.sectionTitleBox, { marginTop: 28 }]}>
-              <Ionicons name="shield-checkmark" size={18} color="#10B981" />
-              <Text style={styles.sectionTitleText}>PUBLIC EMERGENCY HOTLINES</Text>
+            <View style={[styles.sectionTitleBox, { marginTop: 28, justifyContent: 'space-between' }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="shield-checkmark" size={18} color="#10B981" />
+                <Text style={styles.sectionTitleText}>{country.name.toUpperCase()} EMERGENCY HOTLINES</Text>
+              </View>
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: 'rgba(212, 175, 55, 0.12)' }}
+                onPress={() => setCountryModalVisible(true)}
+              >
+                <Text style={{ fontSize: 13 }}>{country.flag}</Text>
+                <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.accentGold }}>CHANGE</Text>
+              </TouchableOpacity>
             </View>
 
-            <TouchableOpacity 
-              style={styles.hotlineCard}
-              onPress={() => handleCallNumber('112', 'Universal Emergency Services')}
-            >
-              <View style={styles.hotlineLeft}>
-                <Ionicons name="alert-circle" size={24} color={LUXURY_THEME.colors.sosRed} />
-                <View>
-                  <Text style={styles.hotlineTitle}>UNIVERSAL EMERGENCY HOTLINE</Text>
-                  <Text style={styles.hotlineSub}>Dial 112 / 911 Instant Response</Text>
-                </View>
-              </View>
-              <View style={styles.hotlineBadge}>
-                <Text style={styles.hotlineBadgeText}>DIAL 112</Text>
-              </View>
-            </TouchableOpacity>
+            {country.services.map((srv) => {
+              const badgeBg = srv.category === 'police' 
+                ? 'rgba(59, 130, 246, 0.2)' 
+                : (srv.category === 'medical' ? 'rgba(16, 185, 129, 0.2)' : (srv.category === 'fire' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(212, 175, 55, 0.2)'));
+              const badgeText = srv.category === 'police' 
+                ? '#60A5FA' 
+                : (srv.category === 'medical' ? '#10B981' : (srv.category === 'fire' ? '#EF4444' : colors.accentGold));
+
+              return (
+                <TouchableOpacity 
+                  key={srv.id}
+                  style={[styles.hotlineCard, { marginBottom: 10 }]}
+                  onPress={() => handleCallNumber(srv.number, `${srv.name} (${srv.number})`)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.hotlineLeft}>
+                    <Ionicons 
+                      name={(srv.icon || 'alert-circle') as any} 
+                      size={22} 
+                      color={badgeText} 
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.hotlineTitle}>{srv.name.toUpperCase()}</Text>
+                      <Text style={styles.hotlineSub}>{srv.description}</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.hotlineBadge, { backgroundColor: badgeBg }]}>
+                    <Text style={[styles.hotlineBadgeText, { color: badgeText }]}>DIAL {srv.number}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
           </ScrollView>
         </View>
       </Modal>
+
+      <CountrySelectorModal
+        visible={countryModalVisible}
+        onClose={() => setCountryModalVisible(false)}
+      />
     </View>
   );
 }

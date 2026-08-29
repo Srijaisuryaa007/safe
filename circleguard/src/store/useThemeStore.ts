@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { Appearance, ColorSchemeName } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LIGHT_THEME, DARK_THEME, GRAY_THEME, MINIMALIST_MONOCHROME_THEME, BAUHAUS_THEME, MAXIMALISM_DOPAMINE_THEME, PLAYFUL_GEOMETRIC_THEME, BOTANICAL_ORGANIC_THEME, ThemeColors, LUXURY_THEME } from '../constants/theme';
+import { BRAND_GREEN_THEME, LIGHT_THEME, DARK_THEME, GRAY_THEME, BAUHAUS_THEME, PLAYFUL_GEOMETRIC_THEME, BOTANICAL_ORGANIC_THEME, ThemeColors, LUXURY_THEME } from '../constants/theme';
 
-export type ThemeMode = 'light' | 'dark' | 'gray' | 'minimalist_monochrome' | 'bauhaus' | 'maximalism_dopamine' | 'playful_geometric' | 'botanical_organic' | 'system';
+export type ThemeMode = 'brand_green' | 'light' | 'dark' | 'gray' | 'bauhaus' | 'playful_geometric' | 'botanical_organic' | 'system';
 export type MapStyleType = 'vector' | 'satellite' | 'dark' | 'terrain';
 
 interface ThemeState {
@@ -20,11 +20,10 @@ const STORAGE_KEY = '@circleguard_theme_mode';
 const MAP_STYLE_KEY = '@circleguard_map_style';
 
 const getThemeConfig = (mode: ThemeMode, sysScheme: ColorSchemeName | null | undefined): { colors: ThemeColors; isDark: boolean } => {
+  if (mode === 'brand_green') return { colors: BRAND_GREEN_THEME.colors, isDark: false };
   if (mode === 'botanical_organic') return { colors: BOTANICAL_ORGANIC_THEME.colors, isDark: false };
   if (mode === 'playful_geometric') return { colors: PLAYFUL_GEOMETRIC_THEME.colors, isDark: false };
-  if (mode === 'maximalism_dopamine') return { colors: MAXIMALISM_DOPAMINE_THEME.colors, isDark: true };
   if (mode === 'bauhaus') return { colors: BAUHAUS_THEME.colors, isDark: false };
-  if (mode === 'minimalist_monochrome') return { colors: MINIMALIST_MONOCHROME_THEME.colors, isDark: false };
   if (mode === 'dark') return { colors: DARK_THEME.colors, isDark: true };
   if (mode === 'gray') return { colors: GRAY_THEME.colors, isDark: true };
   if (mode === 'light') return { colors: LIGHT_THEME.colors, isDark: false };
@@ -33,17 +32,17 @@ const getThemeConfig = (mode: ThemeMode, sysScheme: ColorSchemeName | null | und
 };
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
-  themeMode: 'gray',
+  themeMode: 'dark',
   isDark: true,
-  colors: GRAY_THEME.colors,
-  mapStyle: 'satellite',
+  colors: DARK_THEME.colors,
+  mapStyle: 'dark',
 
   initTheme: async () => {
     try {
       const saved = await AsyncStorage.getItem(STORAGE_KEY);
       const savedMapStyle = await AsyncStorage.getItem(MAP_STYLE_KEY);
-      const mode: ThemeMode = (saved as ThemeMode) || 'gray';
-      const mapStyle: MapStyleType = (savedMapStyle as MapStyleType) || 'satellite';
+      const mode: ThemeMode = (saved as ThemeMode) || 'dark';
+      const mapStyle: MapStyleType = (savedMapStyle as MapStyleType) || 'dark';
       const sysScheme = Appearance.getColorScheme();
       const config = getThemeConfig(mode, sysScheme);
 

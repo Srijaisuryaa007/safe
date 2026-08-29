@@ -25,22 +25,39 @@ function DummySOS() {
 }
 
 export default function MainTabNavigator() {
-  const { colors } = useThemeStore();
+  const { colors, themeMode, isDark } = useThemeStore();
+
+  const activeTintColor = themeMode === 'brand_green'
+    ? '#3DBE6C'
+    : themeMode === 'bauhaus'
+    ? '#121212'
+    : themeMode === 'playful_geometric'
+    ? '#8B5CF6'
+    : themeMode === 'botanical_organic'
+    ? '#2D3A31'
+    : colors.accentGold;
 
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.accentGold || '#D4AF37',
+        tabBarActiveTintColor: activeTintColor,
         tabBarInactiveTintColor: colors.textMuted || '#737373',
         tabBarStyle: [
           styles.tabBar,
           {
             backgroundColor: colors.surface,
             borderTopColor: colors.border,
+            borderTopWidth: themeMode === 'bauhaus' ? 4 : (themeMode === 'playful_geometric' ? 2 : 1),
+            height: 62,
           },
         ],
-        tabBarLabelStyle: styles.tabBarLabel,
+        tabBarLabelStyle: [
+          styles.tabBarLabel,
+          {
+            fontWeight: themeMode === 'bauhaus' ? '900' : '700',
+          },
+        ],
         tabBarItemStyle: styles.tabBarItem,
       }}
     >

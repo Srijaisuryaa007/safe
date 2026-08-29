@@ -22,6 +22,7 @@ import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
+import { getThemeChatBubbleStyles, getThemeButtonStyles, getThemeBorderStyles } from '../constants/theme';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
 import TypingIndicator from '../components/TypingIndicator';
 import ReadReceiptCheckmarks from '../components/ReadReceiptCheckmarks';
@@ -46,7 +47,7 @@ export interface ChatMessage {
 
 export default function ChatScreen() {
   const navigation = useNavigation();
-  const { colors } = useThemeStore();
+  const { colors, themeMode } = useThemeStore();
   const { profile } = useAuthStore();
   const { activeCircle, members } = useCircleStore();
 
@@ -535,17 +536,18 @@ export default function ChatScreen() {
 
     const isLocationMsg = item.message_type === 'location' || item.content.includes('Shared Live Location');
     const isReactionOpen = selectedReactionMsgId === item.id;
+    const bubbleThemeStyle = getThemeChatBubbleStyles(themeMode, isMe);
 
     const reactionEntries = Object.entries(item.reactions || {}).filter(([_, users]) => users && users.length > 0);
 
     return (
       <View style={[styles.messageRow, isMe ? styles.myMessageRow : styles.theirMessageRow]}>
         {!isMe ? (
-          <View style={[styles.avatarBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={[styles.avatarBox, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 16 }]}>
             {item.sender_avatar ? (
               <Image source={{ uri: item.sender_avatar }} style={styles.avatarImg} />
             ) : (
-              <Text style={[styles.avatarInitial, { color: colors.accentGold }]}>{initial}</Text>
+              <Text style={[styles.avatarInitial, { color: colors.foreground }]}>{initial}</Text>
             )}
           </View>
         ) : null}
@@ -557,7 +559,7 @@ export default function ChatScreen() {
 
           {/* Floating Quick Emoji Reaction Bar */}
           {isReactionOpen ? (
-            <View style={[styles.floatingEmojiBar, { backgroundColor: colors.surface, borderColor: colors.accentGold }]}>
+            <View style={[styles.floatingEmojiBar, { backgroundColor: colors.surface, borderColor: colors.accentGold, borderRadius: themeMode === 'bauhaus' ? 0 : 100 }]}>
               {EMOJI_OPTIONS.map((emoji) => {
                 const userList = (item.reactions && item.reactions[emoji]) || [];
                 const isReacted = profile?.id ? userList.includes(profile.id) : false;
@@ -575,7 +577,7 @@ export default function ChatScreen() {
             </View>
           ) : null}
 
-          {/* 3D Glassmorphic Chat Bubble */}
+          {/* Theme Architectural Chat Bubble */}
           <TouchableOpacity
             activeOpacity={0.85}
             onPress={() => setSelectedReactionMsgId(prev => prev === item.id ? null : item.id)}
@@ -583,26 +585,24 @@ export default function ChatScreen() {
             delayLongPress={300}
             style={[
               styles.bubble3D,
-              isMe
-                ? [styles.myBubble3D, { backgroundColor: '#D4AF37' }]
-                : [styles.theirBubble3D, { backgroundColor: colors.surface, borderColor: colors.border }],
+              bubbleThemeStyle,
             ]}
           >
             {isLocationMsg ? (
               <View style={{ gap: 6, paddingVertical: 2 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="location" size={18} color={isMe ? '#FFFFFF' : '#D4AF37'} />
-                  <Text style={{ color: isMe ? '#FFFFFF' : colors.foreground, fontSize: 12, fontWeight: '800' }}>
+                  <Ionicons name="location" size={18} color={bubbleThemeStyle.textColor} />
+                  <Text style={{ color: bubbleThemeStyle.textColor, fontSize: 12, fontWeight: '800' }}>
                     Shared Live Location
                   </Text>
                 </View>
-                <Text style={{ color: isMe ? 'rgba(255,255,255,0.9)' : colors.textMuted, fontSize: 11 }}>
+                <Text style={{ color: bubbleThemeStyle.textColor, fontSize: 11, opacity: 0.9 }}>
                   {item.content.replace('📍 Shared Live Location:', '').trim() || 'Tap to view live location on map'}
                 </Text>
                 <TouchableOpacity
                   style={{
-                    backgroundColor: isMe ? 'rgba(255,255,255,0.2)' : 'rgba(212, 175, 55,0.12)',
-                    borderRadius: 8,
+                    backgroundColor: isMe ? 'rgba(0,0,0,0.15)' : 'rgba(212, 175, 55, 0.15)',
+                    borderRadius: themeMode === 'bauhaus' ? 0 : 8,
                     paddingVertical: 5,
                     paddingHorizontal: 10,
                     alignSelf: 'flex-start',
@@ -635,18 +635,18 @@ export default function ChatScreen() {
                     });
                   }}
                 >
-                  <Text style={{ fontSize: 10, fontWeight: '800', color: isMe ? '#FFFFFF' : '#D4AF37' }}>🧭 VIEW ON MAP</Text>
+                  <Text style={{ fontSize: 10, fontWeight: '800', color: bubbleThemeStyle.textColor }}>🧭 VIEW ON MAP</Text>
                 </TouchableOpacity>
               </View>
             ) : item.message_type === 'safety_pill' ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="shield-checkmark" size={16} color={isMe ? '#FFFFFF' : colors.accentGold} />
-                <Text style={[styles.bubbleText, { color: isMe ? '#FFFFFF' : colors.foreground, fontWeight: '700' }]}>
+                <Ionicons name="shield-checkmark" size={16} color={bubbleThemeStyle.textColor} />
+                <Text style={[styles.bubbleText, { color: bubbleThemeStyle.textColor, fontWeight: '700' }]}>
                   {item.content}
                 </Text>
               </View>
             ) : (
-              <Text style={[styles.bubbleText, { color: isMe ? '#FFFFFF' : colors.foreground }]}>
+              <Text style={[styles.bubbleText, { color: bubbleThemeStyle.textColor }]}>
                 {item.content}
               </Text>
             )}
@@ -742,7 +742,15 @@ export default function ChatScreen() {
           keyExtractor={(item) => item}
           renderItem={({ item }) => (
             <TouchableOpacity
-              style={[styles.pillBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+              style={[
+                styles.pillBtn, 
+                { 
+                  backgroundColor: colors.surface, 
+                  borderColor: colors.border,
+                  borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 20 : 12),
+                  borderWidth: themeMode === 'bauhaus' ? 2 : 1,
+                }
+              ]}
               onPress={() => handleSendText(item, 'safety_pill')}
             >
               <Ionicons name="flash-outline" size={13} color={colors.accentGold} />
@@ -784,14 +792,30 @@ export default function ChatScreen() {
       {/* Input Bar */}
       <View style={[styles.inputBar, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
         <TouchableOpacity
-          style={[styles.attachBtn, { borderColor: colors.border }]}
+          style={[
+            styles.attachBtn, 
+            { 
+              borderColor: colors.border,
+              borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 20 : 10),
+              borderWidth: themeMode === 'bauhaus' ? 2 : 1,
+            }
+          ]}
           onPress={handleShareLocationInChat}
         >
           <Ionicons name="navigate-outline" size={18} color={colors.accentGold} />
         </TouchableOpacity>
 
         <TextInput
-          style={[styles.textInput, { backgroundColor: colors.background, color: colors.foreground, borderColor: colors.border }]}
+          style={[
+            styles.textInput, 
+            { 
+              backgroundColor: colors.background, 
+              color: colors.foreground, 
+              borderColor: colors.border,
+              borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 22 : 14),
+              borderWidth: themeMode === 'bauhaus' ? 2 : 1,
+            }
+          ]}
           placeholder="Write a message..."
           placeholderTextColor={colors.textMuted}
           value={inputText}
@@ -800,7 +824,13 @@ export default function ChatScreen() {
         />
 
         <TouchableOpacity
-          style={[styles.sendBtn, { backgroundColor: sending ? colors.surfaceMuted : colors.accentGold }]}
+          style={[
+            styles.sendBtn, 
+            { 
+              backgroundColor: sending ? colors.surfaceMuted : colors.accentGold,
+              borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 20 : 10),
+            }
+          ]}
           onPress={() => handleSendText()}
           disabled={sending || !inputText.trim()}
         >

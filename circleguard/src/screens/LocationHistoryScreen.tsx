@@ -533,12 +533,12 @@ export default function LocationHistoryScreen() {
           var map, legPolylines = [], legDecorators = [], playerMarker, stopMarkers = [];
 
           function initMap() {
-            var tileUrl = 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
-            var fallbackTileUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+            var tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+            var fallbackTileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
             map = L.map('map', { zoomControl: false, attributionControl: false, preferCanvas: true, zoomAnimation: true, fadeAnimation: true, markerZoomAnimation: true }).setView([13.0827, 80.2707], 14);
-            var terrainLayer = L.tileLayer(tileUrl, { maxZoom: 17, keepBuffer: 8, updateWhenIdle: false, updateWhenZooming: false, crossOrigin: true }).addTo(map);
+            var terrainLayer = L.tileLayer(tileUrl, { maxZoom: 19, keepBuffer: 8, updateWhenIdle: false, updateWhenZooming: false, crossOrigin: true }).addTo(map);
             terrainLayer.on('tileerror', function(e) {
-              e.tile.src = fallbackTileUrl.replace('{s}', 'a').replace('{z}', e.coords.z).replace('{x}', e.coords.x).replace('{y}', e.coords.y);
+              e.tile.src = fallbackTileUrl.replace('{z}', e.coords.z).replace('{x}', e.coords.x).replace('{y}', e.coords.y);
             });
           }
           initMap();

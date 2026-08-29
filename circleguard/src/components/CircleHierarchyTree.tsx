@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Dimensions } from 'react-native';
-import Svg, { Line } from 'react-native-svg';
+import Svg, { Line, Circle as SvgCircle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
 import SpringTouchable from './SpringTouchable';
@@ -25,7 +25,7 @@ export default function CircleHierarchyTree({
   onSelectMember,
   onMoveBranch,
 }: CircleHierarchyTreeProps) {
-  const { colors } = useThemeStore();
+  const { colors, isDark } = useThemeStore();
 
   // 1. Layer 1: Circle Leader / Founder (Root)
   const owners = members.filter(m => m.role === 'owner');
@@ -61,18 +61,22 @@ export default function CircleHierarchyTree({
     m => m.user_id !== founder?.user_id && !renderedUserIds.has(m.user_id)
   );
 
-  // Precision Column-Matched Tree Bracket Connector (Zero-Gap Direct Connect)
+  // Celestial Hairline Connector with Luminous Micro-Dots
   const renderColumnBracket = (
     index: number,
     totalColumns: number,
     color: string,
-    height: number = 20
+    height: number = 22
   ) => {
+    const strokeW = 1.3;
+    const strokeAlpha = 0.55;
+
     if (totalColumns <= 1) {
       return (
         <View style={[styles.bracketBox, { height }]}>
           <Svg height={height} width="100%">
-            <Line x1="50%" y1="0" x2="50%" y2={height} stroke={color} strokeWidth="2.5" />
+            <Line x1="50%" y1="0" x2="50%" y2={height} stroke={color} strokeOpacity={strokeAlpha} strokeWidth={strokeW} />
+            <SvgCircle cx="50%" cy={height} r="2.2" fill={color} />
           </Svg>
         </View>
       );
@@ -86,23 +90,24 @@ export default function CircleHierarchyTree({
         <Svg height={height} width="100%">
           {/* Horizontal Beam */}
           {isFirst && (
-            <Line x1="50%" y1="0" x2="100%" y2="0" stroke={color} strokeWidth="2.5" />
+            <Line x1="50%" y1="0" x2="100%" y2="0" stroke={color} strokeOpacity={strokeAlpha} strokeWidth={strokeW} />
           )}
           {isLast && (
-            <Line x1="0%" y1="0" x2="50%" y2="0" stroke={color} strokeWidth="2.5" />
+            <Line x1="0%" y1="0" x2="50%" y2="0" stroke={color} strokeOpacity={strokeAlpha} strokeWidth={strokeW} />
           )}
           {!isFirst && !isLast && (
-            <Line x1="0%" y1="0" x2="100%" y2="0" stroke={color} strokeWidth="2.5" />
+            <Line x1="0%" y1="0" x2="100%" y2="0" stroke={color} strokeOpacity={strokeAlpha} strokeWidth={strokeW} />
           )}
 
-          {/* Vertical Drop Connecting Directly to Card Top */}
-          <Line x1="50%" y1="0" x2="50%" y2={height} stroke={color} strokeWidth="2.5" />
+          {/* Vertical Drop with Junction Micro-Star */}
+          <Line x1="50%" y1="0" x2="50%" y2={height} stroke={color} strokeOpacity={strokeAlpha} strokeWidth={strokeW} />
+          <SvgCircle cx="50%" cy={height} r="2.2" fill={color} />
         </Svg>
       </View>
     );
   };
 
-  // Compact Node Card
+  // Celestial Floating Gem Node Card
   const renderNode = (
     member: CircleMember,
     roleColor: string,
@@ -117,6 +122,7 @@ export default function CircleHierarchyTree({
     const isGhost = !!member.profile?.is_ghost_mode;
     const isHideOnline = !!member.profile?.hide_online_presence;
     const isOnline = (isGhost || isHideOnline) ? false : (member.isOnline ?? true);
+    const battery = member.batteryPct !== undefined && member.batteryPct !== null ? member.batteryPct : 95;
 
     return (
       <View key={member.user_id} style={styles.nodeContainer}>
@@ -124,65 +130,85 @@ export default function CircleHierarchyTree({
           style={[
             styles.nodeCard,
             {
-              backgroundColor: colors.surface,
-              borderColor: roleColor,
-              borderWidth: isApex ? 2 : 1.5,
+              backgroundColor: isDark ? 'rgba(21, 23, 30, 0.85)' : 'rgba(255, 255, 255, 0.92)',
+              borderColor: `${roleColor}40`,
             },
             isApex && {
+              borderColor: `${roleColor}80`,
               shadowColor: roleColor,
               shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.4,
+              shadowOpacity: 0.35,
               shadowRadius: 10,
-              elevation: 8,
+              elevation: 6,
             },
           ]}
           onPress={() => onSelectMember(member)}
-          scaleTo={0.93}
+          scaleTo={0.94}
         >
-          {/* Avatar Circle */}
-          <View style={[styles.avatarCircle, { borderColor: roleColor, backgroundColor: colors.background }]}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
-            ) : (
-              <Text style={[styles.avatarInitial, { color: roleColor }]}>{initial}</Text>
-            )}
-            <View style={[styles.statusDot, { backgroundColor: isOnline ? '#10B981' : '#9CA3AF' }]} />
+          {/* Glowing Avatar Orbit */}
+          <View style={[styles.avatarOrbitRing, { borderColor: `${roleColor}30` }]}>
+            <View style={[styles.avatarCircle, { borderColor: roleColor, backgroundColor: colors.background }]}>
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
+              ) : (
+                <Text style={[styles.avatarInitial, { color: roleColor }]}>{initial}</Text>
+              )}
+              {/* Online Pulse Dot */}
+              <View
+                style={[
+                  styles.statusDot,
+                  {
+                    backgroundColor: isOnline ? '#10B981' : '#6B7280',
+                    borderColor: isDark ? '#15171E' : '#FFFFFF',
+                  },
+                ]}
+              />
+            </View>
           </View>
 
-          {/* Role Pill */}
-          <View style={[styles.rolePill, { backgroundColor: `${roleColor}20`, borderColor: roleColor }]}>
+          {/* Celestial Role Micro-Pill */}
+          <View style={[styles.rolePill, { backgroundColor: `${roleColor}14` }]}>
             <Ionicons name={roleIcon} size={8} color={roleColor} />
             <Text style={[styles.rolePillText, { color: roleColor }]}>{roleTitle}</Text>
           </View>
 
           {isGhost && (
-            <View style={[styles.rolePill, { backgroundColor: 'rgba(168,85,247,0.2)', borderColor: '#A855F7', marginTop: 2 }]}>
-              <Text style={[styles.rolePillText, { color: '#A855F7', fontSize: 7.5 }]}>👻 GHOST</Text>
+            <View style={[styles.rolePill, { backgroundColor: 'rgba(168, 85, 247, 0.15)', marginTop: 2 }]}>
+              <Text style={[styles.rolePillText, { color: '#C084FC', fontSize: 7 }]}>👻 GHOST</Text>
             </View>
           )}
 
-          {/* Name */}
+          {/* Member Name */}
           <Text style={[styles.nameText, { color: colors.foreground }]} numberOfLines={1}>
             {name}
           </Text>
 
-          {/* Battery */}
+          {/* Minimalist Battery Indicator */}
           <View style={styles.batteryRow}>
-            <Ionicons name="battery-charging-outline" size={8.5} color={colors.textMuted} />
-            <Text style={[styles.batteryText, { color: colors.textMuted }]}>
-              {member.batteryPct ? `${member.batteryPct}%` : '100%'}
+            <Ionicons
+              name={battery <= 20 ? 'battery-dead' : 'battery-charging-outline'}
+              size={8}
+              color={battery <= 20 ? '#EF4444' : colors.textMuted}
+            />
+            <Text
+              style={[
+                styles.batteryText,
+                { color: battery <= 20 ? '#EF4444' : colors.textMuted },
+              ]}
+            >
+              {battery}%
             </Text>
           </View>
         </SpringTouchable>
 
-        {/* Move / Re-branch Action */}
+        {/* Move Action (if Leader) */}
         {canManageRanks && !isApex && (
           <TouchableOpacity
-            style={[styles.moveBtn, { backgroundColor: `${roleColor}15`, borderColor: roleColor }]}
+            style={[styles.moveBtn, { backgroundColor: `${roleColor}10`, borderColor: `${roleColor}30` }]}
             onPress={() => onMoveBranch && onMoveBranch(member)}
             activeOpacity={0.7}
           >
-            <Ionicons name="swap-horizontal" size={9} color={roleColor} />
+            <Ionicons name="swap-horizontal" size={8.5} color={roleColor} />
             <Text style={[styles.moveBtnText, { color: roleColor }]}>MOVE</Text>
           </TouchableOpacity>
         )}
@@ -192,16 +218,16 @@ export default function CircleHierarchyTree({
 
   // Helper for Member / Guardian node
   const renderGenericChild = (m: CircleMember) => {
-    let color = '#10B981';
+    let color = '#34D399';
     let title = 'MEMBER';
     let icon: keyof typeof Ionicons.glyphMap = 'person-outline';
 
     if (m.role === 'guardian') {
-      color = '#3B82F6';
+      color = '#38BDF8';
       title = 'GUARDIAN';
       icon = 'shield-outline';
     } else if (m.role === 'co_leader') {
-      color = '#A855F7';
+      color = '#C084FC';
       title = 'CO-LEADER';
       icon = 'shield-checkmark-sharp';
     }
@@ -236,10 +262,10 @@ export default function CircleHierarchyTree({
 
   return (
     <View style={styles.wrapper}>
-      {/* Dual-Axis Scrollable Graph Tree Canvas */}
+      {/* Dual-Axis Scrollable Constellation Canvas */}
       <ScrollView
         horizontal
-        showsHorizontalScrollIndicator={true}
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.canvasContent}
       >
         <View style={styles.graphCanvas}>
@@ -247,20 +273,21 @@ export default function CircleHierarchyTree({
           {/* LAYER 1: CIRCLE LEADER / FOUNDER (ROOT APEX)                              */}
           {/* ========================================================================= */}
           <View style={styles.rootBox}>
-            {founder && renderNode(founder, '#D4AF37', 'ROOT LEADER', 'star', true)}
+            {founder && renderNode(founder, '#F5D061', 'FOUNDER', 'star-sharp', true)}
           </View>
 
-          {/* Root Central Output Stem */}
+          {/* Central Stem */}
           {topColumns.length > 0 && (
             <View style={styles.rootCenterStem}>
-              <Svg height="16" width="100%">
-                <Line x1="50%" y1="0" x2="50%" y2="16" stroke="#D4AF37" strokeWidth="2.5" />
+              <Svg height="18" width="100%">
+                <Line x1="50%" y1="0" x2="50%" y2="18" stroke="#F5D061" strokeOpacity={0.6} strokeWidth="1.3" />
+                <SvgCircle cx="50%" cy="18" r="2.4" fill="#F5D061" />
               </Svg>
             </View>
           )}
 
           {/* ========================================================================= */}
-          {/* LAYER 2 & LAYER 3: TOP BRANCHES WITH SEAMLESS CONNECTORS                  */}
+          {/* LAYER 2 & LAYER 3: CELESTIAL SQUAD BRANCHES                               */}
           {/* ========================================================================= */}
           <View style={styles.branchesRow}>
             {topColumns.map((col, idx) => {
@@ -268,31 +295,34 @@ export default function CircleHierarchyTree({
 
               if (col.type === 'co_leader' && col.coLeader) {
                 const subMembers = col.subMembers || [];
-                const colWidth = Math.max(105, subMembers.length * 105);
+                const colWidth = Math.max(105, subMembers.length * 102);
 
                 return (
                   <View key={col.key} style={[styles.branchColumn, { width: colWidth }]}>
-                    {/* Top Tree Bracket to Leader (Direct Touching Top of Card) */}
-                    {renderColumnBracket(idx, totalCols, '#D4AF37', 20)}
+                    {/* Top Connector to Leader */}
+                    {renderColumnBracket(idx, totalCols, '#F5D061', 20)}
 
                     {/* Layer 2: Co-Leader Node */}
-                    {renderNode(col.coLeader, '#A855F7', 'CO-LEADER', 'shield-checkmark-sharp')}
+                    {renderNode(col.coLeader, '#C084FC', 'CO-LEADER', 'shield-checkmark-sharp')}
 
                     {/* Subordinate Stem & Multi-Children Row */}
                     {subMembers.length > 0 && (
                       <View style={styles.subChildrenBlock}>
-                        {/* Vertical Stem from Co-Leader to children bracket */}
                         <View style={styles.coLeaderToChildrenStem}>
-                          <Svg height="14" width="100%">
-                            <Line x1="50%" y1="0" x2="50%" y2="14" stroke="#A855F7" strokeWidth="2.5" />
+                          <Svg height="16" width="100%">
+                            <Line x1="50%" y1="0" x2="50%" y2="16" stroke="#C084FC" strokeOpacity={0.6} strokeWidth="1.3" />
+                            <SvgCircle cx="50%" cy="16" r="2.2" fill="#C084FC" />
                           </Svg>
                         </View>
 
-                        {/* Children Row with exact column brackets */}
                         <View style={styles.childrenRow}>
                           {subMembers.map((child, cIdx) => (
-                            <View key={child.user_id} style={styles.childColumn}>
-                              {renderColumnBracket(cIdx, subMembers.length, '#A855F7', 16)}
+                            <View key={child.user_id} style={[styles.childColumn, { width: subMembers.length === 1 ? '100%' : 92 }]}>
+                              {subMembers.length > 1 ? (
+                                renderColumnBracket(cIdx, subMembers.length, '#C084FC', 16)
+                              ) : (
+                                <View style={{ height: 6 }} />
+                              )}
                               {renderGenericChild(child)}
                             </View>
                           ))}
@@ -305,16 +335,24 @@ export default function CircleHierarchyTree({
 
               // Direct Leader Children Column
               const directList = col.subMembers || [];
-              const directWidth = Math.max(105, directList.length * 105);
+              const availableWidth = SCREEN_WIDTH - 36;
+              const autoChildWidth = directList.length > 0 && directList.length <= 4
+                ? Math.max(78, Math.floor(availableWidth / directList.length))
+                : 92;
+              const directWidth = Math.max(105, directList.length * autoChildWidth);
 
               return (
                 <View key={col.key} style={[styles.branchColumn, { width: directWidth }]}>
-                  {renderColumnBracket(idx, totalCols, '#D4AF37', 20)}
+                  {renderColumnBracket(idx, totalCols, '#F5D061', 20)}
 
                   <View style={styles.childrenRow}>
                     {directList.map((child, dIdx) => (
-                      <View key={child.user_id} style={styles.childColumn}>
-                        {directList.length > 1 && renderColumnBracket(dIdx, directList.length, '#D4AF37', 16)}
+                      <View key={child.user_id} style={[styles.childColumn, { width: autoChildWidth }]}>
+                        {directList.length > 1 ? (
+                          renderColumnBracket(dIdx, directList.length, '#F5D061', 16)
+                        ) : (
+                          <View style={{ height: 6 }} />
+                        )}
                         {renderGenericChild(child)}
                       </View>
                     ))}
@@ -332,12 +370,12 @@ export default function CircleHierarchyTree({
 const styles = StyleSheet.create({
   wrapper: {
     width: '100%',
-    paddingTop: 8,
-    marginBottom: 20,
+    paddingTop: 4,
+    marginBottom: 24,
   },
   canvasContent: {
     paddingHorizontal: 16,
-    paddingBottom: 24,
+    paddingBottom: 20,
   },
   graphCanvas: {
     minWidth: Math.max(SCREEN_WIDTH - 28, 360),
@@ -348,7 +386,7 @@ const styles = StyleSheet.create({
   },
   rootCenterStem: {
     width: '100%',
-    height: 16,
+    height: 18,
     alignItems: 'center',
     marginBottom: 0,
   },
@@ -370,7 +408,7 @@ const styles = StyleSheet.create({
   },
   coLeaderToChildrenStem: {
     width: '100%',
-    height: 14,
+    height: 16,
     alignItems: 'center',
     marginBottom: 0,
   },
@@ -378,80 +416,84 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'flex-start',
-    width: '100%',
   },
   childColumn: {
     alignItems: 'center',
-    width: 105,
   },
   nodeContainer: {
     alignItems: 'center',
+    marginHorizontal: 2,
   },
   nodeCard: {
-    width: 90,
-    paddingVertical: 7,
+    width: 82,
+    paddingVertical: 9,
     paddingHorizontal: 5,
-    borderRadius: 14,
+    borderRadius: 16,
+    borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarOrbitRing: {
+    padding: 2.5,
+    borderRadius: 24,
+    borderWidth: 1,
+    marginBottom: 5,
   },
   avatarCircle: {
     width: 34,
     height: 34,
     borderRadius: 17,
     borderWidth: 1.5,
-    justifyContent: 'center',
     alignItems: 'center',
-    position: 'relative',
-    marginBottom: 4,
-    overflow: 'hidden',
+    justifyContent: 'center',
   },
   avatarImg: {
     width: '100%',
     height: '100%',
+    borderRadius: 17,
   },
   avatarInitial: {
-    fontSize: 14,
-    fontWeight: 'bold',
+    fontSize: 13,
+    fontWeight: '800',
   },
   statusDot: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    bottom: -1,
+    right: -1,
+    width: 8.5,
+    height: 8.5,
+    borderRadius: 4.25,
     borderWidth: 1.5,
-    borderColor: '#0D0E12',
   },
   rolePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 5,
+    gap: 3,
+    paddingHorizontal: 6,
     paddingVertical: 1.5,
-    borderRadius: 5,
-    borderWidth: 0.8,
-    marginBottom: 3,
+    borderRadius: 6,
+    marginBottom: 4,
+    maxWidth: '96%',
   },
   rolePillText: {
-    fontSize: 6.5,
-    fontWeight: '900',
-    letterSpacing: 0.4,
+    fontSize: 7.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
   nameText: {
-    fontSize: 9.5,
-    fontWeight: '800',
+    fontSize: 10.5,
+    fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 2,
-    maxWidth: 82,
+    marginBottom: 3,
+    maxWidth: 72,
   },
   batteryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 3,
   },
   batteryText: {
-    fontSize: 7.5,
+    fontSize: 8,
     fontWeight: '600',
   },
   moveBtn: {
@@ -460,13 +502,12 @@ const styles = StyleSheet.create({
     gap: 2,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 5,
-    borderWidth: 0.8,
-    marginTop: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginTop: 4,
   },
   moveBtnText: {
-    fontSize: 7,
-    fontWeight: '900',
-    letterSpacing: 0.4,
+    fontSize: 7.5,
+    fontWeight: '700',
   },
 });

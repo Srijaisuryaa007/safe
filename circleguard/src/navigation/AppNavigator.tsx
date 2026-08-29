@@ -19,6 +19,7 @@ import ChatScreen from '../screens/ChatScreen';
 
 import GlobalSOSModal from '../components/GlobalSOSModal';
 import GlobalLocationShareModal from '../components/GlobalLocationShareModal';
+import NetworkStatusBanner from '../components/NetworkStatusBanner';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -161,7 +162,7 @@ function GlobalChatNotificationListener() {
 }
 
 export default function AppNavigator() {
-  const { session, profile, isLoading } = useAuthStore();
+  const { session, profile, isLoading, isProfileFetching } = useAuthStore();
   const [showSplash, setShowSplash] = React.useState(true);
 
   React.useEffect(() => {
@@ -178,6 +179,7 @@ export default function AppNavigator() {
     <LuxuryAlertProvider>
       <BiometricLockGate>
         <NavigationContainer>
+          <NetworkStatusBanner />
           {session && profile ? (
             <>
               <GlobalSOSModal />
@@ -188,14 +190,14 @@ export default function AppNavigator() {
             </>
           ) : null}
           <Stack.Navigator screenOptions={{ headerShown: false }}>
-            {!session ? (
-              // Unauthenticated Flow
+            {!session || isProfileFetching ? (
+              // Unauthenticated / In-Flight Auth Flow (keeps Login screen active during spin)
               <>
                 <Stack.Screen name="Login" component={LoginScreen} />
                 <Stack.Screen name="SignUp" component={SignUpScreen} />
               </>
-            ) : !profile ? (
-              // Profile Setup Flow
+            ) : !profile || !profile.full_name || profile.full_name === 'Circle Member' || !profile.phone ? (
+              // Luxury Profile Setup Flow (Collect Name & Mobile Number)
               <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
             ) : (
               // Authenticated Flow

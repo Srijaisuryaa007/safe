@@ -8,28 +8,38 @@ import * as Battery from 'expo-battery';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
-import { useCircleStore } from '../store/useCircleStore';
+import { useCircleStore, Place } from '../store/useCircleStore';
 import AlertModal from '../components/AlertModal';
 import AddPlaceModal from '../components/AddPlaceModal';
 import SearchFilterModal from '../components/SearchFilterModal';
 import MapLayerModal, { MapStyleType } from '../components/MapLayerModal';
 import SpringTouchable from '../components/SpringTouchable';
-import { LUXURY_THEME } from '../constants/theme';
+import { 
+  LUXURY_THEME, 
+  getThemeCardStyles, 
+  getThemeButtonStyles, 
+  getThemeBadgeStyles, 
+  getThemeBorderStyles, 
+  getThemeSheetStyles, 
+  getThemeFloatingControlStyles 
+} from '../constants/theme';
 import { evaluateGeofenceBreaches } from '../services/GeofenceEngine';
 import { fetchCategoryPois, generateFallbackPois } from '../services/PoiService';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
+import { useThemeStore } from '../store/useThemeStore';
+import { queueAndSyncLocationHistory, flushOfflineBreadcrumbs } from '../services/OfflineLocationQueueService';
 
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
-  const φ1 = lat1 * Math.PI/180;
-  const φ2 = lat2 * Math.PI/180;
-  const Δφ = (lat2-lat1) * Math.PI/180;
-  const Δλ = (lon2-lon1) * Math.PI/180;
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
 
-  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
             Math.cos(φ1) * Math.cos(φ2) *
-            Math.sin(Δλ/2) * Math.sin(Δλ/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
 
@@ -143,8 +153,6 @@ function parseLocationPoint(item: any): { latitude: number; longitude: number } 
   return { latitude: lat, longitude: lng };
 }
 
-import { useThemeStore } from '../store/useThemeStore';
-
 const LEAFLET_HTML = `
   <!DOCTYPE html>
   <html>
@@ -156,21 +164,75 @@ const LEAFLET_HTML = `
       body, html, #map { margin: 0; padding: 0; height: 100%; width: 100%; background: #F9F8F6; }
       .leaflet-control-attribution { display: none !important; }
       .custom-icon, .leaflet-div-icon { background: transparent !important; border: none !important; }
+      
       .leaflet-marker-icon, .leaflet-marker-shadow {
-        transition: transform 0.35s cubic-bezier(0.25, 1, 0.5, 1) !important;
+        transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1) !important;
       }
+      
       .member-avatar-online {
         background: #1A1A1A; color: #10B981; border-radius: 50%;
         display: flex; align-items: center; justify-content: center;
         font-weight: bold; font-family: sans-serif; border: 2px solid #10B981;
-        box-shadow: 0 4px 12px rgba(16,185,129,0.35);
+        box-shadow: 0 4px 14px rgba(16,185,129,0.45);
       }
       .member-avatar-offline {
         background: #374151; color: #D1D5DB; border-radius: 50%;
         display: flex; align-items: center; justify-content: center;
         font-weight: bold; font-family: sans-serif; border: 2px solid #9CA3AF;
-        opacity: 0.75;
+        opacity: 0.85;
       }
+      
+      /* Dedicated Live Self Marker Styles */
+      .self-live-container {
+        position: relative;
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .self-pulse-wave {
+        position: absolute;
+        width: 46px;
+        height: 46px;
+        border-radius: 50%;
+        background: rgba(212, 175, 55, 0.22);
+        border: 2px solid #D4AF37;
+        animation: selfPulseAnim 2s infinite ease-out;
+        pointer-events: none;
+      }
+      @keyframes selfPulseAnim {
+        0% { transform: scale(0.6); opacity: 1; }
+        100% { transform: scale(1.6); opacity: 0; }
+      }
+      .self-avatar-circle {
+        position: relative;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        background: #0D0E12;
+        border: 2.5px solid #D4AF37;
+        box-shadow: 0 0 16px rgba(212, 175, 55, 0.8), 0 4px 12px rgba(0,0,0,0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+      }
+      .self-heading-arrow {
+        position: absolute;
+        top: -8px;
+        left: 50%;
+        margin-left: -6px;
+        width: 0;
+        height: 0;
+        border-left: 6px solid transparent;
+        border-right: 6px solid transparent;
+        border-bottom: 10px solid #D4AF37;
+        filter: drop-shadow(0 0 6px rgba(212,175,55,0.9));
+        z-index: 15;
+        transition: transform 0.2s linear;
+      }
+      
       .custom-poi-logo-icon {
         background: transparent !important;
         border: none !important;
@@ -215,16 +277,19 @@ const LEAFLET_HTML = `
   <body>
     <div id="map"></div>
     <script>
-      window.map = L.map('map', { zoomControl: false }).setView([20.5937, 78.9629], 14);
+      window.map = L.map('map', { zoomControl: false }).setView([20.5937, 78.9629], 15);
       var map = window.map;
-      var userMarker = null;
+      
+      // Dedicated Layer Collections
+      window.selfMarker = null;
+      window.selfAccuracyCircle = null;
       window.memberMarkers = window.memberMarkers || {};
       var memberMarkers = window.memberMarkers;
       window.placeCircles = window.placeCircles || {};
       var placeCircles = window.placeCircles;
       window.poiMarkers = window.poiMarkers || {};
       var poiMarkers = window.poiMarkers;
-      var initialCentered = false;
+      var hasRealCentered = false;
 
       var savedStyle = 'satellite';
       try {
@@ -233,10 +298,10 @@ const LEAFLET_HTML = `
 
       var tileUrls = {
         satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        midnight: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        dark: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+        midnight: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
         terrain: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-        vector: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+        vector: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
       };
 
       var initialTileUrl = tileUrls[savedStyle] || tileUrls.satellite;
@@ -282,6 +347,112 @@ const LEAFLET_HTML = `
         }
       };
 
+      function sendAppMessage(obj) {
+        var msg = typeof obj === 'string' ? obj : JSON.stringify(obj);
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(msg);
+        } else if (window.parent && window.parent.postMessage) {
+          window.parent.postMessage(msg, '*');
+        }
+      }
+
+      try {
+        sendAppMessage({ type: 'MAP_READY' });
+      } catch(e) {}
+
+      // REAL-TIME USER GPS GLIDE BRIDGE WITH JITTER SMOOTHING
+      window.lastSelfPanLat = 0;
+      window.lastSelfPanLng = 0;
+
+      window.updateSelfLiveGPS = function(lat, lng, heading, speed, accuracy, isDriving, followMode, userName, avatarUrl) {
+        if (!lat || !lng || isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) return;
+
+        // 1. Accuracy halo
+        var accRadius = Math.max(10, Math.min(accuracy || 20, 150));
+        if (window.selfAccuracyCircle) {
+          window.selfAccuracyCircle.setLatLng([lat, lng]);
+          window.selfAccuracyCircle.setRadius(accRadius);
+        } else {
+          window.selfAccuracyCircle = L.circle([lat, lng], {
+            radius: accRadius,
+            color: '#D4AF37',
+            fillColor: '#D4AF37',
+            fillOpacity: 0.12,
+            weight: 1,
+            dashArray: '3, 3'
+          }).addTo(map);
+        }
+
+        // 2. Self Marker with rotating heading arrow & live speed badge
+        var speedMps = speed || 0;
+        var speedKmh = Math.round(speedMps * 3.6);
+        var isMoving = speedMps >= 0.8;
+        
+        var speedText = isDriving ? ('Driving • ' + speedKmh + ' km/h') : (isMoving ? ('Walking • ' + speedKmh + ' km/h') : 'You (Live)');
+        var headingStyle = (heading !== undefined && heading !== null && isMoving) 
+          ? 'transform: rotate(' + heading + 'deg);' 
+          : 'display:none;';
+
+        var avatarContent = avatarUrl 
+          ? '<img src="' + avatarUrl + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" />' 
+          : '<span style="color:#D4AF37;font-weight:900;font-size:12px;">YOU</span>';
+
+        var selfHtml = '<div class="self-live-container">' +
+          '<div class="self-pulse-wave"></div>' +
+          '<div class="self-heading-arrow" style="' + headingStyle + '"></div>' +
+          '<div style="position:absolute; bottom:44px; left:50%; transform:translateX(-50%); white-space:nowrap; background:rgba(22,24,31,0.95); color:#FFFFFF; font-size:10px; font-weight:800; font-family:sans-serif; padding:3px 8px; border-radius:10px; border:1px solid #D4AF37; box-shadow:0 4px 10px rgba(0,0,0,0.5); pointer-events:none; z-index:1000;">' +
+            '📍 ' + speedText +
+          '</div>' +
+          '<div class="self-avatar-circle">' + avatarContent + '</div>' +
+          '</div>';
+
+        var selfIcon = L.divIcon({
+          className: 'custom-icon',
+          html: selfHtml,
+          iconSize: [50, 50],
+          iconAnchor: [25, 25]
+        });
+
+        if (window.selfMarker) {
+          window.selfMarker.setLatLng([lat, lng]);
+          window.selfMarker.setIcon(selfIcon);
+        } else {
+          window.selfMarker = L.marker([lat, lng], { icon: selfIcon, zIndexOffset: 3500 }).addTo(map);
+          window.selfMarker.on('click', function() {
+            sendAppMessage({ type: 'SELF_CLICK', lat: lat, lng: lng });
+          });
+        }
+
+        if (followMode) {
+          // Camera pan deadband: avoid jerky panning for microscopic sub-3m GPS drift
+          var dLat = Math.abs(lat - (window.lastSelfPanLat || 0));
+          var dLng = Math.abs(lng - (window.lastSelfPanLng || 0));
+          if (!window.lastSelfPanLat || dLat > 0.000035 || dLng > 0.000035) {
+            window.lastSelfPanLat = lat;
+            window.lastSelfPanLng = lng;
+            map.panTo([lat, lng], { animate: true, duration: 0.5 });
+          }
+        }
+      };
+
+      // DELETION HOOK: Instant removal of deleted zone layers
+      window.deletePlaceLayer = function(placeId) {
+        if (!placeId) return;
+        var keys = ['circle_' + placeId, 'marker_' + placeId, placeId, 'start_' + placeId, 'end_' + placeId, 'line_' + placeId];
+        keys.forEach(function(k) {
+          if (placeCircles[k]) {
+            try { map.removeLayer(placeCircles[k]); } catch(e) {}
+            delete placeCircles[k];
+          }
+        });
+
+        map.eachLayer(function(layer) {
+          if (layer._placeId === placeId || (layer._placeKey && layer._placeKey.indexOf(placeId) !== -1)) {
+            try { map.removeLayer(layer); } catch(e) {}
+          }
+        });
+      };
+
       window.searchedLocationMarker = null;
       window.showSearchedPlace = function(lat, lng, name) {
         if (!lat || !lng) {
@@ -317,19 +488,6 @@ const LEAFLET_HTML = `
         map.setView([lat, lng], 16);
       };
 
-      function sendAppMessage(obj) {
-        var msg = typeof obj === 'string' ? obj : JSON.stringify(obj);
-        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-          window.ReactNativeWebView.postMessage(msg);
-        } else if (window.parent && window.parent.postMessage) {
-          window.parent.postMessage(msg, '*');
-        }
-      }
-
-      try {
-        sendAppMessage({ type: 'MAP_READY' });
-      } catch(e) {}
-
       window.updateMapData = function(data) {
         if (!data) return;
 
@@ -354,25 +512,30 @@ const LEAFLET_HTML = `
 
         if (data.targetFocus) {
           map.setView([data.targetFocus[0], data.targetFocus[1]], data.targetFocus[2] || 17);
-          initialCentered = true;
-        } else if (!initialCentered && data.center) {
-          map.setView(data.center, 14);
-          initialCentered = true;
+          hasRealCentered = true;
+        } else if (data.userLocation && data.userLocation.latitude && data.userLocation.latitude !== 20.5937 && (!hasRealCentered || data.isFollowActive)) {
+          map.setView([data.userLocation.latitude, data.userLocation.longitude], 16);
+          hasRealCentered = true;
+        } else if (!hasRealCentered && data.center && data.center[0] !== 20.5937) {
+          map.setView(data.center, 15);
+          hasRealCentered = true;
         }
 
-        // User & Member locations are rendered dynamically via rich avatar markers below
-
+        // 1. UPDATE CIRCLE MEMBERS
         if (data.members) {
           var currentMemberIds = {};
-          var allMemberCoords = [];
 
           data.members.forEach(function(m) {
+            if (m.isSelf) {
+              window.updateSelfLiveGPS(m.lat, m.lng, m.heading, m.speed, m.accuracy, m.isDriving, data.isFollowActive, m.name, m.avatarUrl);
+              return;
+            }
+
             currentMemberIds[m.id] = true;
             var mLatLng = [m.lat, m.lng];
-            allMemberCoords.push(mLatLng);
 
             var avatarClass = m.isOnline ? 'member-avatar-online' : 'member-avatar-offline';
-            var statusTag = m.isOnline ? ' (Online)' : ' (' + (m.lastSeenText || 'Offline - Last Known Position') + ')';
+            var statusTag = m.isOnline ? ' (Online)' : ' (' + (m.lastSeenText || 'Offline') + ')';
             var avatarContent = m.avatarUrl
               ? '<img src="' + m.avatarUrl + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" />'
               : '<span style="color:#FFF;font-weight:bold;font-size:14px;">' + m.initial + '</span>';
@@ -399,7 +562,7 @@ const LEAFLET_HTML = `
 
             var batteryTag = m.batteryPct ? ' • ' + m.batteryPct + '%' : '';
             var activityTag = m.activityText ? ' • ' + m.activityText : '';
-            var labelHtml = '<div style="position:absolute; bottom:44px; left:50%; transform:translateX(-50%); white-space:nowrap; background:rgba(26,26,26,0.95); color:#FFFFFF; font-size:10px; font-weight:bold; font-family:sans-serif; padding:4px 9px; border-radius:12px; border:1px solid ' + roleColor + '; box-shadow:0 4px 12px rgba(0,0,0,0.5); pointer-events:none; z-index:1000;">' + roleBadgeSymbol + m.name + activityTag + batteryTag + '</div>';
+            var labelHtml = '<div style="position:absolute; bottom:44px; left:50%; transform:translateX(-50%); white-space:nowrap; background:rgba(22,24,31,0.95); color:#FFFFFF; font-size:10px; font-weight:bold; font-family:sans-serif; padding:4px 9px; border-radius:12px; border:1px solid ' + roleColor + '; box-shadow:0 4px 12px rgba(0,0,0,0.5); pointer-events:none; z-index:1000;">' + roleBadgeSymbol + m.name + activityTag + batteryTag + '</div>';
 
             var icon = L.divIcon({
               className: 'custom-icon',
@@ -413,7 +576,7 @@ const LEAFLET_HTML = `
               memberMarkers[m.id].setIcon(icon);
               memberMarkers[m.id].setPopupContent(m.name + statusTag);
             } else {
-              memberMarkers[m.id] = L.marker(mLatLng, { icon: icon }).addTo(map).bindPopup(m.name + statusTag);
+              memberMarkers[m.id] = L.marker(mLatLng, { icon: icon, zIndexOffset: 2000 }).addTo(map).bindPopup(m.name + statusTag);
               (function(memberId) {
                 memberMarkers[memberId].on('click', function() {
                   sendAppMessage({ type: 'MEMBER_CLICK', memberId: memberId });
@@ -422,41 +585,20 @@ const LEAFLET_HTML = `
             }
           });
 
-          if (!initialCentered && allMemberCoords.length > 0) {
-            try {
-              var bounds = L.latLngBounds(allMemberCoords);
-              map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
-              initialCentered = true;
-            } catch(e) {}
-          }
-
-          window.fitAllMembers = function() {
-            var coords = [];
-            Object.keys(memberMarkers).forEach(function(id) {
-              if (memberMarkers[id]) {
-                coords.push(memberMarkers[id].getLatLng());
-              }
-            });
-            if (coords.length > 0) {
-              try {
-                var bounds = L.latLngBounds(coords);
-                map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
-              } catch(e) {}
-            }
-          };
-
+          // Clean up old markers
           Object.keys(memberMarkers).forEach(function(id) {
             if (!currentMemberIds[id]) {
-              map.removeLayer(memberMarkers[id]);
+              try { map.removeLayer(memberMarkers[id]); } catch(e) {}
               delete memberMarkers[id];
             }
           });
         }
 
+        // 2. UPDATE GEOFENCE PLACES & ZONES
         if (data.places) {
           var currentPlaceIds = {};
           data.places.forEach(function(p) {
-            if (!p.lat || !p.lng) return;
+            if (!p.lat || !p.lng || p.lat === 0 || p.lng === 0) return;
             var circleKey = 'circle_' + p.id;
             var markerKey = 'marker_' + p.id;
             currentPlaceIds[circleKey] = true;
@@ -464,16 +606,44 @@ const LEAFLET_HTML = `
 
             var pLatLng = [p.lat, p.lng];
 
-            // 1. Gold Geofence Circle Boundary
+            // Resolve Category Theme Colors & Emojis
+            var cat = p.category || 'home';
+            var zoneColor = '#D4AF37';
+            var zoneEmoji = '🛡️';
+            
+            if (cat === 'home') {
+              zoneColor = '#10B981';
+              zoneEmoji = '🏠';
+            } else if (cat === 'work') {
+              zoneColor = '#3B82F6';
+              zoneEmoji = '💼';
+            } else if (cat === 'school') {
+              zoneColor = '#F59E0B';
+              zoneEmoji = '🎓';
+            } else if (cat === 'fitness' || cat === 'gym') {
+              zoneColor = '#8B5CF6';
+              zoneEmoji = '💪';
+            } else if (cat === 'danger') {
+              zoneColor = '#EF4444';
+              zoneEmoji = '⚠️';
+            }
+
+            // A. Geofence Boundary Circle
             if (placeCircles[circleKey]) {
               placeCircles[circleKey].setLatLng(pLatLng);
               placeCircles[circleKey].setRadius(p.radius);
+              placeCircles[circleKey].setStyle({
+                color: zoneColor,
+                fillColor: zoneColor,
+                fillOpacity: 0.22,
+                weight: 2.5
+              });
             } else {
               var pCircle = L.circle(pLatLng, {
                 radius: p.radius,
-                color: '#D4AF37',
-                fillColor: '#D4AF37',
-                fillOpacity: 0.28,
+                color: zoneColor,
+                fillColor: zoneColor,
+                fillOpacity: 0.22,
                 weight: 2.5
               }).addTo(map);
 
@@ -486,9 +656,11 @@ const LEAFLET_HTML = `
               });
             }
 
-            // 2. High-Visibility Safe Zone Center Badge
-            var badgeHtml = '<div style="position:relative;display:flex;align-items:center;justify-content:center;transform:translate(-50%, -50%);background:rgba(26,26,26,0.92);color:#D4AF37;border:1.5px solid #D4AF37;padding:3px 9px;border-radius:12px;box-shadow:0 3px 10px rgba(0,0,0,0.6);font-size:10px;font-weight:bold;white-space:nowrap;font-family:sans-serif;cursor:pointer;">' +
-              '<span style="margin-right:4px;">🛡️</span>' + p.name +
+            // B. Center Badge
+            var memberCountTag = p.assignedCount ? ' • ' + p.assignedCount + '👤' : '';
+            var radiusTag = p.radius >= 1000 ? ((p.radius/1000).toFixed(1) + 'km') : (p.radius + 'm');
+            var badgeHtml = '<div style="position:relative;display:flex;align-items:center;justify-content:center;transform:translate(-50%, -50%);background:rgba(22,24,31,0.92);color:#FFFFFF;border:1.5px solid ' + zoneColor + ';padding:4px 10px;border-radius:14px;box-shadow:0 4px 12px rgba(0,0,0,0.6);font-size:10.5px;font-weight:800;white-space:nowrap;font-family:sans-serif;cursor:pointer;">' +
+              '<span style="margin-right:5px;">' + zoneEmoji + '</span>' + p.name + ' (' + radiusTag + memberCountTag + ')' +
               '</div>';
 
             var badgeIcon = L.divIcon({
@@ -502,7 +674,7 @@ const LEAFLET_HTML = `
               placeCircles[markerKey].setLatLng(pLatLng);
               placeCircles[markerKey].setIcon(badgeIcon);
             } else {
-              var pMarker = L.marker(pLatLng, { icon: badgeIcon, zIndexOffset: 800 }).addTo(map);
+              var pMarker = L.marker(pLatLng, { icon: badgeIcon, zIndexOffset: 900 }).addTo(map);
               pMarker._placeId = p.id;
               pMarker._placeKey = markerKey;
               placeCircles[markerKey] = pMarker;
@@ -512,7 +684,7 @@ const LEAFLET_HTML = `
               });
             }
 
-            // 3. Route Geofence Points (if route geofence)
+            // C. Route Geofence Points
             if (p.endLat && p.endLng) {
               var startKey = 'start_' + p.id;
               var endKey = 'end_' + p.id;
@@ -528,7 +700,7 @@ const LEAFLET_HTML = `
               } else {
                 var sMarker = L.marker(pLatLng, {
                   icon: L.divIcon({ className: 'custom-icon', html: '<div style="background:#10B981;border:2px solid #FFF;border-radius:50%;width:16px;height:16px;box-shadow:0 0 10px rgba(16,185,129,0.9);"></div>', iconSize: [16, 16] })
-                }).addTo(map).bindPopup("Start Point: " + p.name);
+                }).addTo(map);
                 sMarker._placeId = p.id;
                 sMarker._placeKey = startKey;
                 placeCircles[startKey] = sMarker;
@@ -539,7 +711,7 @@ const LEAFLET_HTML = `
               } else {
                 var eMarker = L.marker(endLatLng, {
                   icon: L.divIcon({ className: 'custom-icon', html: '<div style="background:#EF4444;border:2px solid #FFF;border-radius:50%;width:16px;height:16px;box-shadow:0 0 10px rgba(239,68,68,0.9);"></div>', iconSize: [16, 16] })
-                }).addTo(map).bindPopup("End Point: " + p.name);
+                }).addTo(map);
                 eMarker._placeId = p.id;
                 eMarker._placeKey = endKey;
                 placeCircles[endKey] = eMarker;
@@ -558,22 +730,15 @@ const LEAFLET_HTML = `
             }
           });
 
-          // Purge deleted places
           Object.keys(placeCircles).forEach(function(id) {
             if (!currentPlaceIds[id]) {
               try { map.removeLayer(placeCircles[id]); } catch(e) {}
               delete placeCircles[id];
             }
           });
-
-          // Universal layer purge: Remove any orphaned circle or place marker from the map
-          map.eachLayer(function(layer) {
-            if (layer._placeId && !currentPlaceIds['circle_' + layer._placeId] && !currentPlaceIds[layer._placeId]) {
-              try { map.removeLayer(layer); } catch(e) {}
-            }
-          });
         }
 
+        // 3. UPDATE POIs
         if (data.pois) {
           var currentPoiIds = {};
           data.pois.forEach(function(p) {
@@ -669,6 +834,10 @@ const LEAFLET_HTML = `
         }
       });
 
+      map.on('dragstart', function() {
+        sendAppMessage({ type: 'USER_DRAGGED_MAP' });
+      });
+
       map.on('touchend touchmove dragstart zoomstart', function() {
         if (touchTimer) {
           clearTimeout(touchTimer);
@@ -695,13 +864,14 @@ export default function MapScreen() {
   const focusLng = route?.params?.focusLng;
   const focusUserName = route?.params?.focusUserName;
 
-  const { colors, isDark, mapStyle: mapStyleSetting, setMapStyle: setMapStyleSetting } = useThemeStore();
+  const { colors, isDark, themeMode, mapStyle: mapStyleSetting, setMapStyle: setMapStyleSetting } = useThemeStore();
   const { profile } = useAuthStore();
   const { activeCircle, members, places, circleFetched, fetchActiveCircle, fetchMembers, fetchPlaces, deletePlace, isLoading: circleLoading } = useCircleStore();
   
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [locations, setLocations] = useState<any[]>([]);
   const [userLoc, setUserLoc] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [isFollowUserActive, setIsFollowUserActive] = useState(true);
 
   const [selectedMember, setSelectedMember] = useState<any>(null);
   const [selectedPlace, setSelectedPlace] = useState<any>(null);
@@ -710,6 +880,13 @@ export default function MapScreen() {
   const [distanceUnit, setDistanceUnit] = useState<'km' | 'mi'>('km');
   const [showMapLayerModal, setShowMapLayerModal] = useState(false);
   const currentMapCenterRef = useRef<{ lat: number; lng: number }>({ lat: 20.5937, lng: 78.9629 });
+
+  const sheetStyles = getThemeSheetStyles(themeMode);
+  const primaryBtnStyles = getThemeButtonStyles(themeMode, 'primary');
+  const secondaryBtnStyles = getThemeButtonStyles(themeMode, 'secondary');
+  const dangerBtnStyles = getThemeButtonStyles(themeMode, 'danger');
+  const floatingControlStyles = getThemeFloatingControlStyles(themeMode);
+  const cardBorderStyles = getThemeBorderStyles(themeMode);
 
   useEffect(() => {
     const loadAppSettings = async () => {
@@ -733,7 +910,7 @@ export default function MapScreen() {
     }
   };
 
-  // Automatically focus on exact shared location once when navigating from Circle Chat
+  // Focus from chat or other screens
   useEffect(() => {
     const focusKey = `${focusUserId || ''}_${focusLat || ''}_${focusLng || ''}`;
     if (!focusUserId && !focusLat && !focusLng) {
@@ -742,7 +919,7 @@ export default function MapScreen() {
     }
 
     if (lastHandledFocusKeyRef.current === focusKey) {
-      return; // Already focused and handled; do not force re-open on background state ticks
+      return;
     }
     lastHandledFocusKeyRef.current = focusKey;
 
@@ -788,7 +965,7 @@ export default function MapScreen() {
     const placeId = placeToDelete.id;
 
     Alert.alert(
-      'Delete Bookmark',
+      'Delete Geofence Zone',
       `Remove "${placeToDelete.name}" from your circle geofences?`,
       [
         { text: 'Cancel', style: 'cancel' },
@@ -799,38 +976,22 @@ export default function MapScreen() {
             try {
               setSelectedPlace(null);
 
-              // Instantly remove Leaflet map circle layers from Webview with 0ms lag
+              // 1. Instantly remove Leaflet map layers with 0ms lag
               if (webViewRef.current) {
-                const js = `
-                  (function() {
-                    if (window.map && window.placeCircles) {
-                      var keys = ["circle_${placeId}", "marker_${placeId}", "${placeId}", "start_${placeId}", "end_${placeId}", "line_${placeId}"];
-                      keys.forEach(function(k) {
-                        if (window.placeCircles[k]) {
-                          try { window.map.removeLayer(window.placeCircles[k]); } catch(e) {}
-                          delete window.placeCircles[k];
-                        }
-                      });
-                    }
-                    if (window.map) {
-                      window.map.eachLayer(function(layer) {
-                        if (layer._placeId === "${placeId}" || (layer._placeKey && layer._placeKey.indexOf("${placeId}") !== -1)) {
-                          try { window.map.removeLayer(layer); } catch(e) {}
-                        }
-                      });
-                    }
-                  })();
-                  true;
-                `;
+                const js = `if (window.deletePlaceLayer) { window.deletePlaceLayer("${placeId}"); } true;`;
                 webViewRef.current.injectJavaScript(js);
               }
 
+              // 2. Delete from Supabase & Zustand store
               await deletePlace(placeId);
+              if (activeCircle) {
+                await fetchPlaces(activeCircle.id);
+              }
               pushMapData();
 
-              Alert.alert('Bookmark Removed', `"${placeToDelete.name}" has been deleted.`);
+              Alert.alert('Geofence Removed', `"${placeToDelete.name}" has been deleted.`);
             } catch (e: any) {
-              Alert.alert('Error Deleting Bookmark', e.message || 'Failed to delete bookmark');
+              Alert.alert('Error Deleting Geofence', e.message || 'Failed to delete geofence');
             }
           }
         }
@@ -838,66 +999,16 @@ export default function MapScreen() {
     );
   };
 
-  // POI Categories & Nearby Places State
+  // POI Categories & Home Anchoring
   const [selectedPoiCategory, setSelectedPoiCategory] = useState<string | null>(null);
   const [poiList, setPoiList] = useState<any[]>([]);
   const [loadingPois, setLoadingPois] = useState(false);
   const [selectedPoi, setSelectedPoi] = useState<any>(null);
 
-  const poiCategories = [
-    { id: 'hospital', label: 'HOSPITALS', icon: 'medical', color: '#EF4444' },
-    { id: 'school', label: 'SCHOOLS', icon: 'school', color: '#3B82F6' },
-    { id: 'police', label: 'POLICE STATIONS', icon: 'shield-checkmark', color: '#D4AF37' },
-    { id: 'restaurant', label: 'DINING & CAFES', icon: 'restaurant', color: '#F59E0B' },
-    { id: 'fuel', label: 'FUEL STATIONS', icon: 'car', color: '#10B981' },
-    { id: 'member', label: 'MEMBERS', icon: 'person', color: '#A855F7' },
-    { id: 'place', label: 'SAVED PLACES', icon: 'bookmark', color: '#EC4899' },
-  ];
-
-  const fetchNearbyPois = async (category: string) => {
-    if (selectedPoiCategory === category) {
-      setSelectedPoiCategory(null);
-      setPoiList([]);
-      handleSearchChange('');
-      return;
-    }
-
-    setSelectedPoiCategory(category);
-    setLoadingPois(true);
-    setSelectedPoi(null);
-
-    if (category === 'member') {
-      handleSearchChange('member');
-      setLoadingPois(false);
-      return;
-    }
-
-    if (category === 'place') {
-      handleSearchChange('place');
-      setLoadingPois(false);
-      return;
-    }
-
-    const lat = userLoc?.latitude || 20.5937;
-    const lng = userLoc?.longitude || 78.9629;
-    const isMiles = distanceUnit === 'mi';
-
-    // 0ms instant display
-    const instant = generateFallbackPois(category, lat, lng, isMiles);
-    setPoiList(instant);
-    handleSearchChange(category);
-
-    try {
-      const results = await fetchCategoryPois(category, lat, lng, isMiles);
-      if (results && results.length > 0) {
-        setPoiList(results);
-      }
-    } catch (e) {
-      console.warn('POI fetch error:', e);
-    } finally {
-      setLoadingPois(false);
-    }
-  };
+  const homePlace = places.find(p => p.category === 'home') || places[0];
+  const homeCoords = homePlace ? parseLocationPoint(homePlace) : null;
+  const fallbackBaseLat = (homeCoords && homeCoords.latitude !== 0) ? homeCoords.latitude : (userLoc?.latitude || 20.5937);
+  const fallbackBaseLng = (homeCoords && homeCoords.longitude !== 0) ? homeCoords.longitude : (userLoc?.longitude || 78.9629);
 
   const fetchAllNearbyPois = async (lat?: number, lng?: number, targetCategories?: string[]) => {
     setLoadingPois(true);
@@ -906,57 +1017,32 @@ export default function MapScreen() {
       : ['hospital', 'school', 'police', 'restaurant', 'fuel'];
 
     const isMiles = distanceUnit === 'mi';
+    const targetLat = lat || userLoc?.latitude || fallbackBaseLat;
+    const targetLng = lng || userLoc?.longitude || fallbackBaseLng;
 
-    // Accurately resolve target center (User GPS -> Active Member -> Viewport Center)
-    let targetLat = lat;
-    let targetLng = lng;
-
-    if (!targetLat || !targetLng || (targetLat === 20.5937 && targetLng === 78.9629 && userLoc?.latitude)) {
-      targetLat = userLoc?.latitude;
-      targetLng = userLoc?.longitude;
-    }
-    if (!targetLat || !targetLng) {
-      const activeMem = members.find(m => m.latitude && m.longitude);
-      const activeLoc = locations.find(l => l.latitude && l.longitude);
-      targetLat = activeLoc?.latitude || activeMem?.latitude || currentMapCenterRef.current.lat || 20.5937;
-      targetLng = activeLoc?.longitude || activeMem?.longitude || currentMapCenterRef.current.lng || 78.9629;
-    }
-
-    // 0ms instant display of all filtered categories
-    const instantList = categories.flatMap(cat => generateFallbackPois(cat, targetLat!, targetLng!, isMiles));
-    setPoiList(instantList);
-
-    // Immediately push to Leaflet map layer
-    if (webViewRef.current) {
-      const jsCode = `if (window.updateMapData) { window.updateMapData({ pois: ${JSON.stringify(instantList)} }); } true;`;
-      webViewRef.current.injectJavaScript(jsCode);
+    if (!targetLat || !targetLng || (targetLat === 20.5937 && targetLng === 78.9629)) {
+      setLoadingPois(false);
+      return;
     }
 
     try {
       const requests = categories.map(cat =>
-        fetchCategoryPois(cat, targetLat!, targetLng!, isMiles).catch(() => generateFallbackPois(cat, targetLat!, targetLng!, isMiles))
+        fetchCategoryPois(cat, targetLat, targetLng, isMiles)
       );
       const results = await Promise.all(requests);
       const combined = results.flat();
-      if (combined && combined.length > 0) {
-        setPoiList(combined);
-        if (webViewRef.current) {
-          const jsCode = `if (window.updateMapData) { window.updateMapData({ pois: ${JSON.stringify(combined)} }); } true;`;
-          webViewRef.current.injectJavaScript(jsCode);
-        }
+      setPoiList(combined);
+      
+      if (webViewRef.current) {
+        const jsCode = `if (window.updateMapData) { window.updateMapData({ pois: ${JSON.stringify(combined)} }); } true;`;
+        webViewRef.current.injectJavaScript(jsCode);
       }
     } catch (e) {
-      console.warn('Auto POI fetch error:', e);
+      console.warn('Real POI fetch error:', e);
     } finally {
       setLoadingPois(false);
     }
   };
-
-  // Map is clean & plain by default showing only User & Circle Members
-
-
-
-
 
   const handleZoomIn = () => {
     if (webViewRef.current) {
@@ -970,34 +1056,61 @@ export default function MapScreen() {
     }
   };
 
-  const handleFitAllMembers = () => {
-    let coords: [number, number][] = [];
-    const centerLat = userLoc?.latitude || 20.5937;
-    const centerLng = userLoc?.longitude || 78.9629;
+  const handleLocateMe = async () => {
+    try {
+      setIsFollowUserActive(true);
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      if (loc && loc.coords) {
+        setUserLoc({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+        if (webViewRef.current) {
+          const js = `
+            if (map) { 
+              map.setView([${loc.coords.latitude}, ${loc.coords.longitude}], 16); 
+            }
+            if (window.updateSelfLiveGPS) {
+              window.updateSelfLiveGPS(${loc.coords.latitude}, ${loc.coords.longitude}, ${loc.coords.heading || 0}, ${loc.coords.speed || 0}, ${loc.coords.accuracy || 10}, ${((loc.coords.speed || 0) > 4.5)}, true, "You", ${JSON.stringify(profile?.avatar_url || null)});
+            }
+            true;
+          `;
+          webViewRef.current.injectJavaScript(js);
+        }
+      }
+    } catch (e) {
+      console.warn("GPS locate error:", e);
+    }
+  };
 
-    let combinedMembers = [...members];
-    if (profile && !combinedMembers.some(m => String(m.user_id).toLowerCase() === String(profile.id).toLowerCase())) {
-      combinedMembers.push({
-        user_id: profile.id,
-        circle_id: activeCircle?.id || '',
-        role: 'owner',
-        joined_at: new Date().toISOString(),
-        profile: profile,
-        isOnline: true,
-      } as any);
+  const handleToggleFollow = () => {
+    const next = !isFollowUserActive;
+    setIsFollowUserActive(next);
+    if (next && userLoc && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`if (map) { map.panTo([${userLoc.latitude}, ${userLoc.longitude}], { animate: true, duration: 0.5 }); } true;`);
+    }
+  };
+
+  const handleFitAllMembers = () => {
+    setIsFollowUserActive(false);
+    let coords: [number, number][] = [];
+
+    if (userLoc && userLoc.latitude !== 0 && userLoc.longitude !== 0) {
+      coords.push([userLoc.latitude, userLoc.longitude]);
     }
 
-    combinedMembers.forEach((m) => {
-      const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
+    // Include primary home place
+    const homePlace = places.find(p => p.category === 'home') || places[0];
+    if (homePlace) {
+      const hPt = parseLocationPoint(homePlace);
+      if (hPt.latitude !== 0 && hPt.longitude !== 0) {
+        coords.push([hPt.latitude, hPt.longitude]);
+      }
+    }
+
+    members.forEach((m) => {
       const loc = locations.find(l => String(l.user_id).toLowerCase() === String(m.user_id).toLowerCase());
-      
       let lat = 0;
       let lng = 0;
 
-      if (isSelf && userLoc && userLoc.latitude !== 0 && userLoc.longitude !== 0) {
-        lat = userLoc.latitude;
-        lng = userLoc.longitude;
-      } else if (loc) {
+      if (loc) {
         const pt = parseLocationPoint(loc);
         lat = pt.latitude;
         lng = pt.longitude;
@@ -1016,27 +1129,12 @@ export default function MapScreen() {
         if (map && window.L) {
           try {
             var b = L.latLngBounds(${JSON.stringify(coords)});
-            map.fitBounds(b, { padding: [60, 60], maxZoom: 16 });
+            map.fitBounds(b, { padding: [70, 70], maxZoom: 16 });
           } catch(e) {}
         }
         true;
       `;
       webViewRef.current.injectJavaScript(js);
-    }
-  };
-
-  const handleLocateMe = async () => {
-    try {
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      if (loc && loc.coords) {
-        setUserLoc({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
-        if (webViewRef.current) {
-          const js = `if (map) { map.setView([${loc.coords.latitude}, ${loc.coords.longitude}], 16); } true;`;
-          webViewRef.current.injectJavaScript(js);
-        }
-      }
-    } catch (e) {
-      console.warn("GPS locate error:", e);
     }
   };
 
@@ -1062,31 +1160,23 @@ export default function MapScreen() {
 
     const queryLower = text.toLowerCase();
 
-    // 1. Filter local circle members
     const matchedMembers = members.filter(m => 
       queryLower === 'member' || m.profile?.full_name?.toLowerCase().includes(queryLower)
     );
 
-    // 2. Filter bookmarked safe places
     const matchedPlaces = places.filter(p => 
       queryLower === 'place' || p.name?.toLowerCase().includes(queryLower)
     );
 
-    // 3. Filter nearby POIs (Hospitals, Schools, Police, Dining, Fuel)
     const matchedPois = poiList.filter(p => 
       p.name?.toLowerCase().includes(queryLower) ||
-      p.category?.toLowerCase().includes(queryLower) ||
-      (queryLower.includes('hosp') && p.category === 'hospital') ||
-      (queryLower.includes('school') && p.category === 'school') ||
-      (queryLower.includes('police') && p.category === 'police') ||
-      ((queryLower.includes('rest') || queryLower.includes('food') || queryLower.includes('cafe')) && p.category === 'restaurant') ||
-      ((queryLower.includes('fuel') || queryLower.includes('gas') || queryLower.includes('petrol')) && p.category === 'fuel')
+      p.category?.toLowerCase().includes(queryLower)
     );
 
     setSearchResults(prev => ({ 
       ...prev, 
       members: matchedMembers, 
-      places: matchedPlaces,
+      places: matchedPlaces, 
       pois: matchedPois 
     }));
 
@@ -1119,26 +1209,6 @@ export default function MapScreen() {
               type: item.type || item.class || 'location'
             }))
           }));
-        } else {
-          // Fast worldwide photon geocoding fallback
-          const photonRes = await fetch(`https://photon.komoot.io/api/?q=${queryEncoded}&limit=8`);
-          if (photonRes.ok) {
-            const photonJson = await photonRes.json();
-            if (Array.isArray(photonJson?.features)) {
-              const photonLocations = photonJson.features.map((f: any) => {
-                const props = f.properties || {};
-                const nameParts = [props.name, props.street, props.city, props.state, props.country].filter(Boolean);
-                return {
-                  id: f.id || Math.random().toString(),
-                  name: nameParts.join(', ') || props.name || 'Searched Location',
-                  lat: f.geometry.coordinates[1],
-                  lng: f.geometry.coordinates[0],
-                  type: props.osm_value || 'location'
-                };
-              });
-              setSearchResults(prev => ({ ...prev, locations: photonLocations }));
-            }
-          }
         }
       } catch (err) {
         console.warn('Geocoding search error:', err);
@@ -1204,49 +1274,23 @@ export default function MapScreen() {
     }
   };
 
-  // Refresh State
-  const [isRefreshingMap, setIsRefreshingMap] = useState(false);
-
-  const handleManualRefresh = async () => {
-    setIsRefreshingMap(true);
-    try {
-      if (profile?.id) {
-        await fetchActiveCircle(profile.id);
-      }
-      if (activeCircle?.id) {
-        await Promise.all([
-          fetchMembers(activeCircle.id),
-          fetchPlaces(activeCircle.id),
-          fetchLocations(),
-        ]);
-      }
-      pushMapData();
-      Alert.alert('Sync Complete', 'Refreshed latest member locations, online statuses, and geofences!');
-    } catch (e) {
-      console.error('Refresh error:', e);
-    } finally {
-      setIsRefreshingMap(false);
-    }
-  };
-
-  // Modal State
+  // Modals
   const [modalVisible, setModalVisible] = useState(false);
   const [modalTitle, setModalTitle] = useState('');
   const [modalMessage, setModalMessage] = useState('');
   const [modalType, setModalType] = useState<'sos' | 'place'>('sos');
   
-  // Add Place Modal State
   const [addPlaceVisible, setAddPlaceVisible] = useState(false);
   const [addPlaceCoord, setAddPlaceCoord] = useState<{latitude: number, longitude: number} | null>(null);
 
-  // Search Filter Modal State
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [activeFilterCategories, setActiveFilterCategories] = useState<string[]>([]);
   
   const webViewRef = useRef<WebView | null>(null);
-  const alertedProximity = useRef<Set<string>>(new Set());
   const lastHistorySavedPoint = useRef<{ lat: number; lng: number; timeMs: number } | null>(null);
+  const lastStableGpsRef = useRef<{ lat: number; lng: number; heading: number; speed: number; lastMoveTime: number } | null>(null);
 
+  // Geofence breach monitoring
   useEffect(() => {
     if (!locations || locations.length === 0 || !places || places.length === 0) return;
 
@@ -1297,20 +1341,57 @@ export default function MapScreen() {
     }
   }, [profile?.id, activeCircle, circleFetched]);
 
+  // HIGH-FREQUENCY REAL-TIME GPS WATCHER
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       setHasPermission(status === 'granted');
       
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Please enable location services to use map tracking.');
+        Alert.alert('Permission Denied', 'Please enable location services to use live map tracking.');
         return;
       }
 
       try {
+        // 1. Fast instant cached GPS position
+        const lastKnown = await Location.getLastKnownPositionAsync({});
+        if (lastKnown?.coords) {
+          const lkLat = lastKnown.coords.latitude;
+          const lkLng = lastKnown.coords.longitude;
+          setUserLoc({ latitude: lkLat, longitude: lkLng });
+          if (webViewRef.current) {
+            const js = `
+              if (window.updateSelfLiveGPS) {
+                window.updateSelfLiveGPS(${lkLat}, ${lkLng}, ${lastKnown.coords.heading || 0}, ${lastKnown.coords.speed || 0}, ${lastKnown.coords.accuracy || 10}, false, true, "You", ${JSON.stringify(profile?.avatar_url || null)});
+              }
+              if (window.map) {
+                window.map.setView([${lkLat}, ${lkLng}], 16);
+              }
+              true;
+            `;
+            webViewRef.current.injectJavaScript(js);
+          }
+        }
+
+        // 2. Fresh high-precision GPS fix
         const currentLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
         if (currentLoc?.coords) {
-          setUserLoc({ latitude: currentLoc.coords.latitude, longitude: currentLoc.coords.longitude });
+          const initLat = currentLoc.coords.latitude;
+          const initLng = currentLoc.coords.longitude;
+          setUserLoc({ latitude: initLat, longitude: initLng });
+          
+          if (webViewRef.current) {
+            const js = `
+              if (window.updateSelfLiveGPS) {
+                window.updateSelfLiveGPS(${initLat}, ${initLng}, ${currentLoc.coords.heading || 0}, ${currentLoc.coords.speed || 0}, ${currentLoc.coords.accuracy || 10}, ${((currentLoc.coords.speed || 0) > 4.5)}, true, "You", ${JSON.stringify(profile?.avatar_url || null)});
+              }
+              if (window.map) {
+                window.map.setView([${initLat}, ${initLng}], 16);
+              }
+              true;
+            `;
+            webViewRef.current.injectJavaScript(js);
+          }
         }
       } catch (e) {
         console.warn("Initial location fetch error:", e);
@@ -1318,14 +1399,81 @@ export default function MapScreen() {
       
       locationSubscription.current = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: 3000, // Fast 3-second live sync cycle
-          distanceInterval: 0,
+          accuracy: Location.Accuracy.High,
+          timeInterval: 2000,
+          distanceInterval: 2,
         },
         async (loc) => {
           if (!profile) return;
-          setUserLoc({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+          const rawLat = loc.coords.latitude;
+          const rawLng = loc.coords.longitude;
+          const rawSpeed = Math.max(0, loc.coords.speed || 0);
+          const rawHeading = loc.coords.heading || 0;
+          const accuracy = loc.coords.accuracy || 10;
+          const nowMs = Date.now();
+
+          let finalLat = rawLat;
+          let finalLng = rawLng;
+          let finalHeading = rawHeading;
+          let finalSpeed = rawSpeed;
+
+          // STATIONARY DEADBAND & JITTER FILTER
+          if (lastStableGpsRef.current) {
+            const distFromLast = getDistanceInMeters(
+              lastStableGpsRef.current.lat,
+              lastStableGpsRef.current.lng,
+              rawLat,
+              rawLng
+            );
+
+            // Stationary noise detection:
+            // 1. If physical speed is below 0.75 m/s (~2.7 km/h) and movement is within 4.5 meters
+            // 2. OR if distance change is smaller than half of the GPS accuracy radius
+            const isStationaryDrift = (rawSpeed < 0.75 && distFromLast < 4.5) || 
+                                     (accuracy > 15 && distFromLast < (accuracy * 0.45));
+
+            if (isStationaryDrift) {
+              // Anchor coordinates to previous position to eliminate jitter/moving while sitting still
+              finalLat = lastStableGpsRef.current.lat;
+              finalLng = lastStableGpsRef.current.lng;
+              finalHeading = lastStableGpsRef.current.heading;
+              finalSpeed = 0;
+            } else {
+              // Genuine movement detected (>4.5m or clear velocity)
+              lastStableGpsRef.current = {
+                lat: rawLat,
+                lng: rawLng,
+                heading: rawHeading,
+                speed: rawSpeed,
+                lastMoveTime: nowMs
+              };
+            }
+          } else {
+            lastStableGpsRef.current = {
+              lat: rawLat,
+              lng: rawLng,
+              heading: rawHeading,
+              speed: rawSpeed,
+              lastMoveTime: nowMs
+            };
+          }
+
+          const isDriving = finalSpeed > 4.5;
+          const isWalking = finalSpeed >= 0.8;
+
+          setUserLoc({ latitude: finalLat, longitude: finalLng });
           
+          // Instant live injection into Leaflet map
+          if (webViewRef.current) {
+            const jsCode = `
+              if (window.updateSelfLiveGPS) {
+                window.updateSelfLiveGPS(${finalLat}, ${finalLng}, ${finalHeading}, ${finalSpeed}, ${accuracy}, ${isDriving}, ${isFollowUserActive}, "You", ${JSON.stringify(profile.avatar_url || null)});
+              }
+              true;
+            `;
+            webViewRef.current.injectJavaScript(jsCode);
+          }
+
           try {
             let battPct = 100;
             try {
@@ -1333,51 +1481,54 @@ export default function MapScreen() {
               if (battLevel >= 0) battPct = Math.round(battLevel * 100);
             } catch (e) {}
 
-            const rawLat = loc.coords.latitude;
-            const rawLng = loc.coords.longitude;
-            const speed = loc.coords.speed || 0;
-            const isDriving = speed > 5.5;
-
-            const livePoint = `POINT(${rawLng} ${rawLat})`;
+            const livePoint = `POINT(${finalLng} ${finalLat})`;
             await supabase.from('locations').upsert({
               user_id: profile.id,
+              latitude: finalLat,
+              longitude: finalLng,
               geom: livePoint,
-              accuracy_m: loc.coords.accuracy,
-              speed_mps: speed,
+              accuracy_m: accuracy,
+              speed_mps: finalSpeed,
               battery_pct: battPct,
               is_driving: isDriving,
+              activity_state: isDriving ? 'Driving' : (isWalking ? 'Walking' : 'Stationary'),
               updated_at: new Date().toISOString()
             }, { onConflict: 'user_id' });
 
-            // 15-meter GPS Drift & Noise Filter for location_history logging
-            const nowMs = Date.now();
             let shouldSaveHistory = false;
 
             if (!lastHistorySavedPoint.current) {
               shouldSaveHistory = true;
             } else {
-              const distMeters = getDistanceInMeters(lastHistorySavedPoint.current.lat, lastHistorySavedPoint.current.lng, rawLat, rawLng);
+              const distMeters = getDistanceInMeters(lastHistorySavedPoint.current.lat, lastHistorySavedPoint.current.lng, finalLat, finalLng);
               const timeDiffSec = (nowMs - lastHistorySavedPoint.current.timeMs) / 1000;
 
-              // Save history point ONLY if user actually moved >= 15 meters OR >= 5 minutes elapsed
-              if (distMeters >= 15 || timeDiffSec >= 300) {
+              if (isDriving || finalSpeed >= 2.0) {
+                // High-precision breadcrumbs while driving or traveling (every 10m or 15s)
+                if (distMeters >= 10 || timeDiffSec >= 15) {
+                  shouldSaveHistory = true;
+                }
+              } else if (distMeters >= 25 || (distMeters >= 12 && timeDiffSec >= 300)) {
+                // Only save stationary breadcrumb if user truly moved away (>25m)
                 shouldSaveHistory = true;
               }
             }
 
             if (shouldSaveHistory) {
-              // Save authentic un-fuzzed GPS position for genuine history logging
-              const authenticPoint = `POINT(${rawLng} ${rawLat})`;
-              await supabase.from('location_history').insert({
+              const authenticPoint = `POINT(${finalLng} ${finalLat})`;
+              await queueAndSyncLocationHistory({
                 user_id: profile.id,
                 geom: authenticPoint,
-                speed_mps: speed,
-                recorded_at: new Date(nowMs).toISOString()
+                speed_mps: finalSpeed,
+                recorded_at: new Date(nowMs).toISOString(),
+                accuracy: accuracy ?? undefined,
+                latitude: finalLat,
+                longitude: finalLng,
               });
-              lastHistorySavedPoint.current = { lat: rawLat, lng: rawLng, timeMs: nowMs };
+              lastHistorySavedPoint.current = { lat: finalLat, lng: finalLng, timeMs: nowMs };
             }
           } catch (err) {
-            console.error('Error updating location:', err);
+            console.error('Error updating live GPS location:', err);
           }
         }
       );
@@ -1388,12 +1539,12 @@ export default function MapScreen() {
         locationSubscription.current.remove();
       }
     };
-  }, [profile]);
+  }, [profile, isFollowUserActive]);
 
+  // Realtime Supabase Channels
   useEffect(() => {
     if (!activeCircle) return;
     
-    // Fetch members, places, and locations in parallel for sub-second instant load
     Promise.all([
       fetchMembers(activeCircle.id),
       fetchPlaces(activeCircle.id),
@@ -1430,43 +1581,17 @@ export default function MapScreen() {
       
     const fallbackInterval = setInterval(() => {
       fetchLocations();
-    }, 3000); // 3-second rapid polling
+    }, 3000);
       
-    const sosChannel = supabase
-      .channel(`map_sos_${activeCircle.id}_${channelUid}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'sos_alerts', filter: `circle_id=eq.${activeCircle.id}` },
-        (payload) => {
-          if (payload.new.user_id === profile?.id) return;
-          if (payload.new.status !== 'active') return;
-          
-          const sender = members.find(m => m.user_id === payload.new.user_id);
-          const name = sender?.profile?.full_name || 'A circle member';
-          
-          const title = 'URGENT: CIRCLE DISTRESS SIGNAL';
-          const msg = `${name} triggered an emergency SOS distress alert.`;
-          setModalTitle(title);
-          setModalMessage(msg);
-          setModalType('sos');
-          setModalVisible(true);
-
-          const { scheduleLocalNotification } = require('../services/PushNotificationService');
-          scheduleLocalNotification(title, msg);
-        }
-      )
-      .subscribe();
-
     return () => {
       supabase.removeChannel(channel);
       supabase.removeChannel(membersChannel);
       supabase.removeChannel(placesChannel);
-      supabase.removeChannel(sosChannel);
       clearInterval(fallbackInterval);
     };
   }, [activeCircle]);
 
-  // Instant location & circle sync every time user switches to the Map tab
+  // Focus Effect
   useFocusEffect(
     useCallback(() => {
       let isMounted = true;
@@ -1498,44 +1623,26 @@ export default function MapScreen() {
 
   const fetchLocations = async () => {
     try {
-      let query1 = supabase
+      const memberUserIds = members.map(m => m.user_id).filter(Boolean);
+      if (profile?.id && !memberUserIds.includes(profile.id)) {
+        memberUserIds.push(profile.id);
+      }
+
+      let query = supabase
         .from('locations')
         .select('user_id, latitude, longitude, geom, battery_pct, is_driving, speed_mps, activity_state, updated_at');
 
-      let { data, error }: { data: any[] | null; error: any } = await query1;
-
-      if (error && (error.code === '42703' || error.message?.includes('latitude') || error.message?.includes('schema cache'))) {
-        const res2 = await supabase
-          .from('locations')
-          .select('user_id, geom, battery_pct, is_driving, speed_mps, activity_state, updated_at');
-        data = res2.data;
-        error = res2.error;
+      if (memberUserIds.length > 0) {
+        query = query.in('user_id', memberUserIds);
       }
+
+      let { data, error } = await query;
 
       if (error) {
         console.error('Error fetching locations:', error);
       }
 
       let allLocs: any[] = data || [];
-
-      // Query latest location_history fix for any member not currently in the live locations table
-      if (members && members.length > 0) {
-        for (const m of members) {
-          if (!allLocs.some(l => String(l.user_id).toLowerCase() === String(m.user_id).toLowerCase())) {
-            try {
-              const { data: hist } = await supabase
-                .from('location_history')
-                .select('user_id, geom, speed_mps, recorded_at')
-                .eq('user_id', m.user_id)
-                .order('recorded_at', { ascending: false })
-                .limit(1);
-              if (hist && hist.length > 0) {
-                allLocs.push(hist[0]);
-              }
-            } catch (e) {}
-          }
-        }
-      }
 
       if (allLocs.length > 0) {
         const formatted = allLocs.map(item => {
@@ -1550,24 +1657,26 @@ export default function MapScreen() {
         setLocations(formatted);
       }
     } catch (err) {
-      console.error('Error fetching locations:', err);
+      console.error('Error in fetchLocations:', err);
     }
   };
 
-  const refreshPlaces = async () => {
-    if (!activeCircle?.id) return;
-    await fetchPlaces(activeCircle.id);
-  };
-
-  const savePlace = async (name: string, radius: number, selectedUserIds: string[]) => {
+  // ZONE CREATION & ALLOCATION
+  const savePlace = async (name: string, radius: number, selectedUserIds: string[], category: string = 'home') => {
     if (!activeCircle || !profile || !addPlaceCoord) return;
     try {
       const point = `POINT(${addPlaceCoord.longitude} ${addPlaceCoord.latitude})`;
+      const targetUid = selectedUserIds.length === 1 ? selectedUserIds[0] : null;
+
       const { data: newPlace, error } = await supabase.from('places').insert({
         circle_id: activeCircle.id,
         name: name,
         radius_m: radius,
         geom: point,
+        start_lat: addPlaceCoord.latitude,
+        start_lng: addPlaceCoord.longitude,
+        category: category,
+        target_user_id: targetUid,
         created_by: profile.id
       }).select().single();
 
@@ -1581,11 +1690,12 @@ export default function MapScreen() {
         await supabase.from('place_members').insert(pmRows);
       }
 
-      Alert.alert("Success", `Safe place "${name}" created!`);
+      Alert.alert("Success", `Geofence zone "${name}" created!`);
       setAddPlaceVisible(false);
-      fetchPlaces(activeCircle.id);
+      await fetchPlaces(activeCircle.id);
+      pushMapData();
     } catch(e: any) {
-      Alert.alert("Error", e.message || "Failed to create place");
+      Alert.alert("Error", e.message || "Failed to create geofence place");
     }
   };
 
@@ -1594,11 +1704,18 @@ export default function MapScreen() {
     const centerLat = focusLat && !isNaN(focusLat) ? focusLat : (userLoc?.latitude || 20.5937);
     const centerLng = focusLng && !isNaN(focusLng) ? focusLng : (userLoc?.longitude || 78.9629);
 
+    // Primary Home / Anchor Place for members whose GPS is stationary at home
+    const homePlace = places.find(p => p.category === 'home') || places[0];
+    const homeCoords = homePlace ? parseLocationPoint(homePlace) : null;
+    const fallbackBaseLat = (homeCoords && homeCoords.latitude !== 0) ? homeCoords.latitude : (userLoc?.latitude || 20.5937);
+    const fallbackBaseLng = (homeCoords && homeCoords.longitude !== 0) ? homeCoords.longitude : (userLoc?.longitude || 78.9629);
+
     const mapData = {
       isDark: isDark,
       mapStyle: mapStyleSetting,
       center: [centerLat, centerLng],
       targetFocus: (focusLat && focusLng && !isNaN(focusLat) && !isNaN(focusLng)) ? [focusLat, focusLng, 17] : null,
+      isFollowActive: isFollowUserActive,
       userLocation: userLoc,
       members: (() => {
         let combinedMembers = [...members];
@@ -1614,19 +1731,6 @@ export default function MapScreen() {
           } as any);
         }
 
-        locations.forEach(loc => {
-          if (loc.user_id && !combinedMembers.some(m => String(m.user_id).toLowerCase() === String(loc.user_id).toLowerCase())) {
-            combinedMembers.push({
-              user_id: loc.user_id,
-              circle_id: activeCircle?.id || '',
-              role: 'member',
-              joined_at: new Date().toISOString(),
-              profile: { full_name: 'Circle Member', avatar_url: null },
-              isOnline: true,
-            } as any);
-          }
-        });
-
         return combinedMembers
           .map((m, idx) => {
             const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
@@ -1637,7 +1741,6 @@ export default function MapScreen() {
             let isRealLocation = false;
 
             if (isSelf && userLoc && userLoc.latitude !== 0 && userLoc.longitude !== 0) {
-              // Always prioritize device's live high-accuracy GPS for oneself
               lat = userLoc.latitude;
               lng = userLoc.longitude;
               isRealLocation = true;
@@ -1652,25 +1755,15 @@ export default function MapScreen() {
               if (lat !== 0 && lng !== 0) isRealLocation = true;
             }
 
-            // Fallback: If member hasn't broadcasted GPS yet, position them near circle center so their avatar is always visible on the map
+            // If a member has not broadcasted GPS yet, anchor them at the Circle Home Safe Place (so they don't wander with your traveling GPS!)
             if (!lat || !lng || lat === 0 || lng === 0) {
-              const baseLat = userLoc?.latitude || (places[0] ? parseLocationPoint(places[0]).latitude : 20.5937);
-              const baseLng = userLoc?.longitude || (places[0] ? parseLocationPoint(places[0]).longitude : 78.9629);
               const angle = (idx * (360 / Math.max(1, combinedMembers.length))) * (Math.PI / 180);
-              lat = baseLat + 0.0015 * Math.cos(angle);
-              lng = baseLng + 0.0015 * Math.sin(angle);
+              lat = fallbackBaseLat + 0.0012 * Math.cos(angle);
+              lng = fallbackBaseLng + 0.0012 * Math.sin(angle);
             }
 
             const isHideOnline = !!m.profile?.hide_online_presence;
             const isGhost = isSelf ? !!profile?.is_ghost_mode : !!m.profile?.is_ghost_mode;
-
-            if (isGhost && !isSelf && lat !== 0 && lng !== 0) {
-              // Obfuscate coordinates for other circle members (~1.5km privacy fuzz)
-              const charCode = m.user_id.charCodeAt(0) || 65;
-              const fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
-              lat = parseFloat((lat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
-              lng = parseFloat((lng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
-            }
 
             const isMiles = distanceUnit === 'mi';
             const speedMps = isGhost ? 0 : (loc?.speed_mps || 0);
@@ -1679,9 +1772,9 @@ export default function MapScreen() {
 
             let activityText = 'Stationary';
             if (isGhost) {
-              activityText = 'Ghost Mode (Obfuscated)';
+              activityText = 'Ghost Mode';
             } else if (!isRealLocation) {
-              activityText = 'Location Pending';
+              activityText = 'Stationed at Home';
             } else if (loc?.activity_state) {
               activityText = loc.activity_state;
             } else if (speedMps > 4.5) {
@@ -1696,14 +1789,18 @@ export default function MapScreen() {
               id: m.user_id,
               lat,
               lng,
+              isSelf,
               name: isSelf ? 'You' : (m.profile?.full_name || 'Member'),
               initial: String(m.profile?.full_name || (isSelf ? 'Y' : 'M')).charAt(0).toUpperCase(),
               avatarUrl: m.profile?.avatar_url || null,
               role: m.role || 'member',
               isGhost,
               isOnline: (isGhost || isHideOnline) ? false : (m.isOnline ?? (isRealLocation ? true : false)),
-              lastSeenText: isGhost ? 'Ghost Mode' : (isHideOnline ? 'Offline' : (m.lastSeenText || (isRealLocation ? 'Online' : 'Location Pending'))),
+              lastSeenText: isGhost ? 'Ghost Mode' : (isHideOnline ? 'Offline' : (m.lastSeenText || (isRealLocation ? 'Online' : 'Stationed at Home'))),
               batteryPct: loc?.battery_pct || m.batteryPct || 100,
+              speed: speedMps,
+              isDriving: loc?.is_driving ?? (speedMps > 4.5),
+              accuracy: loc?.accuracy_m || 10,
               activityText,
             };
           });
@@ -1711,6 +1808,8 @@ export default function MapScreen() {
       places: (useCircleStore.getState().places || places).map(p => {
         const pt = parseLocationPoint(p);
         const radiusNum = typeof p.radius_m === 'number' ? p.radius_m : parseFloat((p as any).radius_m || (p as any).radius || 150);
+        const assignedCount = p.assigned_user_ids?.length || (p.target_user_id ? 1 : 0);
+
         return {
           id: p.id,
           lat: pt.latitude,
@@ -1718,7 +1817,10 @@ export default function MapScreen() {
           endLat: p.end_lat || null,
           endLng: p.end_lng || null,
           name: p.name,
-          radius: isNaN(radiusNum) || radiusNum <= 0 ? 150 : radiusNum
+          category: p.category || 'home',
+          radius: isNaN(radiusNum) || radiusNum <= 0 ? 150 : radiusNum,
+          assignedCount: assignedCount,
+          assignedUserIds: p.assigned_user_ids || (p.target_user_id ? [p.target_user_id] : []),
         };
       }),
       pois: poiList
@@ -1743,7 +1845,7 @@ export default function MapScreen() {
     mapPushTimerRef.current = setTimeout(() => {
       mapPushTimerRef.current = null;
       pushMapData();
-    }, 100); // 100ms micro-batch throttle prevents JS main thread blocking
+    }, 100);
   };
 
   useEffect(() => {
@@ -1751,7 +1853,7 @@ export default function MapScreen() {
     return () => {
       if (mapPushTimerRef.current) clearTimeout(mapPushTimerRef.current);
     };
-  }, [userLoc, locations, places, members, poiList, activeFilterCategories, isDark, mapStyleSetting]);
+  }, [userLoc, locations, places, members, poiList, activeFilterCategories, isDark, mapStyleSetting, isFollowUserActive]);
 
   const webViewSource = useMemo(() => ({ html: LEAFLET_HTML }), []);
 
@@ -1800,11 +1902,26 @@ export default function MapScreen() {
             const msg = JSON.parse(event.nativeEvent.data);
             if (msg.type === 'MAP_READY') {
               pushMapData();
+            } else if (msg.type === 'USER_DRAGGED_MAP') {
+              setIsFollowUserActive(false);
             } else if (msg.type === 'MAP_MOVE' && msg.lat && msg.lng) {
               currentMapCenterRef.current = { lat: msg.lat, lng: msg.lng };
             } else if (msg.type === 'LONG_PRESS') {
               setAddPlaceCoord({ latitude: msg.lat, longitude: msg.lng });
               setAddPlaceVisible(true);
+            } else if (msg.type === 'SELF_CLICK') {
+              setSelectedPlace(null);
+              setSelectedPoi(null);
+              if (profile) {
+                setSelectedMember({
+                  user_id: profile.id,
+                  circle_id: activeCircle?.id || '',
+                  role: 'owner',
+                  joined_at: new Date().toISOString(),
+                  profile: profile,
+                  isOnline: true,
+                });
+              }
             } else if (msg.type === 'MEMBER_CLICK') {
               const found = members.find(m => String(m.user_id).toLowerCase() === String(msg.memberId).toLowerCase());
               if (found) {
@@ -1827,6 +1944,7 @@ export default function MapScreen() {
               const found = places.find(p => p.id === msg.placeId);
               if (found) {
                 setSelectedMember(null);
+                setSelectedPoi(null);
                 setSelectedPlace(found);
               }
             } else if (msg.type === 'POI_CLICK') {
@@ -1841,33 +1959,45 @@ export default function MapScreen() {
         }}
       />
 
-      {/* Top Search Bar & Control Overlay */}
+      {/* Top Search Bar & Members Selector */}
       <View style={styles.searchOverlay}>
-        <View style={styles.searchBar}>
-          <Ionicons name="search-outline" size={18} color="#FFFFFF" />
+        <View style={[
+          styles.searchBar,
+          {
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+            borderWidth: themeMode === 'bauhaus' ? 3 : (themeMode === 'playful_geometric' ? 2 : 1.5),
+            borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 24 : 14),
+            shadowColor: themeMode === 'bauhaus' || themeMode === 'playful_geometric' ? (themeMode === 'bauhaus' ? '#121212' : '#1E293B') : '#000000',
+            shadowOffset: themeMode === 'bauhaus' ? { width: 3, height: 3 } : (themeMode === 'playful_geometric' ? { width: 2, height: 2 } : { width: 0, height: 2 }),
+            shadowOpacity: themeMode === 'bauhaus' || themeMode === 'playful_geometric' ? 1.0 : 0.08,
+            shadowRadius: themeMode === 'bauhaus' || themeMode === 'playful_geometric' ? 0 : 6,
+          }
+        ]}>
+          <Ionicons name="search-outline" size={18} color={colors.foreground} />
           <TextInput
-            style={styles.searchInput}
-            placeholder="Search member, landmark, road or area..."
+            style={[styles.searchInput, { color: colors.foreground }]}
+            placeholder="Search member, safe zone, landmark or area..."
             value={searchQuery}
             onChangeText={handleSearchChange}
-            placeholderTextColor="rgba(255, 255, 255, 0.5)"
+            placeholderTextColor={colors.textMuted}
           />
           {isSearching ? (
-            <ActivityIndicator size="small" color={LUXURY_THEME.colors.accentGold} />
+            <ActivityIndicator size="small" color={colors.accentGold} />
           ) : searchQuery.length > 0 ? (
             <TouchableOpacity onPress={() => handleSearchChange('')}>
-              <Ionicons name="close-circle" size={18} color="rgba(255, 255, 255, 0.6)" />
+              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
             </TouchableOpacity>
           ) : (
             <TouchableOpacity style={styles.filterBtn} onPress={() => setFilterModalVisible(true)}>
-              <Ionicons name="options-outline" size={18} color={activeFilterCategories.length > 0 ? LUXURY_THEME.colors.accentGold : '#FFFFFF'} />
+              <Ionicons name="options-outline" size={18} color={activeFilterCategories.length > 0 ? colors.accentGold : colors.foreground} />
             </TouchableOpacity>
           )}
         </View>
 
         {/* Dropdown Results Box */}
         {(searchResults.members.length > 0 || searchResults.places.length > 0 || searchResults.pois.length > 0 || searchResults.locations.length > 0) ? (
-          <ScrollView style={styles.searchResultsDropdown} keyboardShouldPersistTaps="handled">
+          <ScrollView style={[styles.searchResultsDropdown, getThemeCardStyles(themeMode)]} keyboardShouldPersistTaps="handled">
             {searchResults.members.map(m => (
               <TouchableOpacity key={m.user_id} style={styles.searchResultItem} onPress={() => handleSelectSearchResult(m, 'member')}>
                 <Ionicons name="person-outline" size={16} color={colors.accentGold} />
@@ -1880,131 +2010,132 @@ export default function MapScreen() {
 
             {searchResults.places.map(p => (
               <TouchableOpacity key={p.id} style={styles.searchResultItem} onPress={() => handleSelectSearchResult(p, 'place')}>
-                <Ionicons name="bookmark-outline" size={16} color={colors.accentGold} />
+                <Ionicons name="shield-checkmark" size={16} color="#10B981" />
                 <View style={styles.searchResultTextWrapper}>
                   <Text style={[styles.searchResultTitle, { color: colors.foreground }]}>{p.name}</Text>
-                  <Text style={[styles.searchResultSub, { color: colors.textMuted }]}>Bookmarked Place</Text>
+                  <Text style={[styles.searchResultSub, { color: colors.textMuted }]}>Safe Zone • {p.radius_m || 150}m</Text>
                 </View>
               </TouchableOpacity>
             ))}
 
-            {searchResults.pois.map(p => {
-              let iconName = 'location-outline';
-              let iconColor = colors.foreground;
-              let catTag = 'Nearby Place';
-
-              if (p.category === 'hospital') {
-                iconName = 'medical';
-                iconColor = '#EF4444';
-                catTag = 'Hospital / Clinic';
-              } else if (p.category === 'school') {
-                iconName = 'school';
-                iconColor = '#3B82F6';
-                catTag = 'School / University';
-              } else if (p.category === 'police') {
-                iconName = 'shield-checkmark';
-                iconColor = '#D4AF37';
-                catTag = 'Police Station';
-              } else if (p.category === 'restaurant') {
-                iconName = 'restaurant';
-                iconColor = '#F59E0B';
-                catTag = 'Dining & Cafe';
-              } else if (p.category === 'fuel') {
-                iconName = 'car';
-                iconColor = '#10B981';
-                catTag = 'Fuel Station';
-              }
-
-              return (
-                <TouchableOpacity key={p.id} style={styles.searchResultItem} onPress={() => handleSelectSearchResult(p, 'poi')}>
-                  <Ionicons name={iconName as any} size={16} color={iconColor} />
-                  <View style={styles.searchResultTextWrapper}>
-                    <Text style={[styles.searchResultTitle, { color: colors.foreground }]}>{p.name}</Text>
-                    <Text style={[styles.searchResultSub, { color: colors.textMuted }]}>{catTag} • {p.distanceKm ? `${p.distanceKm} km away` : 'Nearby'}</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+            {searchResults.pois.map(p => (
+              <TouchableOpacity key={p.id} style={styles.searchResultItem} onPress={() => handleSelectSearchResult(p, 'poi')}>
+                <Ionicons name="location-outline" size={16} color={colors.foreground} />
+                <View style={styles.searchResultTextWrapper}>
+                  <Text style={[styles.searchResultTitle, { color: colors.foreground }]}>{p.name}</Text>
+                  <Text style={[styles.searchResultSub, { color: colors.textMuted }]}>{p.category} • {p.distanceKm ? `${p.distanceKm} km away` : 'Nearby'}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
 
             {searchResults.locations.map(loc => (
               <TouchableOpacity key={loc.id} style={styles.searchResultItem} onPress={() => handleSelectSearchResult(loc, 'location')}>
-                <Ionicons name="location-outline" size={16} color={colors.foreground} />
+                <Ionicons name="map-outline" size={16} color={colors.foreground} />
                 <View style={styles.searchResultTextWrapper}>
                   <Text style={[styles.searchResultTitle, { color: colors.foreground }]} numberOfLines={1}>{loc.name}</Text>
-                  <Text style={[styles.searchResultSub, { color: colors.textMuted }]}>Map Location</Text>
+                  <Text style={[styles.searchResultSub, { color: colors.textMuted }]}>Searched Map Point</Text>
                 </View>
               </TouchableOpacity>
             ))}
           </ScrollView>
         ) : null}
 
-        {/* Horizontal Member Quick Selector Bar */}
+        {/* Member Quick Selector Bar with Dynamic Distance Indicators */}
         {members.length > 0 ? (
           <View style={styles.memberAvatarBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.memberAvatarContent}>
               {members.map(m => {
                 const isSelected = selectedMember?.user_id === m.user_id;
                 const nameFirst = String(m.profile?.full_name || 'Member').split(' ')[0];
+                const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
+                const loc = locations.find(l => String(l.user_id).toLowerCase() === String(m.user_id).toLowerCase());
+                
+                let targetLat = isSelf ? (userLoc?.latitude || 0) : (loc?.latitude || m.latitude || 0);
+                let targetLng = isSelf ? (userLoc?.longitude || 0) : (loc?.longitude || m.longitude || 0);
+
+                let distLabel = '';
+                if (!isSelf && userLoc && targetLat && targetLng && targetLat !== 0 && targetLng !== 0) {
+                  const dMeters = getDistanceInMeters(userLoc.latitude, userLoc.longitude, targetLat, targetLng);
+                  distLabel = dMeters > 1000 ? `${(dMeters / 1000).toFixed(1)}km` : `${Math.round(dMeters)}m`;
+                }
 
                 return (
                   <TouchableOpacity
                     key={m.user_id}
                     style={[
                       styles.avatarChip,
+                      {
+                        borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 20 : 12),
+                        borderWidth: themeMode === 'bauhaus' ? 2.5 : (themeMode === 'playful_geometric' ? 2 : 1),
+                        backgroundColor: colors.surface,
+                        borderColor: isSelected ? colors.accentGold : colors.border,
+                      },
                       m.isOnline ? styles.avatarChipOnline : styles.avatarChipOffline,
                       isSelected ? styles.avatarChipSelected : null
                     ]}
                     onPress={() => {
+                      setIsFollowUserActive(false);
                       setSelectedPoi(null);
                       setSelectedPlace(null);
                       setSelectedMember(m);
-                      const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
-                      const loc = locations.find(l => String(l.user_id).toLowerCase() === String(m.user_id).toLowerCase());
-                      
-                      let targetLat = isSelf ? (userLoc?.latitude || 0) : 0;
-                      let targetLng = isSelf ? (userLoc?.longitude || 0) : 0;
 
-                      if (loc) {
-                        const pt = parseLocationPoint(loc);
-                        if (pt.latitude !== 0 && pt.longitude !== 0) {
-                          targetLat = pt.latitude;
-                          targetLng = pt.longitude;
-                        }
-                      }
+                      // If member has no coordinates yet, fly to Home
+                      const effectiveLat = (targetLat && targetLat !== 0) ? targetLat : fallbackBaseLat;
+                      const effectiveLng = (targetLng && targetLng !== 0) ? targetLng : fallbackBaseLng;
 
-                      if (targetLat !== 0 && targetLng !== 0 && webViewRef.current) {
-                        const js = `if (map) { map.setView([${targetLat}, ${targetLng}], 16); } true;`;
+                      if (effectiveLat !== 0 && effectiveLng !== 0 && webViewRef.current) {
+                        const js = `if (map) { map.flyTo([${effectiveLat}, ${effectiveLng}], 16, { animate: true, duration: 1.0 }); } true;`;
                         webViewRef.current.injectJavaScript(js);
                       }
                     }}
                   >
                     <View style={[styles.miniDot, { backgroundColor: m.isOnline ? '#10B981' : '#9CA3AF' }]} />
-                    <Text style={[styles.chipText, { color: '#FFFFFF' }]}>{nameFirst.toUpperCase()}</Text>
+                    <Text style={[styles.chipText, { color: colors.foreground }]}>
+                      {nameFirst.toUpperCase()}{distLabel ? ` • ${distLabel}` : ''}
+                    </Text>
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
           </View>
         ) : null}
+
+        {/* Real-time Satellite POI GIS Scanning Banner */}
+        {loadingPois && (
+          <View style={[styles.poiLoadingBanner, getThemeCardStyles(themeMode)]}>
+            <View style={styles.poiLoadingGlowBeacon}>
+              <ActivityIndicator size="small" color={colors.accentGold} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.poiLoadingTitle, { color: colors.accentGold }]}>SCANNING LIVE SATELLITE POIS...</Text>
+              <Text style={[styles.poiLoadingSub, { color: colors.textMuted }]}>Searching hospitals, police, schools & cafes nearby</Text>
+            </View>
+            <View style={styles.poiLoadingLivePill}>
+              <View style={styles.poiLoadingDot} />
+              <Text style={styles.poiLoadingLiveText}>GIS</Text>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Member Details Bottom Card */}
       {selectedMember ? (() => {
-        const memberLoc = locations.find(l => l.user_id === selectedMember.user_id);
-        const lat = memberLoc?.latitude || userLoc?.latitude || 0;
-        const lng = memberLoc?.longitude || userLoc?.longitude || 0;
+        const isSelf = String(selectedMember.user_id).toLowerCase() === String(profile?.id).toLowerCase();
+        const memberLoc = isSelf ? { latitude: userLoc?.latitude, longitude: userLoc?.longitude, battery_pct: 100 } : locations.find(l => l.user_id === selectedMember.user_id);
+        const lat = memberLoc?.latitude || (isSelf ? userLoc?.latitude : 0) || 0;
+        const lng = memberLoc?.longitude || (isSelf ? userLoc?.longitude : 0) || 0;
         
-        let distText = 'Nearby';
-        if (userLoc && lat && lng) {
+        let distText = isSelf ? 'Your Location' : 'Nearby';
+        if (!isSelf && userLoc && lat && lng && lat !== 0 && lng !== 0) {
           const meters = getDistanceInMeters(userLoc.latitude, userLoc.longitude, lat, lng);
           distText = meters > 1000 ? `${(meters / 1000).toFixed(1)} km away` : `${Math.round(meters)} m away`;
         }
 
         const handleNavigate = () => {
-          if (lat && lng) {
+          if (lat && lng && lat !== 0 && lng !== 0) {
             Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
           } else {
-            Alert.alert('Location Unavailable', 'No location coordinates found for this member.');
+            Alert.alert('Location Unavailable', 'No live coordinates found for this member yet.');
           }
         };
 
@@ -2013,29 +2144,20 @@ export default function MapScreen() {
           if (phone) {
             Linking.openURL(`tel:${phone}`);
           } else {
-            Alert.alert('Phone Unavailable', 'No phone number saved for this member.');
-          }
-        };
-
-        const handleMessage = () => {
-          const phone = selectedMember.profile?.phone;
-          if (phone) {
-            Linking.openURL(`sms:${phone}`);
-          } else {
-            Alert.alert('Phone Unavailable', 'No phone number saved for this member.');
+            Alert.alert('Phone Unavailable', 'No phone number registered for this member.');
           }
         };
 
         return (
-          <View style={styles.memberCardSheet}>
+          <View style={[styles.memberCardSheet, sheetStyles]}>
             <View style={styles.memberCardHeader}>
-              <View style={styles.memberAvatar}>
-                <Text style={styles.avatarText}>
-                  {String(selectedMember.profile?.full_name || 'M').charAt(0).toUpperCase()}
+              <View style={[styles.memberAvatar, { borderColor: colors.accentGold, backgroundColor: colors.surfaceMuted, borderRadius: themeMode === 'bauhaus' ? 0 : 22 }]}>
+                <Text style={[styles.avatarText, { color: colors.foreground }]}>
+                  {String(selectedMember.profile?.full_name || (isSelf ? 'Y' : 'M')).charAt(0).toUpperCase()}
                 </Text>
               </View>
               <View style={styles.memberMainInfo}>
-                <Text style={styles.memberCardName}>{selectedMember.profile?.full_name || 'Circle Member'}</Text>
+                <Text style={[styles.memberCardName, { color: colors.foreground }]}>{isSelf ? 'You (Current User)' : (selectedMember.profile?.full_name || 'Circle Member')}</Text>
                 <View style={styles.safeBadge}>
                   <View style={[styles.safeDot, { backgroundColor: selectedMember.isOnline ? '#10B981' : '#9CA3AF' }]} />
                   <Text style={[styles.safeBadgeText, { color: selectedMember.isOnline ? '#10B981' : '#9CA3AF' }]}>
@@ -2049,136 +2171,362 @@ export default function MapScreen() {
                 style={{ padding: 4 }}
                 activeOpacity={0.7}
               >
-                <Ionicons name="close" size={24} color="#FFFFFF" />
+                <Ionicons name="close" size={24} color={colors.foreground} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.metricsGrid}>
-              <View style={styles.metricItem}>
-                <Ionicons name="battery-charging-outline" size={16} color={LUXURY_THEME.colors.accentGold} />
-                <Text style={styles.metricText}>
+              <View style={[styles.metricItem, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 10 }]}>
+                <Ionicons name="battery-charging-outline" size={16} color={colors.accentGold} />
+                <Text style={[styles.metricText, { color: colors.foreground }]}>
                   {memberLoc?.battery_pct ? `BATTERY ${memberLoc.battery_pct}%` : 'BATTERY OPTIMAL'}
                 </Text>
               </View>
-              <View style={styles.metricItem}>
-                <Ionicons name="car-outline" size={16} color={LUXURY_THEME.colors.accentGold} />
-                <Text style={styles.metricText}>
-                  {memberLoc?.is_driving ? 'DRIVING' : 'STATIONARY'}
+
+              <View style={[styles.metricItem, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 10 }]}>
+                <Ionicons name="navigate-outline" size={16} color={colors.accentGold} />
+                <Text style={[styles.metricText, { color: colors.foreground }]}>{distText.toUpperCase()}</Text>
+              </View>
+
+              <View style={[styles.metricItem, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 10 }]}>
+                <Ionicons name="shield-checkmark-outline" size={16} color="#10B981" />
+                <Text style={[styles.metricText, { color: colors.foreground }]}>
+                  {selectedMember.role === 'owner' ? 'CIRCLE OWNER' : (selectedMember.role || 'MEMBER').toUpperCase()}
                 </Text>
-              </View>
-              <View style={styles.metricItem}>
-                <Ionicons name="time-outline" size={16} color={LUXURY_THEME.colors.accentGold} />
-                <Text style={styles.metricText}>LIVE GPS SYNC</Text>
-              </View>
-              <View style={styles.metricItem}>
-                <Ionicons name="navigate-outline" size={16} color={LUXURY_THEME.colors.accentGold} />
-                <Text style={styles.metricText}>{distText.toUpperCase()}</Text>
               </View>
             </View>
 
             <View style={styles.cardActionRow}>
-              <TouchableOpacity style={styles.cardBtnPrimary} onPress={handleNavigate} activeOpacity={0.8}>
-                <Ionicons name="compass" size={16} color="#0D0E12" />
-                <Text style={styles.cardBtnPrimaryText}>NAVIGATE</Text>
+              <TouchableOpacity 
+                style={[
+                  styles.cardBtnPrimary, 
+                  { 
+                    backgroundColor: primaryBtnStyles.backgroundColor,
+                    borderRadius: primaryBtnStyles.borderRadius,
+                    borderWidth: primaryBtnStyles.borderWidth,
+                    borderColor: primaryBtnStyles.borderColor,
+                    shadowColor: primaryBtnStyles.shadowColor,
+                    shadowOffset: primaryBtnStyles.shadowOffset,
+                    shadowOpacity: primaryBtnStyles.shadowOpacity,
+                    shadowRadius: primaryBtnStyles.shadowRadius,
+                    elevation: primaryBtnStyles.elevation,
+                  }
+                ]} 
+                onPress={handleNavigate}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="navigate" size={16} color={primaryBtnStyles.textColor} />
+                <Text style={[styles.cardBtnPrimaryText, { color: primaryBtnStyles.textColor }]}>NAVIGATE</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.cardBtnSecondary} onPress={handleCall} activeOpacity={0.8}>
-                <Ionicons name="call" size={16} color="#FFFFFF" />
-                <Text style={styles.cardBtnSecondaryText}>CALL</Text>
+
+              <TouchableOpacity 
+                style={[
+                  styles.cardBtnSecondary, 
+                  { 
+                    backgroundColor: secondaryBtnStyles.backgroundColor,
+                    borderRadius: secondaryBtnStyles.borderRadius,
+                    borderWidth: secondaryBtnStyles.borderWidth,
+                    borderColor: secondaryBtnStyles.borderColor,
+                    shadowColor: secondaryBtnStyles.shadowColor,
+                    shadowOffset: secondaryBtnStyles.shadowOffset,
+                    shadowOpacity: secondaryBtnStyles.shadowOpacity,
+                    shadowRadius: secondaryBtnStyles.shadowRadius,
+                    elevation: secondaryBtnStyles.elevation,
+                  }
+                ]} 
+                onPress={handleCall}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="call" size={16} color={secondaryBtnStyles.textColor} />
+                <Text style={[styles.cardBtnSecondaryText, { color: secondaryBtnStyles.textColor }]}>CALL</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.cardBtnSecondary} onPress={handleCloseMemberCard} activeOpacity={0.8}>
-                <Text style={styles.cardBtnSecondaryText}>CLOSE</Text>
+
+              <TouchableOpacity 
+                style={[
+                  styles.cardBtnSecondary, 
+                  { 
+                    backgroundColor: secondaryBtnStyles.backgroundColor,
+                    borderRadius: secondaryBtnStyles.borderRadius,
+                    borderWidth: secondaryBtnStyles.borderWidth,
+                    borderColor: secondaryBtnStyles.borderColor,
+                    shadowColor: secondaryBtnStyles.shadowColor,
+                    shadowOffset: secondaryBtnStyles.shadowOffset,
+                    shadowOpacity: secondaryBtnStyles.shadowOpacity,
+                    shadowRadius: secondaryBtnStyles.shadowRadius,
+                    elevation: secondaryBtnStyles.elevation,
+                  }
+                ]} 
+                onPress={handleCloseMemberCard}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.cardBtnSecondaryText, { color: secondaryBtnStyles.textColor }]}>DISMISS</Text>
               </TouchableOpacity>
             </View>
           </View>
         );
       })() : null}
 
-      {/* Bookmarked Place Bottom Card */}
-      {selectedPlace ? (
-        <View style={styles.memberCardSheet}>
+      {/* GEOFENCE ZONE DETAILS BOTTOM CARD */}
+      {selectedPlace ? (() => {
+        const placePt = parseLocationPoint(selectedPlace);
+        const radiusNum = typeof selectedPlace.radius_m === 'number' ? selectedPlace.radius_m : parseFloat(selectedPlace.radius_m || selectedPlace.radius || 150);
+        const cat = selectedPlace.category || 'home';
+        
+        let catColor = '#D4AF37';
+        let catIcon = 'shield-checkmark';
+        let catLabel = 'SAFE ZONE';
+
+        if (cat === 'home') {
+          catColor = '#10B981';
+          catIcon = 'home';
+          catLabel = 'HOME ZONE';
+        } else if (cat === 'work') {
+          catColor = '#3B82F6';
+          catIcon = 'briefcase';
+          catLabel = 'WORK ZONE';
+        } else if (cat === 'school') {
+          catColor = '#F59E0B';
+          catIcon = 'school';
+          catLabel = 'SCHOOL ZONE';
+        } else if (cat === 'fitness' || cat === 'gym') {
+          catColor = '#8B5CF6';
+          catIcon = 'fitness';
+          catLabel = 'GYM ZONE';
+        } else if (cat === 'danger') {
+          catColor = '#EF4444';
+          catIcon = 'alert-circle';
+          catLabel = 'DANGER ZONE';
+        }
+
+        const assignedIds = selectedPlace.assigned_user_ids || (selectedPlace.target_user_id ? [selectedPlace.target_user_id] : []);
+        const isAllMembers = assignedIds.length === 0;
+        const assignedMembersList = isAllMembers ? members : members.filter(m => assignedIds.includes(m.user_id));
+
+        return (
+          <View style={[styles.memberCardSheet, sheetStyles]}>
+            <View style={styles.memberCardHeader}>
+              <View style={[styles.memberAvatar, { backgroundColor: `${catColor}20`, borderColor: catColor, borderRadius: themeMode === 'bauhaus' ? 0 : 22 }]}>
+                <Ionicons name={catIcon as any} size={22} color={catColor} />
+              </View>
+              <View style={styles.memberMainInfo}>
+                <Text style={[styles.memberCardName, { color: colors.foreground }]}>{selectedPlace.name}</Text>
+                <View style={styles.safeBadge}>
+                  <View style={[styles.safeDot, { backgroundColor: catColor }]} />
+                  <Text style={[styles.safeBadgeText, { color: catColor }]}>
+                    {catLabel} • {radiusNum >= 1000 ? `${(radiusNum / 1000).toFixed(1)}KM` : `${radiusNum}M`} RADIUS
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setSelectedPlace(null)} style={{ padding: 4 }}>
+                <Ionicons name="close" size={24} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Assigned Members Allocation List with Live Geofence Status */}
+            <Text style={[styles.zoneAllocTitle, { color: colors.textMuted }]}>ZONE ALLOCATION & LIVE MEMBER PRESENCE</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.zoneAllocScroll}>
+              {assignedMembersList.length === 0 ? (
+                <View style={[styles.zoneMemberPill, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 12 }]}>
+                  <Text style={[styles.zoneMemberPillText, { color: colors.accentGold }]}>🛡️ Applied to entire circle</Text>
+                </View>
+              ) : (
+                assignedMembersList.map(m => {
+                  const mLoc = locations.find(l => l.user_id === m.user_id);
+                  let isInside = false;
+                  let distText = 'Stationed at Home';
+
+                  if (mLoc && placePt.latitude && placePt.longitude) {
+                    const dist = getDistanceInMeters(mLoc.latitude, mLoc.longitude, placePt.latitude, placePt.longitude);
+                    isInside = dist <= radiusNum;
+                    distText = isInside ? 'Inside Zone' : `${(dist / 1000).toFixed(1)}km away`;
+                  } else if (m.user_id === profile?.id && userLoc && placePt.latitude && placePt.longitude) {
+                    const dist = getDistanceInMeters(userLoc.latitude, userLoc.longitude, placePt.latitude, placePt.longitude);
+                    isInside = dist <= radiusNum;
+                    distText = isInside ? 'Inside Zone' : `${(dist / 1000).toFixed(1)}km away`;
+                  }
+
+                  const mName = m.profile?.full_name || 'Member';
+                  const initial = mName.charAt(0).toUpperCase();
+
+                  return (
+                    <View key={m.user_id} style={[styles.zoneMemberPill, { backgroundColor: colors.surfaceMuted, borderColor: isInside ? '#10B981' : colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 12 }]}>
+                      <View style={[styles.miniAvatarWrap, { borderColor: isInside ? '#10B981' : colors.textMuted, backgroundColor: colors.surface }]}>
+                        <Text style={[styles.miniAvatarInitial, { color: colors.foreground }]}>{initial}</Text>
+                      </View>
+                      <View>
+                        <Text style={[styles.zoneMemberName, { color: colors.foreground }]}>{mName.split(' ')[0]}</Text>
+                        <Text style={[styles.zoneMemberStatus, { color: isInside ? '#10B981' : colors.textMuted }]}>
+                          {isInside ? '🟢 Inside' : `⚪ ${distText}`}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            <View style={[styles.cardActionRow, { marginTop: 16 }]}>
+              <TouchableOpacity 
+                style={[
+                  styles.cardBtnPrimary, 
+                  { 
+                    backgroundColor: primaryBtnStyles.backgroundColor,
+                    borderRadius: primaryBtnStyles.borderRadius,
+                    borderWidth: primaryBtnStyles.borderWidth,
+                    borderColor: primaryBtnStyles.borderColor,
+                    shadowColor: primaryBtnStyles.shadowColor,
+                    shadowOffset: primaryBtnStyles.shadowOffset,
+                    shadowOpacity: primaryBtnStyles.shadowOpacity,
+                    shadowRadius: primaryBtnStyles.shadowRadius,
+                    elevation: primaryBtnStyles.elevation,
+                  }
+                ]} 
+                onPress={() => {
+                  if (placePt.latitude && placePt.longitude) {
+                    Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${placePt.latitude},${placePt.longitude}`);
+                  }
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="compass" size={16} color={primaryBtnStyles.textColor} />
+                <Text style={[styles.cardBtnPrimaryText, { color: primaryBtnStyles.textColor }]}>DIRECTIONS</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[
+                  styles.cardBtnDanger, 
+                  { 
+                    backgroundColor: dangerBtnStyles.backgroundColor,
+                    borderRadius: dangerBtnStyles.borderRadius,
+                    borderWidth: dangerBtnStyles.borderWidth,
+                    borderColor: dangerBtnStyles.borderColor,
+                    shadowColor: dangerBtnStyles.shadowColor,
+                    shadowOffset: dangerBtnStyles.shadowOffset,
+                    shadowOpacity: dangerBtnStyles.shadowOpacity,
+                    shadowRadius: dangerBtnStyles.shadowRadius,
+                    elevation: dangerBtnStyles.elevation,
+                  }
+                ]} 
+                onPress={handleDeleteSelectedPlace} 
+                activeOpacity={0.8}
+              >
+                <Ionicons name="trash" size={16} color={dangerBtnStyles.textColor} />
+                <Text style={[styles.cardBtnDangerText, { color: dangerBtnStyles.textColor }]}>DELETE ZONE</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[
+                  styles.cardBtnSecondary, 
+                  { 
+                    backgroundColor: secondaryBtnStyles.backgroundColor,
+                    borderRadius: secondaryBtnStyles.borderRadius,
+                    borderWidth: secondaryBtnStyles.borderWidth,
+                    borderColor: secondaryBtnStyles.borderColor,
+                    shadowColor: secondaryBtnStyles.shadowColor,
+                    shadowOffset: secondaryBtnStyles.shadowOffset,
+                    shadowOpacity: secondaryBtnStyles.shadowOpacity,
+                    shadowRadius: secondaryBtnStyles.shadowRadius,
+                    elevation: secondaryBtnStyles.elevation,
+                  }
+                ]} 
+                onPress={() => setSelectedPlace(null)} 
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.cardBtnSecondaryText, { color: secondaryBtnStyles.textColor }]}>CLOSE</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        );
+      })() : null}
+
+      {/* Selected POI Bottom Card */}
+      {selectedPoi ? (
+        <View style={[styles.memberCardSheet, sheetStyles]}>
           <View style={styles.memberCardHeader}>
-            <View style={[styles.memberAvatar, { borderColor: '#D4AF37' }]}>
-              <Ionicons name="bookmark" size={20} color="#D4AF37" />
+            <View style={[styles.memberAvatar, { backgroundColor: `${colors.accentGold}25`, borderColor: colors.accentGold, borderRadius: themeMode === 'bauhaus' ? 0 : 22 }]}>
+              <Ionicons name="location" size={20} color={colors.accentGold} />
             </View>
             <View style={styles.memberMainInfo}>
-              <Text style={styles.memberCardName}>{selectedPlace.name}</Text>
-              <View style={styles.safeBadge}>
-                <View style={styles.safeDot} />
-                <Text style={styles.safeBadgeText}>GEOFENCE RADIUS: {selectedPlace.radius_m || selectedPlace.radius || 150}M</Text>
-              </View>
+              <Text style={[styles.memberCardName, { color: colors.foreground }]}>{selectedPoi.name}</Text>
+              <Text style={[styles.poiAddressText, { color: colors.textMuted }]} numberOfLines={2}>{selectedPoi.subText}</Text>
             </View>
-            <TouchableOpacity onPress={() => setSelectedPlace(null)}>
-              <Ionicons name="close" size={24} color="#FFFFFF" />
+            <TouchableOpacity onPress={handleClosePoi} style={{ padding: 4 }} activeOpacity={0.7}>
+              <Ionicons name="close" size={24} color={colors.foreground} />
             </TouchableOpacity>
           </View>
 
           <View style={[styles.cardActionRow, { marginTop: 16 }]}>
-            <TouchableOpacity style={styles.cardBtnDanger} onPress={handleDeleteSelectedPlace} activeOpacity={0.8}>
-              <Ionicons name="trash" size={16} color="#FFFFFF" />
-              <Text style={styles.cardBtnDangerText}>DELETE BOOKMARK</Text>
+            <TouchableOpacity 
+              style={[
+                styles.cardBtnPrimary, 
+                { 
+                  backgroundColor: primaryBtnStyles.backgroundColor,
+                  borderRadius: primaryBtnStyles.borderRadius,
+                  borderWidth: primaryBtnStyles.borderWidth,
+                  borderColor: primaryBtnStyles.borderColor,
+                  shadowColor: primaryBtnStyles.shadowColor,
+                  shadowOffset: primaryBtnStyles.shadowOffset,
+                  shadowOpacity: primaryBtnStyles.shadowOpacity,
+                  shadowRadius: primaryBtnStyles.shadowRadius,
+                  elevation: primaryBtnStyles.elevation,
+                }
+              ]} 
+              onPress={() => {
+                const url = `https://www.google.com/maps/dir/?api=1&destination=${selectedPoi.lat},${selectedPoi.lng}`;
+                Linking.openURL(url);
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="compass" size={16} color={primaryBtnStyles.textColor} />
+              <Text style={[styles.cardBtnPrimaryText, { color: primaryBtnStyles.textColor }]}>NAVIGATE</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.cardBtnSecondary} onPress={() => setSelectedPlace(null)} activeOpacity={0.8}>
-              <Text style={styles.cardBtnSecondaryText}>CLOSE</Text>
+            <TouchableOpacity 
+              style={[
+                styles.cardBtnSecondary, 
+                { 
+                  backgroundColor: secondaryBtnStyles.backgroundColor,
+                  borderRadius: secondaryBtnStyles.borderRadius,
+                  borderWidth: secondaryBtnStyles.borderWidth,
+                  borderColor: secondaryBtnStyles.borderColor,
+                  shadowColor: secondaryBtnStyles.shadowColor,
+                  shadowOffset: secondaryBtnStyles.shadowOffset,
+                  shadowOpacity: secondaryBtnStyles.shadowOpacity,
+                  shadowRadius: secondaryBtnStyles.shadowRadius,
+                  elevation: secondaryBtnStyles.elevation,
+                }
+              ]} 
+              onPress={() => {
+                setAddPlaceCoord({ latitude: selectedPoi.lat, longitude: selectedPoi.lng });
+                setAddPlaceVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="bookmark" size={16} color={secondaryBtnStyles.textColor} />
+              <Text style={[styles.cardBtnSecondaryText, { color: secondaryBtnStyles.textColor }]}>CREATE ZONE</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[
+                styles.cardBtnSecondary, 
+                { 
+                  backgroundColor: secondaryBtnStyles.backgroundColor,
+                  borderRadius: secondaryBtnStyles.borderRadius,
+                  borderWidth: secondaryBtnStyles.borderWidth,
+                  borderColor: secondaryBtnStyles.borderColor,
+                  shadowColor: secondaryBtnStyles.shadowColor,
+                  shadowOffset: secondaryBtnStyles.shadowOffset,
+                  shadowOpacity: secondaryBtnStyles.shadowOpacity,
+                  shadowRadius: secondaryBtnStyles.shadowRadius,
+                  elevation: secondaryBtnStyles.elevation,
+                }
+              ]} 
+              onPress={handleClosePoi} 
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.cardBtnSecondaryText, { color: secondaryBtnStyles.textColor }]}>CLOSE</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      ) : null}
-
-      {/* Selected POI (Hospital, School, Police, Restaurant, Fuel) Bottom Card */}
-      {selectedPoi ? (
-        <View style={styles.memberCardSheet}>
-          <View style={styles.memberCardHeader}>
-            <View style={[styles.memberAvatar, { backgroundColor: '#D4AF37', borderColor: '#D4AF37' }]}>
-              <Ionicons name="location" size={20} color="#0D0E12" />
-            </View>
-            <View style={styles.memberMainInfo}>
-              <Text style={styles.memberCardName}>{selectedPoi.name}</Text>
-              <Text style={styles.poiAddressText} numberOfLines={2}>{selectedPoi.subText}</Text>
-            </View>
-              <TouchableOpacity 
-                onPress={handleClosePoi}
-                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-                style={{ padding: 4 }}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="close" size={24} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={[styles.cardActionRow, { marginTop: 16 }]}>
-              <TouchableOpacity 
-                style={styles.cardBtnPrimary} 
-                onPress={() => {
-                  const url = `https://www.google.com/maps/dir/?api=1&destination=${selectedPoi.lat},${selectedPoi.lng}`;
-                  Linking.openURL(url);
-                }}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="compass" size={16} color="#0D0E12" />
-                <Text style={styles.cardBtnPrimaryText}>NAVIGATE</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={styles.cardBtnSecondary} 
-                onPress={() => {
-                  setAddPlaceCoord({ latitude: selectedPoi.lat, longitude: selectedPoi.lng });
-                  setAddPlaceVisible(true);
-                }}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="bookmark" size={16} color="#FFFFFF" />
-                <Text style={styles.cardBtnSecondaryText}>BOOKMARK</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={styles.cardBtnSecondary} 
-                onPress={handleClosePoi}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.cardBtnSecondaryText}>CLOSE</Text>
-              </TouchableOpacity>
-            </View>
         </View>
       ) : null}
 
@@ -2237,9 +2585,9 @@ export default function MapScreen() {
 
           const tileUrls: Record<MapStyleType, string> = {
             satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+            dark: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
             terrain: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-            vector: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+            vector: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
           };
           const newTile = tileUrls[s] || tileUrls.vector;
 
@@ -2250,26 +2598,45 @@ export default function MapScreen() {
         }}
       />
 
-      {/* Floating Map Controls: Layers Selector, Locate Me, Fit Members & Zoom Controls */}
-      <View style={[styles.floatingControls, selectedMember || selectedPlace || selectedPoi ? { bottom: 275 } : { bottom: 25 }]}>
-        <SpringTouchable style={[styles.controlBtn, { borderColor: '#D4AF37', backgroundColor: 'rgba(212, 175, 55, 0.15)' }]} onPress={handleLocateMe} scaleTo={0.88}>
-          <Ionicons name="locate" size={22} color="#D4AF37" />
+      {/* Floating Map Controls */}
+      <View style={[styles.floatingControls, selectedMember || selectedPlace || selectedPoi ? { bottom: 310 } : { bottom: 25 }]}>
+        {/* Follow Mode Toggle */}
+        <SpringTouchable 
+          style={[
+            styles.controlBtn, 
+            floatingControlStyles,
+            isFollowUserActive 
+              ? { borderColor: '#10B981', backgroundColor: themeMode === 'bauhaus' ? '#F0C020' : (themeMode === 'brand_green' ? '#E8F8EE' : 'rgba(16, 185, 129, 0.25)') } 
+              : null
+          ]} 
+          onPress={handleToggleFollow} 
+          scaleTo={0.88}
+        >
+          <Ionicons name="navigate" size={20} color={isFollowUserActive ? (themeMode === 'bauhaus' ? '#121212' : '#10B981') : colors.foreground} />
         </SpringTouchable>
 
-        <SpringTouchable style={[styles.controlBtn, { borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.15)' }]} onPress={handleFitAllMembers} scaleTo={0.88}>
-          <Ionicons name="people-sharp" size={20} color="#10B981" />
+        {/* Locate Me */}
+        <SpringTouchable style={[styles.controlBtn, floatingControlStyles]} onPress={handleLocateMe} scaleTo={0.88}>
+          <Ionicons name="locate" size={22} color={colors.accentGold} />
         </SpringTouchable>
 
-        <SpringTouchable style={[styles.controlBtn, { borderColor: '#D4AF37' }]} onPress={() => setShowMapLayerModal(true)} scaleTo={0.88}>
-          <Ionicons name="layers" size={20} color="#D4AF37" />
+        {/* Fit All Circle Members */}
+        <SpringTouchable style={[styles.controlBtn, floatingControlStyles]} onPress={handleFitAllMembers} scaleTo={0.88}>
+          <Ionicons name="people-sharp" size={20} color="#3B82F6" />
         </SpringTouchable>
 
-        <SpringTouchable style={styles.controlBtn} onPress={handleZoomIn} scaleTo={0.88}>
-          <Ionicons name="add" size={22} color="#FFFFFF" />
+        {/* Map Layers */}
+        <SpringTouchable style={[styles.controlBtn, floatingControlStyles]} onPress={() => setShowMapLayerModal(true)} scaleTo={0.88}>
+          <Ionicons name="layers" size={20} color={colors.accentGold} />
         </SpringTouchable>
 
-        <SpringTouchable style={styles.controlBtn} onPress={handleZoomOut} scaleTo={0.88}>
-          <Ionicons name="remove" size={22} color="#FFFFFF" />
+        {/* Zoom In & Out */}
+        <SpringTouchable style={[styles.controlBtn, floatingControlStyles]} onPress={handleZoomIn} scaleTo={0.88}>
+          <Ionicons name="add" size={22} color={colors.foreground} />
+        </SpringTouchable>
+
+        <SpringTouchable style={[styles.controlBtn, floatingControlStyles]} onPress={handleZoomOut} scaleTo={0.88}>
+          <Ionicons name="remove" size={22} color={colors.foreground} />
         </SpringTouchable>
       </View>
     </View>
@@ -2371,6 +2738,46 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
+  memberAvatarBar: {
+    marginTop: 10,
+  },
+  memberAvatarContent: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  avatarChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: 'rgba(22, 24, 31, 0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  avatarChipOnline: {
+    borderColor: 'rgba(16, 185, 129, 0.5)',
+  },
+  avatarChipOffline: {
+    borderColor: 'rgba(156, 163, 175, 0.3)',
+    opacity: 0.8,
+  },
+  avatarChipSelected: {
+    borderColor: '#D4AF37',
+    backgroundColor: 'rgba(212, 175, 55, 0.25)',
+  },
+  miniDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  chipText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+
   memberCardSheet: {
     position: 'absolute',
     bottom: 0,
@@ -2393,31 +2800,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   memberAvatar: {
     width: 44,
     height: 44,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.accentGold,
     borderRadius: 22,
-    justifyContent: 'center',
+    backgroundColor: '#0D0E12',
+    borderWidth: 2,
+    borderColor: LUXURY_THEME.colors.accentGold,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarText: {
-    color: LUXURY_THEME.colors.accentGold,
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   memberMainInfo: {
     flex: 1,
   },
   memberCardName: {
+    fontSize: 17,
+    fontWeight: '800',
     color: '#FFFFFF',
-    fontSize: 18,
-    fontFamily: LUXURY_THEME.typography.fontFamilySerif,
-    fontWeight: 'bold',
     marginBottom: 4,
   },
   safeBadge: {
@@ -2429,231 +2835,227 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: LUXURY_THEME.colors.accentGold,
+    backgroundColor: '#10B981',
   },
   safeBadgeText: {
-    color: LUXURY_THEME.colors.accentGold,
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1.5,
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
+  poiAddressText: {
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+
   metricsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
     marginBottom: 20,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
   },
   metricItem: {
-    width: '46%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  metricText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+
+  zoneAllocTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: '#9CA3AF',
+    marginBottom: 8,
+  },
+  zoneAllocScroll: {
+    gap: 8,
+    paddingBottom: 6,
+  },
+  zoneMemberPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
   },
-  metricText: {
-    color: '#D1D5DB',
+  miniAvatarWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#0D0E12',
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniAvatarInitial: {
     fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
+  zoneMemberName: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  zoneMemberStatus: {
+    fontSize: 9.5,
+    fontWeight: '600',
+  },
+  zoneMemberPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#D4AF37',
+  },
+
   cardActionRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
   },
   cardBtnPrimary: {
     flex: 1,
     height: 44,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
+    backgroundColor: LUXURY_THEME.colors.accentGold,
     borderRadius: 12,
-    backgroundColor: '#D4AF37',
-    borderWidth: 1,
-    borderColor: '#D4AF37',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
   cardBtnPrimaryText: {
     color: '#0D0E12',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.5,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.5,
   },
   cardBtnSecondary: {
-    flex: 1,
+    paddingHorizontal: 16,
     height: 44,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
   cardBtnSecondaryText: {
     color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.5,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   cardBtnDanger: {
     flex: 1,
     height: 44,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: 12,
     backgroundColor: '#EF4444',
-    borderWidth: 1,
-    borderColor: '#EF4444',
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
   cardBtnDangerText: {
     color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.5,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.5,
   },
-  memberAvatarBar: {
-    marginTop: 8,
-  },
-  memberAvatarContent: {
-    gap: 8,
-    paddingHorizontal: 2,
-  },
-  avatarChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    gap: 8,
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-  },
-  avatarChipOnline: {
-    backgroundColor: 'rgba(22, 24, 31, 0.9)',
-    borderColor: '#10B981',
-  },
-  avatarChipOffline: {
-    backgroundColor: 'rgba(22, 24, 31, 0.8)',
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  avatarChipSelected: {
-    borderColor: '#D4AF37',
-    borderWidth: 1.5,
-    backgroundColor: 'rgba(212, 175, 55, 0.2)',
-  },
-  miniDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  chipText: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    color: '#FFFFFF',
-  },
+
   floatingControls: {
     position: 'absolute',
-    right: 16,
-    alignItems: 'center',
-    backgroundColor: 'rgba(22, 24, 31, 0.92)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(212, 175, 55, 0.35)',
-    borderRadius: 16,
-    padding: 6,
-    gap: 8,
-    elevation: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    zIndex: 30,
+    right: 18,
+    gap: 10,
+    zIndex: 10,
   },
   controlBtn: {
     width: 44,
     height: 44,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  rotateRow: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  controlBtnSmall: {
-    width: 20,
-    height: 30,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: 6,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  compassLabel: {
-    fontSize: 8,
-    fontWeight: '700',
-    color: LUXURY_THEME.colors.accentGold,
-    marginTop: 1,
-  },
-  controlDivider: {
-    width: 24,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    marginVertical: 2,
-  },
-  poiFilterBar: {
-    marginTop: 6,
-  },
-  poiFilterContent: {
-    gap: 8,
-    paddingHorizontal: 2,
-  },
-  poiChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderRadius: 22,
     backgroundColor: 'rgba(22, 24, 31, 0.9)',
-    borderWidth: 1,
-    borderColor: 'rgba(212, 175, 55, 0.3)',
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 6,
-    elevation: 4,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
   },
-  poiChipActive: {
-    backgroundColor: 'rgba(212, 175, 55, 0.25)',
-    borderColor: '#D4AF37',
+  poiLoadingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(22, 24, 31, 0.95)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(212, 175, 55, 0.65)',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginTop: 10,
+    gap: 12,
+    shadowColor: '#D4AF37',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 14,
+    elevation: 10,
   },
-  poiChipText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 1,
+  poiLoadingGlowBeacon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(212, 175, 55, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  poiChipTextActive: {
+  poiLoadingTitle: {
     color: '#D4AF37',
-  },
-  poiAddressText: {
     fontSize: 11,
-    color: LUXURY_THEME.colors.textMuted,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+  poiLoadingSub: {
+    color: '#E5E7EB',
+    fontSize: 10,
+    fontWeight: '500',
     marginTop: 2,
+    opacity: 0.85,
+  },
+  poiLoadingLivePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderWidth: 1,
+    borderColor: '#10B981',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  poiLoadingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  poiLoadingLiveText: {
+    color: '#10B981',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
 });

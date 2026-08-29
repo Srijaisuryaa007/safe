@@ -9,6 +9,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { startBatteryOptimizedBackgroundLocation } from './src/services/LocationBackgroundService';
 import { registerForPushNotificationsAsync } from './src/services/PushNotificationService';
 import { useThemeStore } from './src/store/useThemeStore';
+import { useCountryStore } from './src/store/useCountryStore';
 import { RevenueCatService } from './src/services/RevenueCatService';
 
 import { LuxuryAlertProvider } from './src/components/LuxuryAlertModal';
@@ -17,8 +18,9 @@ function App() {
   const { setSession, setProfile, setLoading } = useAuthStore();
 
   useEffect(() => {
-    // 0. Initialize visual theme
-    useThemeStore.getState().initTheme().catch(() => {});
+    // 0. Initialize visual theme & country regional preferences
+    useThemeStore.getState().initTheme().catch(() => { });
+    useCountryStore.getState().initCountry().catch(() => { });
 
     // Safety fallback timer to prevent infinite loading if Supabase connection lags
     const authTimeout = setTimeout(() => {
@@ -44,6 +46,7 @@ function App() {
         fetchProfile(session.user.id);
       } else {
         setProfile(null);
+        useCircleStore.getState().resetCircleStore();
         setLoading(false);
       }
     });
@@ -56,6 +59,7 @@ function App() {
 
   const fetchProfile = async (userId: string) => {
     try {
+      useAuthStore.getState().setProfileFetching(true);
       let { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -101,6 +105,7 @@ function App() {
     } catch (err) {
       console.error('Fetch profile err:', err);
     } finally {
+      useAuthStore.getState().setProfileFetching(false);
       setLoading(false);
     }
   };

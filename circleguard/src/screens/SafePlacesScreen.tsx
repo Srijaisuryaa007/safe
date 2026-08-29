@@ -7,7 +7,8 @@ import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
 import { useCircleStore } from '../store/useCircleStore';
 import { useAuthStore } from '../store/useAuthStore';
-import { LUXURY_THEME } from '../constants/theme';
+import { useThemeStore } from '../store/useThemeStore';
+import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBadgeStyles, getThemeBorderStyles } from '../constants/theme';
 import { getHaversineDistanceInMeters, fetchCirclePlacesWithMembers } from '../services/GeofenceEngine';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import { useSubscriptionStore } from '../store/useSubscriptionStore';
@@ -133,10 +134,17 @@ function parseLocationPoint(item: any): { latitude: number; longitude: number } 
 
 export default function SafePlacesScreen() {
   const navigation = useNavigation();
-  const { activeCircle, members, fetchMembers, deletePlace } = useCircleStore();
+  const { colors, themeMode, isDark } = useThemeStore();
+  const { activeCircle, members, fetchMembers, deletePlace, fetchPlaces } = useCircleStore();
   const { profile } = useAuthStore();
   const { showAlert } = useLuxuryAlert();
   const { canCreatePlace, canUseRouteCategory, canUseAdaptiveBuffer, canUseSchedule } = useSubscriptionStore();
+
+  const cardStyles = getThemeCardStyles(themeMode);
+  const primaryBtnStyles = getThemeButtonStyles(themeMode, 'primary');
+  const secondaryBtnStyles = getThemeButtonStyles(themeMode, 'secondary');
+  const dangerBtnStyles = getThemeButtonStyles(themeMode, 'danger');
+  const borderStyles = getThemeBorderStyles(themeMode);
 
   const [placeName, setPlaceName] = useState('Home Safe Zone');
   const [selectedCategory, setSelectedCategory] = useState('home');
@@ -509,6 +517,7 @@ export default function SafePlacesScreen() {
       setSelectedUserIds([]);
       handleResetPoints();
       fetchSavedPlaces(activeCircle.id);
+      fetchPlaces(activeCircle.id);
     } catch (err: any) {
       console.error('Error saving/updating place:', err);
       showAlert({
@@ -609,10 +618,10 @@ export default function SafePlacesScreen() {
       <div id="map"></div>
       <script>
         var map = L.map('map', { zoomControl: true }).setView([20.5937, 78.9629], 13);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19,
           maxNativeZoom: 19,
-          subdomains: 'abcd',
+          attribution: '© OpenStreetMap contributors',
           updateWhenIdle: false,
           updateWhenZooming: false,
           keepBuffer: 6
@@ -809,38 +818,63 @@ export default function SafePlacesScreen() {
   `;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.8}>
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          <Ionicons name="arrow-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: '#FFFFFF' }]}>{editingPlaceId ? 'EDIT GEOFENCE' : 'SAFE PLACES GEOFENCING'}</Text>
+        <Text style={[styles.headerTitle, { color: colors.foreground }]}>{editingPlaceId ? 'EDIT GEOFENCE' : 'SAFE PLACES GEOFENCING'}</Text>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           {editingPlaceId ? (
-            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: 'rgba(255, 255, 255, 0.08)', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.2)' }]} onPress={handleCancelEdit} activeOpacity={0.8}>
-              <Text style={[styles.saveBtnText, { color: '#D1D5DB' }]}>CANCEL</Text>
+            <TouchableOpacity 
+              style={[
+                styles.saveBtn, 
+                { 
+                  backgroundColor: secondaryBtnStyles.backgroundColor, 
+                  borderColor: secondaryBtnStyles.borderColor,
+                  borderRadius: secondaryBtnStyles.borderRadius,
+                  borderWidth: secondaryBtnStyles.borderWidth,
+                }
+              ]} 
+              onPress={handleCancelEdit} 
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.saveBtnText, { color: secondaryBtnStyles.textColor }]}>CANCEL</Text>
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity style={[styles.saveBtn, { backgroundColor: '#D4AF37' }]} onPress={handleSavePlace} disabled={saving} activeOpacity={0.8}>
-            <Text style={[styles.saveBtnText, { color: '#0D0E12', fontWeight: '800' }]}>{saving ? 'SAVING...' : editingPlaceId ? 'UPDATE' : 'SAVE'}</Text>
+          <TouchableOpacity 
+            style={[
+              styles.saveBtn, 
+              { 
+                backgroundColor: primaryBtnStyles.backgroundColor, 
+                borderColor: primaryBtnStyles.borderColor,
+                borderRadius: primaryBtnStyles.borderRadius,
+                borderWidth: primaryBtnStyles.borderWidth,
+              }
+            ]} 
+            onPress={handleSavePlace} 
+            disabled={saving} 
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.saveBtnText, { color: primaryBtnStyles.textColor, fontWeight: '800' }]}>{saving ? 'SAVING...' : editingPlaceId ? 'UPDATE' : 'SAVE'}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       <ScrollView ref={mainScrollViewRef} contentContainerStyle={styles.content}>
-        <Text style={styles.overline}>{editingPlaceId ? 'MODIFY BOUNDARY' : 'SETUP BOUNDARY'}</Text>
-        <Text style={styles.title}>{editingPlaceId ? 'Edit Geofence' : 'Define Geofence'}</Text>
+        <Text style={[styles.overline, { color: colors.accentGold }]}>{editingPlaceId ? 'MODIFY BOUNDARY' : 'SETUP BOUNDARY'}</Text>
+        <Text style={[styles.title, { color: colors.foreground }]}>{editingPlaceId ? 'Edit Geofence' : 'Define Geofence'}</Text>
 
-        <Text style={styles.inputLabel}>GEOFENCE NAME</Text>
+        <Text style={[styles.inputLabel, { color: colors.textMuted }]}>GEOFENCE NAME</Text>
         <TextInput
-          style={styles.underlineInput}
+          style={[styles.underlineInput, { color: colors.foreground, borderBottomColor: colors.accentGold }]}
           placeholder="e.g. Home Safe Zone, School Perimeter, Commute Corridor"
           value={placeName}
           onChangeText={setPlaceName}
-          placeholderTextColor={LUXURY_THEME.colors.textMuted}
+          placeholderTextColor={colors.textMuted}
         />
 
-        <Text style={styles.inputLabel}>CATEGORY & TYPE</Text>
+        <Text style={[styles.inputLabel, { color: colors.textMuted }]}>CATEGORY & TYPE</Text>
         <View style={styles.categoryGrid}>
           {categories.map((cat) => {
             const active = selectedCategory === cat.id;
@@ -849,7 +883,16 @@ export default function SafePlacesScreen() {
             return (
               <TouchableOpacity
                 key={cat.id}
-                style={[styles.categoryTile, active ? styles.activeCategoryTile : null, isRouteGated ? { opacity: 0.8 } : null]}
+                style={[
+                  styles.categoryTile, 
+                  {
+                    backgroundColor: active ? (themeMode === 'bauhaus' ? '#F0C020' : (themeMode === 'brand_green' ? '#E8F8EE' : colors.surfaceMuted)) : colors.surface,
+                    borderColor: active ? colors.accentGold : colors.border,
+                    borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 24 : 14),
+                    borderWidth: themeMode === 'bauhaus' ? 2.5 : (themeMode === 'playful_geometric' ? 2 : 1.5),
+                  },
+                  isRouteGated ? { opacity: 0.8 } : null
+                ]}
                 onPress={() => {
                   if (cat.id === 'route' && !canUseRouteCategory()) {
                     setGatedFeatureName('Commute Corridor Route & Live ETAs');
@@ -867,16 +910,16 @@ export default function SafePlacesScreen() {
                 }}
               >
                 {isRouteGated ? (
-                  <View style={{ position: 'absolute', top: 4, right: 4, backgroundColor: '#D4AF37', borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1 }}>
+                  <View style={{ position: 'absolute', top: 4, right: 4, backgroundColor: colors.accentGold, borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1 }}>
                     <Text style={{ fontSize: 7, fontWeight: '900', color: '#1A1A1A' }}>PLUS</Text>
                   </View>
                 ) : null}
                 <Ionicons 
                   name={cat.icon as any} 
                   size={20} 
-                  color={active ? LUXURY_THEME.colors.accentGold : LUXURY_THEME.colors.foreground} 
+                  color={active ? (themeMode === 'bauhaus' ? '#121212' : colors.accentGold) : colors.foreground} 
                 />
-                <Text style={[styles.categoryLabel, active ? styles.activeCategoryLabel : null]}>
+                <Text style={[styles.categoryLabel, { color: active ? (themeMode === 'bauhaus' ? '#121212' : colors.accentGold) : colors.textMuted }]}>
                   {cat.label}
                 </Text>
               </TouchableOpacity>
@@ -1221,17 +1264,17 @@ export default function SafePlacesScreen() {
 
         {/* Saved Geofences Section */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>ACTIVE CIRCLE GEOFENCES ({savedPlaces.length})</Text>
-          <View style={styles.accentLine} />
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>ACTIVE CIRCLE GEOFENCES ({savedPlaces.length})</Text>
+          <View style={[styles.accentLine, { backgroundColor: colors.accentGold }]} />
         </View>
 
         {loadingPlaces ? (
-          <ActivityIndicator size="small" color={LUXURY_THEME.colors.foreground} style={{ marginVertical: 20 }} />
+          <ActivityIndicator size="small" color={colors.accentGold} style={{ marginVertical: 20 }} />
         ) : savedPlaces.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Ionicons name="shield-checkmark-outline" size={32} color={LUXURY_THEME.colors.textMuted} />
-            <Text style={styles.emptyTitle}>NO GEOFENCES CONFIGURED</Text>
-            <Text style={styles.emptySub}>Tap points on the Mini Map above to automatically calculate radius and define geofence boundaries.</Text>
+          <View style={[styles.emptyCard, cardStyles]}>
+            <Ionicons name="shield-checkmark-outline" size={32} color={colors.textMuted} />
+            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>NO GEOFENCES CONFIGURED</Text>
+            <Text style={[styles.emptySub, { color: colors.textMuted }]}>Tap points on the Mini Map above to automatically calculate radius and define geofence boundaries.</Text>
           </View>
         ) : (
           <View style={styles.placesList}>
@@ -1240,17 +1283,17 @@ export default function SafePlacesScreen() {
               const assignedMembers = members.filter(m => assignedIds.includes(m.user_id));
 
               return (
-                <View key={p.id} style={styles.placeCard}>
+                <View key={p.id} style={[styles.placeCard, cardStyles]}>
                   <View style={styles.placeLeft}>
-                    <View style={styles.placeIconBox}>
-                      <Ionicons name={p.end_lat ? "navigate" : "bookmark"} size={18} color="#D4AF37" />
+                    <View style={[styles.placeIconBox, { backgroundColor: `${colors.accentGold}20`, borderColor: colors.accentGold, borderRadius: themeMode === 'bauhaus' ? 0 : 10 }]}>
+                      <Ionicons name={p.end_lat ? "navigate" : "bookmark"} size={18} color={colors.accentGold} />
                     </View>
                     <View style={{ flex: 1, paddingRight: 8 }}>
-                      <Text style={styles.placeName} numberOfLines={1}>{p.name}</Text>
+                      <Text style={[styles.placeName, { color: colors.foreground }]} numberOfLines={1}>{p.name}</Text>
                       <View style={styles.tagRow}>
-                        <Text style={styles.placeRadius}>RADIUS: {p.radius_m || 150}M</Text>
-                        <Text style={styles.tagDot}>•</Text>
-                        <Text style={styles.targetTag} numberOfLines={1} ellipsizeMode="tail">
+                        <Text style={[styles.placeRadius, { color: colors.accentGold }]}>RADIUS: {p.radius_m || 150}M</Text>
+                        <Text style={[styles.tagDot, { color: colors.textMuted }]}>•</Text>
+                        <Text style={[styles.targetTag, { color: colors.textMuted }]} numberOfLines={1} ellipsizeMode="tail">
                           {assignedMembers.length > 0
                             ? `APPLIES TO: ${assignedMembers.map(m => String(m.profile?.full_name || 'Member').split(' ')[0]).join(', ').toUpperCase()}`
                             : 'APPLIES TO: ALL MEMBERS'}
@@ -1265,10 +1308,10 @@ export default function SafePlacesScreen() {
                               <View key={m.user_id || idx} style={{
                                 width: 22,
                                 height: 22,
-                                borderRadius: 11,
-                                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                borderRadius: themeMode === 'bauhaus' ? 0 : 11,
+                                backgroundColor: colors.surfaceMuted,
                                 borderWidth: 1,
-                                borderColor: '#D4AF37',
+                                borderColor: colors.accentGold,
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 overflow: 'hidden',
@@ -1276,7 +1319,7 @@ export default function SafePlacesScreen() {
                                 {m.profile?.avatar_url ? (
                                   <Image source={{ uri: m.profile.avatar_url }} style={{ width: '100%', height: '100%' }} />
                                 ) : (
-                                  <Text style={{ fontSize: 9, fontWeight: '800', color: '#FFFFFF' }}>{initial}</Text>
+                                  <Text style={{ fontSize: 9, fontWeight: '800', color: colors.foreground }}>{initial}</Text>
                                 )}
                               </View>
                             );
@@ -1288,15 +1331,15 @@ export default function SafePlacesScreen() {
 
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <TouchableOpacity 
-                      style={styles.editBtn}
+                      style={[styles.editBtn, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 8 }]}
                       onPress={() => handleStartEditPlace(p)}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="create" size={16} color="#D4AF37" />
+                      <Ionicons name="create" size={16} color={colors.accentGold} />
                     </TouchableOpacity>
 
                     <TouchableOpacity 
-                      style={styles.deleteBtn}
+                      style={[styles.deleteBtn, { backgroundColor: '#FEE2E2', borderColor: '#EF4444', borderRadius: themeMode === 'bauhaus' ? 0 : 8 }]}
                       onPress={() => handleDeletePlace(p.id, p.name)}
                       activeOpacity={0.8}
                     >

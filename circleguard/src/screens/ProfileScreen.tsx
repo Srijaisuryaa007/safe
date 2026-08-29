@@ -8,8 +8,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { decode } from 'base64-arraybuffer';
 import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from '../lib/supabase';
-import { LUXURY_THEME } from '../constants/theme';
 import { useThemeStore } from '../store/useThemeStore';
+import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBorderStyles } from '../constants/theme';
 
 // Modals
 import EmergencyContactsModal from '../components/EmergencyContactsModal';
@@ -20,6 +20,9 @@ import NotificationsModal from '../components/NotificationsModal';
 import SettingsModal from '../components/SettingsModal';
 import AboutCircleGuardModal from '../components/AboutCircleGuardModal';
 import LogoutModal from '../components/LogoutModal';
+import EditProfileModal from '../components/EditProfileModal';
+import CountrySelectorModal from '../components/CountrySelectorModal';
+import { useCountryStore } from '../store/useCountryStore';
 
 import SpringTouchable from '../components/SpringTouchable';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
@@ -33,40 +36,71 @@ interface PrimaryContact {
 }
 
 export default function ProfileScreen() {
-  const { colors, isDark } = useThemeStore();
+  const { colors, isDark, themeMode } = useThemeStore();
   const { profile, session, setProfile } = useAuthStore();
   const { isPremium } = useSubscriptionStore();
   const { showAlert } = useLuxuryAlert();
   const [uploading, setUploading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
+  const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
+  const [userDob, setUserDob] = useState('07/08/2004');
 
   const [emergencyContact, setEmergencyContact] = useState<PrimaryContact | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimerRef = React.useRef<any>(null);
 
-  const userEmail = (profile as any)?.email || session?.user?.email || 'mylambo0708@gmail.com';
-  const userPhone = profile?.phone || '+91 80729 86912';
+  const userEmail = (profile as any)?.email || session?.user?.email || 'No email registered';
+  const userPhone = profile?.phone || 'No phone number added';
+
+  const getPrimaryContactKey = (uid?: string) => uid ? `@circleguard_primary_emergency_contact_${uid}` : '@circleguard_primary_emergency_contact';
+  const getContactsListKey = (uid?: string) => uid ? `@circleguard_emergency_contacts_${uid}` : '@circleguard_emergency_contacts';
+  const getDobStorageKey = (uid?: string) => uid ? `@circleguard_user_dob_${uid}` : '@circleguard_user_dob';
+
+  React.useEffect(() => {
+    const loadUserDob = async () => {
+      if (!profile?.id) return;
+      try {
+        const saved = await AsyncStorage.getItem(getDobStorageKey(profile.id));
+        if (saved) {
+          setUserDob(saved);
+        } else if ((profile as any)?.dob) {
+          setUserDob((profile as any).dob);
+        } else if ((profile as any)?.date_of_birth) {
+          setUserDob((profile as any).date_of_birth);
+        }
+      } catch (e) {}
+    };
+    loadUserDob();
+  }, [profile?.id, profile]);
 
   React.useEffect(() => {
     const loadPrimaryEmergencyContact = async () => {
+      if (!profile?.id) {
+        setEmergencyContact(null);
+        return;
+      }
       try {
-        const saved = await AsyncStorage.getItem('@circleguard_primary_emergency_contact');
+        const saved = await AsyncStorage.getItem(getPrimaryContactKey(profile.id));
         if (saved) {
           setEmergencyContact(JSON.parse(saved));
         } else {
-          const savedList = await AsyncStorage.getItem('@circleguard_emergency_contacts');
+          const savedList = await AsyncStorage.getItem(getContactsListKey(profile.id));
           if (savedList) {
             const list = JSON.parse(savedList);
             if (list && list.length > 0) {
               setEmergencyContact({ name: list[0].name, phone: list[0].phone });
+            } else {
+              setEmergencyContact(null);
             }
+          } else {
+            setEmergencyContact(null);
           }
         }
       } catch (e) {}
     };
     loadPrimaryEmergencyContact();
-  }, []);
+  }, [profile?.id]);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -115,22 +149,24 @@ export default function ProfileScreen() {
         };
 
         setEmergencyContact(item);
-        await AsyncStorage.setItem('@circleguard_primary_emergency_contact', JSON.stringify(item));
+        if (profile?.id) {
+          await AsyncStorage.setItem(getPrimaryContactKey(profile.id), JSON.stringify(item));
 
-        // Synchronize with the emergency contacts list
-        try {
-          const savedList = await AsyncStorage.getItem('@circleguard_emergency_contacts');
-          let currentList: any[] = savedList ? JSON.parse(savedList) : [];
-          if (!currentList.some((c: any) => c.phone === phoneNumber)) {
-            currentList.push({
-              id: Date.now().toString(),
-              name: contactName,
-              phone: phoneNumber,
-              relationship: 'Emergency Contact',
-            });
-            await AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(currentList));
-          }
-        } catch (e) {}
+          // Synchronize with the emergency contacts list
+          try {
+            const savedList = await AsyncStorage.getItem(getContactsListKey(profile.id));
+            let currentList: any[] = savedList ? JSON.parse(savedList) : [];
+            if (!currentList.some((c: any) => c.phone === phoneNumber)) {
+              currentList.push({
+                id: Date.now().toString(),
+                name: contactName,
+                phone: phoneNumber,
+                relationship: 'Emergency Contact',
+              });
+              await AsyncStorage.setItem(getContactsListKey(profile.id), JSON.stringify(currentList));
+            }
+          } catch (e) {}
+        }
 
         triggerToast('Emergency contact number added successfully');
       }
@@ -155,7 +191,9 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             setEmergencyContact(null);
-            await AsyncStorage.removeItem('@circleguard_primary_emergency_contact');
+            if (profile?.id) {
+              await AsyncStorage.removeItem(getPrimaryContactKey(profile.id));
+            }
             triggerToast('Emergency contact removed successfully');
           },
         },
@@ -175,6 +213,8 @@ export default function ProfileScreen() {
   };
 
   // Modal Visibility State
+  const { country } = useCountryStore();
+  const [countryModalVisible, setCountryModalVisible] = useState(false);
   const [contactsModalVisible, setContactsModalVisible] = useState(false);
   const [medicalModalVisible, setMedicalModalVisible] = useState(false);
   const [appearanceModalVisible, setAppearanceModalVisible] = useState(false);
@@ -259,6 +299,9 @@ export default function ProfileScreen() {
       case 'Emergency Contacts':
         setContactsModalVisible(true);
         break;
+      case 'Emergency Region & Hotlines':
+        setCountryModalVisible(true);
+        break;
       case 'Medical Information':
         setMedicalModalVisible(true);
         break;
@@ -290,6 +333,7 @@ export default function ProfileScreen() {
       title: 'SAFETY & EMERGENCY PROTOCOLS',
       items: [
         { icon: 'call-outline', label: 'Emergency Contacts' },
+        { icon: 'globe-outline', label: `Emergency Region & Hotlines (${country.flag} ${country.name})` },
         { icon: 'medical-outline', label: 'Medical Information' },
         { icon: 'notifications-outline', label: 'Phone & Notifications' },
       ],
@@ -324,19 +368,19 @@ export default function ProfileScreen() {
           <Text style={[styles.topNavTitle, { color: colors.foreground }]}>My Profile</Text>
         </View>
 
-        {/* Profile Card Matching Screenshots */}
-        <View style={[styles.headerCard, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, padding: 20 }]}>
+        {/* Profile Card Matching Theme Mode */}
+        <View style={[styles.headerCard, getThemeCardStyles(themeMode), { backgroundColor: colors.surface, padding: 20 }]}>
           {/* Avatar and Edit Icon */}
           <View style={styles.avatarRow}>
-            <TouchableOpacity style={styles.avatarWrapper} onPress={handlePickAvatar} disabled={uploading}>
+            <TouchableOpacity style={styles.avatarWrapper} onPress={() => setEditProfileModalVisible(true)} disabled={uploading}>
               {profile?.avatar_url ? (
                 <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} />
               ) : (
-                <View style={[styles.avatar, { backgroundColor: colors.foreground }]}>
-                  <Text style={[styles.avatarText, { color: colors.background }]}>{initial}</Text>
+                <View style={[styles.avatar, { backgroundColor: themeMode === 'brand_green' ? '#3DBE6C' : colors.foreground }]}>
+                  <Text style={[styles.avatarText, { color: '#FFFFFF' }]}>{initial}</Text>
                 </View>
               )}
-              <View style={[styles.cameraBadge, { backgroundColor: colors.accentGold }]}>
+              <View style={[styles.cameraBadge, { backgroundColor: themeMode === 'brand_green' ? '#F5A623' : colors.accentGold }]}>
                 {uploading ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
@@ -347,10 +391,10 @@ export default function ProfileScreen() {
 
             <TouchableOpacity 
               style={styles.topRightEditBtn}
-              onPress={handlePickAvatar}
+              onPress={() => setEditProfileModalVisible(true)}
               activeOpacity={0.7}
             >
-              <Ionicons name="pencil-outline" size={20} color="#EF4444" />
+              <Ionicons name="pencil-outline" size={20} color={themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold} />
             </TouchableOpacity>
           </View>
 
@@ -362,19 +406,19 @@ export default function ProfileScreen() {
           {/* Profile Details (Phone, Email, Birthday) */}
           <View style={styles.profileDetailsCol}>
             <View style={styles.detailItemRow}>
-              <Ionicons name="call-outline" size={16} color={colors.textMuted} />
+              <Ionicons name="call-outline" size={16} color={themeMode === 'brand_green' ? '#3DBE6C' : colors.textMuted} />
               <Text style={[styles.detailItemText, { color: colors.foreground }]}>{userPhone}</Text>
             </View>
 
             <View style={styles.detailItemRow}>
-              <Ionicons name="mail-outline" size={16} color={colors.textMuted} />
+              <Ionicons name="mail-outline" size={16} color={themeMode === 'brand_green' ? '#3DBE6C' : colors.textMuted} />
               <Text style={[styles.detailItemText, { color: colors.foreground }]}>{userEmail}</Text>
             </View>
 
             <View style={styles.detailItemRow}>
-              <Ionicons name="gift-outline" size={16} color={colors.textMuted} />
+              <Ionicons name="gift-outline" size={16} color={themeMode === 'brand_green' ? '#3DBE6C' : colors.textMuted} />
               <Text style={[styles.detailItemText, { color: colors.foreground }]}>
-                {profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : '07/08/2004'}
+                {userDob || (profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : '07/08/2004')}
               </Text>
             </View>
           </View>
@@ -386,7 +430,7 @@ export default function ProfileScreen() {
           <Text style={[styles.sectionTitleHeader, { color: colors.textMuted }]}>
             {section.title}
           </Text>
-          <View style={[styles.menuContainer, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: 16 }]}>
+          <View style={[styles.menuContainer, getThemeCardStyles(themeMode), { backgroundColor: colors.surface }]}>
             {section.items.map((item, index) => {
               const isEmergencyRow = item.label === 'Emergency Contacts';
 
@@ -578,6 +622,17 @@ export default function ProfileScreen() {
         visible={paywallVisible}
         onClose={() => setPaywallVisible(false)}
         gatedFeatureName="CircleGuard Plus Executive Features"
+      />
+
+      <EditProfileModal
+        visible={editProfileModalVisible}
+        onClose={() => setEditProfileModalVisible(false)}
+        onProfileUpdated={onRefresh}
+      />
+
+      <CountrySelectorModal
+        visible={countryModalVisible}
+        onClose={() => setCountryModalVisible(false)}
       />
     </ScrollView>
 

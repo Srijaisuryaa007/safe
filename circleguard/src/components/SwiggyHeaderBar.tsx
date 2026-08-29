@@ -188,7 +188,7 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
           styles.headerContainer,
           {
             backgroundColor: colors.background,
-            borderBottomWidth: themeMode === 'bauhaus' ? 4 : (themeMode === 'minimalist_monochrome' ? 1 : 0),
+            borderBottomWidth: themeMode === 'bauhaus' ? 4 : 0,
             borderBottomColor: colors.border,
           },
         ]}

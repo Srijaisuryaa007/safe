@@ -45,6 +45,8 @@ export interface Place {
   start_lng?: number;
   end_lat?: number;
   end_lng?: number;
+  target_user_id?: string | null;
+  assigned_user_ids?: string[];
   created_at?: string;
 }
 
@@ -135,6 +137,7 @@ interface CircleState {
   deletePlace: (placeId: string) => Promise<boolean>;
   removeMember: (circleId: string, userId: string) => Promise<boolean>;
   assignMemberSupervisor: (circleId: string, memberId: string, supervisorId: string | null) => Promise<boolean>;
+  resetCircleStore: () => void;
 }
 
 export const useCircleStore = create<CircleState>((set, get) => ({
@@ -144,6 +147,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
   places: [],
   isLoading: false,
   circleFetched: false,
+  resetCircleStore: () => set({ activeCircle: null, circles: [], members: [], places: [], circleFetched: false, isLoading: false }),
   setActiveCircle: (activeCircle) => set({ activeCircle, circleFetched: true }),
   setMembers: (members) => set({ members }),
   setPlaces: (places) => set({ places }),
@@ -219,6 +223,32 @@ export const useCircleStore = create<CircleState>((set, get) => ({
               longitude: pt.longitude !== 0 ? pt.longitude : undefined,
             };
           });
+        }
+
+        // Query location_history fallback for any members without active locations row
+        const missingUserIds = userIds.filter(uid => !locationsMap[uid]?.latitude || !locationsMap[uid]?.longitude);
+        if (missingUserIds.length > 0) {
+          for (const mId of missingUserIds) {
+            try {
+              const { data: histData } = await supabase
+                .from('location_history')
+                .select('user_id, geom, speed_mps, recorded_at')
+                .eq('user_id', mId)
+                .order('recorded_at', { ascending: false })
+                .limit(1);
+
+              if (histData && histData.length > 0) {
+                const pt = parsePoint(histData[0]);
+                if (pt.latitude !== 0 && pt.longitude !== 0) {
+                  locationsMap[mId] = {
+                    updated_at: histData[0].recorded_at,
+                    latitude: pt.latitude,
+                    longitude: pt.longitude,
+                  };
+                }
+              }
+            } catch(e) {}
+          }
         }
       }
 
@@ -413,6 +443,25 @@ export const useCircleStore = create<CircleState>((set, get) => ({
 
       if (error) throw error;
 
+      const placeIds = (data || []).map(p => p.id);
+      let memberMap: Record<string, string[]> = {};
+
+      if (placeIds.length > 0) {
+        try {
+          const { data: pmData } = await supabase
+            .from('place_members')
+            .select('place_id, user_id')
+            .in('place_id', placeIds);
+
+          if (pmData) {
+            pmData.forEach(row => {
+              if (!memberMap[row.place_id]) memberMap[row.place_id] = [];
+              memberMap[row.place_id].push(row.user_id);
+            });
+          }
+        } catch (e) {}
+      }
+
       const formatted: Place[] = (data || []).map(item => {
         const pt = parsePoint(item);
         const radiusNum = parseFloat(item.radius_m || item.radius || 150);
@@ -428,6 +477,8 @@ export const useCircleStore = create<CircleState>((set, get) => ({
           start_lng: item.start_lng,
           end_lat: item.end_lat,
           end_lng: item.end_lng,
+          target_user_id: item.target_user_id || null,
+          assigned_user_ids: memberMap[item.id] || (item.target_user_id ? [item.target_user_id] : []),
           created_at: item.created_at,
         };
       }).filter(p => p.latitude !== 0 && p.longitude !== 0);

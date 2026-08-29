@@ -17,9 +17,11 @@ interface AuthState {
   user: User | null;
   profile: Profile | null;
   isLoading: boolean;
+  isProfileFetching: boolean;
   setSession: (session: Session | null) => void;
   setProfile: (profile: Profile | null) => void;
   setLoading: (isLoading: boolean) => void;
+  setProfileFetching: (isProfileFetching: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -27,7 +29,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   profile: null,
   isLoading: true,
+  isProfileFetching: false,
   setSession: (session) => set({ session, user: session?.user || null }),
   setProfile: (profile) => set({ profile }),
   setLoading: (isLoading) => set({ isLoading }),
+  setProfileFetching: (isProfileFetching) => set({ isProfileFetching }),
 }));

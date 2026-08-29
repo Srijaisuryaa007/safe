@@ -8,20 +8,30 @@ interface AddPlaceModalProps {
   coordinate: { latitude: number; longitude: number } | null;
   members?: any[];
   onClose: () => void;
-  onSave: (name: string, radius: number, selectedUserIds: string[]) => void;
+  onSave: (name: string, radius: number, selectedUserIds: string[], category: string) => void;
 }
+
+const CATEGORY_OPTIONS = [
+  { id: 'home', icon: 'home', label: 'Home', color: '#10B981' },
+  { id: 'work', icon: 'briefcase', label: 'Work', color: '#3B82F6' },
+  { id: 'school', icon: 'school', label: 'School', color: '#F59E0B' },
+  { id: 'fitness', icon: 'fitness', label: 'Gym', color: '#8B5CF6' },
+  { id: 'danger', icon: 'alert-circle', label: 'Danger Zone', color: '#EF4444' },
+  { id: 'custom', icon: 'shield-checkmark', label: 'Custom', color: '#D4AF37' },
+];
 
 export default function AddPlaceModal({ visible, coordinate, members = [], onClose, onSave }: AddPlaceModalProps) {
   const { colors, isDark } = useThemeStore();
   const [name, setName] = useState('');
   const [radius, setRadius] = useState('150');
+  const [category, setCategory] = useState('home');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (visible) {
       setName('');
       setRadius('150');
-      // Default to no one pre-selected for explicit choice
+      setCategory('home');
       setSelectedUserIds([]);
     }
   }, [visible]);
@@ -43,7 +53,7 @@ export default function AddPlaceModal({ visible, coordinate, members = [], onClo
   const handleSave = () => {
     if (!name.trim()) return;
     const r = parseInt(radius, 10);
-    onSave(name.trim(), isNaN(r) ? 150 : r, selectedUserIds);
+    onSave(name.trim(), isNaN(r) ? 150 : r, selectedUserIds, category);
   };
 
   if (!visible) return null;
@@ -56,27 +66,54 @@ export default function AddPlaceModal({ visible, coordinate, members = [], onClo
       >
         <View style={[styles.modalBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.headerRow}>
-            <Text style={[styles.title, { color: colors.foreground }]}>Add New Safe Zone</Text>
+            <Text style={[styles.title, { color: colors.foreground }]}>Create Geofence Zone</Text>
             <TouchableOpacity onPress={onClose}>
               <Ionicons name="close" size={24} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            Set boundary radius and select which circle members this zone applies to.
+            Set boundary radius, category, and select which circle members this zone applies to.
           </Text>
 
-          <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
-            <Text style={[styles.label, { color: colors.foreground }]}>Zone Name (e.g. Home, School)</Text>
+          <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+            {/* Category Chips */}
+            <Text style={[styles.label, { color: colors.foreground }]}>ZONE CATEGORY</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
+              {CATEGORY_OPTIONS.map(cat => {
+                const isSelected = category === cat.id;
+                return (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[
+                      styles.categoryChip,
+                      {
+                        backgroundColor: isSelected ? `${cat.color}25` : colors.surfaceMuted,
+                        borderColor: isSelected ? cat.color : colors.border,
+                      }
+                    ]}
+                    onPress={() => setCategory(cat.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name={cat.icon as any} size={14} color={isSelected ? cat.color : colors.textMuted} />
+                    <Text style={[styles.categoryText, { color: isSelected ? cat.color : colors.foreground }]}>
+                      {cat.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <Text style={[styles.label, { color: colors.foreground }]}>ZONE NAME</Text>
             <TextInput
               style={[styles.input, { backgroundColor: colors.surfaceMuted, color: colors.foreground, borderColor: colors.border }]}
               value={name}
               onChangeText={setName}
-              placeholder="Enter zone name"
+              placeholder="e.g. Home, Office, Campus, Downtown"
               placeholderTextColor={colors.textMuted}
             />
 
-            <Text style={[styles.label, { color: colors.foreground }]}>Radius (meters)</Text>
+            <Text style={[styles.label, { color: colors.foreground }]}>RADIUS (METERS)</Text>
             <TextInput
               style={[styles.input, { backgroundColor: colors.surfaceMuted, color: colors.foreground, borderColor: colors.border }]}
               value={radius}
@@ -86,9 +123,9 @@ export default function AddPlaceModal({ visible, coordinate, members = [], onClo
               placeholderTextColor={colors.textMuted}
             />
 
-            {/* Member Selection Section */}
+            {/* Member Allocation Section */}
             <View style={styles.memberHeaderRow}>
-              <Text style={[styles.label, { color: colors.foreground, marginBottom: 0 }]}>APPLY ZONE TO MEMBERS</Text>
+              <Text style={[styles.label, { color: colors.foreground, marginBottom: 0 }]}>ALLOCATE TO CIRCLE MEMBERS</Text>
               {members.length > 0 ? (
                 <TouchableOpacity onPress={toggleSelectAll}>
                   <Text style={[styles.selectAllText, { color: colors.accentGold }]}>
@@ -100,8 +137,8 @@ export default function AddPlaceModal({ visible, coordinate, members = [], onClo
 
             <Text style={[styles.helperText, { color: colors.textMuted }]}>
               {selectedUserIds.length === 0 
-                ? 'No members selected. Zone will apply to explicit selections.' 
-                : `${selectedUserIds.length} of ${members.length} members selected`}
+                ? 'Applies to entire circle by default if no individual member is selected.' 
+                : `Explicitly assigned to ${selectedUserIds.length} of ${members.length} members`}
             </Text>
 
             <View style={styles.membersListContainer}>
@@ -196,6 +233,23 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 1,
     marginBottom: 8,
+  },
+  categoryScroll: {
+    gap: 8,
+    paddingBottom: 14,
+  },
+  categoryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  categoryText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   input: {
     borderWidth: 1,

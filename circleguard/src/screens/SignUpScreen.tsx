@@ -1,15 +1,22 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Alert, Platform, NativeModules, TurboModuleRegistry } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, ScrollView, Platform, NativeModules, TurboModuleRegistry } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { supabase } from '../lib/supabase';
-import { LUXURY_THEME } from '../constants/theme';
+import { useThemeStore } from '../store/useThemeStore';
+import AnimatedCircleGuardLogo from '../components/AnimatedCircleGuardLogo';
+import ConstellationBackground from '../components/ConstellationBackground';
+import { useCountryStore } from '../store/useCountryStore';
+import CountrySelectorModal from '../components/CountrySelectorModal';
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function SignUpScreen() {
+  const { colors, isDark } = useThemeStore();
+  const { country, countryCode } = useCountryStore();
+  const [countryModalVisible, setCountryModalVisible] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -25,10 +32,15 @@ export default function SignUpScreen() {
     try {
       setLoading(true);
       setErrorMsg(null);
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password: password.trim(),
-      });
+      const [signUpResult] = await Promise.all([
+        supabase.auth.signUp({
+          email: email.trim(),
+          password: password.trim(),
+        }),
+        new Promise((resolve) => setTimeout(resolve, 950)),
+      ]);
+
+      const { data, error } = signUpResult;
 
       if (error) {
         setErrorMsg(error.message);
@@ -48,12 +60,9 @@ export default function SignUpScreen() {
     try {
       setLoading(true);
 
-      const hasNativeModule = Platform.OS !== 'web' && (
-        !!(NativeModules as any)?.RNGoogleSignin ||
-        !!(TurboModuleRegistry && typeof TurboModuleRegistry.get === 'function' && TurboModuleRegistry.get('RNGoogleSignin'))
-      );
+      const isNativeGoogleAvailable = Platform.OS !== 'web' && Boolean(NativeModules && (NativeModules as any).RNGoogleSignin);
 
-      if (hasNativeModule) {
+      if (isNativeGoogleAvailable) {
         try {
           const { GoogleSignin } = require('@react-native-google-signin/google-signin');
           GoogleSignin.configure({
@@ -63,70 +72,68 @@ export default function SignUpScreen() {
           await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
           try {
             await GoogleSignin.signOut();
-          } catch (e) {}
+          } catch (e) { }
           const response = await GoogleSignin.signIn();
-          
+
           const idToken = response?.data?.idToken || response?.idToken || (response as any)?.data?.idToken || (response as any)?.idToken;
 
-          if (!idToken) {
-            throw new Error('Google did not return an ID token. Please verify your Web Client ID and SHA-1 in Google Cloud Console.');
-          }
+          if (idToken) {
+            const { data: sessionData, error: sessionErr } = await supabase.auth.signInWithIdToken({
+              provider: 'google',
+              token: idToken,
+            });
 
-          const { data: sessionData, error: sessionErr } = await supabase.auth.signInWithIdToken({
-            provider: 'google',
-            token: idToken,
-          });
+            if (sessionErr) throw sessionErr;
 
-          if (sessionErr) throw sessionErr;
+            if (sessionData?.session) {
+              const { useAuthStore } = require('../store/useAuthStore');
+              useAuthStore.getState().setSession(sessionData.session);
 
-          if (sessionData?.session) {
-            const { useAuthStore } = require('../store/useAuthStore');
-            useAuthStore.getState().setSession(sessionData.session);
-
-            const user = sessionData.session.user;
-            let { data: prof } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', user.id)
-              .maybeSingle();
-
-            if (!prof) {
-              const fullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Circle Member';
-              const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
-
-              const { data: newProf } = await supabase
+              const user = sessionData.session.user;
+              let { data: prof } = await supabase
                 .from('profiles')
-                .upsert([
-                  {
-                    id: user.id,
-                    full_name: fullName,
-                    avatar_url: avatarUrl,
-                    phone: user.phone || null,
-                  }
-                ])
-                .select()
-                .single();
+                .select('*')
+                .eq('id', user.id)
+                .maybeSingle();
 
-              if (newProf) prof = newProf;
-            }
+              if (!prof) {
+                const fullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Circle Member';
+                const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
 
-            if (prof) {
-              useAuthStore.getState().setProfile(prof);
+                const { data: newProf } = await supabase
+                  .from('profiles')
+                  .upsert([
+                    {
+                      id: user.id,
+                      full_name: fullName,
+                      avatar_url: avatarUrl,
+                      phone: user.phone || null,
+                    }
+                  ])
+                  .select()
+                  .single();
+
+                if (newProf) prof = newProf;
+              }
+
+              if (prof) {
+                useAuthStore.getState().setProfile(prof);
+              }
+              return;
             }
-            return;
           }
         } catch (nativeErr: any) {
-          console.error('Native Google sign in error:', nativeErr);
+          console.log('Native Google sign in skipped/fallback:', nativeErr?.message);
           const isCancelled = nativeErr?.code === '13' || nativeErr?.code === 'SIGN_IN_CANCELLED' || nativeErr?.message?.toLowerCase()?.includes('cancel');
-          if (!isCancelled) {
-            Alert.alert('Google Sign-In Error', nativeErr?.message || 'Failed to authenticate with Google.');
+          if (isCancelled) {
+            return;
           }
-          return;
+          // If native module had an error, fall through gracefully to browser OAuth
         }
       }
 
-      const redirectUrl = Platform.OS === 'web' 
-        ? window.location.origin 
+      const redirectUrl = Platform.OS === 'web'
+        ? window.location.origin
         : Linking.createURL('auth/callback', { scheme: 'circleguard' });
 
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -208,59 +215,107 @@ export default function SignUpScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.brandContainer}>
-        <Image 
-          source={require('../../assets/logo.png')} 
-          style={styles.logoImage} 
-          resizeMode="contain"
-        />
-        <Text style={styles.overline}>JOIN THE NETWORK</Text>
-        <Text style={styles.brandSubtitle}>Your Circle. Your Safety. Always.</Text>
-      </View>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ConstellationBackground opacity={0.45} />
+      <ScrollView
+        style={{ flex: 1, backgroundColor: 'transparent' }}
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Brand Header */}
+        <View style={styles.brandContainer}>
+          <AnimatedCircleGuardLogo size={160} showText={true} isLoading={loading} />
+        </View>
 
-      <View style={styles.form}>
-        {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
-        {successMsg ? <Text style={styles.successText}>{successMsg}</Text> : null}
+        <View style={styles.form}>
+        {errorMsg ? <Text style={[styles.errorText, { color: colors.sosRed, borderColor: colors.sosRed }]}>{errorMsg}</Text> : null}
+        {successMsg ? <Text style={[styles.successText, { color: colors.accentGold, borderColor: colors.accentGold }]}>{successMsg}</Text> : null}
 
-        <Text style={styles.inputLabel}>EMAIL ADDRESS</Text>
+        {/* Country / Region Selector */}
+        <Text style={[styles.inputLabel, { color: colors.foreground }]}>REGION & EMERGENCY DIAL</Text>
+        <TouchableOpacity
+          style={[
+            styles.countrySelectCard,
+            {
+              borderColor: colors.border,
+              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F8FAFC',
+            },
+          ]}
+          onPress={() => setCountryModalVisible(true)}
+          activeOpacity={0.7}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+            <Text style={{ fontSize: 24 }}>{country.flag}</Text>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: colors.foreground }}>{country.name}</Text>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: colors.accentGold }}>({country.dialCode})</Text>
+              </View>
+              <Text style={{ fontSize: 10.5, color: colors.textMuted, marginTop: 2 }}>
+                {country.code === 'IN' ? 'Police 100 • Ambulance 108 • Fire 101 • ERSS 112' : `Emergency: ${country.primaryEmergency}`}
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.accentGold} />
+        </TouchableOpacity>
+
+        <Text style={[styles.inputLabel, { color: colors.foreground, marginTop: 4 }]}>EMAIL ADDRESS</Text>
         <TextInput
-          style={styles.underlineInput}
+          style={[styles.underlineInput, { borderBottomColor: colors.foreground, color: colors.foreground }]}
           placeholder="name@domain.com"
           value={email}
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
-          placeholderTextColor={LUXURY_THEME.colors.textMuted}
+          placeholderTextColor={colors.textMuted}
         />
 
-        <Text style={styles.inputLabel}>CREATE PASSWORD</Text>
+        <Text style={[styles.inputLabel, { color: colors.foreground }]}>PASSWORD</Text>
         <TextInput
-          style={styles.underlineInput}
+          style={[styles.underlineInput, { borderBottomColor: colors.foreground, color: colors.foreground }]}
           placeholder="••••••••"
           value={password}
           onChangeText={setPassword}
           secureTextEntry
-          placeholderTextColor={LUXURY_THEME.colors.textMuted}
+          placeholderTextColor={colors.textMuted}
         />
 
-        <TouchableOpacity style={styles.button} onPress={handleSignUp} disabled={loading}>
+        <TouchableOpacity style={[styles.button, { backgroundColor: colors.accentGold }]} onPress={handleSignUp} disabled={loading}>
           {loading ? (
-            <ActivityIndicator color={LUXURY_THEME.colors.accentGold} />
+            <ActivityIndicator color="#FFFFFF" />
           ) : (
             <Text style={styles.buttonText}>CREATE ACCOUNT</Text>
           )}
         </TouchableOpacity>
 
         <View style={styles.dividerRow}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>OR</Text>
-          <View style={styles.dividerLine} />
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+          <Text style={[styles.dividerText, { color: colors.textMuted }]}>OR</Text>
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
         </View>
 
-        <TouchableOpacity style={styles.googleButton} onPress={handleGoogleSignIn} disabled={loading} activeOpacity={0.8}>
-          <Ionicons name="logo-google" size={18} color="#FFFFFF" />
-          <Text style={styles.googleButtonText}>CONTINUE WITH GOOGLE</Text>
+        {/* High-Visibility Google Sign-Up Button */}
+        <TouchableOpacity
+          style={[
+            styles.googleButton,
+            {
+              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#FFFFFF',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.25)' : '#D1D5DB',
+              borderWidth: 1.5,
+              shadowColor: '#000000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: isDark ? 0.2 : 0.06,
+              shadowRadius: 4,
+              elevation: 2,
+            },
+          ]}
+          onPress={handleGoogleSignIn}
+          disabled={loading}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="logo-google" size={20} color="#EA4335" />
+          <Text style={[styles.googleButtonText, { color: isDark ? '#FFFFFF' : '#111111' }]}>CONTINUE WITH GOOGLE</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -268,94 +323,67 @@ export default function SignUpScreen() {
           onPress={() => navigation.navigate('Login' as never)}
           disabled={loading}
         >
-          <Text style={styles.linkText}>I ALREADY HAVE AN ACCOUNT</Text>
+          <Text style={[styles.linkText, { color: colors.accentGold }]}>I ALREADY HAVE AN ACCOUNT</Text>
         </TouchableOpacity>
       </View>
-    </View>
-  );
+    </ScrollView>
+
+    <CountrySelectorModal
+      visible={countryModalVisible}
+      onClose={() => setCountryModalVisible(false)}
+    />
+  </View>
+);
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: LUXURY_THEME.colors.background,
+    flexGrow: 1,
     padding: 28,
     justifyContent: 'center',
   },
+  countrySelectCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 4,
+  },
   brandContainer: {
     alignItems: 'center',
-    marginBottom: 44,
-  },
-  shieldBg: {
-    width: 80,
-    height: 80,
-    backgroundColor: LUXURY_THEME.colors.foreground,
-    borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.accentGold,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  logoImage: {
-    width: 140,
-    height: 140,
-    marginBottom: 16,
-  },
-  overline: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: LUXURY_THEME.colors.accentGold,
-    letterSpacing: 2.5,
-    marginBottom: 4,
-  },
-  brandTitle: {
-    fontSize: 32,
-    fontFamily: LUXURY_THEME.typography.fontFamilySerif,
-    fontWeight: 'bold',
-    color: LUXURY_THEME.colors.foreground,
-    marginBottom: 4,
-  },
-  brandSubtitle: {
-    fontSize: 13,
-    color: LUXURY_THEME.colors.textMuted,
+    marginBottom: 40,
   },
   form: {
     gap: 16,
   },
   errorText: {
-    color: LUXURY_THEME.colors.sosRed,
     fontSize: 13,
     textAlign: 'center',
     borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.sosRed,
     padding: 12,
     backgroundColor: 'rgba(220, 38, 38, 0.05)',
   },
   successText: {
-    color: LUXURY_THEME.colors.accentGold,
     fontSize: 13,
     textAlign: 'center',
     borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.accentGold,
     padding: 12,
     backgroundColor: 'rgba(212, 175, 55, 0.05)',
   },
   inputLabel: {
     fontSize: 10,
     fontWeight: '700',
-    color: LUXURY_THEME.colors.foreground,
     letterSpacing: 1.5,
   },
   underlineInput: {
     borderBottomWidth: 1,
-    borderBottomColor: LUXURY_THEME.colors.foreground,
     paddingVertical: 10,
     fontSize: 15,
-    color: LUXURY_THEME.colors.foreground,
     marginBottom: 8,
   },
   button: {
-    backgroundColor: LUXURY_THEME.colors.accentGold,
     height: 50,
     borderRadius: 12,
     justifyContent: 'center',
@@ -363,7 +391,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   buttonText: {
-    color: '#1A1A1A',
+    color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 2,
@@ -377,27 +405,21 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: LUXURY_THEME.colors.border,
   },
   dividerText: {
     fontSize: 10,
     fontWeight: '700',
-    color: LUXURY_THEME.colors.textMuted,
     letterSpacing: 1.5,
   },
   googleButton: {
     flexDirection: 'row',
     height: 50,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 10,
   },
   googleButtonText: {
-    color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1.5,
@@ -407,7 +429,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   linkText: {
-    color: '#D4AF37',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 2,

@@ -23,26 +23,27 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
 
   const themes = [
     {
-      mode: 'minimalist_monochrome' as ThemeMode,
-      title: 'MINIMALIST MONOCHROME',
+      mode: 'brand_green' as ThemeMode,
+      title: 'BRAND GREEN & AMBER (FLEXY UI)',
       designTag: 'DESIGN #1',
-      subtitle: 'Pure Black & White • Sharp 0px Edges • High-Fashion Serif Typography',
-      iconName: 'contrast-outline' as const,
+      subtitle: 'Conversion-Focused • Emerald Brand Green (#3DBE6C) • Warm Amber (#F5A623) • Clean Pure White (#FFFFFF)',
+      iconName: 'sparkles-outline' as const,
       cardStyle: {
         backgroundColor: '#FFFFFF',
-        borderColor: '#000000',
-        borderWidth: 1,
-        borderRadius: 0,
-        textColor: '#000000',
-        subtitleColor: '#555555',
-        badgeBg: '#000000',
+        borderColor: '#3DBE6C',
+        borderWidth: 2,
+        borderRadius: 16,
+        textColor: '#111111',
+        subtitleColor: '#666666',
+        badgeBg: '#3DBE6C',
         badgeText: '#FFFFFF',
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0,
-        shadowRadius: 0,
-        elevation: 0,
+        shadowColor: '#3DBE6C',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 10,
+        elevation: 4,
       },
+      palette: ['#3DBE6C', '#F5A623', '#111111', '#F5F5F5'],
     },
     {
       mode: 'bauhaus' as ThemeMode,
@@ -68,32 +69,9 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
       palette: ['#D02020', '#1040C0', '#F0C020'],
     },
     {
-      mode: 'maximalism_dopamine' as ThemeMode,
-      title: 'MAXIMALISM / DOPAMINE',
-      designTag: 'DESIGN #3',
-      subtitle: 'Y2K Cosmic Void • Clashing Cyan/Magenta/Yellow • 4px Neon Glow Borders',
-      iconName: 'sparkles-outline' as const,
-      cardStyle: {
-        backgroundColor: '#0D0D1A',
-        borderColor: '#FF3AF2',
-        borderWidth: 4,
-        borderRadius: 20,
-        textColor: '#FFFFFF',
-        subtitleColor: '#00F5D4',
-        badgeBg: '#FFE600',
-        badgeText: '#0D0D1A',
-        shadowColor: '#00F5D4',
-        shadowOffset: { width: 4, height: 4 },
-        shadowOpacity: 0.9,
-        shadowRadius: 14,
-        elevation: 8,
-      },
-      palette: ['#FF3AF2', '#00F5D4', '#FFE600'],
-    },
-    {
       mode: 'playful_geometric' as ThemeMode,
       title: 'PLAYFUL GEOMETRIC',
-      designTag: 'DESIGN #4',
+      designTag: 'DESIGN #3',
       subtitle: 'Memphis 80s Pop • Warm Cream Paper • Speech-Bubble Sticker Corners & Pop Shadows',
       iconName: 'color-palette-outline' as const,
       cardStyle: {
@@ -119,7 +97,7 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
     {
       mode: 'botanical_organic' as ThemeMode,
       title: 'BOTANICAL / ORGANIC SERIF',
-      designTag: 'DESIGN #5',
+      designTag: 'DESIGN #4',
       subtitle: 'Digital Ode to Nature • Warm Alabaster Rice Paper • Deep Forest Green & Roman Arch Radii',
       iconName: 'leaf-outline' as const,
       cardStyle: {
@@ -249,7 +227,7 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
                     styles.themeCard,
                     {
                       backgroundColor: cs.backgroundColor,
-                      borderColor: isActive ? (t.mode === 'maximalism_dopamine' ? '#FFE600' : cs.borderColor) : cs.borderColor,
+                      borderColor: cs.borderColor,
                       borderWidth: isActive ? Math.max(cs.borderWidth, 3) : cs.borderWidth,
                       borderRadius: (cs as any).borderRadius !== undefined ? (cs as any).borderRadius : 16,
                       borderTopLeftRadius: (cs as any).borderTopLeftRadius,
@@ -280,9 +258,9 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
 
                     {/* Active Pill Badge or Selection Circle */}
                     {isActive ? (
-                      <View style={[styles.activePill, { backgroundColor: t.mode === 'maximalism_dopamine' ? '#FFE600' : '#10B981' }]}>
-                        <Ionicons name="checkmark-sharp" size={13} color={t.mode === 'maximalism_dopamine' ? '#0D0D1A' : '#FFFFFF'} />
-                        <Text style={[styles.activePillText, { color: t.mode === 'maximalism_dopamine' ? '#0D0D1A' : '#FFFFFF' }]}>
+                      <View style={[styles.activePill, { backgroundColor: '#10B981' }]}>
+                        <Ionicons name="checkmark-sharp" size={13} color="#FFFFFF" />
+                        <Text style={[styles.activePillText, { color: '#FFFFFF' }]}>
                           APPLIED
                         </Text>
                       </View>

@@ -33,7 +33,7 @@ export default function VectorMapDesignStack({ onBack, userLocation }: VectorMap
         <div id="map"></div>
         <script>
           var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([${lat}, ${lng}], 15);
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+          L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(map);
 
           var coralPinSvg = '<div style="filter: drop-shadow(0 6px 10px rgba(255,83,106,0.6));">' +
             '<svg width="36" height="46" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +

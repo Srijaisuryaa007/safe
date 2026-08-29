@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
 import { useCircleStore, CircleMember } from '../store/useCircleStore';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 interface BranchAssignmentModalProps {
   visible: boolean;
@@ -19,7 +23,6 @@ export default function BranchAssignmentModal({
 }: BranchAssignmentModalProps) {
   const { colors } = useThemeStore();
   const { members, assignMemberSupervisor } = useCircleStore();
-  const [saving, setSaving] = useState(false);
 
   if (!visible || !targetMember) return null;
 
@@ -40,16 +43,14 @@ export default function BranchAssignmentModal({
 
   const isUnderFounder = !currentSupervisorId || (founder && currentSupervisorId === founder.user_id);
 
-  const handleSelectSupervisor = async (supervisorId: string | null) => {
-    setSaving(true);
+  const handleSelectSupervisor = (supervisorId: string | null) => {
     try {
-      await assignMemberSupervisor(circleId, targetMember.user_id, supervisorId);
-      onClose();
-    } catch (e) {
-      console.warn('Error assigning branch supervisor:', e);
-    } finally {
-      setSaving(false);
-    }
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    } catch (e) {}
+
+    // Instant optimistic update (0ms lag)
+    assignMemberSupervisor(circleId, targetMember.user_id, supervisorId);
+    onClose();
   };
 
   return (
@@ -64,7 +65,7 @@ export default function BranchAssignmentModal({
                 Assign {memberName}
               </Text>
             </View>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7} disabled={saving}>
+            <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7}>
               <Ionicons name="close" size={22} color={colors.foreground} />
             </TouchableOpacity>
           </View>
@@ -73,13 +74,7 @@ export default function BranchAssignmentModal({
             Select the leadership branch responsible for {memberName}'s safety monitoring:
           </Text>
 
-          {saving ? (
-            <View style={styles.loaderBox}>
-              <ActivityIndicator size="large" color={colors.accentGold} />
-              <Text style={[styles.loaderText, { color: colors.textMuted }]}>Re-branching member in hierarchy...</Text>
-            </View>
-          ) : (
-            <ScrollView contentContainerStyle={styles.listContainer} showsVerticalScrollIndicator={false}>
+          <ScrollView contentContainerStyle={styles.listContainer} showsVerticalScrollIndicator={false}>
               {/* Unified Option 1: Circle Leader & Main Command */}
               <TouchableOpacity
                 style={[
@@ -157,7 +152,6 @@ export default function BranchAssignmentModal({
                 );
               })}
             </ScrollView>
-          )}
         </View>
       </View>
     </Modal>

@@ -8,9 +8,10 @@ import { useCircleStore } from '../store/useCircleStore';
 import { supabase } from '../lib/supabase';
 import AnimatedList from '../components/AnimatedList';
 import SpringTouchable from '../components/SpringTouchable';
+import { getThemeCardStyles, getThemeButtonStyles, getThemeBadgeStyles, getThemeBorderStyles } from '../constants/theme';
 
 export default function ActivityScreen() {
-  const { colors } = useThemeStore();
+  const { colors, themeMode } = useThemeStore();
   const navigation = useNavigation();
   const { activeCircle } = useCircleStore();
   const insets = useSafeAreaInsets();
@@ -20,10 +21,29 @@ export default function ActivityScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [memberAlerts, setMemberAlerts] = useState<any[]>([]);
 
+  const cardStyles = getThemeCardStyles(themeMode);
+  const secondaryBtnStyles = getThemeButtonStyles(themeMode, 'secondary');
+
   const fetchMemberAlerts = async () => {
-    if (!activeCircle?.id) return;
+    if (!activeCircle?.id) {
+      setMemberAlerts([]);
+      return;
+    }
     try {
       const cutoffTime = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+      const memberUserIds = (useCircleStore.getState().members || []).map(m => m.user_id);
+      
+      let placeEventsQuery = supabase
+        .from('place_events')
+        .select('id, occurred_at, event_type, place_id, user_id, places(name), profiles(full_name)')
+        .gte('occurred_at', cutoffTime)
+        .order('occurred_at', { ascending: false })
+        .limit(20);
+
+      if (memberUserIds.length > 0) {
+        placeEventsQuery = placeEventsQuery.in('user_id', memberUserIds);
+      }
+
       const [sosRes, msgRes, placeEventsRes] = await Promise.all([
         supabase
           .from('sos_alerts')
@@ -39,12 +59,7 @@ export default function ActivityScreen() {
           .gte('created_at', cutoffTime)
           .order('created_at', { ascending: false })
           .limit(25),
-        supabase
-          .from('place_events')
-          .select('id, occurred_at, event_type, place_id, user_id, places(name), profiles(full_name)')
-          .gte('occurred_at', cutoffTime)
-          .order('occurred_at', { ascending: false })
-          .limit(20),
+        placeEventsQuery,
       ]);
 
       const sosList = (sosRes.data || []).map((item) => {
@@ -207,12 +222,14 @@ export default function ActivityScreen() {
               alignItems: 'center',
               backgroundColor: activeSection === 'APP_UPDATES' ? colors.accentGold : colors.surface,
               borderColor: activeSection === 'APP_UPDATES' ? colors.accentGold : colors.border,
+              borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 24 : 14),
+              borderWidth: themeMode === 'bauhaus' ? 2.5 : (themeMode === 'playful_geometric' ? 2 : 1),
             },
           ]}
           onPress={() => setActiveSection('APP_UPDATES')}
           scaleTo={0.93}
         >
-          <Text style={[styles.filterText, { color: activeSection === 'APP_UPDATES' ? '#1A1A1A' : colors.textMuted }]}>
+          <Text style={[styles.filterText, { color: activeSection === 'APP_UPDATES' ? (themeMode === 'bauhaus' ? '#121212' : '#FFFFFF') : colors.textMuted }]}>
             APP UPDATES ({appUpdatesList.length})
           </Text>
         </SpringTouchable>
@@ -225,12 +242,14 @@ export default function ActivityScreen() {
               alignItems: 'center',
               backgroundColor: activeSection === 'MEMBER_ALERTS' ? colors.accentGold : colors.surface,
               borderColor: activeSection === 'MEMBER_ALERTS' ? colors.accentGold : colors.border,
+              borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 24 : 14),
+              borderWidth: themeMode === 'bauhaus' ? 2.5 : (themeMode === 'playful_geometric' ? 2 : 1),
             },
           ]}
           onPress={() => setActiveSection('MEMBER_ALERTS')}
           scaleTo={0.93}
         >
-          <Text style={[styles.filterText, { color: activeSection === 'MEMBER_ALERTS' ? '#1A1A1A' : colors.textMuted }]}>
+          <Text style={[styles.filterText, { color: activeSection === 'MEMBER_ALERTS' ? (themeMode === 'bauhaus' ? '#121212' : '#FFFFFF') : colors.textMuted }]}>
             ALERTS & MESSAGES ({memberAlerts.length})
           </Text>
         </SpringTouchable>
@@ -260,7 +279,7 @@ export default function ActivityScreen() {
         ) : (
           <View style={styles.listContainer}>
             {memberAlerts.length === 0 ? (
-              <View style={[styles.emptyAlertBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={[styles.emptyAlertBox, cardStyles]}>
                 <Ionicons name="notifications-off-outline" size={32} color={colors.textMuted} />
                 <Text style={[styles.emptyAlertTitle, { color: colors.foreground }]}>NO MEMBER ALERTS YET</Text>
                 <Text style={[styles.emptyAlertSub, { color: colors.textMuted }]}>
@@ -299,11 +318,24 @@ export default function ActivityScreen() {
 
         {/* Check Update Button */}
         <TouchableOpacity
-          style={[styles.updateCheckBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          style={[
+            styles.updateCheckBtn, 
+            { 
+              backgroundColor: secondaryBtnStyles.backgroundColor, 
+              borderColor: secondaryBtnStyles.borderColor,
+              borderRadius: secondaryBtnStyles.borderRadius,
+              borderWidth: secondaryBtnStyles.borderWidth,
+              shadowColor: secondaryBtnStyles.shadowColor,
+              shadowOffset: secondaryBtnStyles.shadowOffset,
+              shadowOpacity: secondaryBtnStyles.shadowOpacity,
+              shadowRadius: secondaryBtnStyles.shadowRadius,
+              elevation: secondaryBtnStyles.elevation,
+            }
+          ]}
           onPress={handleCheckUpdate}
         >
           <Ionicons name="cloud-download-outline" size={18} color={colors.accentGold} />
-          <Text style={[styles.updateCheckText, { color: colors.foreground }]}>CHECK FOR LATEST APP UPDATES</Text>
+          <Text style={[styles.updateCheckText, { color: secondaryBtnStyles.textColor }]}>CHECK FOR LATEST APP UPDATES</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>

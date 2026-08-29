@@ -99,22 +99,22 @@ export default function SearchFilterModal({
       return `${places.length} Saved Geofences`;
     }
 
-    let categoryPois = poiList.filter(p => p.category === catId);
+    const categoryPois = poiList.filter(p => p.category === catId);
     if (categoryPois.length === 0) {
-      categoryPois = generateFallbackPois(catId, defaultLat, defaultLng, unit === 'mi');
+      return `Tap to load live places`;
     }
 
     const distances = categoryPois.map(p => {
       return getDistanceInMeters(defaultLat, defaultLng, p.lat, p.lng);
     });
 
-    const minMeters = distances.length > 0 ? Math.min(...distances) : 500;
+    const minMeters = Math.min(...distances);
     const isMiles = unit === 'mi';
     const formattedVal = isMiles
       ? `${(minMeters / 1609.34).toFixed(1)} mi away`
       : `${(minMeters / 1000).toFixed(1)} km away`;
 
-    return `Nearest: ${formattedVal} (${categoryPois.length} nodes)`;
+    return `Nearest: ${formattedVal} (${categoryPois.length} places)`;
   };
 
   const filterOptions = [

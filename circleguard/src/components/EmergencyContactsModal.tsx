@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Contacts from 'expo-contacts/legacy';
 import { LUXURY_THEME } from '../constants/theme';
+import { useAuthStore } from '../store/useAuthStore';
+import { useCountryStore } from '../store/useCountryStore';
 
 export interface EmergencyContact {
   id: string;
@@ -17,9 +19,9 @@ interface EmergencyContactsModalProps {
   onClose: () => void;
 }
 
-const STORAGE_KEY = '@circleguard_emergency_contacts';
-
 export default function EmergencyContactsModal({ visible, onClose }: EmergencyContactsModalProps) {
+  const { profile } = useAuthStore();
+  const { country } = useCountryStore();
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [isAdding, setIsAdding] = useState(false);
 
@@ -30,15 +32,18 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
 
   const relationships = ['Father', 'Mother', 'Brother', 'Sister', 'Spouse', 'Guardian', 'Doctor', 'Other'];
 
+  const getStorageKey = () => profile?.id ? `@circleguard_emergency_contacts_${profile.id}` : '@circleguard_emergency_contacts';
+  const getPrimaryStorageKey = () => profile?.id ? `@circleguard_primary_emergency_contact_${profile.id}` : '@circleguard_primary_emergency_contact';
+
   useEffect(() => {
     if (visible) {
       loadContacts();
     }
-  }, [visible]);
+  }, [visible, profile?.id]);
 
   const loadContacts = async () => {
     try {
-      const saved = await AsyncStorage.getItem(STORAGE_KEY);
+      const saved = await AsyncStorage.getItem(getStorageKey());
       if (saved) {
         setContacts(JSON.parse(saved));
       } else {
@@ -64,7 +69,8 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
 
     const updated = [...contacts, newContact];
     setContacts(updated);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    await AsyncStorage.setItem(getStorageKey(), JSON.stringify(updated));
+    await AsyncStorage.setItem(getPrimaryStorageKey(), JSON.stringify({ name: name.trim(), phone: phone.trim() }));
 
     setName('');
     setPhone('');
@@ -81,7 +87,7 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
         onPress: async () => {
           const updated = contacts.filter(c => c.id !== id);
           setContacts(updated);
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+          await AsyncStorage.setItem(getStorageKey(), JSON.stringify(updated));
         } 
       }
     ]);
@@ -124,8 +130,8 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
 
         const updated = [...contacts, newContact];
         setContacts(updated);
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-        await AsyncStorage.setItem('@circleguard_primary_emergency_contact', JSON.stringify({ name: contactName, phone: phoneNumber }));
+        await AsyncStorage.setItem(getStorageKey(), JSON.stringify(updated));
+        await AsyncStorage.setItem(getPrimaryStorageKey(), JSON.stringify({ name: contactName, phone: phoneNumber }));
       }
     } catch (e: any) {
       console.error('Error picking phone contact:', e);
@@ -248,6 +254,42 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
               ))}
             </View>
           )}
+
+          {/* Official National Emergency Numbers */}
+          <View style={{ marginTop: 28, marginBottom: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+              <Ionicons name="shield-checkmark" size={16} color="#10B981" />
+              <Text style={{ fontSize: 11, fontWeight: '800', color: LUXURY_THEME.colors.foreground, letterSpacing: 1.2 }}>
+                {country.flag} {country.name.toUpperCase()} OFFICIAL HOTLINES
+              </Text>
+            </View>
+
+            <View style={{ gap: 8 }}>
+              {country.services.map((srv) => (
+                <TouchableOpacity
+                  key={srv.id}
+                  style={styles.card}
+                  onPress={() => handleCall(srv.number)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.cardLeft}>
+                    <View style={[styles.avatarCircle, { backgroundColor: 'rgba(212, 175, 55, 0.1)' }]}>
+                      <Ionicons name={(srv.icon || 'call') as any} size={18} color={LUXURY_THEME.colors.accentGold} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardName}>{srv.name}</Text>
+                      <Text style={styles.cardRel}>{srv.description}</Text>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity style={styles.iconCallBtn} onPress={() => handleCall(srv.number)}>
+                    <Text style={{ fontSize: 11, fontWeight: '900', color: '#10B981', marginRight: 4 }}>{srv.number}</Text>
+                    <Ionicons name="call" size={14} color="#10B981" />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
         </ScrollView>
       </View>
     </Modal>

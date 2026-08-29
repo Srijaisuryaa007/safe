@@ -1,9 +1,9 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as Battery from 'expo-battery';
-import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { queueAndSyncLocationHistory } from './OfflineLocationQueueService';
 
 export const LOCATION_BACKGROUND_TASK = 'CIRCLEGUARD_BACKGROUND_LOCATION_TASK';
 
@@ -38,11 +38,12 @@ try {
       const latest = locations[locations.length - 1];
       const { latitude, longitude, speed } = latest.coords;
 
-      // Noise Filter: Skip redundant database hits if position moved < ~0.5 meters and updated < 4 seconds ago
+      // Noise & Jitter Filter: Skip redundant updates if position moved < ~4 meters and updated recently
       const now = Date.now();
-      const deltaLat = Math.abs(latitude - lastProcessedLat);
-      const deltaLng = Math.abs(longitude - lastProcessedLng);
-      if (deltaLat < 0.000005 && deltaLng < 0.000005 && (now - lastProcessedTimestamp < 4000)) {
+      const distFromLast = calculateHaversineMeters(lastProcessedLat, lastProcessedLng, latitude, longitude);
+      const isStationaryNoise = (distFromLast < 4.0 && (speed || 0) < 0.75 && (now - lastProcessedTimestamp < 30000));
+      
+      if (lastProcessedLat !== 0 && isStationaryNoise) {
         return;
       }
       lastProcessedLat = latitude;
@@ -137,18 +138,27 @@ try {
         } else {
           const distMeters = calculateHaversineMeters(lastSaved.lat, lastSaved.lng, latitude, longitude);
           const timeDiffSec = (now - lastSaved.timeMs) / 1000;
-          if (distMeters >= 15 || timeDiffSec >= 300) {
+          if (isDriving || (rawSpeed || 0) >= 2.0) {
+            // High-precision background breadcrumbs while driving (every 10m or 15s)
+            if (distMeters >= 10 || timeDiffSec >= 15) {
+              shouldSaveBgHistory = true;
+            }
+          } else if (distMeters >= 25 || (distMeters >= 15 && timeDiffSec >= 300)) {
+            // Filter stationary drift: only log new point if truly moved >25m
             shouldSaveBgHistory = true;
           }
         }
 
         if (shouldSaveBgHistory) {
           const authenticPoint = `POINT(${longitude} ${latitude})`;
-          await supabase.from('location_history').insert({
+          await queueAndSyncLocationHistory({
             user_id: userId,
             geom: authenticPoint,
             speed_mps: rawSpeed,
             recorded_at: new Date(now).toISOString(),
+            accuracy: latest.coords.accuracy ?? undefined,
+            latitude,
+            longitude,
           });
           lastBgHistorySavedPoint[userId] = { lat: latitude, lng: longitude, timeMs: now };
         }
@@ -371,8 +381,12 @@ export const sendInstantLocationPing = async () => {
 
     await supabase.from('locations').upsert({
       user_id: userId,
+      latitude: finalLat,
+      longitude: finalLng,
       battery_pct: batteryPct,
       is_driving: isDriving,
+      speed_mps: speed || 0,
+      activity_state: isDriving ? 'Driving' : ((speed || 0) >= 0.8 ? 'Walking' : 'Stationary'),
       geom: point,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id' });

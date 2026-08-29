@@ -24,60 +24,150 @@ export interface POI {
   distanceText: string;
 }
 
-// Micro-offsets (200m - 700m) ensure all pins are immediately visible in current screen zoom
-const POI_TEMPLATES: Record<string, Array<{ name: string; offsetLat: number; offsetLng: number; sub: string }>> = {
-  hospital: [
-    { name: 'City General Emergency Hospital', offsetLat: 0.0035, offsetLng: 0.0028, sub: '24/7 Trauma & Emergency ICU' },
-    { name: 'Apollo Multi-Specialty Hospital', offsetLat: -0.0042, offsetLng: 0.0035, sub: 'Emergency & Urgent Surgery Center' },
-    { name: 'St. Jude Community Health Clinic', offsetLat: 0.0058, offsetLng: -0.0045, sub: 'Outpatient & Pediatric Care' },
-    { name: 'Apex Heart & Surgical Institute', offsetLat: -0.0065, offsetLng: -0.0052, sub: '24/7 Cardiac & Critical Care' },
-    { name: 'Sunrise Life Care Hospital', offsetLat: 0.0072, offsetLng: 0.0060, sub: 'Maternity & Diagnostics' },
-  ],
-  school: [
-    { name: 'St. Xavier International Academy', offsetLat: 0.0028, offsetLng: -0.0022, sub: 'K-12 Primary & High School' },
-    { name: 'Oakridge Global Heritage Campus', offsetLat: -0.0038, offsetLng: 0.0042, sub: 'IB World Campus & Sports Complex' },
-    { name: 'National Institute of Technology', offsetLat: 0.0055, offsetLng: 0.0048, sub: 'University Engineering Campus' },
-    { name: 'Greenwood International School', offsetLat: -0.0062, offsetLng: -0.0055, sub: 'CBSE Secondary Campus' },
-  ],
-  police: [
-    { name: 'Metropolitan Police Command HQ', offsetLat: 0.0032, offsetLng: 0.0020, sub: 'Precinct #1 Emergency Response' },
-    { name: 'District Crime Prevention Station', offsetLat: -0.0045, offsetLng: -0.0038, sub: '24/7 Patrol & Control Room' },
-    { name: 'Highway Security Police Post', offsetLat: 0.0060, offsetLng: -0.0052, sub: 'Highway Patrol Command' },
-  ],
-  restaurant: [
-    { name: 'Olive Garden Bistro & Cafe', offsetLat: 0.0018, offsetLng: 0.0015, sub: 'Artisan Coffee & Italian Cuisine' },
-    { name: 'Roasters Organic Coffee Lounge', offsetLat: -0.0025, offsetLng: -0.0022, sub: 'Specialty Brews & Bakery' },
-    { name: 'Grand Heritage Fine Dining', offsetLat: 0.0045, offsetLng: -0.0038, sub: 'Rooftop Continental & Buffet' },
-    { name: 'The Urban Spice Kitchen', offsetLat: -0.0052, offsetLng: 0.0045, sub: 'Multi-Cuisine & Family Dining' },
-  ],
-  fuel: [
-    { name: 'Shell Express & Fast EV Charger', offsetLat: 0.0025, offsetLng: -0.0028, sub: '24/7 Petrol, Diesel & Supercharger' },
-    { name: 'Bharat Petroleum Energy Depot', offsetLat: -0.0038, offsetLng: 0.0032, sub: 'Auto Gas, CNG & Air Care' },
-    { name: 'HP Electric Mobility & Gas Hub', offsetLat: 0.0058, offsetLng: -0.0052, sub: 'Fast EV Charge & Tire Care' },
-  ],
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+];
+
+const OVERPASS_TAG_FILTERS: Record<string, string> = {
+  hospital: '["amenity"~"hospital|clinic|doctors|emergency_room"]',
+  police: '["amenity"="police"]',
+  school: '["amenity"~"school|university|college|kindergarten"]',
+  restaurant: '["amenity"~"restaurant|cafe|fast_food|food_court|bar"]',
+  fuel: '["amenity"~"fuel|charging_station"]',
 };
 
-export function generateFallbackPois(category: string, userLat: number, userLng: number, isMiles: boolean = false): POI[] {
-  const templates = POI_TEMPLATES[category] || POI_TEMPLATES.hospital;
-  return templates.map((t, idx) => {
-    const lat = userLat + t.offsetLat;
-    const lng = userLng + t.offsetLng;
-    const distMeters = getDistanceInMeters(userLat, userLng, lat, lng);
-    const distVal = isMiles ? distMeters / 1609.34 : distMeters / 1000;
-    const unitStr = isMiles ? 'mi away' : 'km away';
+const NOMINATIM_SEARCH_KEYWORDS: Record<string, string[]> = {
+  hospital: ['hospital', 'emergency clinic'],
+  police: ['police station'],
+  school: ['school', 'university', 'college'],
+  restaurant: ['restaurant', 'cafe', 'food'],
+  fuel: ['fuel station', 'petrol pump', 'gas station'],
+};
 
-    return {
-      id: `poi_${category}_${idx}_${Math.floor(lat * 10000)}`,
-      name: t.name,
-      subText: `${t.sub} • ${distVal.toFixed(1)} ${unitStr}`,
-      lat,
-      lng,
-      category,
-      distMeters,
-      distanceKm: distVal.toFixed(1),
-      distanceText: `${distVal.toFixed(1)} ${unitStr}`,
-    };
-  });
+// Fallback search using OpenStreetMap Nominatim
+async function fetchNominatimPois(
+  category: string,
+  userLat: number,
+  userLng: number,
+  isMiles: boolean = false
+): Promise<POI[]> {
+  try {
+    const keywords = NOMINATIM_SEARCH_KEYWORDS[category] || [category];
+    const query = encodeURIComponent(keywords[0]);
+    const delta = 0.06; // ~6km bounding box
+    const viewbox = `${(userLng - delta).toFixed(4)},${(userLat + delta).toFixed(4)},${(userLng + delta).toFixed(4)},${(userLat - delta).toFixed(4)}`;
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${query}&viewbox=${viewbox}&bounded=1&limit=15&addressdetails=1`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'CircleGuardSafetyApp/1.0 (SafetyPOI)' },
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) return [];
+    const items = await res.json();
+    if (!Array.isArray(items) || items.length === 0) return [];
+
+    return items
+      .map((item: any) => {
+        const lat = parseFloat(item.lat);
+        const lng = parseFloat(item.lon);
+        if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0)) return null;
+
+        const nameParts = (item.display_name || '').split(',');
+        const primaryName = nameParts[0]?.trim() || `${category.toUpperCase()} Location`;
+        const streetOrArea = nameParts.slice(1, 3).map((s: string) => s.trim()).filter(Boolean).join(', ');
+
+        const distMeters = getDistanceInMeters(userLat, userLng, lat, lng);
+        const distVal = isMiles ? distMeters / 1609.34 : distMeters / 1000;
+        const unitStr = isMiles ? 'mi away' : 'km away';
+
+        return {
+          id: `nom_${item.place_id || item.osm_id || Math.random()}`,
+          name: primaryName,
+          subText: streetOrArea ? `${streetOrArea} • ${distVal.toFixed(1)} ${unitStr}` : `${distVal.toFixed(1)} ${unitStr}`,
+          lat,
+          lng,
+          category,
+          distMeters,
+          distanceKm: distVal.toFixed(1),
+          distanceText: `${distVal.toFixed(1)} ${unitStr}`,
+        };
+      })
+      .filter((p: POI | null): p is POI => p !== null)
+      .sort((a: POI, b: POI) => a.distMeters - b.distMeters);
+  } catch (e) {
+    return [];
+  }
+}
+
+export function generateFallbackPois(category: string, userLat: number, userLng: number, isMiles: boolean = false): POI[] {
+  // Graceful empty fallback when offline or loading
+  return [];
+}
+
+async function fetchFromOverpassEndpoint(
+  endpoint: string,
+  overpassQuery: string,
+  category: string,
+  userLat: number,
+  userLng: number,
+  isMiles: boolean
+): Promise<POI[]> {
+  const overpassUrl = `${endpoint}?data=${encodeURIComponent(overpassQuery)}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+  const res = await fetch(overpassUrl, { signal: controller.signal });
+  clearTimeout(timeoutId);
+
+  if (!res.ok) throw new Error('Overpass error');
+  const json = await res.json();
+  if (!Array.isArray(json?.elements) || json.elements.length === 0) throw new Error('No elements');
+
+  const livePois: POI[] = json.elements
+    .map((item: any) => {
+      const lat = item.lat ?? item.center?.lat;
+      const lon = item.lon ?? item.center?.lon;
+      if (!lat || !lon) return null;
+
+      const tags = item.tags || {};
+      const rawName = tags.name || tags['name:en'] || tags.brand || tags.operator;
+      if (!rawName) return null;
+
+      const street = tags['addr:street'] || tags['addr:suburb'] || tags['addr:district'] || tags['addr:city'] || '';
+      const brandOrType = tags.brand || tags.operator || tags.amenity || category;
+      
+      const distMeters = getDistanceInMeters(userLat, userLng, lat, lon);
+      const distVal = isMiles ? distMeters / 1609.34 : distMeters / 1000;
+      const unitStr = isMiles ? 'mi away' : 'km away';
+
+      const subText = street 
+        ? `${street} • ${distVal.toFixed(1)} ${unitStr}`
+        : `${brandOrType} • ${distVal.toFixed(1)} ${unitStr}`;
+
+      return {
+        id: `osm_${item.type || 'n'}_${item.id}`,
+        name: rawName,
+        subText: subText,
+        lat: lat,
+        lng: lon,
+        category,
+        distMeters,
+        distanceKm: distVal.toFixed(1),
+        distanceText: `${distVal.toFixed(1)} ${unitStr}`,
+      };
+    })
+    .filter((p: POI | null): p is POI => p !== null)
+    .sort((a: POI, b: POI) => a.distMeters - b.distMeters);
+
+  if (livePois.length === 0) throw new Error('No valid POIs');
+  return livePois;
 }
 
 export async function fetchCategoryPois(
@@ -86,60 +176,22 @@ export async function fetchCategoryPois(
   userLng: number,
   isMiles: boolean = false
 ): Promise<POI[]> {
-  const localFallbacks = generateFallbackPois(category, userLat, userLng, isMiles);
-
-  const amenityMap: Record<string, string> = {
-    hospital: 'hospital',
-    school: 'school',
-    police: 'police',
-    restaurant: 'restaurant',
-    fuel: 'fuel',
-  };
-
-  const amenityTag = amenityMap[category] || 'hospital';
-
-  try {
-    const overpassQuery = `[out:json][timeout:3];node(around:5000,${userLat},${userLng})["amenity"="${amenityTag}"];out 20;`;
-    const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-    const res = await fetch(overpassUrl, { signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const json = await res.json();
-      if (Array.isArray(json?.elements) && json.elements.length > 0) {
-        const livePois: POI[] = json.elements
-          .map((item: any) => {
-            if (!item.lat || !item.lon) return null;
-            const name = item.tags?.name || item.tags?.['name:en'] || `${category.toUpperCase()} Point`;
-            const distMeters = getDistanceInMeters(userLat, userLng, item.lat, item.lon);
-            const distVal = isMiles ? distMeters / 1609.34 : distMeters / 1000;
-            const unitStr = isMiles ? 'mi away' : 'km away';
-
-            return {
-              id: `osm_${item.id}`,
-              name: name,
-              subText: item.tags?.['addr:street'] || item.tags?.operator || `${category.toUpperCase()} • ${distVal.toFixed(1)} ${unitStr}`,
-              lat: item.lat,
-              lng: item.lon,
-              category,
-              distMeters,
-              distanceKm: distVal.toFixed(1),
-              distanceText: `${distVal.toFixed(1)} ${unitStr}`,
-            };
-          })
-          .filter((p: POI | null): p is POI => p !== null)
-          .sort((a: POI, b: POI) => a.distMeters - b.distMeters);
-
-        if (livePois.length >= 2) return livePois;
-      }
-    }
-  } catch (err) {
-    // Fallback gracefully
+  if (!userLat || !userLng || (userLat === 20.5937 && userLng === 78.9629)) {
+    return [];
   }
 
-  return localFallbacks;
+  const tagFilter = OVERPASS_TAG_FILTERS[category] || `["amenity"="${category}"]`;
+  const overpassQuery = `[out:json][timeout:5];nwr(around:6000,${userLat},${userLng})${tagFilter};out center 35;`;
+
+  // Query all Overpass endpoints in parallel for blazing fast response
+  const promises = OVERPASS_ENDPOINTS.map(endpoint =>
+    fetchFromOverpassEndpoint(endpoint, overpassQuery, category, userLat, userLng, isMiles)
+  );
+
+  try {
+    return await Promise.any(promises);
+  } catch (e) {
+    // If Overpass mirrors fail or timeout, fallback to Nominatim
+    return await fetchNominatimPois(category, userLat, userLng, isMiles);
+  }
 }
