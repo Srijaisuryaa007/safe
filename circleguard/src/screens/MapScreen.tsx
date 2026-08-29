@@ -28,6 +28,7 @@ import { fetchCategoryPois, generateFallbackPois } from '../services/PoiService'
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import { useThemeStore } from '../store/useThemeStore';
 import { queueAndSyncLocationHistory, flushOfflineBreadcrumbs } from '../services/OfflineLocationQueueService';
+import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
@@ -867,6 +868,7 @@ export default function MapScreen() {
   const { colors, isDark, themeMode, mapStyle: mapStyleSetting, setMapStyle: setMapStyleSetting } = useThemeStore();
   const { profile } = useAuthStore();
   const { activeCircle, members, places, circleFetched, fetchActiveCircle, fetchMembers, fetchPlaces, deletePlace, isLoading: circleLoading } = useCircleStore();
+  const { showAlert, showConfirm } = useLuxuryAlert();
   
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [locations, setLocations] = useState<any[]>([]);
@@ -964,39 +966,44 @@ export default function MapScreen() {
     const placeToDelete = selectedPlace;
     const placeId = placeToDelete.id;
 
-    Alert.alert(
-      'Delete Geofence Zone',
-      `Remove "${placeToDelete.name}" from your circle geofences?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setSelectedPlace(null);
+    showConfirm({
+      title: 'Delete Geofence Zone',
+      message: `Remove "${placeToDelete.name}" from your circle geofences?`,
+      confirmText: 'DELETE GEOFENCE',
+      cancelText: 'CANCEL',
+      isDestructive: true,
+      onConfirm: async () => {
+        try {
+          setSelectedPlace(null);
 
-              // 1. Instantly remove Leaflet map layers with 0ms lag
-              if (webViewRef.current) {
-                const js = `if (window.deletePlaceLayer) { window.deletePlaceLayer("${placeId}"); } true;`;
-                webViewRef.current.injectJavaScript(js);
-              }
-
-              // 2. Delete from Supabase & Zustand store
-              await deletePlace(placeId);
-              if (activeCircle) {
-                await fetchPlaces(activeCircle.id);
-              }
-              pushMapData();
-
-              Alert.alert('Geofence Removed', `"${placeToDelete.name}" has been deleted.`);
-            } catch (e: any) {
-              Alert.alert('Error Deleting Geofence', e.message || 'Failed to delete geofence');
-            }
+          // 1. Instantly remove Leaflet map layers with 0ms lag
+          if (webViewRef.current) {
+            const js = `if (window.deletePlaceLayer) { window.deletePlaceLayer("${placeId}"); } true;`;
+            webViewRef.current.injectJavaScript(js);
           }
+
+          // 2. Delete from Supabase & Zustand store
+          await deletePlace(placeId);
+          if (activeCircle) {
+            await fetchPlaces(activeCircle.id);
+          }
+          pushMapData();
+
+          showAlert({
+            title: 'Geofence Removed',
+            message: `"${placeToDelete.name}" has been deleted.`,
+            type: 'success',
+            buttonText: 'DONE',
+          });
+        } catch (e: any) {
+          showAlert({
+            title: 'Error Deleting Geofence',
+            message: e.message || 'Failed to delete geofence',
+            type: 'error',
+          });
         }
-      ]
-    );
+      },
+    });
   };
 
   // POI Categories & Home Anchoring
@@ -1348,7 +1355,12 @@ export default function MapScreen() {
       setHasPermission(status === 'granted');
       
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Please enable location services to use live map tracking.');
+        showAlert({
+          title: 'Permission Required',
+          message: 'Please enable location services to use live circle radar and geofence tracking.',
+          type: 'warning',
+          buttonText: 'OK',
+        });
         return;
       }
 
@@ -1690,12 +1702,21 @@ export default function MapScreen() {
         await supabase.from('place_members').insert(pmRows);
       }
 
-      Alert.alert("Success", `Geofence zone "${name}" created!`);
+      showAlert({
+        title: 'Geofence Created',
+        message: `Geofence safe zone "${name}" is now armed and active.`,
+        type: 'success',
+        buttonText: 'CONTINUE',
+      });
       setAddPlaceVisible(false);
       await fetchPlaces(activeCircle.id);
       pushMapData();
     } catch(e: any) {
-      Alert.alert("Error", e.message || "Failed to create geofence place");
+      showAlert({
+        title: 'Geofence Error',
+        message: e.message || 'Failed to create geofence place',
+        type: 'error',
+      });
     }
   };
 
@@ -2135,7 +2156,11 @@ export default function MapScreen() {
           if (lat && lng && lat !== 0 && lng !== 0) {
             Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
           } else {
-            Alert.alert('Location Unavailable', 'No live coordinates found for this member yet.');
+            showAlert({
+              title: 'Location Unavailable',
+              message: 'No live telemetry coordinates found for this member yet.',
+              type: 'info',
+            });
           }
         };
 
@@ -2144,7 +2169,11 @@ export default function MapScreen() {
           if (phone) {
             Linking.openURL(`tel:${phone}`);
           } else {
-            Alert.alert('Phone Unavailable', 'No phone number registered for this member.');
+            showAlert({
+              title: 'Phone Unavailable',
+              message: 'No contact phone number is registered for this member.',
+              type: 'warning',
+            });
           }
         };
 

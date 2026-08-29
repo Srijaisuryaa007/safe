@@ -325,54 +325,54 @@ export default function HomeScreen() {
   const onlineCount = activeCircle ? safeMembers.filter((m) => m.isOnline).length : 0;
   const offlineCount = activeCircle ? Math.max(0, safeMembers.length - onlineCount) : 0;
 
-  // Magnification Dock Item Definitions for Safety Suite & Controls
+  // Safety Controls Dock Definitions
   const dockItems: DockItemData[] = [
     {
       id: 'gps',
-      iconName: 'navigate-circle',
+      iconName: 'navigate',
       label: 'Share GPS',
-      badgeColor: 'rgba(56, 189, 248, 0.12)',
-      iconColor: '#38BDF8',
+      badgeColor: 'rgba(10, 132, 255, 0.12)',
+      iconColor: '#0A84FF',
       onClick: handleShareLocation,
     },
     {
       id: 'ghost',
-      iconName: 'call-sharp',
-      label: 'Ghost Call',
-      badgeColor: 'rgba(192, 132, 252, 0.12)',
-      iconColor: '#C084FC',
+      iconName: 'call',
+      label: 'Fake Call',
+      badgeColor: 'rgba(175, 82, 222, 0.12)',
+      iconColor: '#AF52DE',
       onClick: () => setFakeCallVisible(true),
     },
     {
       id: 'places',
-      iconName: 'shield-checkmark',
+      iconName: 'location',
       label: 'Safe Places',
-      badgeColor: 'rgba(52, 211, 153, 0.12)',
-      iconColor: '#34D399',
+      badgeColor: 'rgba(48, 209, 88, 0.12)',
+      iconColor: '#30D158',
       onClick: () => navigation.navigate('SafePlaces'),
     },
     {
       id: 'history',
-      iconName: 'time-sharp',
-      label: 'History Trail',
-      badgeColor: 'rgba(245, 208, 97, 0.12)',
-      iconColor: '#F5D061',
+      iconName: 'time',
+      label: 'History',
+      badgeColor: 'rgba(255, 159, 10, 0.12)',
+      iconColor: '#FF9F0A',
       onClick: () => navigation.navigate('LocationHistory'),
     },
     {
       id: 'driving',
-      iconName: 'speedometer-sharp',
-      label: 'Driving Score',
+      iconName: 'speedometer',
+      label: 'Driving',
       badgeColor: 'rgba(255, 69, 58, 0.12)',
       iconColor: '#FF453A',
       onClick: () => navigation.navigate('DrivingReports'),
     },
     {
       id: 'chat',
-      iconName: 'chatbubbles-sharp',
-      label: 'Circle Chat',
-      badgeColor: 'rgba(129, 140, 248, 0.12)',
-      iconColor: '#818CF8',
+      iconName: 'chatbubble-ellipses',
+      label: 'Messages',
+      badgeColor: 'rgba(94, 92, 230, 0.12)',
+      iconColor: '#5E5CE6',
       onClick: () => navigation.navigate('Chat'),
     },
   ];
@@ -785,7 +785,7 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Section Header: Safety Suite & Controls */}
+        {/* Section Header: Safety Controls */}
         <View style={styles.sectionHeaderRow}>
           <Text 
             style={[styles.sectionTitle, { color: isDark ? colors.foreground : '#18181B' }]}
@@ -793,7 +793,7 @@ export default function HomeScreen() {
             minimumFontScale={0.85}
             numberOfLines={1}
           >
-            {themeMode === 'brand_green' ? 'SAFETY SUITE BENTO MATRIX' : 'SAFETY SUITE & CONTROLS'}
+            {themeMode === 'brand_green' ? 'SAFETY CONTROLS' : 'SAFETY CONTROLS'}
           </Text>
           <View style={[styles.accentLine, { backgroundColor: isDark ? colors.border : '#E4E4E7' }]} />
         </View>
@@ -905,15 +905,15 @@ export default function HomeScreen() {
         )}
 
         {/* Activity Log Box Container */}
-        <View style={[styles.activityContainerBox, { backgroundColor: isDark ? 'rgba(18, 20, 28, 0.95)' : '#FFFFFF', borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E4E4E7' }]}>
+        <View style={[styles.activityContainerBox, { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF', borderColor: isDark ? 'transparent' : '#E4E4E7' }]}>
           {/* Inner Header Row */}
           <View style={styles.activityBoxHeader}>
             <View style={styles.activityBoxTitleRow}>
               <View style={styles.pulseLiveDot} />
-              <Text style={[styles.sectionTitle, { color: isDark ? colors.foreground : '#18181B', fontSize: 13 }]}>ACTIVITY LOG</Text>
+              <Text style={[styles.sectionTitle, { color: isDark ? colors.foreground : '#18181B', fontSize: 13 }]}>RECENT ACTIVITY</Text>
             </View>
             <TouchableOpacity onPress={() => navigation.navigate('Activity')} activeOpacity={0.7}>
-              <Text style={[styles.seeAllText, { color: colors.accentGold }]}>VIEW ALL →</Text>
+              <Text style={[styles.seeAllText, { color: '#0A84FF' }]}>See All →</Text>
             </TouchableOpacity>
           </View>
 

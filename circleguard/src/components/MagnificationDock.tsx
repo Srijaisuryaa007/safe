@@ -28,13 +28,11 @@ export default function MagnificationDock({ items }: MagnificationDockProps) {
 
   return (
     <View style={styles.dockOuterWrapper}>
-      {/* Dock Container */}
       <View
         style={[
           styles.dockPanel,
           {
-            backgroundColor: isDark ? 'rgba(18, 20, 28, 0.95)' : 'rgba(255, 255, 255, 0.96)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+            backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
           },
         ]}
       >
@@ -48,20 +46,13 @@ export default function MagnificationDock({ items }: MagnificationDockProps) {
 
             return (
               <View key={item.id} style={styles.dockItemContainer}>
-                {/* Tooltip Label */}
-                {isHovered ? (
-                  <View style={[styles.tooltipBubble, { backgroundColor: isDark ? '#1F2432' : '#18181B' }]}>
-                    <Text style={styles.tooltipText}>{item.label}</Text>
-                  </View>
-                ) : null}
-
-                {/* Celestial Frosted Orb Icon */}
+                {/* Apple Squircle Icon Tile */}
                 <TouchableOpacity
                   style={[
-                    styles.dockIconOuterOrbit,
+                    styles.dockSquircle,
                     {
-                      borderColor: `${item.iconColor}35`,
-                      transform: [{ scale: isHovered ? 1.15 : 1.0 }],
+                      backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7',
+                      transform: [{ scale: isHovered ? 0.95 : 1.0 }],
                     },
                   ]}
                   onPress={() => {
@@ -71,23 +62,13 @@ export default function MagnificationDock({ items }: MagnificationDockProps) {
                   onPressOut={() => setActiveItemId(null)}
                   activeOpacity={0.8}
                 >
-                  <View
-                    style={[
-                      styles.dockIconInnerOrb,
-                      {
-                        backgroundColor: `${item.iconColor}16`,
-                        borderColor: `${item.iconColor}50`,
-                      },
-                    ]}
-                  >
-                    <Ionicons name={item.iconName} size={21} color={item.iconColor} />
-                  </View>
+                  <Ionicons name={item.iconName} size={22} color={item.iconColor} />
                 </TouchableOpacity>
 
                 <Text
                   style={[
-                    styles.dockItemLabelBelow,
-                    { color: isHovered ? colors.accentGold : isDark ? colors.foreground : '#18181B' },
+                    styles.dockItemLabel,
+                    { color: isDark ? '#8E8E93' : '#636366' },
                   ]}
                   numberOfLines={1}
                 >
@@ -105,72 +86,44 @@ export default function MagnificationDock({ items }: MagnificationDockProps) {
 const styles = StyleSheet.create({
   dockOuterWrapper: {
     width: '100%',
-    alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   dockPanel: {
     width: '100%',
-    borderRadius: 22,
-    borderWidth: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 14,
-    elevation: 4,
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
   },
   dockScrollContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    paddingHorizontal: 6,
-    gap: 14,
+    paddingHorizontal: 4,
+    gap: 12,
     flexGrow: 1,
   },
   dockItemContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
-    minWidth: 56,
+    minWidth: 54,
   },
-  tooltipBubble: {
-    position: 'absolute',
-    top: -28,
-    paddingHorizontal: 8,
-    paddingVertical: 3.5,
-    borderRadius: 8,
-    zIndex: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  tooltipText: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  dockIconOuterOrbit: {
-    padding: 2.5,
-    borderRadius: 28,
-    borderWidth: 1,
-    marginBottom: 5,
-  },
-  dockIconInnerOrb: {
+  dockSquircle: {
     width: 44,
     height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 6,
   },
-  dockItemLabelBelow: {
-    fontSize: 9.5,
-    fontWeight: '700',
-    letterSpacing: 0.2,
+  dockItemLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: -0.1,
     textAlign: 'center',
   },
 });

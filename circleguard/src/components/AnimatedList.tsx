@@ -41,15 +41,15 @@ const AnimatedItem: React.FC<AnimatedItemProps> = ({ children, index, isSelected
   useEffect(() => {
     Animated.timing(anim, {
       toValue: 1,
-      duration: 280,
-      delay: Math.min(index * 40, 200),
+      duration: 240,
+      delay: Math.min(index * 30, 150),
       useNativeDriver: true,
     }).start();
   }, [index]);
 
   const handlePressIn = () => {
     Animated.spring(scaleTouch, {
-      toValue: 0.97,
+      toValue: 0.98,
       useNativeDriver: true,
     }).start();
   };
@@ -64,7 +64,7 @@ const AnimatedItem: React.FC<AnimatedItemProps> = ({ children, index, isSelected
 
   const translateY = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: [10, 0],
+    outputRange: [6, 0],
   });
 
   return (
@@ -78,7 +78,7 @@ const AnimatedItem: React.FC<AnimatedItemProps> = ({ children, index, isSelected
         onPress={onPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
-        activeOpacity={0.9}
+        activeOpacity={0.85}
       >
         {children}
       </TouchableOpacity>
@@ -103,7 +103,7 @@ export interface AnimatedListProps {
 export const AnimatedList: React.FC<AnimatedListProps> = ({
   items = [],
   onItemSelect,
-  showGradients = true,
+  showGradients = false,
   enableArrowNavigation = true,
   displayScrollbar = false,
   initialSelectedIndex = -1,
@@ -116,8 +116,6 @@ export const AnimatedList: React.FC<AnimatedListProps> = ({
   const { colors, isDark } = useThemeStore();
   const scrollViewRef = useRef<ScrollView>(null);
   const [selectedIndex, setSelectedIndex] = useState<number>(initialSelectedIndex);
-  const [topGradientOpacity, setTopGradientOpacity] = useState<number>(0);
-  const [bottomGradientOpacity, setBottomGradientOpacity] = useState<number>(1);
 
   const handleItemClick = useCallback(
     (item: AnimatedListItem, index: number) => {
@@ -129,26 +127,11 @@ export const AnimatedList: React.FC<AnimatedListProps> = ({
     [onItemSelect]
   );
 
-  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    const y = contentOffset.y;
-    const scrollHeight = contentSize.height;
-    const clientHeight = layoutMeasurement.height;
-    const maxScroll = scrollHeight - clientHeight;
-
-    setTopGradientOpacity(Math.min(y / 20, 1));
-    if (maxScroll <= 0) {
-      setBottomGradientOpacity(0);
-    } else {
-      setBottomGradientOpacity(Math.min((maxScroll - y) / 20, 1));
-    }
-  };
-
   const renderContent = () => (
     <View style={styles.scrollContent}>
       {items.map((item, index) => {
         const isSelected = selectedIndex === index;
-        const accentColor = item.color || colors.accentGold;
+        const accentColor = item.color || '#30D158';
 
         return (
           <AnimatedItem
@@ -164,39 +147,29 @@ export const AnimatedList: React.FC<AnimatedListProps> = ({
                 style={[
                   styles.compactRowCard,
                   {
-                    backgroundColor: isDark ? 'rgba(21, 23, 30, 0.7)' : 'rgba(249, 250, 251, 0.9)',
-                    borderColor: isSelected ? `${accentColor}80` : isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)',
-                  },
-                  isSelected && {
-                    shadowColor: accentColor,
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.2,
-                    shadowRadius: 6,
-                    elevation: 2,
+                    backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7',
                   },
                   itemStyle,
                 ]}
               >
-                {/* Left Compact Icon Orb */}
-                <View style={[styles.compactOrb, { backgroundColor: `${accentColor}15`, borderColor: `${accentColor}40` }]}>
-                  <Ionicons name={item.icon || 'shield-outline'} size={13} color={accentColor} />
+                {/* Left Apple Glyph Box */}
+                <View style={[styles.compactOrb, { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF' }]}>
+                  <Ionicons name={item.icon || 'shield-outline'} size={15} color={accentColor} />
                 </View>
 
                 {/* Center Content */}
                 <View style={styles.compactContentCol}>
-                  <Text style={[styles.compactTitleText, { color: colors.foreground }]} numberOfLines={1}>
+                  <Text style={[styles.compactTitleText, { color: isDark ? '#FFFFFF' : '#000000' }]} numberOfLines={1}>
                     {item.title}
                   </Text>
                   
                   {item.badgeText || item.message ? (
                     <View style={styles.compactSubRow}>
                       {item.badgeText ? (
-                        <View style={[styles.compactBadge, { backgroundColor: `${accentColor}15` }]}>
-                          <Text style={[styles.compactBadgeText, { color: accentColor }]}>{item.badgeText}</Text>
-                        </View>
+                        <Text style={[styles.compactBadgeText, { color: accentColor }]}>{item.badgeText} • </Text>
                       ) : null}
                       {item.message ? (
-                        <Text style={[styles.compactMessageText, { color: colors.textMuted }]} numberOfLines={1}>
+                        <Text style={[styles.compactMessageText, { color: isDark ? '#8E8E93' : '#636366' }]} numberOfLines={1}>
                           {item.message}
                         </Text>
                       ) : null}
@@ -207,9 +180,9 @@ export const AnimatedList: React.FC<AnimatedListProps> = ({
                 {/* Right Time & Arrow */}
                 <View style={styles.compactRightCol}>
                   {item.time ? (
-                    <Text style={[styles.compactTimeText, { color: colors.textMuted }]}>{item.time}</Text>
+                    <Text style={[styles.compactTimeText, { color: isDark ? '#8E8E93' : '#8E8E93' }]}>{item.time}</Text>
                   ) : null}
-                  <Ionicons name="chevron-forward" size={11} color={colors.textMuted} />
+                  <Ionicons name="chevron-forward" size={12} color="#8E8E93" />
                 </View>
               </View>
             )}
@@ -233,47 +206,17 @@ export const AnimatedList: React.FC<AnimatedListProps> = ({
         ref={scrollViewRef}
         nestedScrollEnabled={true}
         showsVerticalScrollIndicator={displayScrollbar}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
         contentContainerStyle={styles.scrollContent}
       >
         {renderContent()}
       </ScrollView>
-
-      {/* Top & Bottom Subtle Fading Overflows */}
-      {showGradients && (
-        <>
-          <View
-            pointerEvents="none"
-            style={[
-              styles.topGradientOverlay,
-              {
-                opacity: topGradientOpacity,
-                backgroundColor: isDark ? 'rgba(18, 20, 28, 0.95)' : '#FFFFFF',
-              },
-            ]}
-          />
-          <View
-            pointerEvents="none"
-            style={[
-              styles.bottomGradientOverlay,
-              {
-                opacity: bottomGradientOpacity,
-                backgroundColor: isDark ? 'rgba(18, 20, 28, 0.95)' : '#FFFFFF',
-              },
-            ]}
-          />
-        </>
-      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   outerWrapper: {
-    position: 'relative',
     width: '100%',
-    overflow: 'hidden',
   },
   scrollContent: {
     paddingVertical: 1,
@@ -284,45 +227,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 8,
     paddingHorizontal: 10,
-    borderRadius: 13,
-    borderWidth: 1,
-    gap: 9,
+    borderRadius: 12,
+    gap: 10,
   },
   compactOrb: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1,
+    width: 30,
+    height: 30,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   compactContentCol: {
     flex: 1,
     justifyContent: 'center',
-    gap: 2,
+    gap: 1,
   },
   compactTitleText: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    letterSpacing: 0.1,
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: -0.2,
   },
   compactSubRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-  },
-  compactBadge: {
-    paddingHorizontal: 4.5,
-    paddingVertical: 1,
-    borderRadius: 4,
   },
   compactBadgeText: {
-    fontSize: 7.5,
-    fontWeight: '800',
-    letterSpacing: 0.4,
+    fontSize: 9.5,
+    fontWeight: '700',
   },
   compactMessageText: {
-    fontSize: 10,
+    fontSize: 10.5,
     flex: 1,
   },
   compactRightCol: {
@@ -331,22 +265,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   compactTimeText: {
-    fontSize: 9,
-    fontWeight: '600',
-  },
-  topGradientOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 14,
-  },
-  bottomGradientOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 16,
+    fontSize: 10,
+    fontWeight: '500',
   },
 });
 

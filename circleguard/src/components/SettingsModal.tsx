@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore } from '../store/useThemeStore';
 import { startBatteryOptimizedBackgroundLocation } from '../services/LocationBackgroundService';
+import { useLuxuryAlert } from './LuxuryAlertModal';
 
 import BatteryOptimizationGuideModal from './BatteryOptimizationGuideModal';
 
@@ -20,6 +21,7 @@ const KEYS = {
 
 export default function SettingsModal({ visible, onClose }: SettingsModalProps) {
   const { colors } = useThemeStore();
+  const { showAlert, showConfirm } = useLuxuryAlert();
 
   const [unit, setUnit] = useState<'km' | 'mi'>('km');
   const [syncRate, setSyncRate] = useState<'balanced' | 'high' | 'saver'>('balanced');
@@ -64,31 +66,36 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
   };
 
   const handleClearCache = async () => {
-    Alert.alert(
-      'Clear Local Cache',
-      'This will clear temporary map tiles and cached user sessions. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear Cache',
-          style: 'destructive',
-          onPress: async () => {
-            setClearing(true);
-            try {
-              // Preserve main auth & theme keys, remove temporary items
-              const keys = await AsyncStorage.getAllKeys();
-              const itemsToRemove = keys.filter(k => k.startsWith('@circleguard_cache_'));
-              await AsyncStorage.multiRemove(itemsToRemove);
-              Alert.alert('Cache Cleared', 'Local storage cache has been optimized.');
-            } catch (err: any) {
-              Alert.alert('Error', err.message || 'Failed to clear cache.');
-            } finally {
-              setClearing(false);
-            }
-          },
-        },
-      ]
-    );
+    showConfirm({
+      title: 'Clear Local Cache',
+      message: 'This will purge temporary tile buffers and optimize memory performance. Saved account keys and circle memberships remain safe.',
+      confirmText: 'PURGE CACHE',
+      cancelText: 'CANCEL',
+      isDestructive: true,
+      onConfirm: async () => {
+        setClearing(true);
+        try {
+          // Preserve main auth & theme keys, remove temporary items
+          const keys = await AsyncStorage.getAllKeys();
+          const itemsToRemove = keys.filter((k) => k.startsWith('@circleguard_cache_'));
+          await AsyncStorage.multiRemove(itemsToRemove);
+          showAlert({
+            title: 'Cache Purged',
+            message: 'Local memory buffers and map cache have been successfully cleared.',
+            type: 'success',
+            buttonText: 'DONE',
+          });
+        } catch (err: any) {
+          showAlert({
+            title: 'Cache Error',
+            message: err.message || 'Failed to clear cache.',
+            type: 'error',
+          });
+        } finally {
+          setClearing(false);
+        }
+      },
+    });
   };
 
   if (!visible) return null;

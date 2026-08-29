@@ -137,7 +137,7 @@ export default function SafePlacesScreen() {
   const { colors, themeMode, isDark } = useThemeStore();
   const { activeCircle, members, fetchMembers, deletePlace, fetchPlaces } = useCircleStore();
   const { profile } = useAuthStore();
-  const { showAlert } = useLuxuryAlert();
+  const { showAlert, showConfirm } = useLuxuryAlert();
   const { canCreatePlace, canUseRouteCategory, canUseAdaptiveBuffer, canUseSchedule } = useSubscriptionStore();
 
   const cardStyles = getThemeCardStyles(themeMode);
@@ -566,38 +566,43 @@ export default function SafePlacesScreen() {
   };
 
   const handleDeletePlace = (placeId: string, name: string) => {
-    Alert.alert(
-      'Delete Geofence',
-      `Are you sure you want to remove "${name}" from your circle geofences?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Delete', 
-          style: 'destructive', 
-          onPress: async () => {
-            try {
-              setSavedPlaces(prev => prev.filter(p => p.id !== placeId));
+    showConfirm({
+      title: 'Delete Geofence',
+      message: `Are you sure you want to remove "${name}" from your circle geofences?`,
+      confirmText: 'DELETE GEOFENCE',
+      cancelText: 'CANCEL',
+      isDestructive: true,
+      onConfirm: async () => {
+        try {
+          setSavedPlaces((prev) => prev.filter((p) => p.id !== placeId));
 
-              if (webViewRef.current) {
-                webViewRef.current.injectJavaScript(`
-                  if (window.deletePlaceLayer) {
-                    window.deletePlaceLayer('${placeId}');
-                  }
-                  true;
-                `);
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript(`
+              if (window.deletePlaceLayer) {
+                window.deletePlaceLayer('${placeId}');
               }
+              true;
+            `);
+          }
 
-              await deletePlace(placeId);
+          await deletePlace(placeId);
 
-              Alert.alert('Geofence Removed', `"${name}" has been deleted.`);
-            } catch (err: any) {
-              if (activeCircle) fetchSavedPlaces(activeCircle.id);
-              Alert.alert('Error Deleting Geofence', err.message || 'Permission denied or network error.');
-            }
-          } 
+          showAlert({
+            title: 'Geofence Removed',
+            message: `"${name}" has been removed from circle boundaries.`,
+            type: 'success',
+            buttonText: 'DONE',
+          });
+        } catch (err: any) {
+          if (activeCircle) fetchSavedPlaces(activeCircle.id);
+          showAlert({
+            title: 'Error Deleting Geofence',
+            message: err.message || 'Permission denied or network error.',
+            type: 'error',
+          });
         }
-      ]
-    );
+      },
+    });
   };
 
   const miniMapHtml = `

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, ScrollView, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, ScrollView, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Contacts from 'expo-contacts/legacy';
 import { LUXURY_THEME } from '../constants/theme';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCountryStore } from '../store/useCountryStore';
+import { useLuxuryAlert } from './LuxuryAlertModal';
 
 export interface EmergencyContact {
   id: string;
@@ -22,6 +23,7 @@ interface EmergencyContactsModalProps {
 export default function EmergencyContactsModal({ visible, onClose }: EmergencyContactsModalProps) {
   const { profile } = useAuthStore();
   const { country } = useCountryStore();
+  const { showAlert, showConfirm } = useLuxuryAlert();
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [isAdding, setIsAdding] = useState(false);
 
@@ -56,7 +58,11 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
 
   const handleSaveContact = async () => {
     if (!name.trim() || !phone.trim()) {
-      Alert.alert('Required Fields', 'Please enter both a name and a phone number.');
+      showAlert({
+        title: 'Required Fields',
+        message: 'Please enter both a contact name and valid phone number.',
+        type: 'warning',
+      });
       return;
     }
 
@@ -79,18 +85,18 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
   };
 
   const handleDeleteContact = (id: string) => {
-    Alert.alert('Delete Contact', 'Remove this emergency contact?', [
-      { text: 'Cancel', style: 'cancel' },
-      { 
-        text: 'Delete', 
-        style: 'destructive', 
-        onPress: async () => {
-          const updated = contacts.filter(c => c.id !== id);
-          setContacts(updated);
-          await AsyncStorage.setItem(getStorageKey(), JSON.stringify(updated));
-        } 
-      }
-    ]);
+    showConfirm({
+      title: 'Delete Contact',
+      message: 'Are you sure you want to remove this emergency contact from your priority list?',
+      confirmText: 'REMOVE',
+      cancelText: 'CANCEL',
+      isDestructive: true,
+      onConfirm: async () => {
+        const updated = contacts.filter((c) => c.id !== id);
+        setContacts(updated);
+        await AsyncStorage.setItem(getStorageKey(), JSON.stringify(updated));
+      },
+    });
   };
 
   const handleCall = (phone: string) => {
@@ -101,7 +107,11 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
     try {
       const { status } = await Contacts.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Contacts permission is required to choose an emergency contact from your phone.');
+        showAlert({
+          title: 'Permission Denied',
+          message: 'Contacts permission is required to import an emergency contact from your address book.',
+          type: 'warning',
+        });
         return;
       }
 
@@ -117,7 +127,11 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
         }
 
         if (!phoneNumber) {
-          Alert.alert('No Phone Number', `${contactName} does not have a phone number.`);
+          showAlert({
+            title: 'No Phone Number',
+            message: `${contactName} does not have a registered phone number.`,
+            type: 'info',
+          });
           return;
         }
 

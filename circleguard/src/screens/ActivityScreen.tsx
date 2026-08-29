@@ -1,5 +1,15 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Alert, Platform, StatusBar, Linking } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  RefreshControl,
+  Platform,
+  StatusBar,
+  Linking,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,21 +18,19 @@ import { useCircleStore } from '../store/useCircleStore';
 import { supabase } from '../lib/supabase';
 import AnimatedList from '../components/AnimatedList';
 import SpringTouchable from '../components/SpringTouchable';
-import { getThemeCardStyles, getThemeButtonStyles, getThemeBadgeStyles, getThemeBorderStyles } from '../constants/theme';
+import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 
 export default function ActivityScreen() {
-  const { colors, themeMode } = useThemeStore();
-  const navigation = useNavigation();
+  const { colors, isDark } = useThemeStore();
+  const navigation = useNavigation<any>();
   const { activeCircle } = useCircleStore();
+  const { showAlert } = useLuxuryAlert();
   const insets = useSafeAreaInsets();
   const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 36) : 44);
 
   const [activeSection, setActiveSection] = useState<'APP_UPDATES' | 'MEMBER_ALERTS'>('APP_UPDATES');
   const [refreshing, setRefreshing] = useState(false);
   const [memberAlerts, setMemberAlerts] = useState<any[]>([]);
-
-  const cardStyles = getThemeCardStyles(themeMode);
-  const secondaryBtnStyles = getThemeButtonStyles(themeMode, 'secondary');
 
   const fetchMemberAlerts = async () => {
     if (!activeCircle?.id) {
@@ -31,8 +39,8 @@ export default function ActivityScreen() {
     }
     try {
       const cutoffTime = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-      const memberUserIds = (useCircleStore.getState().members || []).map(m => m.user_id);
-      
+      const memberUserIds = (useCircleStore.getState().members || []).map((m) => m.user_id);
+
       let placeEventsQuery = supabase
         .from('place_events')
         .select('id, occurred_at, event_type, place_id, user_id, places(name), profiles(full_name)')
@@ -73,14 +81,16 @@ export default function ActivityScreen() {
         return {
           id: item.id,
           type: 'SOS',
-          title: 'EMERGENCY SOS DISTRESS CALL',
-          message: `${name} triggered an urgent emergency distress signal!`,
-          time: new Date(item.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
-          icon: 'alert-circle-sharp',
-          color: '#EF4444',
+          title: `${name} sent an SOS`,
+          message: `Emergency distress signal triggered.`,
+          time: new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          icon: 'alert-circle' as const,
+          color: '#FF453A',
           memberName: name,
           phone,
           timestamp: new Date(item.created_at).getTime(),
+          actionLabel: phone ? 'Call' : 'View on Map',
+          actionIcon: phone ? 'call' : 'map',
         };
       });
 
@@ -95,14 +105,16 @@ export default function ActivityScreen() {
         return {
           id: item.id,
           type: 'MESSAGE',
-          title: `MESSAGE FROM ${name.toUpperCase()}`,
+          title: `Message from ${name}`,
           message: item.content,
-          time: new Date(item.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
-          icon: 'chatbubble-ellipses-sharp',
-          color: '#3B82F6',
+          time: new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          icon: 'chatbubble-ellipses' as const,
+          color: '#0A84FF',
           memberName: name,
           phone,
           timestamp: new Date(item.created_at).getTime(),
+          actionLabel: 'Reply',
+          actionIcon: 'chatbubbles',
         };
       });
 
@@ -112,25 +124,25 @@ export default function ActivityScreen() {
           const prof = Array.isArray(item.profiles) ? item.profiles[0] : (item.profiles as any);
           name = prof?.full_name || 'Member';
         }
-        let placeName = 'Geofence';
+        let placeName = 'Safe Zone';
         if (item.places) {
           const p = Array.isArray(item.places) ? item.places[0] : (item.places as any);
-          placeName = p?.name || 'Geofence';
+          placeName = p?.name || 'Safe Zone';
         }
 
         const isArrival = item.event_type === 'arrival';
         return {
           id: item.id,
-          type: 'BREACH',
-          title: isArrival ? 'GEOFENCE ARRIVAL ALERT' : 'GEOFENCE EXITED ALERT',
-          message: isArrival 
-            ? `${name} arrived safely inside boundary "${placeName}".`
-            : `${name} departed boundary "${placeName}".`,
-          time: new Date(item.occurred_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
-          icon: isArrival ? 'location-sharp' : 'exit-outline',
-          color: isArrival ? '#10B981' : '#F59E0B',
+          type: 'GEOFENCE',
+          title: isArrival ? `${name} arrived at ${placeName}` : `${name} left ${placeName}`,
+          message: isArrival ? `Entered boundary safely.` : `Departed boundary.`,
+          time: new Date(item.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          icon: isArrival ? 'location' : 'navigate' as const,
+          color: isArrival ? '#30D158' : '#FF9F0A',
           memberName: name,
           timestamp: new Date(item.occurred_at).getTime(),
+          actionLabel: 'View on Map',
+          actionIcon: 'map',
         };
       });
 
@@ -141,47 +153,47 @@ export default function ActivityScreen() {
     }
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     fetchMemberAlerts();
   }, [activeCircle?.id]);
 
-  // App & System Release Updates Data (Strictly System Software Announcements)
+  // App Release Notes (Human-written, clean)
   const appUpdatesList = [
     {
       id: 'update_1',
-      title: 'CircleGuard v1.2.0 Performance Build',
-      message: 'New 60 FPS animated protection shield, Swiggy-style live address bar, and Esri World Topographic terrain mini-maps are now active.',
-      time: 'TODAY • 06:00 PM',
-      icon: 'rocket-sharp',
-      color: '#D4AF37',
-      badgeText: 'RELEASE',
+      title: 'CircleGuard 1.2 Update',
+      message: 'New Apple Find My style design, smooth UI-thread animations, and automated emergency hotlines for India and international destinations.',
+      time: 'Today • Version 1.2',
+      icon: 'sparkles' as const,
+      color: '#30D158',
+      badgeText: 'Update',
     },
     {
       id: 'update_2',
-      title: 'AES-256 Military Encryption Protocol Active',
-      message: 'All real-time location packets, circle member position streams, and status logs are secured using AES-256 end-to-end encryption.',
-      time: 'SYSTEM AUDIT • PASS',
-      icon: 'lock-closed-sharp',
-      color: '#10B981',
-      badgeText: 'SECURITY',
+      title: 'End-to-End Encryption',
+      message: 'Location telemetry and circle chat messages are secured with full end-to-end encryption.',
+      time: 'Security',
+      icon: 'lock-closed' as const,
+      color: '#0A84FF',
+      badgeText: 'Security',
     },
     {
       id: 'update_3',
-      title: 'Geofencing Engine v2.0 Operational',
-      message: 'Haversine geodesic distance calculation, 50m noise filtering, and 15m hysteresis buffers actively monitoring circle safe zones 24/7.',
-      time: 'ENGINE OK',
-      icon: 'shield-checkmark-sharp',
-      color: '#3B82F6',
-      badgeText: 'ENGINE',
+      title: 'Sub-Meter Geofence Alerts',
+      message: 'Precise boundary detection with intelligent noise filtering to reduce false alarms.',
+      time: 'Performance',
+      icon: 'location' as const,
+      color: '#30D158',
+      badgeText: 'Engine',
     },
     {
       id: 'update_4',
-      title: 'Ghost Mode & Online Presence Controls',
-      message: 'Members can toggle Ghost Mode obfuscation or hide online presence status anytime directly from Profile Privacy Settings.',
-      time: 'PRIVACY READY',
-      icon: 'eye-off-sharp',
-      color: '#A855F7',
-      badgeText: 'PRIVACY',
+      title: 'Discreet Safety Call',
+      message: 'Simulate an incoming phone call anytime with a single tap in Safety Controls.',
+      time: 'Feature',
+      icon: 'call' as const,
+      color: '#AF52DE',
+      badgeText: 'Privacy',
     },
   ];
 
@@ -192,150 +204,210 @@ export default function ActivityScreen() {
   };
 
   const handleCheckUpdate = () => {
-    Alert.alert(
-      'App Up to Date',
-      'CircleGuard v1.2.0 is running the latest security release build.',
-      [{ text: 'OK' }]
-    );
+    showAlert({
+      title: 'Up to Date',
+      message: 'CircleGuard is on the latest version.',
+      type: 'success',
+      buttonText: 'Done',
+    });
+  };
+
+  const handleAlertAction = (item: any) => {
+    if (item.type === 'SOS') {
+      if (item.phone) {
+        Linking.openURL(`tel:${item.phone}`);
+      } else {
+        navigation.navigate('Map');
+      }
+    } else if (item.type === 'MESSAGE') {
+      navigation.navigate('Chat');
+    } else {
+      navigation.navigate('Map');
+    }
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#F2F2F7' }]}>
       {/* Top Header */}
-      <View style={[styles.header, { borderBottomColor: colors.border, paddingTop: topInset + 16, paddingBottom: 14 }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.8}>
-          <Ionicons name="arrow-back" size={24} color={colors.foreground} />
+      <View style={[styles.header, { paddingTop: topInset + 8, borderBottomColor: isDark ? '#1C1C1E' : '#E5E5EA' }]}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="arrow-back" size={22} color={isDark ? '#FFFFFF' : '#000000'} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>App Notifications</Text>
-        <TouchableOpacity onPress={handleCheckUpdate} activeOpacity={0.8}>
-          <Ionicons name="sparkles-outline" size={22} color={colors.accentGold} />
+
+        <View style={styles.headerTitleContainer}>
+          <Text style={[styles.headerTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>Activity</Text>
+          <Text style={[styles.headerSubtitle, { color: isDark ? '#8E8E93' : '#8E8E93' }]}>
+            {activeCircle ? activeCircle.name : 'All notifications'}
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={handleCheckUpdate}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="checkmark-circle-outline" size={22} color="#30D158" />
         </TouchableOpacity>
       </View>
 
-      {/* Section Tabs */}
-      <View style={styles.filterRow}>
-        <SpringTouchable
-          style={[
-            styles.filterPill,
-            {
-              flex: 1,
-              alignItems: 'center',
-              backgroundColor: activeSection === 'APP_UPDATES' ? colors.accentGold : colors.surface,
-              borderColor: activeSection === 'APP_UPDATES' ? colors.accentGold : colors.border,
-              borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 24 : 14),
-              borderWidth: themeMode === 'bauhaus' ? 2.5 : (themeMode === 'playful_geometric' ? 2 : 1),
-            },
-          ]}
-          onPress={() => setActiveSection('APP_UPDATES')}
-          scaleTo={0.93}
-        >
-          <Text style={[styles.filterText, { color: activeSection === 'APP_UPDATES' ? (themeMode === 'bauhaus' ? '#121212' : '#FFFFFF') : colors.textMuted }]}>
-            APP UPDATES ({appUpdatesList.length})
-          </Text>
-        </SpringTouchable>
+      {/* iOS Native Segmented Control */}
+      <View style={styles.segmentedContainer}>
+        <View style={[styles.segmentedTrack, { backgroundColor: isDark ? '#1C1C1E' : '#E5E5EA' }]}>
+          <SpringTouchable
+            style={[
+              styles.segmentTab,
+              activeSection === 'APP_UPDATES' && {
+                backgroundColor: isDark ? '#3A3A3C' : '#FFFFFF',
+              },
+            ]}
+            onPress={() => setActiveSection('APP_UPDATES')}
+            scaleTo={0.97}
+          >
+            <Text
+              style={[
+                styles.segmentText,
+                { color: activeSection === 'APP_UPDATES' ? (isDark ? '#FFFFFF' : '#000000') : '#8E8E93' },
+              ]}
+            >
+              Updates ({appUpdatesList.length})
+            </Text>
+          </SpringTouchable>
 
-        <SpringTouchable
-          style={[
-            styles.filterPill,
-            {
-              flex: 1,
-              alignItems: 'center',
-              backgroundColor: activeSection === 'MEMBER_ALERTS' ? colors.accentGold : colors.surface,
-              borderColor: activeSection === 'MEMBER_ALERTS' ? colors.accentGold : colors.border,
-              borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 24 : 14),
-              borderWidth: themeMode === 'bauhaus' ? 2.5 : (themeMode === 'playful_geometric' ? 2 : 1),
-            },
-          ]}
-          onPress={() => setActiveSection('MEMBER_ALERTS')}
-          scaleTo={0.93}
-        >
-          <Text style={[styles.filterText, { color: activeSection === 'MEMBER_ALERTS' ? (themeMode === 'bauhaus' ? '#121212' : '#FFFFFF') : colors.textMuted }]}>
-            ALERTS & MESSAGES ({memberAlerts.length})
-          </Text>
-        </SpringTouchable>
+          <SpringTouchable
+            style={[
+              styles.segmentTab,
+              activeSection === 'MEMBER_ALERTS' && {
+                backgroundColor: isDark ? '#3A3A3C' : '#FFFFFF',
+              },
+            ]}
+            onPress={() => setActiveSection('MEMBER_ALERTS')}
+            scaleTo={0.97}
+          >
+            <Text
+              style={[
+                styles.segmentText,
+                { color: activeSection === 'MEMBER_ALERTS' ? (isDark ? '#FFFFFF' : '#000000') : '#8E8E93' },
+              ]}
+            >
+              Alerts ({memberAlerts.length})
+            </Text>
+          </SpringTouchable>
+        </View>
       </View>
 
+      {/* Main Feed */}
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.accentGold]} tintColor={colors.accentGold} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#0A84FF']}
+            tintColor={isDark ? '#8E8E93' : '#8E8E93'}
+          />
         }
       >
         {activeSection === 'APP_UPDATES' ? (
-          <View style={styles.listContainer}>
+          <View style={styles.feedListContainer}>
             <AnimatedList
               items={appUpdatesList.map((item) => ({
                 ...item,
                 icon: item.icon as any,
-                badgeText: item.badgeText || 'SYSTEM LOG',
+                badgeText: item.badgeText,
               }))}
-              showGradients={true}
-              maxHeight={520}
+              isNestedInParentScroll={true}
+              showGradients={false}
               onItemSelect={(item) => {
-                Alert.alert(item.title, item.message);
+                showAlert({
+                  title: item.title,
+                  message: item.message || '',
+                  type: 'info',
+                  buttonText: 'Done',
+                });
               }}
             />
           </View>
         ) : (
-          <View style={styles.listContainer}>
+          <View style={styles.feedListContainer}>
             {memberAlerts.length === 0 ? (
-              <View style={[styles.emptyAlertBox, cardStyles]}>
-                <Ionicons name="notifications-off-outline" size={32} color={colors.textMuted} />
-                <Text style={[styles.emptyAlertTitle, { color: colors.foreground }]}>NO MEMBER ALERTS YET</Text>
-                <Text style={[styles.emptyAlertSub, { color: colors.textMuted }]}>
-                  Member phone calls, circle chat messages, SOS distress signals, and geofence breach alerts will appear here in real-time.
+              <View style={[styles.emptyStateCard, { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF' }]}>
+                <Ionicons name="checkmark-circle-outline" size={40} color="#30D158" style={{ marginBottom: 8 }} />
+                <Text style={[styles.emptyStateTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>All Clear</Text>
+                <Text style={[styles.emptyStateSub, { color: isDark ? '#8E8E93' : '#8E8E93' }]}>
+                  No active alerts recorded in your circle.
                 </Text>
               </View>
             ) : (
-              <AnimatedList
-                items={memberAlerts.map((item) => ({
-                  ...item,
-                  icon: item.icon as any,
-                  badgeText: item.type,
-                }))}
-                showGradients={true}
-                maxHeight={520}
-                onItemSelect={(item) => {
-                  if (item.type === 'SOS') {
-                    Alert.alert(
-                      item.title,
-                      `${item.message}\n\nMember: ${item.memberName}`,
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Call Member', onPress: () => item.phone ? Linking.openURL(`tel:${item.phone}`) : null }
-                      ]
-                    );
-                  } else if (item.type === 'MESSAGE') {
-                    navigation.navigate('Chat' as never);
-                  } else {
-                    navigation.navigate('MainMap' as never);
-                  }
-                }}
-              />
+              <View style={styles.alertCardsWrapper}>
+                {memberAlerts.map((item) => {
+                  const accentColor = item.color || '#30D158';
+                  return (
+                    <View
+                      key={item.id}
+                      style={[
+                        styles.alertDetailCard,
+                        {
+                          backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+                        },
+                      ]}
+                    >
+                      <View style={styles.alertTopHeader}>
+                        <View style={styles.alertHeaderLeft}>
+                          <View style={[styles.alertGlyphBox, { backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7' }]}>
+                            <Ionicons name={item.icon} size={18} color={accentColor} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.alertTitleText, { color: isDark ? '#FFFFFF' : '#000000' }]}>{item.title}</Text>
+                            <Text style={[styles.alertMessageText, { color: isDark ? '#8E8E93' : '#636366' }]}>
+                              {item.message}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <Text style={[styles.alertTimeText, { color: '#8E8E93' }]}>{item.time}</Text>
+                      </View>
+
+                      {/* Clean Action Button */}
+                      <TouchableOpacity
+                        style={[
+                          styles.alertActionButton,
+                          {
+                            backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7',
+                          },
+                        ]}
+                        onPress={() => handleAlertAction(item)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name={item.actionIcon as any} size={14} color={accentColor} />
+                        <Text style={[styles.alertActionText, { color: accentColor }]}>
+                          {item.actionLabel}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </View>
             )}
           </View>
         )}
 
-        {/* Check Update Button */}
+        {/* Check App Updates Button */}
         <TouchableOpacity
           style={[
-            styles.updateCheckBtn, 
-            { 
-              backgroundColor: secondaryBtnStyles.backgroundColor, 
-              borderColor: secondaryBtnStyles.borderColor,
-              borderRadius: secondaryBtnStyles.borderRadius,
-              borderWidth: secondaryBtnStyles.borderWidth,
-              shadowColor: secondaryBtnStyles.shadowColor,
-              shadowOffset: secondaryBtnStyles.shadowOffset,
-              shadowOpacity: secondaryBtnStyles.shadowOpacity,
-              shadowRadius: secondaryBtnStyles.shadowRadius,
-              elevation: secondaryBtnStyles.elevation,
-            }
+            styles.updateCheckBtn,
+            {
+              backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+            },
           ]}
           onPress={handleCheckUpdate}
+          activeOpacity={0.7}
         >
-          <Ionicons name="cloud-download-outline" size={18} color={colors.accentGold} />
-          <Text style={[styles.updateCheckText, { color: secondaryBtnStyles.textColor }]}>CHECK FOR LATEST APP UPDATES</Text>
+          <Ionicons name="arrow-down-circle-outline" size={17} color="#0A84FF" />
+          <Text style={styles.updateCheckText}>Check for Updates</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -350,122 +422,144 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-  },
-  filterRow: {
-    flexDirection: 'row',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 8,
+    paddingBottom: 12,
+    borderBottomWidth: 0.5,
   },
-  filterPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  filterText: {
-    fontSize: 9,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-  },
-  content: {
-    padding: 16,
-  },
-  listContainer: {
-    gap: 12,
-    marginBottom: 20,
-  },
-  notifCard: {
-    padding: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  iconCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    borderWidth: 1,
+  backButton: {
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cardTitle: {
+  headerTitleContainer: {
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  headerSubtitle: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  segmentedContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  segmentedTrack: {
+    flexDirection: 'row',
+    padding: 3,
+    borderRadius: 9,
+    gap: 3,
+  },
+  segmentTab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    borderRadius: 7,
+  },
+  segmentText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 32,
+  },
+  feedListContainer: {
+    marginBottom: 16,
+  },
+  alertCardsWrapper: {
+    gap: 10,
+  },
+  alertDetailCard: {
+    borderRadius: 14,
+    padding: 14,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  alertTopHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  alertHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    flex: 1,
+  },
+  alertGlyphBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alertTitleText: {
     fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 0.2,
+    fontWeight: '600',
+    letterSpacing: -0.1,
+    marginBottom: 2,
   },
-  newBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
+  alertMessageText: {
+    fontSize: 12,
+    lineHeight: 16,
   },
-  newBadgeText: {
-    fontSize: 8,
-    fontWeight: '900',
-    letterSpacing: 0.8,
+  alertTimeText: {
+    fontSize: 10,
+    fontWeight: '500',
+    marginLeft: 6,
   },
-  timePillRow: {
+  alertActionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    gap: 6,
+    alignSelf: 'flex-start',
   },
-  cardMsg: {
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 4,
+  alertActionText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
-  cardTime: {
-    fontSize: 9.5,
+  emptyStateCard: {
+    padding: 28,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 12,
+  },
+  emptyStateTitle: {
+    fontSize: 15,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  emptyStateSub: {
+    fontSize: 12,
+    textAlign: 'center',
   },
   updateCheckBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    padding: 16,
+    gap: 6,
+    paddingVertical: 13,
     borderRadius: 12,
-    borderWidth: 1,
-    marginTop: 8,
   },
   updateCheckText: {
-    fontSize: 10.5,
-    fontWeight: 'bold',
-    letterSpacing: 1.2,
-  },
-  emptyAlertBox: {
-    padding: 24,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginVertical: 16,
-  },
-  emptyAlertTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginTop: 4,
-  },
-  emptyAlertSub: {
-    fontSize: 11,
-    textAlign: 'center',
-    lineHeight: 16,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0A84FF',
   },
 });

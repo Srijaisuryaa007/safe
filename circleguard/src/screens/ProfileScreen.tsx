@@ -39,7 +39,7 @@ export default function ProfileScreen() {
   const { colors, isDark, themeMode } = useThemeStore();
   const { profile, session, setProfile } = useAuthStore();
   const { isPremium } = useSubscriptionStore();
-  const { showAlert } = useLuxuryAlert();
+  const { showAlert, showConfirm } = useLuxuryAlert();
   const [uploading, setUploading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
@@ -181,24 +181,20 @@ export default function ProfileScreen() {
   };
 
   const handleDeletePrimaryContact = () => {
-    Alert.alert(
-      'Remove Emergency Contact',
-      `Remove ${emergencyContact?.name || 'this contact'} as your emergency contact?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            setEmergencyContact(null);
-            if (profile?.id) {
-              await AsyncStorage.removeItem(getPrimaryContactKey(profile.id));
-            }
-            triggerToast('Emergency contact removed successfully');
-          },
-        },
-      ]
-    );
+    showConfirm({
+      title: 'Remove Emergency Contact',
+      message: `Remove ${emergencyContact?.name || 'this contact'} as your primary emergency contact?`,
+      confirmText: 'REMOVE',
+      cancelText: 'CANCEL',
+      isDestructive: true,
+      onConfirm: async () => {
+        setEmergencyContact(null);
+        if (profile?.id) {
+          await AsyncStorage.removeItem(getPrimaryContactKey(profile.id));
+        }
+        triggerToast('Emergency contact removed successfully');
+      },
+    });
   };
 
   const onRefresh = async () => {
@@ -321,7 +317,12 @@ export default function ProfileScreen() {
         setAboutModalVisible(true);
         break;
       default:
-        Alert.alert(label, `${label} settings are up to date.`);
+        showAlert({
+          title: label,
+          message: `${label} settings are fully configured and up to date.`,
+          type: 'info',
+          buttonText: 'OK',
+        });
         break;
     }
   };

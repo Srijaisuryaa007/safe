@@ -26,7 +26,7 @@ type DashboardNavigationProp = CompositeNavigationProp<
 
 export default function DashboardScreen() {
   const { colors, themeMode, isDark } = useThemeStore();
-  const { showAlert } = useLuxuryAlert();
+  const { showAlert, showConfirm } = useLuxuryAlert();
   const navigation = useNavigation<DashboardNavigationProp>();
   const { profile } = useAuthStore();
   const { activeCircle, members, circleFetched, isLoading, fetchActiveCircle, setActiveCircle, setMembers } = useCircleStore();
@@ -212,76 +212,69 @@ export default function DashboardScreen() {
     if (!activeCircle || !userId) return;
 
     if (isOwner) {
-      Alert.alert(
-        'Delete Circle',
-        'Are you sure you want to delete this circle? This action cannot be undone.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Delete', 
-            style: 'destructive', 
-            onPress: async () => {
-              try {
-                const { error } = await supabase.from('circles').delete().eq('id', activeCircle.id);
-                if (error) throw error;
+      showConfirm({
+        title: 'Delete Circle',
+        message: 'Are you sure you want to delete this circle? All member connections and boundaries will be permanently removed.',
+        confirmText: 'DELETE CIRCLE',
+        cancelText: 'CANCEL',
+        isDestructive: true,
+        onConfirm: async () => {
+          try {
+            const { error } = await supabase.from('circles').delete().eq('id', activeCircle.id);
+            if (error) throw error;
 
-                setActiveCircle(null);
-                setMembers([]);
-                await useCircleStore.getState().fetchActiveCircle(userId);
-                showAlert({
-                  title: 'Circle Deleted',
-                  message: 'Your circle has been removed.',
-                  type: 'info',
-                });
-              } catch (err: any) {
-                showAlert({
-                  title: 'Error',
-                  message: err.message || 'Failed to delete circle.',
-                  type: 'error',
-                });
-              }
-            } 
+            setActiveCircle(null);
+            setMembers([]);
+            await useCircleStore.getState().fetchActiveCircle(userId);
+            showAlert({
+              title: 'Circle Deleted',
+              message: 'Your circle has been removed.',
+              type: 'info',
+              buttonText: 'DONE',
+            });
+          } catch (err: any) {
+            showAlert({
+              title: 'Error',
+              message: err.message || 'Failed to delete circle.',
+              type: 'error',
+            });
           }
-        ]
-      );
+        },
+      });
     } else {
-      Alert.alert(
-        'Leave Circle',
-        'Are you sure you want to leave this circle?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Leave', 
-            style: 'destructive', 
-            onPress: async () => {
-              try {
-                const { error } = await supabase
-                  .from('circle_members')
-                  .delete()
-                  .eq('circle_id', activeCircle.id)
-                  .eq('user_id', userId);
+      showConfirm({
+        title: 'Leave Circle',
+        message: 'Are you sure you want to leave this circle? You will no longer share live location or receive safety alerts.',
+        confirmText: 'LEAVE CIRCLE',
+        cancelText: 'CANCEL',
+        isDestructive: true,
+        onConfirm: async () => {
+          try {
+            const { error } = await supabase
+              .from('circle_members')
+              .delete()
+              .eq('circle_id', activeCircle.id)
+              .eq('user_id', userId);
+            if (error) throw error;
 
-                if (error) throw error;
-
-                setActiveCircle(null);
-                setMembers([]);
-                await useCircleStore.getState().fetchActiveCircle(userId);
-                showAlert({
-                  title: 'Left Circle',
-                  message: 'You have left the circle.',
-                  type: 'info',
-                });
-              } catch (err: any) {
-                showAlert({
-                  title: 'Error',
-                  message: err.message || 'Failed to leave circle.',
-                  type: 'error',
-                });
-              }
-            } 
+            setActiveCircle(null);
+            setMembers([]);
+            await useCircleStore.getState().fetchActiveCircle(userId);
+            showAlert({
+              title: 'Left Circle',
+              message: 'You have left the circle.',
+              type: 'info',
+              buttonText: 'DONE',
+            });
+          } catch (err: any) {
+            showAlert({
+              title: 'Error',
+              message: err.message || 'Failed to leave circle.',
+              type: 'error',
+            });
           }
-        ]
-      );
+        },
+      });
     }
   };
 

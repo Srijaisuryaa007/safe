@@ -46,17 +46,17 @@ export const LIGHT_THEME = {
 
 export const DARK_THEME = {
   colors: {
-    background: '#0A0B0E', // Deep Obsidian Void
-    foreground: '#FFFFFF', // Crisp Pure White
-    surface: '#12141C', // Frosted Charcoal Obsidian Glass
-    surfaceMuted: '#1A1D27', // Floating Glass Sheet / Muted Surface
-    textMuted: '#94A3B8', // Slate 400 — High-Legibility Subtitle
-    accentGold: '#F5D061', // Champagne Platinum Gold
-    accentGoldLight: 'rgba(245, 208, 97, 0.15)',
-    sosRed: '#FF3B30', // Apple HIG Emergency Red
-    border: 'rgba(255, 255, 255, 0.08)', // Razor 1px Hairline
+    background: '#000000', // Apple Pure OLED Black
+    foreground: '#FFFFFF', // iOS Primary White Label
+    surface: '#1C1C1E', // Apple Secondary System Background
+    surfaceMuted: '#2C2C2E', // Apple Tertiary System Background
+    textMuted: '#8E8E93', // Apple System Gray Label
+    accentGold: '#30D158', // Apple System Green (Safe Status & Active Accent)
+    accentGoldLight: 'rgba(48, 209, 88, 0.12)',
+    sosRed: '#FF453A', // Apple System Red
+    border: 'rgba(255, 255, 255, 0.08)', // Apple iOS Hairline Divider
     borderDark: '#FFFFFF',
-    borderGold: 'rgba(245, 208, 97, 0.35)',
+    borderGold: '#30D158',
   } as ThemeColors,
 };
 
@@ -225,15 +225,15 @@ export const getThemeCardStyles = (themeMode?: string) => {
     };
   }
   return {
-    borderWidth: 1,
-    borderRadius: 18,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    backgroundColor: '#12141C',
+    borderWidth: 0,
+    borderRadius: 16,
+    borderColor: 'transparent',
+    backgroundColor: '#1C1C1E',
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
   };
 };
 
@@ -453,15 +453,15 @@ export const getThemeSheetStyles = (themeMode?: string) => {
     };
   }
   return {
-    backgroundColor: '#12141C',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(245, 208, 97, 0.35)',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    backgroundColor: '#1C1C1E',
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.45,
-    shadowRadius: 18,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
     elevation: 16,
   };
 };
@@ -533,13 +533,13 @@ export const getThemeFloatingControlStyles = (themeMode?: string) => {
     };
   }
   return {
-    backgroundColor: 'rgba(18, 20, 28, 0.96)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 24,
+    backgroundColor: '#1C1C1E',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 20,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
+    shadowOpacity: 0.35,
     shadowRadius: 20,
     elevation: 8,
   };

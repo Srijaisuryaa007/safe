@@ -1,8 +1,9 @@
 import React from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useThemeStore } from '../store/useThemeStore';
+import { useLuxuryAlert } from './LuxuryAlertModal';
 
 interface AboutCircleGuardModalProps {
   visible: boolean;
@@ -14,13 +15,19 @@ export default function AboutCircleGuardModal({
   onClose,
 }: AboutCircleGuardModalProps) {
   const { colors } = useThemeStore();
+  const { showAlert } = useLuxuryAlert();
 
   if (!visible) return null;
 
   const handleCopyInfo = async () => {
-    const infoText = `CircleGuard Safety Architecture v1.0.0 (Build 2026.8.15)\nEncryption: AES-256 Military Grade\nEngine: React Native • Supabase Realtime • Leaflet 1.9.4\nStatus: Systems Operational`;
+    const infoText = `CircleGuard Safety Architecture v1.2.0 (Build 2026.8.29)\nEncryption: AES-256 Military Grade\nEngine: React Native • Supabase Realtime • Leaflet 1.9.4\nStatus: Systems Operational`;
     await Clipboard.setStringAsync(infoText);
-    Alert.alert('Copied', 'CircleGuard system build information copied to clipboard.');
+    showAlert({
+      title: 'Copied to Clipboard',
+      message: 'CircleGuard system build information and cryptographic architecture details copied to clipboard.',
+      type: 'success',
+      buttonText: 'DONE',
+    });
   };
 
   const featureCards = [
