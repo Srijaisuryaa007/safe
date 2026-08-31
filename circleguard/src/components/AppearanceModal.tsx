@@ -23,10 +23,56 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
 
   const themes = [
     {
+      mode: 'dark' as ThemeMode,
+      title: 'ONYX LUXURY DARK',
+      designTag: 'SIGNATURE THEME',
+      subtitle: 'Deep Obsidian Black • Metallic Gold Highlights • High-contrast emergency safety visibility for night & low-light environments.',
+      iconName: 'moon-outline' as const,
+      cardStyle: {
+        backgroundColor: '#1C1D24',
+        borderColor: '#D4AF37',
+        borderWidth: 1.5,
+        borderRadius: 16,
+        textColor: '#FFFFFF',
+        subtitleColor: '#9CA3AF',
+        badgeBg: '#D4AF37',
+        badgeText: '#0D0E12',
+        shadowColor: '#D4AF37',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 12,
+        elevation: 5,
+      },
+      palette: ['#0D0E12', '#1C1D24', '#D4AF37', '#EF4444'],
+    },
+    {
+      mode: 'light' as ThemeMode,
+      title: 'EDITORIAL CLEAN LIGHT',
+      designTag: 'DAYLIGHT CLARITY',
+      subtitle: 'Warm Alabaster Canvas • Crisp Charcoal Typography • Clean minimal borders optimized for bright sunlight & outdoor readability.',
+      iconName: 'sunny-outline' as const,
+      cardStyle: {
+        backgroundColor: '#FFFFFF',
+        borderColor: 'rgba(26, 26, 26, 0.15)',
+        borderWidth: 1,
+        borderRadius: 16,
+        textColor: '#1A1A1A',
+        subtitleColor: '#6C6863',
+        badgeBg: '#1A1A1A',
+        badgeText: '#FFFFFF',
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 3,
+      },
+      palette: ['#F9F8F6', '#FFFFFF', '#1A1A1A', '#D4AF37'],
+    },
+    {
       mode: 'brand_green' as ThemeMode,
-      title: 'BRAND GREEN & AMBER (FLEXY UI)',
-      designTag: 'DESIGN #1',
-      subtitle: 'Conversion-Focused • Emerald Brand Green (#3DBE6C) • Warm Amber (#F5A623) • Clean Pure White (#FFFFFF)',
+      title: 'BRAND EMERALD & AMBER',
+      designTag: 'MODERN ACTIVE',
+      subtitle: 'Vibrant Emerald Green (#3DBE6C) • Warm Amber (#F5A623) • High-energy, crisp mobile interface designed for active tracking.',
       iconName: 'sparkles-outline' as const,
       cardStyle: {
         backgroundColor: '#FFFFFF',
@@ -46,129 +92,10 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
       palette: ['#3DBE6C', '#F5A623', '#111111', '#F5F5F5'],
     },
     {
-      mode: 'bauhaus' as ThemeMode,
-      title: 'BAUHAUS CONSTRUCTIVIST',
-      designTag: 'DESIGN #2',
-      subtitle: '1920s Modernism • Geometric Red/Blue/Yellow Color Blocks • 4px Hard Black Shadow',
-      iconName: 'shapes-outline' as const,
-      cardStyle: {
-        backgroundColor: '#FFFFFF',
-        borderColor: '#121212',
-        borderWidth: 3,
-        borderRadius: 0,
-        textColor: '#121212',
-        subtitleColor: '#444444',
-        badgeBg: '#F0C020',
-        badgeText: '#121212',
-        shadowColor: '#121212',
-        shadowOffset: { width: 5, height: 5 },
-        shadowOpacity: 1.0,
-        shadowRadius: 0,
-        elevation: 6,
-      },
-      palette: ['#D02020', '#1040C0', '#F0C020'],
-    },
-    {
-      mode: 'playful_geometric' as ThemeMode,
-      title: 'PLAYFUL GEOMETRIC',
-      designTag: 'DESIGN #3',
-      subtitle: 'Memphis 80s Pop • Warm Cream Paper • Speech-Bubble Sticker Corners & Pop Shadows',
-      iconName: 'color-palette-outline' as const,
-      cardStyle: {
-        backgroundColor: '#FFFDF5',
-        borderColor: '#1E293B',
-        borderWidth: 2,
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        borderBottomRightRadius: 24,
-        borderBottomLeftRadius: 4, // Speech bubble cutout
-        textColor: '#1E293B',
-        subtitleColor: '#64748B',
-        badgeBg: '#8B5CF6',
-        badgeText: '#FFFFFF',
-        shadowColor: '#1E293B',
-        shadowOffset: { width: 5, height: 5 },
-        shadowOpacity: 1.0,
-        shadowRadius: 0,
-        elevation: 6,
-      },
-      palette: ['#8B5CF6', '#F472B6', '#FBBF24'],
-    },
-    {
-      mode: 'botanical_organic' as ThemeMode,
-      title: 'BOTANICAL / ORGANIC SERIF',
-      designTag: 'DESIGN #4',
-      subtitle: 'Digital Ode to Nature • Warm Alabaster Rice Paper • Deep Forest Green & Roman Arch Radii',
-      iconName: 'leaf-outline' as const,
-      cardStyle: {
-        backgroundColor: '#F9F8F4',
-        borderColor: '#E6E2DA',
-        borderWidth: 1.5,
-        borderTopLeftRadius: 36,
-        borderTopRightRadius: 36,
-        borderBottomRightRadius: 16,
-        borderBottomLeftRadius: 16, // Architectural Roman Arch shape
-        textColor: '#2D3A31',
-        subtitleColor: '#8C9A84',
-        badgeBg: '#2D3A31',
-        badgeText: '#F9F8F4',
-        shadowColor: '#2D3A31',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.08,
-        shadowRadius: 14,
-        elevation: 4,
-      },
-      palette: ['#2D3A31', '#8C9A84', '#DCCFC2', '#C27B66'],
-    },
-    {
-      mode: 'light' as ThemeMode,
-      title: 'EDITORIAL LIGHT MODE',
-      designTag: 'CLASSIC LIGHT',
-      subtitle: 'Warm Alabaster canvas & Rich Charcoal typography',
-      iconName: 'sunny-outline' as const,
-      cardStyle: {
-        backgroundColor: '#FFFFFF',
-        borderColor: '#E4E4E7',
-        borderWidth: 1,
-        borderRadius: 16,
-        textColor: '#18181B',
-        subtitleColor: '#71717A',
-        badgeBg: '#18181B',
-        badgeText: '#FFFFFF',
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.06,
-        shadowRadius: 12,
-        elevation: 3,
-      },
-    },
-    {
-      mode: 'dark' as ThemeMode,
-      title: 'BLACK LUXURY DARK MODE',
-      designTag: 'CLASSIC DARK',
-      subtitle: 'Onyx Obsidian Black & Metallic Gold highlights',
-      iconName: 'moon-outline' as const,
-      cardStyle: {
-        backgroundColor: '#121212',
-        borderColor: '#D4AF37',
-        borderWidth: 1.5,
-        borderRadius: 16,
-        textColor: '#FFFFFF',
-        subtitleColor: '#D4AF37',
-        badgeBg: '#D4AF37',
-        badgeText: '#121212',
-        shadowColor: '#D4AF37',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.25,
-        shadowRadius: 12,
-        elevation: 5,
-      },
-    },
-    {
       mode: 'system' as ThemeMode,
-      title: 'SYSTEM AUTOMATIC',
+      title: 'SYSTEM DYNAMIC AUTO',
       designTag: 'AUTO SYNC',
-      subtitle: 'Sync dynamically with device OS settings',
+      subtitle: 'Automatically syncs dark and light appearances based on your device system settings and scheduled sunset schedule.',
       iconName: 'phone-portrait-outline' as const,
       cardStyle: {
         backgroundColor: colors.surface,
@@ -185,6 +112,7 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
         shadowRadius: 6,
         elevation: 2,
       },
+      palette: [colors.background, colors.surface, colors.accentGold, colors.textMuted],
     },
   ];
 
@@ -212,7 +140,7 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
           contentContainerStyle={styles.scrollContent}
         >
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            Tap any design theme to instantly transform the entire app's visual architecture, borders, shadows, and color palette.
+            Select your preferred visual style to instantly transform the entire app's contrast, color palette, and safety controls.
           </Text>
 
           <View style={styles.themeCardsContainer}>
@@ -227,13 +155,9 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
                     styles.themeCard,
                     {
                       backgroundColor: cs.backgroundColor,
-                      borderColor: cs.borderColor,
-                      borderWidth: isActive ? Math.max(cs.borderWidth, 3) : cs.borderWidth,
-                      borderRadius: (cs as any).borderRadius !== undefined ? (cs as any).borderRadius : 16,
-                      borderTopLeftRadius: (cs as any).borderTopLeftRadius,
-                      borderTopRightRadius: (cs as any).borderTopRightRadius,
-                      borderBottomRightRadius: (cs as any).borderBottomRightRadius,
-                      borderBottomLeftRadius: (cs as any).borderBottomLeftRadius,
+                      borderColor: isActive ? (t.mode === 'brand_green' ? '#3DBE6C' : '#D4AF37') : cs.borderColor,
+                      borderWidth: isActive ? 2.5 : cs.borderWidth,
+                      borderRadius: cs.borderRadius,
                       shadowColor: cs.shadowColor,
                       shadowOffset: cs.shadowOffset,
                       shadowOpacity: cs.shadowOpacity,
@@ -276,7 +200,7 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
                     {t.subtitle}
                   </Text>
 
-                  {/* Palette Color Swatches (if available) */}
+                  {/* Palette Color Swatches */}
                   {t.palette ? (
                     <View style={styles.paletteRow}>
                       {t.palette.map((color, i) => (
@@ -332,7 +256,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 20,
-    paddingBottom: 100, // Generous padding so items never get cut off at the bottom!
+    paddingBottom: 100,
   },
   subtitle: {
     fontSize: 13,
@@ -415,10 +339,10 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   paletteDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.1)',
+    borderColor: 'rgba(255,255,255,0.15)',
   },
 });

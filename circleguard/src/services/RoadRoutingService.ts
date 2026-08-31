@@ -210,3 +210,28 @@ export async function fetchRoadSnappedRoute(waypoints: LatLng[]): Promise<RouteS
     bearings,
   };
 }
+
+const dijkstraRouteCache: Record<string, { result: RouteSegment; timestamp: number }> = {};
+
+/**
+ * Calculates authentic Dijkstra road network routing between User 1 and User 2.
+ * Follows actual street turns, traffic directions, and real roads (no straight lines across buildings).
+ */
+export async function calculateDijkstraRouteBetweenUsers(
+  user1: LatLng,
+  user2: LatLng
+): Promise<RouteSegment> {
+  if (!user1 || !user2 || !user1.latitude || !user2.latitude || !user1.longitude || !user2.longitude) {
+    return { roadCoords: [], totalDistanceKm: 0, totalDurationMins: 0, bearings: [] };
+  }
+
+  const cacheKey = `${user1.latitude.toFixed(4)},${user1.longitude.toFixed(4)}_${user2.latitude.toFixed(4)},${user2.longitude.toFixed(4)}`;
+  const now = Date.now();
+  if (dijkstraRouteCache[cacheKey] && now - dijkstraRouteCache[cacheKey].timestamp < 45000) {
+    return dijkstraRouteCache[cacheKey].result;
+  }
+
+  const route = await fetchRoadSnappedRoute([user1, user2]);
+  dijkstraRouteCache[cacheKey] = { result: route, timestamp: now };
+  return route;
+}

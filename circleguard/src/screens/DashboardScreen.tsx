@@ -18,6 +18,7 @@ import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import CircleHierarchyTree from '../components/CircleHierarchyTree';
 import BranchAssignmentModal from '../components/BranchAssignmentModal';
+import { sendExpoPushNotification } from '../services/PushNotificationService';
 
 type DashboardNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Circle'>,
@@ -130,7 +131,6 @@ export default function DashboardScreen() {
       });
       await supabase.from('circle_messages').delete().eq('id', req.id);
 
-      const { sendExpoPushNotification } = require('../services/PushNotificationService');
       await sendExpoPushNotification(
         req.user_id,
         'Leader Approved Privacy Request',

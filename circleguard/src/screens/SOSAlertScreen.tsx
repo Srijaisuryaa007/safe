@@ -154,7 +154,7 @@ export default function SOSAlertScreen() {
           style={[
             styles.pulseRing,
             {
-              borderColor: colors.sosRed,
+              borderColor: colors.sosRed || '#EF4444',
               transform: [{ scale: pulseAnim }],
             },
           ]}
@@ -164,71 +164,92 @@ export default function SOSAlertScreen() {
           style={[
             styles.sosButton,
             {
-              backgroundColor: colors.sosRed,
-              borderColor: themeMode === 'brand_green' ? '#F5A623' : colors.accentGold,
-              shadowColor: colors.sosRed,
+              backgroundColor: '#DC2626',
+              borderColor: '#EF4444',
+              shadowColor: '#DC2626',
             },
           ]}
           onPress={triggerEmergency}
-          glowColor={colors.sosRed}
+          glowColor="#DC2626"
         >
-          <Ionicons name="alert-circle" size={60} color="#FFFFFF" />
-          <Text 
-            style={styles.sosText}
-            adjustsFontSizeToFit={true}
-            minimumFontScale={0.8}
-            numberOfLines={1}
-          >
-            {isSending ? 'ALERT SENT' : 'PRESS SOS'}
+          <Text style={styles.sosTextLarge}>SOS</Text>
+          <Text style={styles.sosSubPrompt}>
+            {isSending ? 'ALERT SENT' : 'PRESS & HOLD'}
           </Text>
         </JellySqueezeButton>
       </View>
 
-      {/* Emergency Call Buttons */}
-      <View style={styles.callButtonsRow}>
-        <SpringTouchable
-          style={[
-            styles.quickCallBtn,
-            getThemeButtonStyles(themeMode, 'primary'),
-            { backgroundColor: themeMode === 'brand_green' ? '#3DBE6C' : '#10B981' },
-          ]}
-          onPress={() => setCallModalVisible(true)}
-          scaleTo={0.96}
-        >
-          <Ionicons name="call" size={20} color="#FFFFFF" />
-          <Text 
-            style={styles.quickCallText}
-            adjustsFontSizeToFit={true}
-            minimumFontScale={0.8}
-            numberOfLines={1}
-          >
-            CALL EMERGENCY CONTACTS
-          </Text>
-        </SpringTouchable>
+      <Text style={[styles.dispatchSubLabel, { color: colors.textMuted }]}>
+        1-Tap Emergency Dispatch • Live Location Broadcasting
+      </Text>
 
-        <SpringTouchable 
+      {/* Stitch 2-Card Emergency Dispatch Grid */}
+      <View style={styles.stitchDispatchGrid}>
+        <TouchableOpacity
           style={[
-            styles.serviceCallBtn,
-            getThemeBorderStyles(themeMode),
+            styles.stitchDispatchCard,
             {
-              borderColor: themeMode === 'brand_green' ? '#E0E0E0' : colors.border,
-              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : '#F5F5F5',
+              backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+              borderColor: isDark ? '#2C2C2E' : '#E2E8F0',
             },
           ]}
-          onPress={() => handleCallNumber(country.primaryEmergency, `${country.name} Emergency Services`)}
-          scaleTo={0.96}
+          onPress={() => {
+            const policeNum = country.services?.find(s => s.category === 'police')?.number || country.primaryEmergency || '911';
+            handleCallNumber(policeNum, `${country.name} Police`);
+          }}
+          activeOpacity={0.8}
         >
-          <Ionicons name="shield-checkmark" size={18} color={colors.sosRed} />
-          <Text 
-            style={[styles.serviceCallText, { color: colors.foreground }]}
-            adjustsFontSizeToFit={true}
-            minimumFontScale={0.8}
-            numberOfLines={1}
-          >
-            {country.flag} {country.primaryLabel}
-          </Text>
-        </SpringTouchable>
+          <View style={[styles.dispatchIconBox, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
+            <Ionicons name="shield" size={20} color="#3B82F6" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={[styles.dispatchCardTitle, { color: colors.foreground }]}>Police</Text>
+            <Text style={[styles.dispatchCardSub, { color: colors.textMuted }]}>
+              {country.services?.find(s => s.category === 'police')?.number || country.primaryEmergency || '911'}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.stitchDispatchCard,
+            {
+              backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+              borderColor: isDark ? '#2C2C2E' : '#E2E8F0',
+            },
+          ]}
+          onPress={() => {
+            const medNum = country.services?.find(s => s.category === 'medical')?.number || country.primaryEmergency || '911';
+            handleCallNumber(medNum, `${country.name} Ambulance`);
+          }}
+          activeOpacity={0.8}
+        >
+          <View style={[styles.dispatchIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+            <Ionicons name="medical" size={20} color="#EF4444" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={[styles.dispatchCardTitle, { color: colors.foreground }]}>Ambulance</Text>
+            <Text style={[styles.dispatchCardSub, { color: colors.textMuted }]}>
+              {country.services?.find(s => s.category === 'medical')?.number || country.primaryEmergency || '911'}
+            </Text>
+          </View>
+        </TouchableOpacity>
       </View>
+
+      {/* Emergency Contacts Button */}
+      <SpringTouchable
+        style={[
+          styles.quickCallBtn,
+          { backgroundColor: isDark ? '#2C2C2E' : '#F1F5F9', borderColor: colors.border, marginTop: 12 },
+        ]}
+        onPress={() => setCallModalVisible(true)}
+        scaleTo={0.96}
+      >
+        <Ionicons name="call-outline" size={18} color={colors.foreground} />
+        <Text style={[styles.quickCallText, { color: colors.foreground }]}>
+          CALL EMERGENCY CONTACTS ({emergencyContacts.length})
+        </Text>
+      </SpringTouchable>
 
       {isSending ? (
         <View style={[styles.activeStatusBox, getThemeCardStyles(themeMode), { backgroundColor: colors.surface, borderColor: colors.sosRed }]}>
@@ -500,17 +521,57 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 10,
   },
-  sosText: {
+  sosTextLarge: {
     color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginTop: 4,
+    fontSize: 34,
+    fontWeight: '900',
     letterSpacing: 2,
   },
-  callButtonsRow: {
+  sosSubPrompt: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    marginTop: 2,
+  },
+  dispatchSubLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  stitchDispatchGrid: {
+    flexDirection: 'row',
     width: '100%',
     gap: 10,
-    marginBottom: 24,
+  },
+  stitchDispatchCard: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  dispatchIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dispatchCardTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  dispatchCardSub: {
+    fontSize: 11,
+    marginTop: 1,
   },
   quickCallBtn: {
     flexDirection: 'row',

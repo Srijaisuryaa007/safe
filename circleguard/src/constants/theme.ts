@@ -46,81 +46,17 @@ export const LIGHT_THEME = {
 
 export const DARK_THEME = {
   colors: {
-    background: '#000000', // Apple Pure OLED Black
-    foreground: '#FFFFFF', // iOS Primary White Label
-    surface: '#1C1C1E', // Apple Secondary System Background
-    surfaceMuted: '#2C2C2E', // Apple Tertiary System Background
-    textMuted: '#8E8E93', // Apple System Gray Label
-    accentGold: '#30D158', // Apple System Green (Safe Status & Active Accent)
-    accentGoldLight: 'rgba(48, 209, 88, 0.12)',
-    sosRed: '#FF453A', // Apple System Red
-    border: 'rgba(255, 255, 255, 0.08)', // Apple iOS Hairline Divider
+    background: '#0D0E12', // Obsidian Pure Dark
+    foreground: '#FFFFFF', // Primary White Label
+    surface: '#1C1D24', // Luxury Surface Background
+    surfaceMuted: '#282A36', // Elevated Card Background
+    textMuted: '#9CA3AF', // Cool Muted Slate
+    accentGold: '#D4AF37', // Metallic Gold
+    accentGoldLight: 'rgba(212, 175, 55, 0.15)',
+    sosRed: '#EF4444', // Emergency Crimson
+    border: 'rgba(255, 255, 255, 0.10)', // Subtle Hairline Divider
     borderDark: '#FFFFFF',
-    borderGold: '#30D158',
-  } as ThemeColors,
-};
-
-export const GRAY_THEME = {
-  colors: {
-    background: '#1C1D22', // Luxury Charcoal Slate Gray
-    foreground: '#F3F4F6', // Off-White Text
-    surface: '#262830', // Elevated Slate Gray Surface
-    surfaceMuted: '#333644', // Darker Slate Surface
-    textMuted: '#9CA3AF', // Metallic Grey
-    accentGold: '#D4AF37', // Gold Accent
-    accentGoldLight: '#2D2712',
-    sosRed: '#EF4444',
-    border: 'rgba(255, 255, 255, 0.15)',
-    borderDark: '#F3F4F6',
     borderGold: '#D4AF37',
-  } as ThemeColors,
-};
-
-export const BAUHAUS_THEME = {
-  colors: {
-    background: '#F0F0F0', // Off-White Canvas
-    foreground: '#121212', // Stark Bauhaus Black
-    surface: '#FFFFFF', // Clean White Cards with 4px black borders
-    surfaceMuted: '#E0E0E0', // Muted Gray
-    textMuted: '#525252', // Dark Gray for secondary text
-    accentGold: '#F0C020', // Bauhaus Primary Yellow
-    accentGoldLight: '#FFF9C4', // Soft Yellow Accent
-    sosRed: '#D02020', // Primary Bauhaus Red
-    border: '#121212', // Thick 4px Stark Black Border
-    borderDark: '#121212',
-    borderGold: '#1040C0', // Primary Bauhaus Blue
-  } as ThemeColors,
-};
-
-export const PLAYFUL_GEOMETRIC_THEME = {
-  colors: {
-    background: '#FFFDF5', // Warm Cream / Off-White Paper feel
-    foreground: '#1E293B', // Slate 800
-    surface: '#FFFFFF', // Clean White Cards
-    surfaceMuted: '#F1F5F9', // Slate 100
-    textMuted: '#64748B', // Slate 500
-    accentGold: '#8B5CF6', // Vivid Violet Primary Accent
-    accentGoldLight: '#F472B6', // Hot Pink Secondary Pop
-    sosRed: '#F472B6', // Hot Pink / Coral Red
-    border: '#1E293B', // Slate 800 Chunky 2px Border
-    borderDark: '#8B5CF6', // Vivid Violet Border
-    borderGold: '#FBBF24', // Amber Yellow Border
-  } as ThemeColors,
-};
-
-export const BOTANICAL_ORGANIC_THEME = {
-  colors: {
-    background: '#F9F8F4', // Warm Alabaster / Rice Paper
-    foreground: '#2D3A31', // Deep Forest Green
-    surface: '#FFFFFF', // Clean White Cards
-    surfaceMuted: '#DCCFC2', // Soft Clay / Mushroom
-    textMuted: '#8C9A84', // Sage Green Text
-    accentGold: '#8C9A84', // Sage Green Primary Accent
-    accentGoldLight: '#C27B66', // Terracotta Accent Pop
-    sosRed: '#C27B66', // Terracotta Red
-    border: '#E6E2DA', // Stone Low-Contrast Border
-    borderDark: '#2D3A31', // Deep Forest Green Border
-    borderGold: '#8C9A84', // Sage Accent Border
   } as ThemeColors,
 };
 
@@ -128,40 +64,21 @@ export const getThemeBorderStyles = (themeMode?: string) => {
   if (themeMode === 'brand_green') {
     return {
       borderWidth: 1.5,
-      borderRadius: 12,
+      borderRadius: 14,
       borderColor: '#E0E0E0',
     };
   }
-  if (themeMode === 'botanical_organic') {
+  if (themeMode === 'light') {
     return {
       borderWidth: 1,
-      borderTopLeftRadius: 40,
-      borderTopRightRadius: 40,
-      borderBottomRightRadius: 20,
-      borderBottomLeftRadius: 20,
-      borderColor: '#E6E2DA',
-    };
-  }
-  if (themeMode === 'playful_geometric') {
-    return {
-      borderWidth: 2,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
-      borderBottomRightRadius: 24,
-      borderBottomLeftRadius: 4,
-      borderColor: '#1E293B',
-    };
-  }
-  if (themeMode === 'bauhaus') {
-    return {
-      borderWidth: 3,
-      borderRadius: 0,
-      borderColor: '#121212',
+      borderRadius: 16,
+      borderColor: 'rgba(26, 26, 26, 0.12)',
     };
   }
   return {
     borderWidth: 1,
     borderRadius: 16,
+    borderColor: 'rgba(255, 255, 255, 0.10)',
   };
 };
 
@@ -172,68 +89,36 @@ export const getThemeCardStyles = (themeMode?: string) => {
       borderRadius: 16,
       borderColor: '#E0E0E0',
       backgroundColor: '#FFFFFF',
-      shadowColor: '#111111',
+      shadowColor: '#3DBE6C',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.08,
+      shadowRadius: 12,
+      elevation: 3,
+    };
+  }
+  if (themeMode === 'light') {
+    return {
+      borderWidth: 1,
+      borderRadius: 16,
+      borderColor: 'rgba(26, 26, 26, 0.10)',
+      backgroundColor: '#FFFFFF',
+      shadowColor: '#000000',
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.06,
       shadowRadius: 12,
       elevation: 3,
     };
   }
-  if (themeMode === 'botanical_organic') {
-    return {
-      borderWidth: 1,
-      borderTopLeftRadius: 40,
-      borderTopRightRadius: 40,
-      borderBottomRightRadius: 20,
-      borderBottomLeftRadius: 20, // Architectural Roman Arch radius
-      borderColor: '#E6E2DA',
-      backgroundColor: '#FFFFFF',
-      shadowColor: '#2D3A31',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.06,
-      shadowRadius: 16,
-      elevation: 3,
-    };
-  }
-  if (themeMode === 'playful_geometric') {
-    return {
-      borderWidth: 2,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
-      borderBottomRightRadius: 24,
-      borderBottomLeftRadius: 4, // Speech-bubble / sticker asymmetric cutout
-      borderColor: '#1E293B',
-      backgroundColor: '#FFFFFF',
-      shadowColor: '#1E293B',
-      shadowOffset: { width: 5, height: 5 },
-      shadowOpacity: 1.0,
-      shadowRadius: 0,
-      elevation: 6,
-    };
-  }
-  if (themeMode === 'bauhaus') {
-    return {
-      borderWidth: 3,
-      borderRadius: 0,
-      borderColor: '#121212',
-      backgroundColor: '#FFFFFF',
-      shadowColor: '#121212',
-      shadowOffset: { width: 5, height: 5 },
-      shadowOpacity: 1.0,
-      shadowRadius: 0,
-      elevation: 6,
-    };
-  }
   return {
-    borderWidth: 0,
+    borderWidth: 1,
     borderRadius: 16,
-    borderColor: 'transparent',
-    backgroundColor: '#1C1C1E',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#1C1D24',
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 4,
   };
 };
 
@@ -243,7 +128,7 @@ export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 's
     const text = variant === 'secondary' ? '#111111' : '#FFFFFF';
     return {
       borderWidth: 0,
-      borderRadius: 10,
+      borderRadius: 12,
       borderColor: 'transparent',
       backgroundColor: bg,
       textColor: text,
@@ -254,64 +139,32 @@ export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 's
       elevation: 3,
     };
   }
-  if (themeMode === 'botanical_organic') {
-    const bg = variant === 'danger' ? '#C27B66' : variant === 'secondary' ? '#DCCFC2' : '#2D3A31';
-    const text = variant === 'secondary' ? '#2D3A31' : '#FFFFFF';
+  if (themeMode === 'light') {
+    const bg = variant === 'danger' ? '#DC2626' : variant === 'secondary' ? '#EBE5DE' : '#1A1A1A';
+    const text = variant === 'secondary' ? '#1A1A1A' : '#FFFFFF';
     return {
       borderWidth: 1,
-      borderRadius: 100, // Organic pill shape
-      borderColor: '#E6E2DA',
+      borderRadius: 14,
+      borderColor: variant === 'secondary' ? 'rgba(26, 26, 26, 0.12)' : 'transparent',
       backgroundColor: bg,
       textColor: text,
-      shadowColor: '#2D3A31',
+      shadowColor: '#000000',
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.08,
-      shadowRadius: 10,
-      elevation: 4,
-    };
-  }
-  if (themeMode === 'playful_geometric') {
-    const bg = variant === 'danger' ? '#F472B6' : variant === 'secondary' ? '#FBBF24' : '#8B5CF6';
-    const text = variant === 'secondary' ? '#1E293B' : '#FFFFFF';
-    return {
-      borderWidth: 2,
-      borderRadius: 100, // Pill candy button
-      borderColor: '#1E293B',
-      backgroundColor: bg,
-      textColor: text,
-      shadowColor: '#1E293B',
-      shadowOffset: { width: 4, height: 4 },
-      shadowOpacity: 1.0,
-      shadowRadius: 0,
-      elevation: 5,
-    };
-  }
-  if (themeMode === 'bauhaus') {
-    const bg = variant === 'danger' ? '#D02020' : variant === 'secondary' ? '#1040C0' : '#F0C020';
-    const text = variant === 'primary' ? '#121212' : '#FFFFFF';
-    return {
-      borderWidth: 3,
-      borderRadius: 0,
-      borderColor: '#121212',
-      backgroundColor: bg,
-      textColor: text,
-      shadowColor: '#121212',
-      shadowOffset: { width: 4, height: 4 },
-      shadowOpacity: 1.0,
-      shadowRadius: 0,
-      elevation: 5,
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 3,
     };
   }
   return {
     borderWidth: 1,
-    borderRadius: 24,
+    borderRadius: 14,
     borderColor: 'transparent',
-    backgroundColor: variant === 'danger' ? '#EF4444' : '#D4AF37',
-    textColor: '#FFFFFF',
-    shadowColor: '#000000',
+    backgroundColor: variant === 'danger' ? '#EF4444' : variant === 'secondary' ? '#282A36' : '#D4AF37',
+    textColor: variant === 'primary' ? '#0D0E12' : '#FFFFFF',
+    shadowColor: variant === 'primary' ? '#D4AF37' : '#000000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
     elevation: 4,
   };
 };
@@ -329,47 +182,16 @@ export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert
       textColor: text,
     };
   }
-  if (themeMode === 'botanical_organic') {
-    const bg = variant === 'alert' ? '#C27B66' : variant === 'info' ? '#DCCFC2' : '#8C9A84';
+  if (themeMode === 'light') {
+    const bg = variant === 'alert' ? '#FEF2F2' : variant === 'info' ? '#FFFBEB' : '#F4F4F5';
+    const border = variant === 'alert' ? '#DC2626' : variant === 'info' ? '#F59E0B' : '#1A1A1A';
+    const text = variant === 'alert' ? '#DC2626' : variant === 'info' ? '#B45309' : '#1A1A1A';
     return {
       backgroundColor: bg,
       borderWidth: 1,
-      borderColor: '#E6E2DA',
-      borderRadius: 100,
-      textColor: '#FFFFFF',
-      shadowColor: '#2D3A31',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.05,
-      shadowRadius: 4,
-    };
-  }
-  if (themeMode === 'playful_geometric') {
-    const bg = variant === 'alert' ? '#F472B6' : variant === 'info' ? '#FBBF24' : '#34D399';
-    return {
-      backgroundColor: bg,
-      borderWidth: 2,
-      borderColor: '#1E293B',
-      borderRadius: 100,
-      textColor: '#1E293B',
-      shadowColor: '#1E293B',
-      shadowOffset: { width: 2, height: 2 },
-      shadowOpacity: 1.0,
-      shadowRadius: 0,
-    };
-  }
-  if (themeMode === 'bauhaus') {
-    const bg = variant === 'alert' ? '#D02020' : variant === 'info' ? '#1040C0' : '#F0C020';
-    const text = variant === 'live' ? '#121212' : '#FFFFFF';
-    return {
-      backgroundColor: bg,
-      borderWidth: 2,
-      borderColor: '#121212',
-      borderRadius: 0,
+      borderColor: border,
+      borderRadius: 10,
       textColor: text,
-      shadowColor: '#121212',
-      shadowOffset: { width: 3, height: 3 },
-      shadowOpacity: 1.0,
-      shadowRadius: 0,
     };
   }
   return {
@@ -396,48 +218,6 @@ export const getThemeSheetStyles = (themeMode?: string) => {
       elevation: 16,
     };
   }
-  if (themeMode === 'botanical_organic') {
-    return {
-      backgroundColor: '#F9F8F4',
-      borderTopWidth: 2,
-      borderTopColor: '#E6E2DA',
-      borderTopLeftRadius: 36,
-      borderTopRightRadius: 36,
-      shadowColor: '#2D3A31',
-      shadowOffset: { width: 0, height: -6 },
-      shadowOpacity: 0.1,
-      shadowRadius: 16,
-      elevation: 16,
-    };
-  }
-  if (themeMode === 'playful_geometric') {
-    return {
-      backgroundColor: '#FFFDF5',
-      borderTopWidth: 3,
-      borderTopColor: '#1E293B',
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
-      shadowColor: '#1E293B',
-      shadowOffset: { width: 0, height: -6 },
-      shadowOpacity: 1.0,
-      shadowRadius: 0,
-      elevation: 18,
-    };
-  }
-  if (themeMode === 'bauhaus') {
-    return {
-      backgroundColor: '#FFFFFF',
-      borderTopWidth: 4,
-      borderTopColor: '#121212',
-      borderTopLeftRadius: 0,
-      borderTopRightRadius: 0,
-      shadowColor: '#121212',
-      shadowOffset: { width: 0, height: -6 },
-      shadowOpacity: 1.0,
-      shadowRadius: 0,
-      elevation: 20,
-    };
-  }
   if (themeMode === 'light') {
     return {
       backgroundColor: '#FFFFFF',
@@ -453,16 +233,16 @@ export const getThemeSheetStyles = (themeMode?: string) => {
     };
   }
   return {
-    backgroundColor: '#1C1C1E',
-    borderTopWidth: 0.5,
+    backgroundColor: '#1C1D24',
+    borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.1)',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 16,
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 18,
   };
 };
 
@@ -472,7 +252,7 @@ export const getThemeFloatingControlStyles = (themeMode?: string) => {
       backgroundColor: '#FFFFFF',
       borderWidth: 1.5,
       borderColor: '#E0E0E0',
-      borderRadius: 12,
+      borderRadius: 14,
       shadowColor: '#3DBE6C',
       shadowOffset: { width: 0, height: 3 },
       shadowOpacity: 0.15,
@@ -480,51 +260,12 @@ export const getThemeFloatingControlStyles = (themeMode?: string) => {
       elevation: 5,
     };
   }
-  if (themeMode === 'botanical_organic') {
-    return {
-      backgroundColor: '#F9F8F4',
-      borderWidth: 1.5,
-      borderColor: '#E6E2DA',
-      borderRadius: 22,
-      shadowColor: '#2D3A31',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.08,
-      shadowRadius: 10,
-      elevation: 5,
-    };
-  }
-  if (themeMode === 'playful_geometric') {
-    return {
-      backgroundColor: '#FFFFFF',
-      borderWidth: 2,
-      borderColor: '#1E293B',
-      borderRadius: 14,
-      shadowColor: '#1E293B',
-      shadowOffset: { width: 3, height: 3 },
-      shadowOpacity: 1.0,
-      shadowRadius: 0,
-      elevation: 6,
-    };
-  }
-  if (themeMode === 'bauhaus') {
-    return {
-      backgroundColor: '#FFFFFF',
-      borderWidth: 3,
-      borderColor: '#121212',
-      borderRadius: 0,
-      shadowColor: '#121212',
-      shadowOffset: { width: 4, height: 4 },
-      shadowOpacity: 1.0,
-      shadowRadius: 0,
-      elevation: 7,
-    };
-  }
   if (themeMode === 'light') {
     return {
       backgroundColor: '#FFFFFF',
-      borderWidth: 1.5,
-      borderColor: '#E4E4E7',
-      borderRadius: 22,
+      borderWidth: 1,
+      borderColor: 'rgba(26, 26, 26, 0.12)',
+      borderRadius: 16,
       shadowColor: '#000000',
       shadowOffset: { width: 0, height: 3 },
       shadowOpacity: 0.08,
@@ -533,14 +274,14 @@ export const getThemeFloatingControlStyles = (themeMode?: string) => {
     };
   }
   return {
-    backgroundColor: '#1C1C1E',
-    borderWidth: 0.5,
+    backgroundColor: '#1C1D24',
+    borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
-    borderRadius: 20,
+    borderRadius: 16,
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.35,
-    shadowRadius: 20,
+    shadowRadius: 16,
     elevation: 8,
   };
 };
@@ -557,49 +298,6 @@ export const getThemeChatBubbleStyles = (themeMode?: string, isSelf: boolean = f
       borderBottomLeftRadius: isSelf ? 16 : 2,
     };
   }
-  if (themeMode === 'botanical_organic') {
-    return {
-      backgroundColor: isSelf ? '#2D3A31' : '#EBE6DE',
-      textColor: isSelf ? '#FFFFFF' : '#2D3A31',
-      borderWidth: 1,
-      borderColor: isSelf ? '#2D3A31' : '#E6E2DA',
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      borderBottomRightRadius: isSelf ? 4 : 20,
-      borderBottomLeftRadius: isSelf ? 20 : 4,
-    };
-  }
-  if (themeMode === 'playful_geometric') {
-    return {
-      backgroundColor: isSelf ? '#8B5CF6' : '#FFFDF5',
-      textColor: isSelf ? '#FFFFFF' : '#1E293B',
-      borderWidth: 2,
-      borderColor: '#1E293B',
-      borderTopLeftRadius: 18,
-      borderTopRightRadius: 18,
-      borderBottomRightRadius: isSelf ? 2 : 18,
-      borderBottomLeftRadius: isSelf ? 18 : 2,
-      shadowColor: '#1E293B',
-      shadowOffset: { width: 3, height: 3 },
-      shadowOpacity: 1.0,
-      shadowRadius: 0,
-      elevation: 4,
-    };
-  }
-  if (themeMode === 'bauhaus') {
-    return {
-      backgroundColor: isSelf ? '#1040C0' : '#FFFFFF',
-      textColor: isSelf ? '#FFFFFF' : '#121212',
-      borderWidth: 2.5,
-      borderColor: '#121212',
-      borderRadius: 0,
-      shadowColor: '#121212',
-      shadowOffset: { width: 3, height: 3 },
-      shadowOpacity: 1.0,
-      shadowRadius: 0,
-      elevation: 5,
-    };
-  }
   if (themeMode === 'light') {
     return {
       backgroundColor: isSelf ? '#18181B' : '#F4F4F5',
@@ -612,10 +310,10 @@ export const getThemeChatBubbleStyles = (themeMode?: string, isSelf: boolean = f
     };
   }
   return {
-    backgroundColor: isSelf ? '#D4AF37' : '#222530',
+    backgroundColor: isSelf ? '#D4AF37' : '#282A36',
     textColor: isSelf ? '#0D0E12' : '#F9F8F6',
     borderWidth: 1,
-    borderColor: isSelf ? '#D4AF37' : 'rgba(255,255,255,0.1)',
+    borderColor: isSelf ? '#D4AF37' : 'rgba(255,255,255,0.08)',
     borderRadius: 16,
     borderBottomRightRadius: isSelf ? 4 : 16,
     borderBottomLeftRadius: isSelf ? 16 : 4,
@@ -749,4 +447,3 @@ export const LUXURY_THEME = {
     },
   },
 };
-

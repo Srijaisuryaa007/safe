@@ -61,12 +61,14 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
 
         let nativeItem: any = null;
         try {
-          const geo = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+          const geoPromise = Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000));
+          const geo: any = await Promise.race([geoPromise, timeoutPromise]).catch(() => null);
           if (geo && geo.length > 0) {
             nativeItem = geo[0];
           }
-        } catch (e) {
-          console.log('Native reverseGeocode error:', e);
+        } catch (_) {
+          // Native Android Geocoder is unavailable on this device/emulator; safely fallback to web geocoders below
         }
 
         let nomItem: any = null;
@@ -75,12 +77,33 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
             `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
             { headers: { 'User-Agent': 'CircleGuardApp/1.0' } }
           );
-          const nomData = await nomRes.json();
-          if (nomData && nomData.address) {
-            nomItem = nomData.address;
+          if (nomRes.ok) {
+            const nomData = await nomRes.json();
+            if (nomData && nomData.address) {
+              nomItem = nomData.address;
+            }
           }
-        } catch (e) {
-          console.log('Nominatim fetch error:', e);
+        } catch (_) {}
+
+        // Secondary fallback to Photon if needed
+        if (!nativeItem && !nomItem) {
+          try {
+            const photonRes = await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}`);
+            if (photonRes.ok) {
+              const photonData = await photonRes.json();
+              if (photonData?.features?.[0]?.properties) {
+                const p = photonData.features[0].properties;
+                nomItem = {
+                  road: p.street || p.name,
+                  suburb: p.district || p.locality,
+                  city: p.city || p.county,
+                  state: p.state,
+                  country: p.country,
+                  postcode: p.postcode,
+                };
+              }
+            }
+          } catch (_) {}
         }
 
         // Native Priority Parsing (Google Maps / Apple Maps on device)
@@ -188,7 +211,7 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
           styles.headerContainer,
           {
             backgroundColor: colors.background,
-            borderBottomWidth: themeMode === 'bauhaus' ? 4 : 0,
+            borderBottomWidth: 0,
             borderBottomColor: colors.border,
           },
         ]}
@@ -199,8 +222,8 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
           onPress={() => setModalVisible(true)}
           activeOpacity={0.7}
         >
-          <View style={[styles.pinCircle, { backgroundColor: themeMode === 'bauhaus' ? '#F0C020' : 'rgba(212, 175, 55, 0.15)', borderWidth: themeMode === 'bauhaus' ? 2 : 0, borderColor: '#121212' }]}>
-            <Ionicons name="location" size={20} color={themeMode === 'bauhaus' ? '#121212' : colors.accentGold} />
+          <View style={[styles.pinCircle, { backgroundColor: 'rgba(212, 175, 55, 0.15)', borderWidth: 0, borderColor: '#121212' }]}>
+            <Ionicons name="location" size={20} color={colors.accentGold} />
           </View>
 
           <View style={styles.addressTextBox}>

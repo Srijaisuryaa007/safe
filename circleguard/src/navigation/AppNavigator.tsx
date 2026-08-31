@@ -20,6 +20,7 @@ import ChatScreen from '../screens/ChatScreen';
 import GlobalSOSModal from '../components/GlobalSOSModal';
 import GlobalLocationShareModal from '../components/GlobalLocationShareModal';
 import NetworkStatusBanner from '../components/NetworkStatusBanner';
+import { scheduleLocalNotification } from '../services/PushNotificationService';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -144,11 +145,12 @@ function GlobalChatNotificationListener() {
           const { data: senderProf } = await supabase.from('profiles').select('full_name').eq('id', newMsg.sender_id).single();
           const senderName = senderProf?.full_name || 'Circle Member';
 
-          const title = `${senderName} (Circle Chat)`;
-          const body = content.length > 90 ? `${content.substring(0, 90)}...` : content;
+          const title = `💬 ${senderName}`;
+          const body = content.startsWith('📍 Shared Live Location') 
+            ? `📍 Dropped a live location pin on the map! Tap to view 👀` 
+            : (content.length > 90 ? `${content.substring(0, 90)}...` : content);
 
-          const { scheduleLocalNotification } = require('../services/PushNotificationService');
-          scheduleLocalNotification(title, body);
+          scheduleLocalNotification(title, body, { screen: 'Chat' });
         }
       )
       .subscribe();

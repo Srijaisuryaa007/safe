@@ -15,7 +15,7 @@ function getNotificationsModule(): any | null {
   }
 }
 
-// Configure system notification handler for native mobile pop-up banner presentation
+// Configure system notification handler for native mobile pop-up banner presentation with Apple-like minimalism
 try {
   const Notifications = getNotificationsModule();
   if (Notifications) {
@@ -41,28 +41,80 @@ export interface PushMessagePayload {
 }
 
 /**
- * Creative Zomato/Swiggy-Style Push Notification Templates
+ * Engaging, Humorous & Apple-Minimalist Push Notification Templates
+ * Designed to spark curiosity and encourage circle members to open the app and view live locations!
  */
 export const CREATIVE_NOTIFICATION_TEMPLATES = {
-  arrival: (name: string, placeName: string) => ({
-    title: `SAFE ARRIVAL CONFIRMED`,
-    body: `${name} entered boundary "${placeName}".`,
+  arrival: (name: string, placeName: string) => {
+    const templates = [
+      {
+        title: `🎯 ${name} just landed at ${placeName}!`,
+        body: `Wonder what they're up to? 👀 Tap to inspect their live spot on CircleGuard!`,
+      },
+      {
+        title: `🍕 Radar Alert: ${name} @ ${placeName}`,
+        body: `Are they grabbing snacks without you? 📍 Tap to check their live radar coordinates!`,
+      },
+      {
+        title: `🚀 Touchdown: ${name} arrived at ${placeName}`,
+        body: `Safe and sound inside the perimeter! 🗺️ Tap to view their live circle pin.`,
+      },
+      {
+        title: `🏡 Look who just arrived: ${name}!`,
+        body: `Checked into ${placeName}. 📍 Tap to see their battery & distance!`,
+      },
+    ];
+    return templates[Math.floor(Math.random() * templates.length)];
+  },
+
+  departure: (name: string, placeName: string, speedKmh?: number) => {
+    const templates = [
+      {
+        title: `🏎️ Zoom! ${name} is on the move from ${placeName}`,
+        body: speedKmh && speedKmh > 20
+          ? `Cruising at ${speedKmh} km/h 💨 Where are they heading next? 🧭 Tap to track live route!`
+          : `Just stepped outside ${placeName}! 💨 Tap to follow their live breadcrumb trail!`,
+      },
+      {
+        title: `🕵️‍♂️ Stealth Exit: ${name} left ${placeName}`,
+        body: `On a secret mission? 👀 Tap to see their live direction & GPS heading!`,
+      },
+      {
+        title: `💨 ${name} just broke perimeter at ${placeName}`,
+        body: `Catch them on the map before they get too far! 📍 Tap to open live radar.`,
+      },
+    ];
+    return templates[Math.floor(Math.random() * templates.length)];
+  },
+
+  lowBattery: (name: string, batteryPct: number) => ({
+    title: `🪫 Code Red: ${name}'s phone is at ${batteryPct}%!`,
+    body: `Their battery is on life support! ⚡ Remind them to charge before they vanish into the void 🔌`,
   }),
-  departure: (name: string, placeName: string, speedKmh?: number) => ({
-    title: `BOUNDARY DEPARTURE ALERT`,
-    body: `${name} departed "${placeName}"${speedKmh ? ` traveling at ${speedKmh} km/h` : ''}. Live route monitoring active.`,
+
+  speeding: (name: string, speedKmh: number) => ({
+    title: `🚀 Fast & Furious: ${name} @ ${speedKmh} km/h!`,
+    body: `Speeding alert! 🏎️💨 Tap to check their live telemetry, road route & driving score.`,
   }),
+
   sos: (name: string) => ({
-    title: `URGENT: CIRCLE DISTRESS SIGNAL`,
-    body: `${name} triggered an emergency SOS distress alert. Tap to view live location or contact immediately.`,
+    title: `🚨 CRITICAL DISTRESS: ${name} NEEDS HELP!`,
+    body: `Emergency SOS triggered! ⚠️ Tap immediately for real-time GPS coordinates and hotline dispatch.`,
   }),
+
+  curiosityPing: (name: string) => ({
+    title: `👀 Psst... Where in the world is ${name}?`,
+    body: `Someone's exploring the city right now 🗺️ Tap to reveal their real-time location radar!`,
+  }),
+
   nightCheckIn: () => ({
-    title: `NIGHT SECURITY MONITORING`,
-    body: `All circle members are confirmed safe inside registered boundaries.`,
+    title: `🌙 Late Night Perimeter Sweep`,
+    body: `Everyone accounted for? 🛡️ Tap to check your circle's midnight status & battery levels.`,
   }),
+
   ghostMode: (name: string) => ({
-    title: `STEALTH PRIVACY MODE`,
-    body: `${name} activated Ghost Mode. Location obfuscated.`,
+    title: `👻 Ninja Mode: ${name} vanished into thin air!`,
+    body: `Ghost Mode activated 💨 Their GPS signal is now mysteriously obfuscated.`,
   }),
 };
 
@@ -75,11 +127,10 @@ export async function registerForPushNotificationsAsync(userId: string): Promise
   const Notifications = getNotificationsModule();
   if (!Notifications) return null;
 
-  // Check if app is running inside Expo Go client (SDK 52/53+ disables remote push in Expo Go)
   const isExpoGo = Constants.appOwnership === 'expo' || (Constants as any).executionEnvironment === 'storeClient';
 
   try {
-    // 1. Android Notification Channel setup with MAX importance & Lockscreen Visibility for Emergency Distress
+    // 1. Android Notification Channel setup with Apple-Minimalist colors (#1C1C1E / #0D0E12)
     if (Platform.OS === 'android' && Notifications.setNotificationChannelAsync) {
       await Notifications.setNotificationChannelAsync('emergency-distress-v2', {
         name: 'CircleGuard Emergency Distress',
@@ -94,10 +145,10 @@ export async function registerForPushNotificationsAsync(userId: string): Promise
       });
 
       await Notifications.setNotificationChannelAsync('default', {
-        name: 'CircleGuard General Notifications',
+        name: 'CircleGuard Member Radar',
         importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#D4AF37',
+        lightColor: '#1C1C1E', // Minimalist Apple-style dark monochrome
         sound: 'default',
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       });
@@ -119,13 +170,12 @@ export async function registerForPushNotificationsAsync(userId: string): Promise
       }
     }
 
-    // Remote push token generation skipped in Expo Go SDK 53, works in Standalone builds
     if (isExpoGo) {
       console.log('[PushService] Remote push tokens skipped in Expo Go. Native mobile pop-up system notifications active.');
       return null;
     }
 
-    // 3. Obtain Expo Push Token from Apple APNs / Google FCM
+    // 3. Obtain Expo Push Token
     const projectId = Constants?.expoConfig?.extra?.eas?.projectId || Constants?.easConfig?.projectId;
     const tokenData = await Notifications.getExpoPushTokenAsync({
       projectId: projectId || undefined,
@@ -168,7 +218,8 @@ export async function sendExpoPushNotification(
       to: token,
       sound: 'default',
       priority: 'high',
-      channelId: 'emergency-distress-v2',
+      channelId: data?.isEmergency ? 'emergency-distress-v2' : 'default',
+      color: '#1C1C1E', // Apple Minimalist Dark Monochrome
       _displayInForeground: true,
       title,
       body,
@@ -205,7 +256,6 @@ export async function sendPushAlertToCircleMembers(
   data: Record<string, any> = {}
 ): Promise<void> {
   try {
-    // 1. Fetch circle members excluding sender
     const { data: memberRows } = await supabase
       .from('circle_members')
       .select('user_id, profiles(push_token)')
@@ -233,6 +283,7 @@ export async function sendPushAlertToCircleMembers(
 
 /**
  * Trigger Instant Native Mobile Pop-Up System Notification Banner with Sound & Vibration
+ * Uses Apple-minimalist styling with custom funny emojis
  */
 export async function scheduleLocalNotification(title: string, body: string, data: Record<string, any> = {}) {
   if (Platform.OS === 'web') return;
@@ -240,15 +291,15 @@ export async function scheduleLocalNotification(title: string, body: string, dat
   if (!Notifications) return;
 
   try {
-    Vibration.vibrate([0, 500, 200, 500]);
+    Vibration.vibrate([0, 200, 100, 200]);
     
-    // Ensure Android Notification Channel is set to MAX importance for Top Screen Drop-Down Pop-Up Banner
+    // Ensure Android Notification Channel is set to Apple Minimalist Dark Monochrome
     if (Platform.OS === 'android' && Notifications.setNotificationChannelAsync) {
       await Notifications.setNotificationChannelAsync('default', {
-        name: 'CircleGuard Emergency Safety',
+        name: 'CircleGuard Radar',
         importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#D4AF37',
+        vibrationPattern: [0, 200, 100, 200],
+        lightColor: '#1C1C1E',
         sound: 'default',
       });
     }
@@ -259,7 +310,8 @@ export async function scheduleLocalNotification(title: string, body: string, dat
         body,
         sound: 'default',
         priority: 'high',
-        categoryIdentifier: 'emergency',
+        categoryIdentifier: 'radar',
+        color: '#1C1C1E', // Minimalist Apple-like dark color
         data,
       },
       trigger: null, // Triggers native mobile top pop-up system banner immediately!

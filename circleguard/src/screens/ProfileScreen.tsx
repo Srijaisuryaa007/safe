@@ -20,6 +20,7 @@ import NotificationsModal from '../components/NotificationsModal';
 import SettingsModal from '../components/SettingsModal';
 import AboutCircleGuardModal from '../components/AboutCircleGuardModal';
 import LogoutModal from '../components/LogoutModal';
+import DeleteAccountModal from '../components/DeleteAccountModal';
 import EditProfileModal from '../components/EditProfileModal';
 import CountrySelectorModal from '../components/CountrySelectorModal';
 import { useCountryStore } from '../store/useCountryStore';
@@ -219,6 +220,7 @@ export default function ProfileScreen() {
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [aboutModalVisible, setAboutModalVisible] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
+  const [deleteAccountModalVisible, setDeleteAccountModalVisible] = useState(false);
 
   const handlePickAvatar = async () => {
     if (!profile) return;
@@ -524,32 +526,6 @@ export default function ProfileScreen() {
         </Text>
 
         <View style={styles.actionButtonsCol}>
-          {/* Disconnect GPS Session Button */}
-          <SpringTouchable
-            style={[
-              styles.actionBoxBtn,
-              {
-                backgroundColor: isDark ? 'rgba(245, 158, 11, 0.08)' : '#FFFBEB',
-                borderColor: isDark ? 'rgba(245, 158, 11, 0.3)' : '#FDE68A',
-              },
-            ]}
-            onPress={() => setPrivacyModalVisible(true)}
-            scaleTo={0.96}
-          >
-            <View style={[styles.actionIconCircle, { backgroundColor: 'rgba(245, 158, 11, 0.18)' }]}>
-              <Ionicons name="radio-outline" size={20} color="#F59E0B" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.actionBtnTitle, { color: isDark ? '#FBBF24' : '#D97706' }]}>
-                DISCONNECT GPS SESSION
-              </Text>
-              <Text style={[styles.actionBtnSub, { color: colors.textMuted }]}>
-                Pause active live circle location broadcast
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color="#F59E0B" />
-          </SpringTouchable>
-
           {/* Logout Account Button */}
           <SpringTouchable
             style={[
@@ -563,17 +539,43 @@ export default function ProfileScreen() {
             scaleTo={0.96}
           >
             <View style={[styles.actionIconCircle, { backgroundColor: 'rgba(239, 68, 68, 0.18)' }]}>
-              <Ionicons name="power" size={20} color="#EF4444" />
+              <Ionicons name="log-out-outline" size={20} color="#EF4444" />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.actionBtnTitle, { color: '#EF4444' }]}>
-                LOGOUT OF ACCOUNT
+                Log Out
               </Text>
               <Text style={[styles.actionBtnSub, { color: colors.textMuted }]}>
-                Sign out of Supabase profile session
+                Sign out of your account on this device
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color="#EF4444" />
+          </SpringTouchable>
+
+          {/* Delete Account Button */}
+          <SpringTouchable
+            style={[
+              styles.actionBoxBtn,
+              {
+                backgroundColor: isDark ? 'rgba(185, 28, 28, 0.12)' : '#FEE2E2',
+                borderColor: isDark ? 'rgba(239, 68, 68, 0.45)' : '#F87171',
+              },
+            ]}
+            onPress={() => setDeleteAccountModalVisible(true)}
+            scaleTo={0.96}
+          >
+            <View style={[styles.actionIconCircle, { backgroundColor: 'rgba(220, 38, 38, 0.22)' }]}>
+              <Ionicons name="trash-outline" size={20} color="#DC2626" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.actionBtnTitle, { color: '#DC2626' }]}>
+                Delete Account
+              </Text>
+              <Text style={[styles.actionBtnSub, { color: colors.textMuted }]}>
+                Permanently erase your account and data
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#DC2626" />
           </SpringTouchable>
         </View>
       </View>
@@ -617,6 +619,11 @@ export default function ProfileScreen() {
       <LogoutModal
         visible={logoutModalVisible}
         onClose={() => setLogoutModalVisible(false)}
+      />
+
+      <DeleteAccountModal
+        visible={deleteAccountModalVisible}
+        onClose={() => setDeleteAccountModalVisible(false)}
       />
 
       <PaywallModal

@@ -29,6 +29,8 @@ import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import { useThemeStore } from '../store/useThemeStore';
 import { queueAndSyncLocationHistory, flushOfflineBreadcrumbs } from '../services/OfflineLocationQueueService';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
+import { scheduleLocalNotification } from '../services/PushNotificationService';
+import { calculateDijkstraRouteBetweenUsers } from '../services/RoadRoutingService';
 
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
@@ -292,20 +294,21 @@ const LEAFLET_HTML = `
       var poiMarkers = window.poiMarkers;
       var hasRealCentered = false;
 
-      var savedStyle = 'satellite';
+      var savedStyle = 'vector';
       try {
-        savedStyle = window.localStorage.getItem('@circleguard_map_style') || 'satellite';
+        savedStyle = window.localStorage.getItem('@circleguard_map_style') || 'vector';
       } catch(e) {}
 
       var tileUrls = {
+        vector: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        standard: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         dark: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
         midnight: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-        terrain: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-        vector: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+        terrain: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}'
       };
 
-      var initialTileUrl = tileUrls[savedStyle] || tileUrls.satellite;
+      var initialTileUrl = tileUrls[savedStyle] || tileUrls.vector;
       if (savedStyle === 'satellite') {
         document.body.style.background = '#1C2E1E';
       } else if (savedStyle === 'dark' || savedStyle === 'midnight') {
@@ -433,6 +436,76 @@ const LEAFLET_HTML = `
             window.lastSelfPanLng = lng;
             map.panTo([lat, lng], { animate: true, duration: 0.5 });
           }
+        }
+      };
+
+      window.cachedRoadRoutes = {};
+      function fetchAndDrawRoadRoute(pId, startLatLng, endLatLng, polylineLayer) {
+        if (!startLatLng || !endLatLng || !polylineLayer) return;
+        var cacheKey = startLatLng[0].toFixed(4) + ',' + startLatLng[1].toFixed(4) + '_' + endLatLng[0].toFixed(4) + ',' + endLatLng[1].toFixed(4);
+        if (window.cachedRoadRoutes[cacheKey]) {
+          polylineLayer.setLatLngs(window.cachedRoadRoutes[cacheKey]);
+          return;
+        }
+
+        var url = 'https://router.project-osrm.org/route/v1/driving/' + startLatLng[1].toFixed(6) + ',' + startLatLng[0].toFixed(6) + ';' + endLatLng[1].toFixed(6) + ',' + endLatLng[0].toFixed(6) + '?overview=full&geometries=geojson';
+        fetch(url)
+          .then(function(res) { return res.json(); })
+          .then(function(json) {
+            if (json && json.routes && json.routes.length > 0) {
+              var coords = json.routes[0].geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+              window.cachedRoadRoutes[cacheKey] = coords;
+              if (polylineLayer) {
+                polylineLayer.setLatLngs(coords);
+              }
+            }
+          })
+          .catch(function() {});
+      }
+
+      window.activeMemberRoutePolyline = null;
+      window.drawMemberDijkstraRoute = function(userLat, userLng, memLat, memLng) {
+        if (window.activeMemberRoutePolyline) {
+          try { map.removeLayer(window.activeMemberRoutePolyline); } catch(e) {}
+          window.activeMemberRoutePolyline = null;
+        }
+
+        if (!userLat || !userLng || !memLat || !memLng || (userLat === memLat && userLng === memLng)) return;
+
+        var url = 'https://router.project-osrm.org/route/v1/driving/' + userLng.toFixed(6) + ',' + userLat.toFixed(6) + ';' + memLng.toFixed(6) + ',' + memLat.toFixed(6) + '?overview=full&geometries=geojson';
+        fetch(url)
+          .then(function(res) { return res.json(); })
+          .then(function(json) {
+            if (json && json.routes && json.routes.length > 0) {
+              var coords = json.routes[0].geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+              if (window.activeMemberRoutePolyline) {
+                try { map.removeLayer(window.activeMemberRoutePolyline); } catch(e) {}
+              }
+              window.activeMemberRoutePolyline = L.polyline(coords, {
+                color: '#10B981',
+                weight: 5,
+                opacity: 0.9,
+                dashArray: '8, 8',
+                lineJoin: 'round'
+              }).addTo(map);
+
+              var group = L.featureGroup([
+                L.marker([userLat, userLng]),
+                L.marker([memLat, memLng]),
+                window.activeMemberRoutePolyline
+              ]);
+              map.fitBounds(group.getBounds(), { padding: [70, 70] });
+            }
+          })
+          .catch(function(err) {
+            console.warn('Dijkstra route fetch note:', err);
+          });
+      };
+
+      window.clearMemberRoute = function() {
+        if (window.activeMemberRoutePolyline) {
+          try { map.removeLayer(window.activeMemberRoutePolyline); } catch(e) {}
+          window.activeMemberRoutePolyline = null;
         }
       };
 
@@ -719,14 +792,18 @@ const LEAFLET_HTML = `
               }
 
               if (placeCircles[lineKey]) {
-                placeCircles[lineKey].setLatLngs([pLatLng, endLatLng]);
+                fetchAndDrawRoadRoute(p.id, pLatLng, endLatLng, placeCircles[lineKey]);
               } else {
                 var rPolyline = L.polyline([pLatLng, endLatLng], {
-                  color: '#60A5FA', weight: 3, dashArray: '6, 6'
+                  color: '#3B82F6',
+                  weight: 4,
+                  opacity: 0.85,
+                  smoothFactor: 1.0,
                 }).addTo(map);
                 rPolyline._placeId = p.id;
                 rPolyline._placeKey = lineKey;
                 placeCircles[lineKey] = rPolyline;
+                fetchAndDrawRoadRoute(p.id, pLatLng, endLatLng, rPolyline);
               }
             }
           });
@@ -902,6 +979,9 @@ export default function MapScreen() {
 
   const handleCloseMemberCard = () => {
     setSelectedMember(null);
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`if (window.clearMemberRoute) { window.clearMemberRoute(); } true;`);
+    }
     if (navigation && (navigation as any).setParams) {
       (navigation as any).setParams({
         focusUserId: undefined,
@@ -1225,10 +1305,66 @@ export default function MapScreen() {
     }, 300);
   };
 
+  const [memberRoadInfo, setMemberRoadInfo] = useState<{ distText: string } | null>(null);
+
+  useEffect(() => {
+    if (!selectedMember || !userLoc) {
+      setMemberRoadInfo(null);
+      return;
+    }
+    const isSelf = String(selectedMember.user_id).toLowerCase() === String(profile?.id).toLowerCase();
+    if (isSelf) {
+      setMemberRoadInfo({ distText: 'Your Location' });
+      return;
+    }
+    const memberLoc = locations.find(l => l.user_id === selectedMember.user_id);
+    const targetLat = memberLoc?.latitude;
+    const targetLng = memberLoc?.longitude;
+    if (!targetLat || !targetLng || targetLat === 0 || targetLng === 0) return;
+
+    let isMounted = true;
+    calculateDijkstraRouteBetweenUsers(
+      { latitude: userLoc.latitude, longitude: userLoc.longitude },
+      { latitude: targetLat, longitude: targetLng }
+    ).then((r) => {
+      if (isMounted && r.totalDistanceKm > 0) {
+        setMemberRoadInfo({
+          distText: r.totalDistanceKm >= 1 ? `${r.totalDistanceKm} km (via road)` : `${Math.round(r.totalDistanceKm * 1000)}m (via road)`
+        });
+      }
+    }).catch(() => {});
+
+    return () => { isMounted = false; };
+  }, [selectedMember?.user_id, userLoc?.latitude, userLoc?.longitude]);
+
   const handleClosePoi = () => {
     setSelectedPoi(null);
     if (webViewRef.current) {
       webViewRef.current.injectJavaScript(`if (window.showSearchedPlace) { window.showSearchedPlace(null, null, null); } true;`);
+    }
+  };
+
+  const handleSelectMember = (m: any) => {
+    setIsFollowUserActive(false);
+    setSelectedPoi(null);
+    setSelectedPlace(null);
+    setSelectedMember(m);
+
+    const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
+    const memberLoc = isSelf ? { latitude: userLoc?.latitude, longitude: userLoc?.longitude } : locations.find(l => l.user_id === m.user_id);
+    const targetLat = memberLoc?.latitude;
+    const targetLng = memberLoc?.longitude;
+
+    if (!isSelf && userLoc && targetLat && targetLng && userLoc.latitude && userLoc.longitude && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        if (window.drawMemberDijkstraRoute) {
+          window.drawMemberDijkstraRoute(${userLoc.latitude}, ${userLoc.longitude}, ${targetLat}, ${targetLng});
+        } else if (map) {
+          map.flyTo([${targetLat}, ${targetLng}], 16, { animate: true, duration: 1.0 });
+        } true;
+      `);
+    } else if (targetLat && targetLng && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`if (map) { map.flyTo([${targetLat}, ${targetLng}], 16, { animate: true, duration: 1.0 }); } true;`);
     }
   };
 
@@ -1319,7 +1455,6 @@ export default function MapScreen() {
 
         if (breaches.length > 0) {
           const firstBreach = breaches[0];
-          const { scheduleLocalNotification } = require('../services/PushNotificationService');
           if (firstBreach.type === 'exit') {
             const title = 'GEOFENCE EXIT BREACH ALERT';
             const msg = `${firstBreach.userName} exited geofence boundary "${firstBreach.placeName}" (${firstBreach.formattedDistance} from center).`;
@@ -1987,12 +2122,12 @@ export default function MapScreen() {
           {
             backgroundColor: colors.surface,
             borderColor: colors.border,
-            borderWidth: themeMode === 'bauhaus' ? 3 : (themeMode === 'playful_geometric' ? 2 : 1.5),
-            borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 24 : 14),
-            shadowColor: themeMode === 'bauhaus' || themeMode === 'playful_geometric' ? (themeMode === 'bauhaus' ? '#121212' : '#1E293B') : '#000000',
-            shadowOffset: themeMode === 'bauhaus' ? { width: 3, height: 3 } : (themeMode === 'playful_geometric' ? { width: 2, height: 2 } : { width: 0, height: 2 }),
-            shadowOpacity: themeMode === 'bauhaus' || themeMode === 'playful_geometric' ? 1.0 : 0.08,
-            shadowRadius: themeMode === 'bauhaus' || themeMode === 'playful_geometric' ? 0 : 6,
+            borderWidth: 1.5,
+            borderRadius: 14,
+            shadowColor: '#000000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.08,
+            shadowRadius: 6,
           }
         ]}>
           <Ionicons name="search-outline" size={18} color={colors.foreground} />
@@ -2086,29 +2221,15 @@ export default function MapScreen() {
                     style={[
                       styles.avatarChip,
                       {
-                        borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 20 : 12),
-                        borderWidth: themeMode === 'bauhaus' ? 2.5 : (themeMode === 'playful_geometric' ? 2 : 1),
+                        borderRadius: 12,
+                        borderWidth: 1,
                         backgroundColor: colors.surface,
                         borderColor: isSelected ? colors.accentGold : colors.border,
                       },
                       m.isOnline ? styles.avatarChipOnline : styles.avatarChipOffline,
                       isSelected ? styles.avatarChipSelected : null
                     ]}
-                    onPress={() => {
-                      setIsFollowUserActive(false);
-                      setSelectedPoi(null);
-                      setSelectedPlace(null);
-                      setSelectedMember(m);
-
-                      // If member has no coordinates yet, fly to Home
-                      const effectiveLat = (targetLat && targetLat !== 0) ? targetLat : fallbackBaseLat;
-                      const effectiveLng = (targetLng && targetLng !== 0) ? targetLng : fallbackBaseLng;
-
-                      if (effectiveLat !== 0 && effectiveLng !== 0 && webViewRef.current) {
-                        const js = `if (map) { map.flyTo([${effectiveLat}, ${effectiveLng}], 16, { animate: true, duration: 1.0 }); } true;`;
-                        webViewRef.current.injectJavaScript(js);
-                      }
-                    }}
+                    onPress={() => handleSelectMember(m)}
                   >
                     <View style={[styles.miniDot, { backgroundColor: m.isOnline ? '#10B981' : '#9CA3AF' }]} />
                     <Text style={[styles.chipText, { color: colors.foreground }]}>
@@ -2180,7 +2301,7 @@ export default function MapScreen() {
         return (
           <View style={[styles.memberCardSheet, sheetStyles]}>
             <View style={styles.memberCardHeader}>
-              <View style={[styles.memberAvatar, { borderColor: colors.accentGold, backgroundColor: colors.surfaceMuted, borderRadius: themeMode === 'bauhaus' ? 0 : 22 }]}>
+              <View style={[styles.memberAvatar, { borderColor: colors.accentGold, backgroundColor: colors.surfaceMuted, borderRadius: 22 }]}>
                 <Text style={[styles.avatarText, { color: colors.foreground }]}>
                   {String(selectedMember.profile?.full_name || (isSelf ? 'Y' : 'M')).charAt(0).toUpperCase()}
                 </Text>
@@ -2205,19 +2326,19 @@ export default function MapScreen() {
             </View>
 
             <View style={styles.metricsGrid}>
-              <View style={[styles.metricItem, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 10 }]}>
+              <View style={[styles.metricItem, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: 10 }]}>
                 <Ionicons name="battery-charging-outline" size={16} color={colors.accentGold} />
                 <Text style={[styles.metricText, { color: colors.foreground }]}>
                   {memberLoc?.battery_pct ? `BATTERY ${memberLoc.battery_pct}%` : 'BATTERY OPTIMAL'}
                 </Text>
               </View>
 
-              <View style={[styles.metricItem, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 10 }]}>
+              <View style={[styles.metricItem, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: 10 }]}>
                 <Ionicons name="navigate-outline" size={16} color={colors.accentGold} />
-                <Text style={[styles.metricText, { color: colors.foreground }]}>{distText.toUpperCase()}</Text>
+                <Text style={[styles.metricText, { color: colors.foreground }]}>{(memberRoadInfo?.distText || distText).toUpperCase()}</Text>
               </View>
 
-              <View style={[styles.metricItem, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 10 }]}>
+              <View style={[styles.metricItem, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: 10 }]}>
                 <Ionicons name="shield-checkmark-outline" size={16} color="#10B981" />
                 <Text style={[styles.metricText, { color: colors.foreground }]}>
                   {selectedMember.role === 'owner' ? 'CIRCLE OWNER' : (selectedMember.role || 'MEMBER').toUpperCase()}
@@ -2334,7 +2455,7 @@ export default function MapScreen() {
         return (
           <View style={[styles.memberCardSheet, sheetStyles]}>
             <View style={styles.memberCardHeader}>
-              <View style={[styles.memberAvatar, { backgroundColor: `${catColor}20`, borderColor: catColor, borderRadius: themeMode === 'bauhaus' ? 0 : 22 }]}>
+              <View style={[styles.memberAvatar, { backgroundColor: `${catColor}20`, borderColor: catColor, borderRadius: 22 }]}>
                 <Ionicons name={catIcon as any} size={22} color={catColor} />
               </View>
               <View style={styles.memberMainInfo}>
@@ -2355,7 +2476,7 @@ export default function MapScreen() {
             <Text style={[styles.zoneAllocTitle, { color: colors.textMuted }]}>ZONE ALLOCATION & LIVE MEMBER PRESENCE</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.zoneAllocScroll}>
               {assignedMembersList.length === 0 ? (
-                <View style={[styles.zoneMemberPill, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 12 }]}>
+                <View style={[styles.zoneMemberPill, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: 12 }]}>
                   <Text style={[styles.zoneMemberPillText, { color: colors.accentGold }]}>🛡️ Applied to entire circle</Text>
                 </View>
               ) : (
@@ -2378,7 +2499,7 @@ export default function MapScreen() {
                   const initial = mName.charAt(0).toUpperCase();
 
                   return (
-                    <View key={m.user_id} style={[styles.zoneMemberPill, { backgroundColor: colors.surfaceMuted, borderColor: isInside ? '#10B981' : colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 12 }]}>
+                    <View key={m.user_id} style={[styles.zoneMemberPill, { backgroundColor: colors.surfaceMuted, borderColor: isInside ? '#10B981' : colors.border, borderRadius: 12 }]}>
                       <View style={[styles.miniAvatarWrap, { borderColor: isInside ? '#10B981' : colors.textMuted, backgroundColor: colors.surface }]}>
                         <Text style={[styles.miniAvatarInitial, { color: colors.foreground }]}>{initial}</Text>
                       </View>
@@ -2472,7 +2593,7 @@ export default function MapScreen() {
       {selectedPoi ? (
         <View style={[styles.memberCardSheet, sheetStyles]}>
           <View style={styles.memberCardHeader}>
-            <View style={[styles.memberAvatar, { backgroundColor: `${colors.accentGold}25`, borderColor: colors.accentGold, borderRadius: themeMode === 'bauhaus' ? 0 : 22 }]}>
+            <View style={[styles.memberAvatar, { backgroundColor: `${colors.accentGold}25`, borderColor: colors.accentGold, borderRadius: 22 }]}>
               <Ionicons name="location" size={20} color={colors.accentGold} />
             </View>
             <View style={styles.memberMainInfo}>
@@ -2635,13 +2756,13 @@ export default function MapScreen() {
             styles.controlBtn, 
             floatingControlStyles,
             isFollowUserActive 
-              ? { borderColor: '#10B981', backgroundColor: themeMode === 'bauhaus' ? '#F0C020' : (themeMode === 'brand_green' ? '#E8F8EE' : 'rgba(16, 185, 129, 0.25)') } 
+              ? { borderColor: '#10B981', backgroundColor: themeMode === 'brand_green' ? '#E8F8EE' : 'rgba(16, 185, 129, 0.25)' } 
               : null
           ]} 
           onPress={handleToggleFollow} 
           scaleTo={0.88}
         >
-          <Ionicons name="navigate" size={20} color={isFollowUserActive ? (themeMode === 'bauhaus' ? '#121212' : '#10B981') : colors.foreground} />
+          <Ionicons name="navigate" size={20} color={isFollowUserActive ? '#10B981' : colors.foreground} />
         </SpringTouchable>
 
         {/* Locate Me */}

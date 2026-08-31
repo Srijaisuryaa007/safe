@@ -5,20 +5,15 @@ import { useThemeStore } from '../store/useThemeStore';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
-import JellySqueezeButton from './JellySqueezeButton';
 
 interface LogoutModalProps {
   visible: boolean;
   onClose: () => void;
 }
 
-export default function LogoutModal({
-  visible,
-  onClose,
-}: LogoutModalProps) {
+export default function LogoutModal({ visible, onClose }: LogoutModalProps) {
   const { colors, isDark } = useThemeStore();
-  const { profile } = useAuthStore();
-  const { activeCircle } = useCircleStore();
+  const { profile, session } = useAuthStore();
   const [loggingOut, setLoggingOut] = useState(false);
 
   if (!visible) return null;
@@ -43,7 +38,8 @@ export default function LogoutModal({
     }
   };
 
-  const displayName = profile?.full_name || 'CircleGuard User';
+  const displayName = profile?.full_name || 'Your Account';
+  const displayEmail = session?.user?.email || profile?.phone || '';
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
@@ -52,77 +48,70 @@ export default function LogoutModal({
           style={[
             styles.modalCard,
             {
-              backgroundColor: isDark ? colors.surface : '#FFFFFF',
-              borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : '#FCA5A5',
+              backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E5E7EB',
             },
           ]}
         >
-          {/* Glowing Crimson Top Stripe */}
-          <View style={styles.topAccentStripe} />
-
-          {/* Crimson Icon Emblem */}
-          <View style={[styles.iconCircle, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
-            <Ionicons name="power" size={30} color="#EF4444" />
+          {/* Minimalist Icon Badge */}
+          <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEE2E2' }]}>
+            <Ionicons name="log-out-outline" size={26} color="#EF4444" />
           </View>
 
-          {/* Title & Subtitle */}
-          <Text style={[styles.title, { color: colors.foreground }]}>Disconnect Session?</Text>
-          <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            Logging out will sign you out of your encrypted profile and temporarily pause live location sharing for <Text style={{ color: colors.foreground, fontWeight: '700' }}>{displayName}</Text>.
+          {/* Clean Typography */}
+          <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#111827' }]}>
+            Log Out
+          </Text>
+          <Text style={[styles.subtitle, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
+            Are you sure you want to log out? You'll need to sign back in to access your circle and live safety features.
           </Text>
 
-          {/* Active Session Info Box */}
-          <View style={[styles.sessionBox, { backgroundColor: isDark ? colors.background : '#F8FAFC', borderColor: colors.border }]}>
-            <View style={styles.sessionRow}>
-              <Ionicons name="person-circle-outline" size={18} color={colors.accentGold} />
-              <Text style={[styles.sessionText, { color: colors.foreground }]} numberOfLines={1}>
-                User: {displayName}
+          {/* User Capsule */}
+          <View style={[styles.userCapsule, { backgroundColor: isDark ? '#2C2C2E' : '#F3F4F6' }]}>
+            <Ionicons name="person-circle" size={22} color={isDark ? '#D4AF37' : '#D97706'} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.userName, { color: isDark ? '#FFFFFF' : '#111827' }]} numberOfLines={1}>
+                {displayName}
               </Text>
-            </View>
-
-            {activeCircle ? (
-              <View style={styles.sessionRow}>
-                <Ionicons name="people-outline" size={18} color="#10B981" />
-                <Text style={[styles.sessionText, { color: colors.textMuted }]} numberOfLines={1}>
-                  Circle: {activeCircle.name}
+              {displayEmail ? (
+                <Text style={[styles.userEmail, { color: isDark ? '#9CA3AF' : '#6B7280' }]} numberOfLines={1}>
+                  {displayEmail}
                 </Text>
-              </View>
-            ) : null}
-
-            <View style={styles.sessionRow}>
-              <Ionicons name="shield-checkmark-outline" size={18} color="#A855F7" />
-              <Text style={[styles.sessionText, { color: colors.textMuted }]}>
-                AES-256 Encrypted Session Storage
-              </Text>
+              ) : null}
             </View>
           </View>
 
           {/* Action Buttons */}
-          {loggingOut ? (
-            <View style={styles.loaderBox}>
-              <ActivityIndicator size="small" color="#EF4444" />
-              <Text style={[styles.loaderText, { color: colors.textMuted }]}>Disconnecting active session...</Text>
-            </View>
-          ) : (
-            <View style={styles.buttonCol}>
-              <JellySqueezeButton
-                glowColor="#EF4444"
-                style={styles.confirmJellyBtn}
-                onPress={handleConfirmLogout}
-              >
-                <Ionicons name="power" size={18} color="#FFFFFF" />
-                <Text style={styles.confirmBtnText}>LOGOUT OF ACCOUNT</Text>
-              </JellySqueezeButton>
+          <View style={styles.buttonCol}>
+            <TouchableOpacity
+              style={[styles.logoutBtn, loggingOut && { opacity: 0.7 }]}
+              onPress={handleConfirmLogout}
+              disabled={loggingOut}
+              activeOpacity={0.8}
+            >
+              {loggingOut ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.logoutBtnText}>Log Out</Text>
+              )}
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.cancelBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F1F5F9', borderColor: colors.border }]}
-                onPress={onClose}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.cancelBtnText, { color: colors.foreground }]}>CANCEL & REMAIN SIGNED IN</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+            <TouchableOpacity
+              style={[
+                styles.cancelBtn,
+                {
+                  backgroundColor: isDark ? '#2C2C2E' : '#F3F4F6',
+                },
+              ]}
+              onPress={onClose}
+              disabled={loggingOut}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.cancelBtnText, { color: isDark ? '#FFFFFF' : '#374151' }]}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -132,115 +121,91 @@ export default function LogoutModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
   modalCard: {
     width: '100%',
-    maxWidth: 350,
-    borderRadius: 24,
+    maxWidth: 320,
+    borderRadius: 22,
     borderWidth: 1,
-    padding: 24,
+    padding: 22,
     alignItems: 'center',
-    position: 'relative',
-    overflow: 'hidden',
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 10 },
+    shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  topAccentStripe: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-    backgroundColor: '#EF4444',
+    shadowRadius: 24,
+    elevation: 10,
   },
   iconCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 1.5,
-    borderColor: 'rgba(239, 68, 68, 0.4)',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
-    marginTop: 6,
+    marginBottom: 14,
   },
   title: {
-    fontSize: 19,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
     letterSpacing: -0.3,
   },
   subtitle: {
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 13,
+    fontWeight: '400',
     textAlign: 'center',
     lineHeight: 18,
-    marginBottom: 18,
+    marginBottom: 16,
   },
-  sessionBox: {
-    width: '100%',
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
-    gap: 10,
-    marginBottom: 20,
-  },
-  sessionRow: {
+  userCapsule: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    width: '100%',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    marginBottom: 18,
   },
-  sessionText: {
-    fontSize: 11.5,
+  userName: {
+    fontSize: 13,
     fontWeight: '600',
-    flex: 1,
   },
-  loaderBox: {
-    paddingVertical: 16,
-    alignItems: 'center',
-    gap: 8,
-  },
-  loaderText: {
+  userEmail: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '400',
+    marginTop: 1,
   },
   buttonCol: {
     width: '100%',
-    gap: 10,
+    gap: 8,
   },
-  confirmJellyBtn: {
+  logoutBtn: {
     width: '100%',
-    height: 48,
+    height: 44,
     backgroundColor: '#EF4444',
-    borderRadius: 14,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  confirmBtnText: {
+  logoutBtnText: {
     color: '#FFFFFF',
-    fontSize: 11.5,
-    fontWeight: '900',
-    letterSpacing: 1.2,
+    fontSize: 14,
+    fontWeight: '600',
   },
   cancelBtn: {
     width: '100%',
     height: 44,
-    borderRadius: 14,
-    borderWidth: 1,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
   cancelBtnText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    letterSpacing: 1,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

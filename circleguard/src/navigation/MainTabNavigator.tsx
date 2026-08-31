@@ -29,12 +29,6 @@ export default function MainTabNavigator() {
 
   const activeTintColor = themeMode === 'brand_green'
     ? '#3DBE6C'
-    : themeMode === 'bauhaus'
-    ? '#121212'
-    : themeMode === 'playful_geometric'
-    ? '#8B5CF6'
-    : themeMode === 'botanical_organic'
-    ? '#2D3A31'
     : colors.accentGold;
 
   return (
@@ -48,14 +42,14 @@ export default function MainTabNavigator() {
           {
             backgroundColor: colors.surface,
             borderTopColor: colors.border,
-            borderTopWidth: themeMode === 'bauhaus' ? 4 : (themeMode === 'playful_geometric' ? 2 : 1),
+            borderTopWidth: 1,
             height: 62,
           },
         ],
         tabBarLabelStyle: [
           styles.tabBarLabel,
           {
-            fontWeight: themeMode === 'bauhaus' ? '900' : '700',
+            fontWeight: '700',
           },
         ],
         tabBarItemStyle: styles.tabBarItem,

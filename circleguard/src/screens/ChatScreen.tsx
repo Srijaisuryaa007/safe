@@ -26,6 +26,7 @@ import { getThemeChatBubbleStyles, getThemeButtonStyles, getThemeBorderStyles } 
 import { sendExpoPushNotification } from '../services/PushNotificationService';
 import TypingIndicator from '../components/TypingIndicator';
 import ReadReceiptCheckmarks from '../components/ReadReceiptCheckmarks';
+import EmojiGifPickerModal from '../components/EmojiGifPickerModal';
 
 export interface ChatMessage {
   id: string;
@@ -60,6 +61,7 @@ export default function ChatScreen() {
   const [sending, setSending] = useState(false);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [selectedReactionMsgId, setSelectedReactionMsgId] = useState<string | null>(null);
+  const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
 
   const flatListRef = useRef<FlatList>(null);
   const channelRef = useRef<any>(null);
@@ -535,6 +537,7 @@ export default function ChatScreen() {
     const initial = String(item.sender_name || 'M').charAt(0).toUpperCase();
 
     const isLocationMsg = item.message_type === 'location' || item.content.includes('Shared Live Location');
+    const isGifMsg = item.content.startsWith('http') && (item.content.includes('.gif') || item.content.includes('giphy.com'));
     const isReactionOpen = selectedReactionMsgId === item.id;
     const bubbleThemeStyle = getThemeChatBubbleStyles(themeMode, isMe);
 
@@ -543,7 +546,7 @@ export default function ChatScreen() {
     return (
       <View style={[styles.messageRow, isMe ? styles.myMessageRow : styles.theirMessageRow]}>
         {!isMe ? (
-          <View style={[styles.avatarBox, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 16 }]}>
+          <View style={[styles.avatarBox, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 16 }]}>
             {item.sender_avatar ? (
               <Image source={{ uri: item.sender_avatar }} style={styles.avatarImg} />
             ) : (
@@ -559,7 +562,7 @@ export default function ChatScreen() {
 
           {/* Floating Quick Emoji Reaction Bar */}
           {isReactionOpen ? (
-            <View style={[styles.floatingEmojiBar, { backgroundColor: colors.surface, borderColor: colors.accentGold, borderRadius: themeMode === 'bauhaus' ? 0 : 100 }]}>
+            <View style={[styles.floatingEmojiBar, { backgroundColor: colors.surface, borderColor: colors.accentGold, borderRadius: 100 }]}>
               {EMOJI_OPTIONS.map((emoji) => {
                 const userList = (item.reactions && item.reactions[emoji]) || [];
                 const isReacted = profile?.id ? userList.includes(profile.id) : false;
@@ -602,7 +605,7 @@ export default function ChatScreen() {
                 <TouchableOpacity
                   style={{
                     backgroundColor: isMe ? 'rgba(0,0,0,0.15)' : 'rgba(212, 175, 55, 0.15)',
-                    borderRadius: themeMode === 'bauhaus' ? 0 : 8,
+                    borderRadius: 8,
                     paddingVertical: 5,
                     paddingHorizontal: 10,
                     alignSelf: 'flex-start',
@@ -637,6 +640,14 @@ export default function ChatScreen() {
                 >
                   <Text style={{ fontSize: 10, fontWeight: '800', color: bubbleThemeStyle.textColor }}>🧭 VIEW ON MAP</Text>
                 </TouchableOpacity>
+              </View>
+            ) : isGifMsg ? (
+              <View style={{ borderRadius: 12, overflow: 'hidden', marginVertical: 4 }}>
+                <Image
+                  source={{ uri: item.content }}
+                  style={{ width: 220, height: 150, borderRadius: 12 }}
+                  resizeMode="cover"
+                />
               </View>
             ) : item.message_type === 'safety_pill' ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -747,8 +758,8 @@ export default function ChatScreen() {
                 { 
                   backgroundColor: colors.surface, 
                   borderColor: colors.border,
-                  borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 20 : 12),
-                  borderWidth: themeMode === 'bauhaus' ? 2 : 1,
+                  borderRadius: 12,
+                  borderWidth: 1,
                 }
               ]}
               onPress={() => handleSendText(item, 'safety_pill')}
@@ -796,13 +807,15 @@ export default function ChatScreen() {
             styles.attachBtn, 
             { 
               borderColor: colors.border,
-              borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 20 : 10),
-              borderWidth: themeMode === 'bauhaus' ? 2 : 1,
+              borderRadius: 10,
+              borderWidth: 1,
+              backgroundColor: emojiPickerVisible ? (themeMode === 'brand_green' ? '#E8F8EE' : 'rgba(212, 175, 55, 0.15)') : 'transparent',
             }
           ]}
-          onPress={handleShareLocationInChat}
+          onPress={() => setEmojiPickerVisible(true)}
+          activeOpacity={0.7}
         >
-          <Ionicons name="navigate-outline" size={18} color={colors.accentGold} />
+          <Ionicons name="happy-outline" size={20} color={colors.accentGold} />
         </TouchableOpacity>
 
         <TextInput
@@ -812,8 +825,8 @@ export default function ChatScreen() {
               backgroundColor: colors.background, 
               color: colors.foreground, 
               borderColor: colors.border,
-              borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 22 : 14),
-              borderWidth: themeMode === 'bauhaus' ? 2 : 1,
+              borderRadius: 14,
+              borderWidth: 1,
             }
           ]}
           placeholder="Write a message..."
@@ -828,7 +841,7 @@ export default function ChatScreen() {
             styles.sendBtn, 
             { 
               backgroundColor: sending ? colors.surfaceMuted : colors.accentGold,
-              borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 20 : 10),
+              borderRadius: 10,
             }
           ]}
           onPress={() => handleSendText()}
@@ -841,6 +854,13 @@ export default function ChatScreen() {
           )}
         </TouchableOpacity>
       </View>
+
+      <EmojiGifPickerModal
+        visible={emojiPickerVisible}
+        onClose={() => setEmojiPickerVisible(false)}
+        onSelectEmoji={(emoji) => handleInputChange(inputText + emoji)}
+        onSelectGif={(gifUrl) => handleSendText(gifUrl, 'safety_pill')}
+      />
     </KeyboardAvoidingView>
   );
 }

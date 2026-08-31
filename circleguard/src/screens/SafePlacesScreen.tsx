@@ -891,10 +891,10 @@ export default function SafePlacesScreen() {
                 style={[
                   styles.categoryTile, 
                   {
-                    backgroundColor: active ? (themeMode === 'bauhaus' ? '#F0C020' : (themeMode === 'brand_green' ? '#E8F8EE' : colors.surfaceMuted)) : colors.surface,
+                    backgroundColor: active ? (themeMode === 'brand_green' ? '#E8F8EE' : colors.surfaceMuted) : colors.surface,
                     borderColor: active ? colors.accentGold : colors.border,
-                    borderRadius: themeMode === 'bauhaus' ? 0 : (themeMode === 'botanical_organic' ? 24 : 14),
-                    borderWidth: themeMode === 'bauhaus' ? 2.5 : (themeMode === 'playful_geometric' ? 2 : 1.5),
+                    borderRadius: 14,
+                    borderWidth: 1.5,
                   },
                   isRouteGated ? { opacity: 0.8 } : null
                 ]}
@@ -922,9 +922,9 @@ export default function SafePlacesScreen() {
                 <Ionicons 
                   name={cat.icon as any} 
                   size={20} 
-                  color={active ? (themeMode === 'bauhaus' ? '#121212' : colors.accentGold) : colors.foreground} 
+                  color={active ? colors.accentGold : colors.foreground} 
                 />
-                <Text style={[styles.categoryLabel, { color: active ? (themeMode === 'bauhaus' ? '#121212' : colors.accentGold) : colors.textMuted }]}>
+                <Text style={[styles.categoryLabel, { color: active ? colors.accentGold : colors.textMuted }]}>
                   {cat.label}
                 </Text>
               </TouchableOpacity>
@@ -1290,7 +1290,7 @@ export default function SafePlacesScreen() {
               return (
                 <View key={p.id} style={[styles.placeCard, cardStyles]}>
                   <View style={styles.placeLeft}>
-                    <View style={[styles.placeIconBox, { backgroundColor: `${colors.accentGold}20`, borderColor: colors.accentGold, borderRadius: themeMode === 'bauhaus' ? 0 : 10 }]}>
+                    <View style={[styles.placeIconBox, { backgroundColor: `${colors.accentGold}20`, borderColor: colors.accentGold, borderRadius: 10 }]}>
                       <Ionicons name={p.end_lat ? "navigate" : "bookmark"} size={18} color={colors.accentGold} />
                     </View>
                     <View style={{ flex: 1, paddingRight: 8 }}>
@@ -1313,7 +1313,7 @@ export default function SafePlacesScreen() {
                               <View key={m.user_id || idx} style={{
                                 width: 22,
                                 height: 22,
-                                borderRadius: themeMode === 'bauhaus' ? 0 : 11,
+                                borderRadius: 11,
                                 backgroundColor: colors.surfaceMuted,
                                 borderWidth: 1,
                                 borderColor: colors.accentGold,
@@ -1336,7 +1336,7 @@ export default function SafePlacesScreen() {
 
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <TouchableOpacity 
-                      style={[styles.editBtn, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: themeMode === 'bauhaus' ? 0 : 8 }]}
+                      style={[styles.editBtn, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: 8 }]}
                       onPress={() => handleStartEditPlace(p)}
                       activeOpacity={0.8}
                     >
@@ -1344,7 +1344,7 @@ export default function SafePlacesScreen() {
                     </TouchableOpacity>
 
                     <TouchableOpacity 
-                      style={[styles.deleteBtn, { backgroundColor: '#FEE2E2', borderColor: '#EF4444', borderRadius: themeMode === 'bauhaus' ? 0 : 8 }]}
+                      style={[styles.deleteBtn, { backgroundColor: '#FEE2E2', borderColor: '#EF4444', borderRadius: 8 }]}
                       onPress={() => handleDeletePlace(p.id, p.name)}
                       activeOpacity={0.8}
                     >

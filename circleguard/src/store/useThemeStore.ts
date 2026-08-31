@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { Appearance, ColorSchemeName } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BRAND_GREEN_THEME, LIGHT_THEME, DARK_THEME, GRAY_THEME, BAUHAUS_THEME, PLAYFUL_GEOMETRIC_THEME, BOTANICAL_ORGANIC_THEME, ThemeColors, LUXURY_THEME } from '../constants/theme';
+import { BRAND_GREEN_THEME, LIGHT_THEME, DARK_THEME, ThemeColors, LUXURY_THEME } from '../constants/theme';
 
-export type ThemeMode = 'brand_green' | 'light' | 'dark' | 'gray' | 'bauhaus' | 'playful_geometric' | 'botanical_organic' | 'system';
+export type ThemeMode = 'dark' | 'light' | 'brand_green' | 'system';
 export type MapStyleType = 'vector' | 'satellite' | 'dark' | 'terrain';
 
 interface ThemeState {
@@ -21,12 +21,8 @@ const MAP_STYLE_KEY = '@circleguard_map_style';
 
 const getThemeConfig = (mode: ThemeMode, sysScheme: ColorSchemeName | null | undefined): { colors: ThemeColors; isDark: boolean } => {
   if (mode === 'brand_green') return { colors: BRAND_GREEN_THEME.colors, isDark: false };
-  if (mode === 'botanical_organic') return { colors: BOTANICAL_ORGANIC_THEME.colors, isDark: false };
-  if (mode === 'playful_geometric') return { colors: PLAYFUL_GEOMETRIC_THEME.colors, isDark: false };
-  if (mode === 'bauhaus') return { colors: BAUHAUS_THEME.colors, isDark: false };
-  if (mode === 'dark') return { colors: DARK_THEME.colors, isDark: true };
-  if (mode === 'gray') return { colors: GRAY_THEME.colors, isDark: true };
   if (mode === 'light') return { colors: LIGHT_THEME.colors, isDark: false };
+  if (mode === 'dark') return { colors: DARK_THEME.colors, isDark: true };
   const isSysDark = sysScheme === 'dark';
   return { colors: isSysDark ? DARK_THEME.colors : LIGHT_THEME.colors, isDark: isSysDark };
 };
@@ -35,14 +31,14 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   themeMode: 'dark',
   isDark: true,
   colors: DARK_THEME.colors,
-  mapStyle: 'dark',
+  mapStyle: 'vector',
 
   initTheme: async () => {
     try {
       const saved = await AsyncStorage.getItem(STORAGE_KEY);
       const savedMapStyle = await AsyncStorage.getItem(MAP_STYLE_KEY);
       const mode: ThemeMode = (saved as ThemeMode) || 'dark';
-      const mapStyle: MapStyleType = (savedMapStyle as MapStyleType) || 'dark';
+      const mapStyle: MapStyleType = (savedMapStyle as MapStyleType) || 'vector';
       const sysScheme = Appearance.getColorScheme();
       const config = getThemeConfig(mode, sysScheme);
 

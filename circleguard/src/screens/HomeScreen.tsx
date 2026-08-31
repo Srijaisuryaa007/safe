@@ -63,11 +63,15 @@ import FakeCallModal from '../components/FakeCallModal';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import ShareLocationModal from '../components/ShareLocationModal';
 import SwiggyHeaderBar from '../components/SwiggyHeaderBar';
+import SwiggySearchBar from '../components/SwiggySearchBar';
+import MemberStatusPillsCarousel from '../components/MemberStatusPillsCarousel';
+import ZomatoLiveJourneyCard from '../components/ZomatoLiveJourneyCard';
 import MagnificationDock, { DockItemData } from '../components/MagnificationDock';
 import JellySqueezeButton from '../components/JellySqueezeButton';
 import AnimatedList from '../components/AnimatedList';
 import HomeMiniMapCard from '../components/HomeMiniMapCard';
 import * as Location from 'expo-location';
+import { getHaversineDistanceInMeters } from '../services/GeofenceEngine';
 
 export default function HomeScreen() {
   const { colors, isDark, themeMode } = useThemeStore();
@@ -121,7 +125,6 @@ export default function HomeScreen() {
     if (!circlePlaces || circlePlaces.length === 0 || !m.latitude || !m.longitude) {
       return 'Away';
     }
-    const { getHaversineDistanceInMeters } = require('../services/GeofenceEngine');
 
     for (const place of circlePlaces) {
       const { latitude: pLat, longitude: pLng } = parsePlaceCoords(place);
@@ -377,9 +380,93 @@ export default function HomeScreen() {
     },
   ];
 
+  // Live High-Precision GPS Positioning
+  useEffect(() => {
+    let locSub: Location.LocationSubscription | null = null;
+    let isMounted = true;
+
+    (async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          if (isMounted && current?.coords) {
+            setUserLoc({ latitude: current.coords.latitude, longitude: current.coords.longitude });
+          }
+          locSub = await Location.watchPositionAsync(
+            { accuracy: Location.Accuracy.Balanced, timeInterval: 4000, distanceInterval: 8 },
+            (pos) => {
+              if (isMounted && pos?.coords) {
+                setUserLoc({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+              }
+            }
+          );
+        }
+      } catch (e) {}
+    })();
+
+    return () => {
+      isMounted = false;
+      if (locSub) locSub.remove();
+    };
+  }, []);
+
+  const parseMemberPoint = (m: any): { lat: number; lng: number } => {
+    if (!m) return { lat: 0, lng: 0 };
+    const directLat = parseFloat(m.latitude ?? m.start_lat ?? m.lat);
+    const directLng = parseFloat(m.longitude ?? m.start_lng ?? m.lng);
+    if (!isNaN(directLat) && !isNaN(directLng) && Math.abs(directLat) <= 90 && Math.abs(directLng) <= 180 && (directLat !== 0 || directLng !== 0)) {
+      return { lat: directLat, lng: directLng };
+    }
+    if (m.geom && typeof m.geom === 'string') {
+      const match = m.geom.match(/POINT\s*\(\s*([-\d.]+)[,\s]+([-\d.]+)\s*\)/i);
+      if (match) {
+        let lngVal = parseFloat(match[1]); // In WKT POINT(lng lat), token 1 is Longitude
+        let latVal = parseFloat(match[2]); // Token 2 is Latitude
+        if (Math.abs(latVal) > 90 && Math.abs(lngVal) <= 90) {
+          const temp = latVal;
+          latVal = lngVal;
+          lngVal = temp;
+        }
+        return { lat: latVal, lng: lngVal };
+      }
+    }
+    return { lat: 0, lng: 0 };
+  };
+
+  // Find member currently genuinely in-transit or moving (strict check)
+  const inTransitMember = (members || []).find((m: any) => {
+    const { lat, lng } = parseMemberPoint(m);
+    if (!lat || !lng || m.isOnline === false) {
+      return false;
+    }
+    const speedKmh = Math.round(((m.speed_mps || m.speed || 0) * 3.6));
+    const isDriving = Boolean(m.isDriving || m.is_driving || speedKmh > 18);
+    const isWalking = speedKmh >= 3 && speedKmh <= 18;
+    const isVehicle = m.activity_state === 'In Vehicle';
+    return isDriving || isWalking || isVehicle;
+  }) || null;
+
+  // Find member currently OUTSIDE all registered safe places
+  const outsideMember = !inTransitMember ? (members || []).find((m: any) => {
+    const { lat, lng } = parseMemberPoint(m);
+    if (!lat || !lng || m.isOnline === false) return false;
+    if (!circlePlaces || circlePlaces.length === 0) return false;
+
+    const isInsideAny = circlePlaces.some((p: any) => {
+      const { latitude: pLat, longitude: pLng } = parsePlaceCoords(p);
+      if (!pLat || !pLng) return false;
+      const dist = getHaversineDistanceInMeters(lat, lng, pLat, pLng);
+      const radius = Number(p.radius_m) || 150;
+      return dist <= radius;
+    });
+
+    return !isInsideAny;
+  }) || null : null;
+
   return (
     <View style={[styles.container, { backgroundColor: isDark ? colors.background : '#FAF9F5' }]}>
-      {/* Top Location Header */}
+      {/* Fixed Top Location Header */}
       <SwiggyHeaderBar hasNotification={recentActivities.length > 0} />
 
       <ScrollView
@@ -394,6 +481,24 @@ export default function HomeScreen() {
           />
         }
       >
+        {/* Universal Search Bar */}
+        <SwiggySearchBar safePlaces={circlePlaces} />
+
+        {/* Horizontal Member Status Carousel */}
+        <MemberStatusPillsCarousel
+          safePlaces={circlePlaces}
+          userLoc={userLoc}
+        />
+
+        {/* Live In-Transit Journey / Perimeter Status Card */}
+        {activeCircle ? (
+          <ZomatoLiveJourneyCard
+            inTransitMember={inTransitMember}
+            outsideMember={outsideMember}
+            safePlaces={circlePlaces}
+            userLoc={userLoc}
+          />
+        ) : null}
         {/* THEME-SPECIFIC HERO LAYOUT ARCHITECTURE */}
         {themeMode === 'brand_green' ? (
           /* BRAND GREEN & AMBER (FLEXY UI): Split Dual-Tone Cockpit */
@@ -637,7 +742,7 @@ export default function HomeScreen() {
                   getThemeBorderStyles(themeMode),
                   {
                     borderColor: isTrackingActive ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)',
-                    backgroundColor: isTrackingActive ? (themeMode === 'bauhaus' ? '#000000' : '#FFF1F1') : 'rgba(16, 185, 129, 0.12)',
+                    backgroundColor: isTrackingActive ? '#FFF1F1' : 'rgba(16, 185, 129, 0.12)',
                   },
                 ]}
                 onPress={toggleLocationTracking}
@@ -645,12 +750,12 @@ export default function HomeScreen() {
                 <Ionicons
                   name={isTrackingActive ? 'pause-circle-outline' : 'play-circle-outline'}
                   size={18}
-                  color={isTrackingActive ? (themeMode === 'bauhaus' ? '#FFFFFF' : '#DC2626') : '#10B981'}
+                  color={isTrackingActive ? '#DC2626' : '#10B981'}
                 />
                 <Text
                   style={[
                     styles.pauseBtnText,
-                    { color: isTrackingActive ? (themeMode === 'bauhaus' ? '#FFFFFF' : '#DC2626') : '#10B981' },
+                    { color: isTrackingActive ? '#DC2626' : '#10B981' },
                   ]}
                   adjustsFontSizeToFit={true}
                   minimumFontScale={0.8}
@@ -711,7 +816,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
           >
             <Text 
-              style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#1040C0' : (themeMode === 'brand_green' ? '#3DBE6C' : '#10B981') }]}
+              style={[styles.metricBigNumber, { color: themeMode === 'brand_green' ? '#3DBE6C' : '#10B981' }]}
               adjustsFontSizeToFit={true}
               minimumFontScale={0.7}
               numberOfLines={1}
@@ -719,7 +824,7 @@ export default function HomeScreen() {
               {activeCircle ? onlineCount : 0}
             </Text>
             <Text 
-              style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#1040C0' : (themeMode === 'brand_green' ? '#3DBE6C' : '#10B981') }]}
+              style={[styles.metricCardLabel, { color: themeMode === 'brand_green' ? '#3DBE6C' : '#10B981' }]}
               adjustsFontSizeToFit={true}
               minimumFontScale={0.75}
               numberOfLines={2}
@@ -767,7 +872,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
           >
             <Text 
-              style={[styles.metricBigNumber, { color: themeMode === 'bauhaus' ? '#D02020' : (themeMode === 'brand_green' ? '#F5A623' : colors.accentGold) }]}
+              style={[styles.metricBigNumber, { color: themeMode === 'brand_green' ? '#F5A623' : colors.accentGold }]}
               adjustsFontSizeToFit={true}
               minimumFontScale={0.7}
               numberOfLines={1}
@@ -775,7 +880,7 @@ export default function HomeScreen() {
               {activeCircle ? recentActivities.length : 0}
             </Text>
             <Text 
-              style={[styles.metricCardLabel, { color: themeMode === 'bauhaus' ? '#D02020' : (themeMode === 'brand_green' ? '#F5A623' : colors.accentGold) }]}
+              style={[styles.metricCardLabel, { color: themeMode === 'brand_green' ? '#F5A623' : colors.accentGold }]}
               adjustsFontSizeToFit={true}
               minimumFontScale={0.75}
               numberOfLines={2}
@@ -1168,34 +1273,34 @@ const styles = StyleSheet.create({
   },
   metricsGridRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginBottom: 28,
+    gap: 8,
+    marginBottom: 20,
   },
   metricCardBox: {
     flex: 1,
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
-    paddingVertical: 18,
-    paddingHorizontal: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.03,
-    shadowRadius: 6,
+    shadowRadius: 4,
     elevation: 1,
   },
   metricBigNumber: {
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 6,
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 2,
   },
   metricCardLabel: {
     fontSize: 9,
     fontWeight: '800',
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
     textAlign: 'center',
-    lineHeight: 12,
+    lineHeight: 11,
   },
   activityContainerBox: {
     borderRadius: 18,

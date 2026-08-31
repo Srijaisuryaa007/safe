@@ -9,7 +9,7 @@
     "userInterfaceStyle": "light",
     "notification": {
       "icon": "./assets/icon.png",
-      "color": "#10B981",
+      "color": "#1C1C1E",
       "androidMode": "default"
     },
     "ios": {
@@ -70,7 +70,7 @@
         "expo-notifications",
         {
           "icon": "./assets/icon.png",
-          "color": "#10B981"
+          "color": "#1C1C1E"
         }
       ],
       "expo-status-bar",

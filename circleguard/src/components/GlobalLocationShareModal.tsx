@@ -46,8 +46,8 @@ export default function GlobalLocationShareModal() {
 
             // 2. Drop down local system notification banner
             scheduleLocalNotification(
-              'Live Location Shared',
-              `${senderName} is now sharing live location details with you! Tap to view on main map.`,
+              `📍 Look who just pinged you!`,
+              `👀 ${senderName} is broadcasting their live coordinates with you. Tap to view their exact spot on the map!`,
               { screen: 'Map', senderId: row.sender_id }
             );
 

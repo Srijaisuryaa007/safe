@@ -394,7 +394,7 @@ export async function checkExpectedArrivals(places: GeofencePlace[]): Promise<vo
 
 export async function dispatchGeofencePushAlert(breach: GeofenceBreachEvent, place: GeofencePlace) {
   try {
-    const { sendExpoPushNotification } = require('./PushNotificationService');
+    const { CREATIVE_NOTIFICATION_TEMPLATES, scheduleLocalNotification, sendExpoPushNotification } = require('./PushNotificationService');
     const tokenSet = new Set<string>();
 
     if (place.created_by && place.created_by !== breach.userId) {
@@ -454,11 +454,14 @@ export async function dispatchGeofencePushAlert(breach: GeofenceBreachEvent, pla
     const tokens = Array.from(tokenSet);
     const isExit = breach.type === 'exit';
     const placeName = place.name || 'Safe Zone';
-    const actionWord = isExit ? 'departed' : 'arrived at';
-    const title = isExit ? `Zone Departure: ${placeName}` : `Zone Arrival: ${placeName}`;
-    const body = `${breach.userName} ${actionWord} ${placeName}.`;
+    
+    const template = isExit 
+      ? CREATIVE_NOTIFICATION_TEMPLATES.departure(breach.userName, placeName)
+      : CREATIVE_NOTIFICATION_TEMPLATES.arrival(breach.userName, placeName);
 
-    const { scheduleLocalNotification } = require('./PushNotificationService');
+    const title = template.title;
+    const body = template.body;
+
     await scheduleLocalNotification(title, body, {
       screen: 'Map',
       userId: breach.userId,

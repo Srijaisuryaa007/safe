@@ -12,6 +12,7 @@ import LeaderApprovalModal from './LeaderApprovalModal';
 import { useLuxuryAlert } from './LuxuryAlertModal';
 import PrivacyPolicyModal from './PrivacyPolicyModal';
 import TermsOfServiceModal from './TermsOfServiceModal';
+import DeleteAccountModal from './DeleteAccountModal';
 
 interface PrivacySecurityModalProps {
   visible: boolean;
@@ -40,6 +41,7 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
   const [approvalFeature, setApprovalFeature] = useState<'ghost_mode' | 'hide_online' | 'location_off'>('ghost_mode');
   const [policyModalVisible, setPolicyModalVisible] = useState(false);
   const [termsModalVisible, setTermsModalVisible] = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
 
   useEffect(() => {
     if (visible && profile?.id) {
@@ -365,6 +367,44 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
             <Text style={[styles.policyBtnText, { color: colors.accentGold }]}>READ TERMS OF SERVICE</Text>
             <Ionicons name="chevron-forward" size={16} color={colors.accentGold} />
           </TouchableOpacity>
+
+          {/* Section: Danger Zone / Account Deletion */}
+          <Text style={[styles.sectionTitle, { color: '#EF4444', marginTop: 28 }]}>DANGER ZONE</Text>
+
+          <TouchableOpacity
+            style={[styles.dangerCardBtn, { backgroundColor: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.35)' }]}
+            onPress={handlePurgeLocationHistory}
+            disabled={purging}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="trash-bin-outline" size={18} color="#EF4444" />
+            <View style={{ flex: 1, marginLeft: 10 }}>
+              <Text style={[styles.dangerBtnTitle, { color: '#EF4444' }]}>PURGE LOCATION TRAILS</Text>
+              <Text style={[styles.dangerBtnDesc, { color: colors.textMuted }]}>
+                Permanently delete all historical GPS route points from database
+              </Text>
+            </View>
+            {purging ? (
+              <ActivityIndicator size="small" color="#EF4444" />
+            ) : (
+              <Ionicons name="chevron-forward" size={16} color="#EF4444" />
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.dangerCardBtn, { backgroundColor: 'rgba(220, 38, 38, 0.12)', borderColor: '#DC2626', marginTop: 10 }]}
+            onPress={() => setDeleteModalVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="person-remove-outline" size={18} color="#DC2626" />
+            <View style={{ flex: 1, marginLeft: 10 }}>
+              <Text style={[styles.dangerBtnTitle, { color: '#DC2626' }]}>PERMANENTLY DELETE ACCOUNT</Text>
+              <Text style={[styles.dangerBtnDesc, { color: colors.textMuted }]}>
+                Erase your identity profile, circle memberships, and all safety data
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#DC2626" />
+          </TouchableOpacity>
         </ScrollView>
 
         <LeaderApprovalModal
@@ -381,6 +421,16 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
         <TermsOfServiceModal
           visible={termsModalVisible}
           onClose={() => setTermsModalVisible(false)}
+        />
+
+        <DeleteAccountModal
+          visible={deleteModalVisible}
+          onClose={() => {
+            setDeleteModalVisible(false);
+            if (!useAuthStore.getState().session) {
+              onClose();
+            }
+          }}
         />
       </View>
     </Modal>
@@ -493,5 +543,22 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     flex: 1,
     marginLeft: 10,
+  },
+  dangerCardBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    padding: 16,
+    borderRadius: 14,
+  },
+  dangerBtnTitle: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  dangerBtnDesc: {
+    fontSize: 11,
+    lineHeight: 15,
   },
 });

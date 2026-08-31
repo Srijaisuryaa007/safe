@@ -49,7 +49,7 @@ const LuxuryAlertContext = createContext<LuxuryAlertContextType>({
 export const useLuxuryAlert = () => useContext(LuxuryAlertContext);
 
 export function LuxuryAlertProvider({ children }: { children: React.ReactNode }) {
-  const { colors } = useThemeStore();
+  const { colors, isDark } = useThemeStore();
   const [visible, setVisible] = useState(false);
   const [modalMode, setModalMode] = useState<'alert' | 'confirm' | 'privacy'>('alert');
 
@@ -134,13 +134,13 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
   const getAlertIcon = () => {
     switch (alertConfig.type) {
       case 'success':
-        return { name: 'checkmark-circle' as const, color: '#30D158' };
+        return { name: 'checkmark-circle' as const, color: '#30D158', bg: isDark ? 'rgba(48, 209, 88, 0.15)' : '#DCFCE7' };
       case 'warning':
-        return { name: 'alert-circle' as const, color: '#FF9F0A' };
+        return { name: 'alert-circle' as const, color: '#FF9F0A', bg: isDark ? 'rgba(255, 159, 10, 0.15)' : '#FEF3C7' };
       case 'error':
-        return { name: 'close-circle' as const, color: '#FF453A' };
+        return { name: 'close-circle' as const, color: '#FF453A', bg: isDark ? 'rgba(255, 69, 58, 0.15)' : '#FEE2E2' };
       default:
-        return { name: 'information-circle' as const, color: '#0A84FF' };
+        return { name: 'information-circle' as const, color: '#0A84FF', bg: isDark ? 'rgba(10, 132, 255, 0.15)' : '#DBEAFE' };
     }
   };
 
@@ -153,16 +153,28 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
         <View style={styles.overlay}>
           {modalMode === 'alert' ? (
             /* Apple HIG Informational Dialog */
-            <View style={styles.card}>
-              <View style={styles.iconBox}>
-                <Ionicons name={iconInfo.name} size={36} color={iconInfo.color} />
+            <View
+              style={[
+                styles.card,
+                {
+                  backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E5E7EB',
+                },
+              ]}
+            >
+              <View style={[styles.iconBox, { backgroundColor: iconInfo.bg }]}>
+                <Ionicons name={iconInfo.name} size={30} color={iconInfo.color} />
               </View>
 
-              <Text style={styles.title}>{alertConfig.title}</Text>
-              <Text style={styles.message}>{alertConfig.message}</Text>
+              <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#111827' }]}>
+                {alertConfig.title}
+              </Text>
+              <Text style={[styles.message, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
+                {alertConfig.message}
+              </Text>
 
               <TouchableOpacity
-                style={[styles.primaryBtn, { backgroundColor: '#0A84FF' }]}
+                style={[styles.primaryBtn, { backgroundColor: colors.accentGold || '#D4AF37' }]}
                 onPress={handleAlertPress}
                 activeOpacity={0.8}
               >
@@ -171,31 +183,57 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
             </View>
           ) : modalMode === 'confirm' ? (
             /* Apple HIG Confirmation Dialog */
-            <View style={styles.card}>
-              <View style={styles.iconBox}>
+            <View
+              style={[
+                styles.card,
+                {
+                  backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E5E7EB',
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.iconBox,
+                  {
+                    backgroundColor: confirmConfig.isDestructive
+                      ? (isDark ? 'rgba(255, 69, 58, 0.15)' : '#FEE2E2')
+                      : (isDark ? 'rgba(10, 132, 255, 0.15)' : '#DBEAFE'),
+                  },
+                ]}
+              >
                 <Ionicons
-                  name={confirmConfig.isDestructive ? 'trash' : 'help-circle'}
-                  size={36}
+                  name={confirmConfig.isDestructive ? 'trash-outline' : 'help-circle-outline'}
+                  size={30}
                   color={confirmConfig.isDestructive ? '#FF453A' : '#0A84FF'}
                 />
               </View>
 
-              <Text style={styles.title}>{confirmConfig.title}</Text>
-              <Text style={styles.message}>{confirmConfig.message}</Text>
+              <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#111827' }]}>
+                {confirmConfig.title}
+              </Text>
+              <Text style={[styles.message, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
+                {confirmConfig.message}
+              </Text>
 
               <View style={styles.btnRow}>
                 <TouchableOpacity
-                  style={[styles.cancelBtn]}
+                  style={[
+                    styles.cancelBtn,
+                    { backgroundColor: isDark ? '#2C2C2E' : '#F3F4F6' },
+                  ]}
                   onPress={handleCancelPress}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.cancelBtnText}>{confirmConfig.cancelText || 'Cancel'}</Text>
+                  <Text style={[styles.cancelBtnText, { color: isDark ? '#FFFFFF' : '#374151' }]}>
+                    {confirmConfig.cancelText || 'Cancel'}
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={[
                     styles.confirmBtn,
-                    { backgroundColor: confirmConfig.isDestructive ? '#FF453A' : '#0A84FF' },
+                    { backgroundColor: confirmConfig.isDestructive ? '#FF453A' : (colors.accentGold || '#0A84FF') },
                   ]}
                   onPress={handleConfirmPress}
                   activeOpacity={0.8}
@@ -208,19 +246,32 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
             </View>
           ) : (
             /* Apple HIG Privacy Request Modal */
-            <View style={styles.card}>
-              <View style={styles.iconBox}>
-                <Ionicons name="shield-half" size={36} color="#0A84FF" />
+            <View
+              style={[
+                styles.card,
+                {
+                  backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E5E7EB',
+                },
+              ]}
+            >
+              <View style={[styles.iconBox, { backgroundColor: isDark ? 'rgba(10, 132, 255, 0.15)' : '#DBEAFE' }]}>
+                <Ionicons name="shield-half" size={30} color="#0A84FF" />
               </View>
 
-              <Text style={styles.title}>Privacy Request</Text>
-              <Text style={styles.message}>
+              <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#111827' }]}>
+                Privacy Request
+              </Text>
+              <Text style={[styles.message, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
                 {privacyConfig.requesterName} requested permission to enable {privacyConfig.featureName}. As Circle Leader, do you authorize this?
               </Text>
 
               <View style={styles.btnRow}>
                 <TouchableOpacity
-                  style={[styles.cancelBtn, { borderColor: '#FF453A' }]}
+                  style={[
+                    styles.cancelBtn,
+                    { backgroundColor: isDark ? '#2C2C2E' : '#FEE2E2' },
+                  ]}
                   onPress={handlePrivacyDecline}
                   activeOpacity={0.8}
                 >
@@ -246,7 +297,7 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
@@ -254,53 +305,48 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 320,
-    borderRadius: 18,
-    backgroundColor: '#1C1C1E',
-    borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    padding: 20,
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 22,
     alignItems: 'center',
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
     elevation: 10,
   },
   iconBox: {
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#2C2C2E',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   title: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
-    color: '#FFFFFF',
     textAlign: 'center',
     marginBottom: 6,
     letterSpacing: -0.2,
   },
   message: {
     fontSize: 13,
-    color: '#8E8E93',
     textAlign: 'center',
     lineHeight: 18,
-    marginBottom: 20,
+    marginBottom: 18,
   },
   primaryBtn: {
     width: '100%',
-    paddingVertical: 12,
+    height: 44,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryBtnText: {
-    color: '#FFFFFF',
+    color: '#111827',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   btnRow: {
     flexDirection: 'row',
@@ -309,20 +355,18 @@ const styles = StyleSheet.create({
   },
   cancelBtn: {
     flex: 1,
-    paddingVertical: 12,
+    height: 44,
     borderRadius: 12,
-    backgroundColor: '#2C2C2E',
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancelBtnText: {
-    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
   },
   confirmBtn: {
     flex: 1,
-    paddingVertical: 12,
+    height: 44,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
@@ -330,6 +374,6 @@ const styles = StyleSheet.create({
   confirmBtnText: {
     color: '#FFFFFF',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

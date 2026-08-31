@@ -229,17 +229,27 @@ export default function DrivingReportsScreen() {
           let endAddr = `Arrival Destination`;
 
           try {
-            const startGeo = await Location.reverseGeocodeAsync({ latitude: leg.startLat || baseLat, longitude: leg.startLng || baseLng });
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000));
+            const startGeo: any = await Promise.race([
+              Location.reverseGeocodeAsync({ latitude: leg.startLat || baseLat, longitude: leg.startLng || baseLng }),
+              timeoutPromise,
+            ]).catch(() => null);
+
             if (startGeo && startGeo.length > 0) {
               const p = startGeo[0];
               startAddr = [p.name, p.street, p.district || p.subregion || p.city].filter(Boolean).join(', ') || realCity;
             }
-            const endGeo = await Location.reverseGeocodeAsync({ latitude: leg.endLat || baseLat, longitude: leg.endLng || baseLng });
+
+            const endGeo: any = await Promise.race([
+              Location.reverseGeocodeAsync({ latitude: leg.endLat || baseLat, longitude: leg.endLng || baseLng }),
+              timeoutPromise,
+            ]).catch(() => null);
+
             if (endGeo && endGeo.length > 0) {
               const p = endGeo[0];
               endAddr = [p.name, p.street, p.district || p.subregion || p.city].filter(Boolean).join(', ') || realCity;
             }
-          } catch (e) {}
+          } catch (_) {}
 
           const analysis = analyzeTripTelemetry(
             leg.points,
@@ -540,7 +550,7 @@ export default function DrivingReportsScreen() {
                     TELEMETRY SAFETY EVALUATION
                   </Text>
                 </View>
-                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: themeMode === 'bauhaus' ? 0 : 8, backgroundColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(212, 175, 55, 0.15)' }}>
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(212, 175, 55, 0.15)' }}>
                   <Text style={{ fontSize: 9, fontWeight: '900', color: driverScore >= 90 ? '#10B981' : '#D4AF37', letterSpacing: 1 }}>
                     {driverScore >= 90 ? 'GRADE A+' : (driverScore >= 80 ? 'GRADE A' : 'GRADE B')}
                   </Text>
@@ -548,7 +558,7 @@ export default function DrivingReportsScreen() {
               </View>
 
               <View style={styles.scoreTopRow}>
-                <View style={[styles.scoreCircleBg, { borderRadius: themeMode === 'bauhaus' ? 0 : 35, borderColor: driverScore >= 90 ? '#10B981' : driverScore >= 80 ? '#D4AF37' : '#FF536A', backgroundColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.08)' : 'rgba(212, 175, 55, 0.08)' }]}>
+                <View style={[styles.scoreCircleBg, { borderRadius: 35, borderColor: driverScore >= 90 ? '#10B981' : driverScore >= 80 ? '#D4AF37' : '#FF536A', backgroundColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.08)' : 'rgba(212, 175, 55, 0.08)' }]}>
                   <Text 
                     style={[styles.scoreNum, { color: driverScore >= 90 ? '#10B981' : driverScore >= 80 ? '#D4AF37' : '#FF536A' }]}
                     numberOfLines={1}
@@ -570,17 +580,17 @@ export default function DrivingReportsScreen() {
 
               {/* Safety Event Badges */}
               <View style={styles.eventBadgesRow}>
-                <View style={[styles.eventBadge, { borderRadius: themeMode === 'bauhaus' ? 0 : 8, backgroundColor: totalHardBrakes === 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)', borderColor: totalHardBrakes === 0 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)' }]}>
+                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalHardBrakes === 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)', borderColor: totalHardBrakes === 0 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)' }]}>
                   <Ionicons name="hand-right" size={13} color={totalHardBrakes === 0 ? '#10B981' : '#EF4444'} />
                   <Text style={[styles.eventBadgeText, { color: totalHardBrakes === 0 ? '#10B981' : '#EF4444' }]}>{totalHardBrakes} HARD BRAKES</Text>
                 </View>
 
-                <View style={[styles.eventBadge, { borderRadius: themeMode === 'bauhaus' ? 0 : 8, backgroundColor: totalRapidAccels === 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(212, 175, 55, 0.12)', borderColor: totalRapidAccels === 0 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(212, 175, 55, 0.3)' }]}>
+                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalRapidAccels === 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(212, 175, 55, 0.12)', borderColor: totalRapidAccels === 0 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(212, 175, 55, 0.3)' }]}>
                   <Ionicons name="flash" size={13} color={totalRapidAccels === 0 ? '#10B981' : '#D4AF37'} />
                   <Text style={[styles.eventBadgeText, { color: totalRapidAccels === 0 ? '#10B981' : '#D4AF37' }]}>{totalRapidAccels} RAPID ACCELS</Text>
                 </View>
 
-                <View style={[styles.eventBadge, { borderRadius: themeMode === 'bauhaus' ? 0 : 8, backgroundColor: totalSpeedingEvents > 0 ? 'rgba(255, 83, 106, 0.12)' : 'rgba(16, 185, 129, 0.12)', borderColor: totalSpeedingEvents > 0 ? 'rgba(255, 83, 106, 0.3)' : 'rgba(16, 185, 129, 0.3)' }]}>
+                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalSpeedingEvents > 0 ? 'rgba(255, 83, 106, 0.12)' : 'rgba(16, 185, 129, 0.12)', borderColor: totalSpeedingEvents > 0 ? 'rgba(255, 83, 106, 0.3)' : 'rgba(16, 185, 129, 0.3)' }]}>
                   <Ionicons name="speedometer" size={13} color={totalSpeedingEvents > 0 ? '#FF536A' : '#10B981'} />
                   <Text style={[styles.eventBadgeText, { color: totalSpeedingEvents > 0 ? '#FF536A' : '#10B981' }]}>{totalSpeedingEvents} SPEEDING</Text>
                 </View>
@@ -590,7 +600,7 @@ export default function DrivingReportsScreen() {
             {/* Summary Metrics Cards */}
             <View style={styles.metricsRow}>
               <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface }]}>
-                <View style={[styles.metricIconWrap, { borderRadius: themeMode === 'bauhaus' ? 0 : 18, backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
+                <View style={[styles.metricIconWrap, { borderRadius: 18, backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
                   <Ionicons name="navigate-outline" size={18} color={colors.accentGold} />
                 </View>
                 <Text style={[styles.metricVal, { color: colors.foreground }]}>{totalDistanceKm} km</Text>
@@ -598,7 +608,7 @@ export default function DrivingReportsScreen() {
               </View>
 
               <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface }]}>
-                <View style={[styles.metricIconWrap, { borderRadius: themeMode === 'bauhaus' ? 0 : 18, backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
+                <View style={[styles.metricIconWrap, { borderRadius: 18, backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
                   <Ionicons name="time-outline" size={18} color="#10B981" />
                 </View>
                 <Text style={[styles.metricVal, { color: colors.foreground }]}>{totalDriveMins} mins</Text>
@@ -606,7 +616,7 @@ export default function DrivingReportsScreen() {
               </View>
 
               <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface, borderColor: topSpeedKmh > 80 ? '#FF5266' : colors.border }]}>
-                <View style={[styles.metricIconWrap, { borderRadius: themeMode === 'bauhaus' ? 0 : 18, backgroundColor: topSpeedKmh > 80 ? 'rgba(255, 82, 102, 0.15)' : 'rgba(59, 130, 246, 0.12)' }]}>
+                <View style={[styles.metricIconWrap, { borderRadius: 18, backgroundColor: topSpeedKmh > 80 ? 'rgba(255, 82, 102, 0.15)' : 'rgba(59, 130, 246, 0.12)' }]}>
                   <Ionicons name="speedometer-outline" size={18} color={topSpeedKmh > 80 ? "#FF5266" : "#3B82F6"} />
                 </View>
                 <Text style={[styles.metricVal, { color: topSpeedKmh > 80 ? '#FF5266' : colors.foreground }]}>{topSpeedKmh} km/h</Text>
@@ -614,7 +624,7 @@ export default function DrivingReportsScreen() {
               </View>
 
               <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface }]}>
-                <View style={[styles.metricIconWrap, { borderRadius: themeMode === 'bauhaus' ? 0 : 18, backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
+                <View style={[styles.metricIconWrap, { borderRadius: 18, backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
                   <Ionicons name="bar-chart-outline" size={18} color={colors.accentGold} />
                 </View>
                 <Text style={[styles.metricVal, { color: colors.foreground }]}>{avgSpeedKmh} km/h</Text>
@@ -651,7 +661,7 @@ export default function DrivingReportsScreen() {
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                           <Text style={[styles.tripTitle, { color: colors.foreground, textTransform: 'none', fontWeight: '800' }]}>{trip.title}</Text>
-                          <View style={[styles.headingBadge, { borderRadius: themeMode === 'bauhaus' ? 0 : 6 }]}>
+                          <View style={[styles.headingBadge, { borderRadius: 6 }]}>
                             <Text style={styles.headingBadgeText}>🧭 {trip.cardinalDirection} ({trip.bearingDegrees}°)</Text>
                           </View>
                         </View>
@@ -660,7 +670,7 @@ export default function DrivingReportsScreen() {
                         </Text>
                       </View>
 
-                      <View style={[styles.tripScoreBadge, { borderRadius: themeMode === 'bauhaus' ? 0 : 8, backgroundColor: trip.score >= 90 ? '#10B981' : trip.score >= 75 ? '#D4AF37' : '#EF4444' }]}>
+                      <View style={[styles.tripScoreBadge, { borderRadius: 8, backgroundColor: trip.score >= 90 ? '#10B981' : trip.score >= 75 ? '#D4AF37' : '#EF4444' }]}>
                         <Text style={[styles.tripScoreText, { color: '#FFFFFF' }]}>{trip.score}</Text>
                       </View>
                     </View>

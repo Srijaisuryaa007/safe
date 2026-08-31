@@ -95,25 +95,25 @@ function parsePoint(item: any): { latitude: number; longitude: number } {
       }
       const matches = clean.match(/POINT\s*\(\s*([-\d.]+)[,\s]+([-\d.]+)\s*\)/i);
       if (matches && matches.length >= 3) {
-        const v1 = parseFloat(matches[1]);
-        const v2 = parseFloat(matches[2]);
-        if (Math.abs(v1) > 90) {
-          return { latitude: v2, longitude: v1 };
-        } else if (Math.abs(v2) > 90) {
-          return { latitude: v1, longitude: v2 };
-        } else {
-          return { latitude: v2, longitude: v1 };
+        let lng = parseFloat(matches[1]);
+        let lat = parseFloat(matches[2]);
+        if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) {
+          const temp = lat;
+          lat = lng;
+          lng = temp;
         }
+        return { latitude: lat, longitude: lng };
       }
     } else if (typeof item.geom === 'object') {
       if (Array.isArray(item.geom.coordinates) && item.geom.coordinates.length >= 2) {
-        const c0 = parseFloat(item.geom.coordinates[0]);
-        const c1 = parseFloat(item.geom.coordinates[1]);
-        if (Math.abs(c0) > 90) {
-          return { latitude: c1, longitude: c0 };
-        } else {
-          return { latitude: c0, longitude: c1 };
+        let lng = parseFloat(item.geom.coordinates[0]);
+        let lat = parseFloat(item.geom.coordinates[1]);
+        if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) {
+          const temp = lat;
+          lat = lng;
+          lng = temp;
         }
+        return { latitude: lat, longitude: lng };
       }
     }
   }
