@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Dimensions, Platform } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
 import Animated, {
   useSharedValue,
@@ -39,10 +39,11 @@ const GLOBE_HTML = (size: number) => `
       width: ${size}px;
       height: ${size}px;
       border-radius: 50%;
-      filter: drop-shadow(0 0 16px rgba(161, 98, 7, 0.45));
+      filter: drop-shadow(0 0 20px rgba(212, 175, 55, 0.4));
     }
   </style>
-  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
 </head>
 <body>
   <canvas id="globeCanvas"></canvas>
@@ -51,7 +52,7 @@ const GLOBE_HTML = (size: number) => `
       const canvas = document.getElementById('globeCanvas');
       const context = canvas.getContext('2d');
       const size = ${size};
-      const radius = size / 2.55;
+      const radius = size / 2.52;
       const dpr = window.devicePixelRatio || 1;
 
       canvas.width = size * dpr;
@@ -65,103 +66,109 @@ const GLOBE_HTML = (size: number) => `
 
       const path = d3.geoPath().projection(projection).context(context);
 
-      let landFeatures = null;
-      let allDots = [];
+      let landGeo = null;
+      let countryDots = [];
 
-      // Fallback synthetic land dots generator in case offline
-      function generateFallbackWorldDots() {
+      // High-density world country point sampling grid
+      function buildCountryDots(features) {
         const dots = [];
-        // Approximate continent centers & landmass clusters
-        const continents = [
-          // Americas
-          { minLng: -130, maxLng: -60, minLat: 10, maxLat: 60, step: 8 },
-          { minLng: -80, maxLng: -35, minLat: -55, maxLat: 10, step: 8 },
-          // Europe & Africa
-          { minLng: -10, maxLng: 40, minLat: 35, maxLat: 70, step: 7 },
-          { minLng: -15, maxLng: 50, minLat: -35, maxLat: 35, step: 8 },
-          // Asia & Australia
-          { minLng: 40, maxLng: 140, minLat: 10, maxLat: 70, step: 7 },
-          { minLng: 110, maxLng: 155, minLat: -40, maxLat: -10, step: 8 },
-        ];
+        const step = 4.5; // Fine resolution for realistic Earth continents & countries
 
-        continents.forEach(c => {
-          for (let lng = c.minLng; lng <= c.maxLng; lng += c.step) {
-            for (let lat = c.minLat; lat <= c.maxLat; lat += c.step) {
-              if (Math.sin(lng * 0.05) * Math.cos(lat * 0.05) > -0.3) {
-                dots.push({ lng, lat });
-              }
+        for (let lng = -180; lng <= 180; lng += step) {
+          for (let lat = -85; lat <= 85; lat += step) {
+            const pt = [lng, lat];
+            if (d3.geoContains(features, pt)) {
+              dots.push(pt);
             }
           }
-        });
+        }
         return dots;
       }
-
-      allDots = generateFallbackWorldDots();
 
       function render() {
         context.clearRect(0, 0, size, size);
         const currentScale = projection.scale();
         const scaleFactor = currentScale / radius;
 
-        // Globe base — near black
+        // 1. Deep Midnight Ocean Base
         context.beginPath();
         context.arc(size / 2, size / 2, currentScale, 0, 2 * Math.PI);
         context.fillStyle = '#0B0D10';
         context.fill();
-        context.strokeStyle = '#A16207';
-        context.lineWidth = 1.5 * scaleFactor;
-        context.globalAlpha = 0.65;
-        context.stroke();
-        context.globalAlpha = 1;
 
-        // Graticule grid — faint gold
-        const graticule = d3.geoGraticule();
+        // 2. Outer Atmospheric Gold Ring
+        context.strokeStyle = '#D4AF37';
+        context.lineWidth = 1.6 * scaleFactor;
+        context.globalAlpha = 0.7;
+        context.stroke();
+        context.globalAlpha = 1.0;
+
+        // 3. Coordinate Graticule (Latitude & Longitude parallels)
+        const graticule = d3.geoGraticule().step([20, 20]);
         context.beginPath();
         path(graticule());
         context.strokeStyle = '#A16207';
         context.lineWidth = 0.5 * scaleFactor;
-        context.globalAlpha = 0.18;
+        context.globalAlpha = 0.16;
         context.stroke();
-        context.globalAlpha = 1;
+        context.globalAlpha = 1.0;
 
-        if (landFeatures) {
+        if (landGeo) {
+          // 4. Continent Land Mass Fill (Subtle Charcoal-Gold)
           context.beginPath();
-          landFeatures.features.forEach(function(feature) { path(feature); });
-          context.strokeStyle = '#A16207';
-          context.lineWidth = 0.8 * scaleFactor;
-          context.globalAlpha = 0.55;
-          context.stroke();
-          context.globalAlpha = 1;
-        }
+          path(landGeo);
+          context.fillStyle = '#14171E';
+          context.globalAlpha = 0.9;
+          context.fill();
+          context.globalAlpha = 1.0;
 
-        // Golden land dots
-        allDots.forEach(function(dot) {
-          const projected = projection([dot.lng, dot.lat]);
-          if (
-            projected &&
-            projected[0] >= 0 && projected[0] <= size &&
-            projected[1] >= 0 && projected[1] <= size
-          ) {
-            context.beginPath();
-            context.arc(projected[0], projected[1], 1.2 * scaleFactor, 0, 2 * Math.PI);
-            context.fillStyle = '#D4AF37';
-            context.fill();
-          }
-        });
+          // 5. Authentic Continent Coastlines & Country Boundaries
+          context.beginPath();
+          path(landGeo);
+          context.strokeStyle = '#D4AF37';
+          context.lineWidth = 0.85 * scaleFactor;
+          context.globalAlpha = 0.65;
+          context.stroke();
+          context.globalAlpha = 1.0;
+
+          // 6. Geographic Country Dots (Glow on Land Only)
+          countryDots.forEach(function(pt) {
+            const coords = projection(pt);
+            if (coords && coords[0] >= 0 && coords[0] <= size && coords[1] >= 0 && coords[1] <= size) {
+              context.beginPath();
+              context.arc(coords[0], coords[1], 0.95 * scaleFactor, 0, 2 * Math.PI);
+              context.fillStyle = '#F59E0B';
+              context.globalAlpha = 0.85;
+              context.fill();
+            }
+          });
+          context.globalAlpha = 1.0;
+        }
       }
 
-      // Fetch official 110m land polygons
-      fetch('https://raw.githubusercontent.com/martynafford/natural-earth-geojson/refs/heads/master/110m/physical/ne_110m_land.json')
+      // Load authentic 110m TopoJSON world geography
+      fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json')
         .then(function(res) { return res.json(); })
-        .then(function(data) {
-          landFeatures = data;
+        .then(function(world) {
+          landGeo = topojson.feature(world, world.objects.land);
+          countryDots = buildCountryDots(landGeo);
           render();
         })
-        .catch(function() {});
+        .catch(function() {
+          // Backup fallback to natural earth geojson
+          fetch('https://raw.githubusercontent.com/martynafford/natural-earth-geojson/refs/heads/master/110m/physical/ne_110m_land.json')
+            .then(function(res) { return res.json(); })
+            .then(function(geo) {
+              landGeo = geo;
+              countryDots = buildCountryDots(geo);
+              render();
+            })
+            .catch(function() {});
+        });
 
-      // Continuous 3D rotation with tilt
-      let rotation = [0, 15];
-      const rotationSpeed = 0.85;
+      // Smooth auto-rotation with realistic axial tilt
+      let rotation = [0, -18]; // 18 degree Earth axial tilt
+      const rotationSpeed = 0.75;
 
       function rotate() {
         rotation[0] += rotationSpeed;
@@ -178,8 +185,8 @@ const GLOBE_HTML = (size: number) => `
 `;
 
 export default function CircleGuardGlobeLoader({
-  size = 180, // Medium balanced size for mobile screens and tabs
-  loadingLabel = 'Securing your Circle',
+  size = 190,
+  loadingLabel = 'Securing your Circle…',
   subLabel,
   fullscreen = false,
 }: CircleGuardGlobeLoaderProps) {
@@ -188,21 +195,21 @@ export default function CircleGuardGlobeLoader({
 
   useEffect(() => {
     pulseAnim.value = withRepeat(
-      withTiming(1, { duration: 2000, easing: Easing.bezier(0.2, 0.8, 0.2, 1) }),
+      withTiming(1, { duration: 2200, easing: Easing.bezier(0.2, 0.8, 0.2, 1) }),
       -1,
       false
     );
   }, []);
 
   const radarRingStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(pulseAnim.value, [0, 0.4, 1], [0.8, 0.3, 0]),
-    transform: [{ scale: interpolate(pulseAnim.value, [0, 1], [0.85, 1.45]) }],
+    opacity: interpolate(pulseAnim.value, [0, 0.35, 1], [0.85, 0.35, 0]),
+    transform: [{ scale: interpolate(pulseAnim.value, [0, 1], [0.92, 1.42]) }],
   }));
 
   const content = (
     <View style={styles.contentContainer}>
-      {/* Globe Canvas Container */}
-      <View style={[styles.globeWrapper, { width: size + 20, height: size + 20 }]}>
+      {/* Globe Container */}
+      <View style={[styles.globeWrapper, { width: size + 24, height: size + 24 }]}>
         {/* Pulsing Outer Radar Ring */}
         <Animated.View
           style={[
@@ -216,7 +223,7 @@ export default function CircleGuardGlobeLoader({
           ]}
         />
 
-        {/* 3D Rotating Globe in WebView */}
+        {/* 3D Realistic Earth Globe */}
         <View style={[styles.canvasBox, { width: size, height: size, borderRadius: size / 2 }]}>
           <WebView
             originWhitelist={['*']}
@@ -269,7 +276,7 @@ const styles = StyleSheet.create({
   inlineContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 24,
+    paddingVertical: 20,
   },
   contentContainer: {
     alignItems: 'center',
@@ -284,17 +291,17 @@ const styles = StyleSheet.create({
   radarRing: {
     position: 'absolute',
     borderWidth: 1.5,
-    borderColor: '#A16207',
+    borderColor: '#D4AF37',
   },
   canvasBox: {
     overflow: 'hidden',
     backgroundColor: '#0B0D10',
-    borderWidth: 1,
-    borderColor: 'rgba(161, 98, 7, 0.4)',
-    shadowColor: '#A16207',
+    borderWidth: 1.5,
+    borderColor: 'rgba(212, 175, 55, 0.45)',
+    shadowColor: '#D4AF37',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
+    shadowOpacity: 0.4,
+    shadowRadius: 18,
     elevation: 6,
   },
   webView: {
