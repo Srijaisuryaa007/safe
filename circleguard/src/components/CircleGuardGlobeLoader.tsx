@@ -39,7 +39,7 @@ const GLOBE_HTML = (size: number) => `
       width: ${size}px;
       height: ${size}px;
       border-radius: 50%;
-      filter: drop-shadow(0 0 20px rgba(212, 175, 55, 0.4));
+      filter: drop-shadow(0 0 24px rgba(212, 175, 55, 0.45));
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
@@ -52,7 +52,9 @@ const GLOBE_HTML = (size: number) => `
       const canvas = document.getElementById('globeCanvas');
       const context = canvas.getContext('2d');
       const size = ${size};
-      const radius = size / 2.52;
+      const radius = size / 2.5;
+      const cx = size / 2;
+      const cy = size / 2;
       const dpr = window.devicePixelRatio || 1;
 
       canvas.width = size * dpr;
@@ -61,18 +63,39 @@ const GLOBE_HTML = (size: number) => `
 
       const projection = d3.geoOrthographic()
         .scale(radius)
-        .translate([size / 2, size / 2])
+        .translate([cx, cy])
         .clipAngle(90);
 
       const path = d3.geoPath().projection(projection).context(context);
 
       let landGeo = null;
+      let countriesGeo = null;
       let countryDots = [];
 
-      // High-density world country point sampling grid
+      // Major World Metropolises & Safety Beacons (Lat/Lng)
+      const majorHubs = [
+        { name: 'London', lat: 51.5074, lng: -0.1278 },
+        { name: 'Paris', lat: 48.8566, lng: 2.3522 },
+        { name: 'New York', lat: 40.7128, lng: -74.0060 },
+        { name: 'San Francisco', lat: 37.7749, lng: -122.4194 },
+        { name: 'Tokyo', lat: 35.6762, lng: 139.6503 },
+        { name: 'Mumbai', lat: 19.0760, lng: 72.8777 },
+        { name: 'Delhi', lat: 28.6139, lng: 77.2090 },
+        { name: 'Singapore', lat: 1.3521, lng: 103.8198 },
+        { name: 'Dubai', lat: 25.2048, lng: 55.2708 },
+        { name: 'Sydney', lat: -33.8688, lng: 151.2093 },
+        { name: 'Cairo', lat: 30.0444, lng: 31.2357 },
+        { name: 'São Paulo', lat: -23.5505, lng: -46.6333 },
+        { name: 'Johannesburg', lat: -26.2041, lng: 28.0473 },
+        { name: 'Berlin', lat: 52.5200, lng: 13.4050 },
+        { name: 'Toronto', lat: 43.6532, lng: -79.3832 },
+        { name: 'Seoul', lat: 37.5665, lng: 126.9780 },
+      ];
+
+      // High-precision country-fill sampling matrix
       function buildCountryDots(features) {
         const dots = [];
-        const step = 4.5; // Fine resolution for realistic Earth continents & countries
+        const step = 3.8; // Dense sampling so countries are filled realistically
 
         for (let lng = -180; lng <= 180; lng += step) {
           for (let lat = -85; lat <= 85; lat += step) {
@@ -85,93 +108,157 @@ const GLOBE_HTML = (size: number) => `
         return dots;
       }
 
+      let pulseTick = 0;
+
       function render() {
         context.clearRect(0, 0, size, size);
         const currentScale = projection.scale();
         const scaleFactor = currentScale / radius;
 
-        // 1. Deep Midnight Ocean Base
+        // 1. Deep Midnight Spherical Ocean Base
+        const oceanGrad = context.createRadialGradient(
+          cx - radius * 0.35, cy - radius * 0.35, radius * 0.1,
+          cx, cy, currentScale
+        );
+        oceanGrad.addColorStop(0, '#0F1318');
+        oceanGrad.addColorStop(0.7, '#080A0D');
+        oceanGrad.addColorStop(1, '#040507');
+
         context.beginPath();
-        context.arc(size / 2, size / 2, currentScale, 0, 2 * Math.PI);
-        context.fillStyle = '#0B0D10';
+        context.arc(cx, cy, currentScale, 0, 2 * Math.PI);
+        context.fillStyle = oceanGrad;
         context.fill();
 
-        // 2. Outer Atmospheric Gold Ring
+        // 2. Globe Sphere Border Ring
         context.strokeStyle = '#D4AF37';
         context.lineWidth = 1.6 * scaleFactor;
-        context.globalAlpha = 0.7;
+        context.globalAlpha = 0.85;
         context.stroke();
         context.globalAlpha = 1.0;
 
-        // 3. Coordinate Graticule (Latitude & Longitude parallels)
+        // 3. Coordinate Graticule (Parallels & Meridians)
         const graticule = d3.geoGraticule().step([20, 20]);
         context.beginPath();
         path(graticule());
         context.strokeStyle = '#A16207';
         context.lineWidth = 0.5 * scaleFactor;
-        context.globalAlpha = 0.16;
+        context.globalAlpha = 0.18;
         context.stroke();
         context.globalAlpha = 1.0;
 
         if (landGeo) {
-          // 4. Continent Land Mass Fill (Subtle Charcoal-Gold)
+          // 4. Continent Shaded Landmass (Deep Obsidian Green)
           context.beginPath();
           path(landGeo);
-          context.fillStyle = '#14171E';
-          context.globalAlpha = 0.9;
+          context.fillStyle = '#131B16';
+          context.globalAlpha = 0.95;
           context.fill();
           context.globalAlpha = 1.0;
 
-          // 5. Authentic Continent Coastlines & Country Boundaries
+          // 5. Individual Country Borders (Fine Gold Wireframe)
+          if (countriesGeo) {
+            context.beginPath();
+            path(countriesGeo);
+            context.strokeStyle = '#D4AF37';
+            context.lineWidth = 0.55 * scaleFactor;
+            context.globalAlpha = 0.45;
+            context.stroke();
+            context.globalAlpha = 1.0;
+          }
+
+          // 6. Prominent Continent & Island Coastlines
           context.beginPath();
           path(landGeo);
-          context.strokeStyle = '#D4AF37';
-          context.lineWidth = 0.85 * scaleFactor;
-          context.globalAlpha = 0.65;
+          context.strokeStyle = '#F3E5AB';
+          context.lineWidth = 1.1 * scaleFactor;
+          context.globalAlpha = 0.8;
           context.stroke();
           context.globalAlpha = 1.0;
 
-          // 6. Geographic Country Dots (Glow on Land Only)
+          // 7. Geographic Country Matrix Dots with 3D Spherical Light Attenuation
           countryDots.forEach(function(pt) {
             const coords = projection(pt);
             if (coords && coords[0] >= 0 && coords[0] <= size && coords[1] >= 0 && coords[1] <= size) {
+              const dx = coords[0] - cx;
+              const dy = coords[1] - cy;
+              const distFromCenter = Math.sqrt(dx * dx + dy * dy);
+              const sphereFactor = Math.max(0.2, 1 - (distFromCenter / currentScale) * 0.7);
+
               context.beginPath();
-              context.arc(coords[0], coords[1], 0.95 * scaleFactor, 0, 2 * Math.PI);
+              context.arc(coords[0], coords[1], 1.1 * scaleFactor * sphereFactor, 0, 2 * Math.PI);
               context.fillStyle = '#F59E0B';
-              context.globalAlpha = 0.85;
+              context.globalAlpha = 0.75 * sphereFactor;
+              context.fill();
+            }
+          });
+          context.globalAlpha = 1.0;
+
+          // 8. Major Capital & City Safety Beacons (Pulsing Beacons)
+          const beaconSize = (1 + Math.sin(pulseTick) * 0.35) * scaleFactor;
+          majorHubs.forEach(function(hub) {
+            const coords = projection([hub.lng, hub.lat]);
+            if (coords && coords[0] >= 0 && coords[0] <= size && coords[1] >= 0 && coords[1] <= size) {
+              // Pulse Halo
+              context.beginPath();
+              context.arc(coords[0], coords[1], 3.5 * beaconSize, 0, 2 * Math.PI);
+              context.fillStyle = '#F59E0B';
+              context.globalAlpha = 0.25;
+              context.fill();
+
+              // Solid Center Pin
+              context.beginPath();
+              context.arc(coords[0], coords[1], 1.6 * scaleFactor, 0, 2 * Math.PI);
+              context.fillStyle = '#FFFBEB';
+              context.globalAlpha = 0.95;
               context.fill();
             }
           });
           context.globalAlpha = 1.0;
         }
+
+        // 9. Spherical 3D Shading Overlay (Light Specular on top-left, Shadow on bottom-right)
+        const shadowGrad = context.createRadialGradient(
+          cx - radius * 0.4, cy - radius * 0.4, radius * 0.2,
+          cx, cy, currentScale
+        );
+        shadowGrad.addColorStop(0, 'rgba(243, 229, 171, 0.12)');
+        shadowGrad.addColorStop(0.65, 'rgba(0, 0, 0, 0)');
+        shadowGrad.addColorStop(1, 'rgba(0, 0, 0, 0.65)');
+
+        context.beginPath();
+        context.arc(cx, cy, currentScale, 0, 2 * Math.PI);
+        context.fillStyle = shadowGrad;
+        context.fill();
       }
 
-      // Load authentic 110m TopoJSON world geography
-      fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json')
+      // Load official 110m world countries & landmass TopoJSON
+      fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
         .then(function(res) { return res.json(); })
         .then(function(world) {
           landGeo = topojson.feature(world, world.objects.land);
+          countriesGeo = topojson.feature(world, world.objects.countries);
           countryDots = buildCountryDots(landGeo);
           render();
         })
         .catch(function() {
-          // Backup fallback to natural earth geojson
-          fetch('https://raw.githubusercontent.com/martynafford/natural-earth-geojson/refs/heads/master/110m/physical/ne_110m_land.json')
+          // Backup fallback
+          fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json')
             .then(function(res) { return res.json(); })
-            .then(function(geo) {
-              landGeo = geo;
-              countryDots = buildCountryDots(geo);
+            .then(function(world) {
+              landGeo = topojson.feature(world, world.objects.land);
+              countryDots = buildCountryDots(landGeo);
               render();
             })
             .catch(function() {});
         });
 
-      // Smooth auto-rotation with realistic axial tilt
-      let rotation = [0, -18]; // 18 degree Earth axial tilt
+      // Smooth realistic Earth rotation with 18 degree axial tilt
+      let rotation = [0, -18];
       const rotationSpeed = 0.75;
 
       function rotate() {
         rotation[0] += rotationSpeed;
+        pulseTick += 0.06;
         projection.rotate(rotation);
         render();
         requestAnimationFrame(rotate);
@@ -185,7 +272,7 @@ const GLOBE_HTML = (size: number) => `
 `;
 
 export default function CircleGuardGlobeLoader({
-  size = 190,
+  size = 195,
   loadingLabel = 'Securing your Circle…',
   subLabel,
   fullscreen = false,

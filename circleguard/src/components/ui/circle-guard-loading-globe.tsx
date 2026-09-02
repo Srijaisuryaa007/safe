@@ -28,7 +28,9 @@ export default function CircleGuardLoader({
 
     const containerWidth = size
     const containerHeight = size
-    const radius = containerWidth / 2.52
+    const radius = containerWidth / 2.5
+    const cx = containerWidth / 2
+    const cy = containerHeight / 2
 
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1
     canvas.width = containerWidth * dpr
@@ -40,17 +42,34 @@ export default function CircleGuardLoader({
     const projection = d3
       .geoOrthographic()
       .scale(radius)
-      .translate([containerWidth / 2, containerHeight / 2])
+      .translate([cx, cy])
       .clipAngle(90)
 
     const path = d3.geoPath().projection(projection).context(context)
 
     let landGeo: any = null
+    let countriesGeo: any = null
     const countryDots: [number, number][] = []
+
+    const majorHubs = [
+      { name: "London", lat: 51.5074, lng: -0.1278 },
+      { name: "Paris", lat: 48.8566, lng: 2.3522 },
+      { name: "New York", lat: 40.7128, lng: -74.006 },
+      { name: "San Francisco", lat: 37.7749, lng: -122.4194 },
+      { name: "Tokyo", lat: 35.6762, lng: 139.6503 },
+      { name: "Mumbai", lat: 19.076, lng: 72.8777 },
+      { name: "Delhi", lat: 28.6139, lng: 77.209 },
+      { name: "Singapore", lat: 1.3521, lng: 103.8198 },
+      { name: "Dubai", lat: 25.2048, lng: 55.2708 },
+      { name: "Sydney", lat: -33.8688, lng: 151.2093 },
+      { name: "Cairo", lat: 30.0444, lng: 31.2357 },
+      { name: "São Paulo", lat: -23.5505, lng: -46.6333 },
+      { name: "Johannesburg", lat: -26.2041, lng: 28.0473 },
+    ]
 
     function buildCountryDots(features: any) {
       const dots: [number, number][] = []
-      const step = 4.5
+      const step = 3.8
 
       for (let lng = -180; lng <= 180; lng += step) {
         for (let lat = -85; lat <= 85; lat += step) {
@@ -63,78 +82,155 @@ export default function CircleGuardLoader({
       return dots
     }
 
+    let pulseTick = 0
+
     const render = () => {
       context.clearRect(0, 0, containerWidth, containerHeight)
       const currentScale = projection.scale()
       const scaleFactor = currentScale / radius
 
-      // 1. Globe Base — deep midnight
+      // 1. Deep Midnight Ocean Base
+      const oceanGrad = context.createRadialGradient(
+        cx - radius * 0.35,
+        cy - radius * 0.35,
+        radius * 0.1,
+        cx,
+        cy,
+        currentScale
+      )
+      oceanGrad.addColorStop(0, "#0F1318")
+      oceanGrad.addColorStop(0.7, "#080A0D")
+      oceanGrad.addColorStop(1, "#040507")
+
       context.beginPath()
-      context.arc(containerWidth / 2, containerHeight / 2, currentScale, 0, 2 * Math.PI)
-      context.fillStyle = "#0B0D10"
+      context.arc(cx, cy, currentScale, 0, 2 * Math.PI)
+      context.fillStyle = oceanGrad
       context.fill()
 
-      // 2. Atmospheric Gold Ring
+      // 2. Globe Sphere Border
       context.strokeStyle = "#D4AF37"
       context.lineWidth = 1.6 * scaleFactor
-      context.globalAlpha = 0.7
+      context.globalAlpha = 0.85
       context.stroke()
       context.globalAlpha = 1.0
 
-      // 3. Coordinate Graticule (Parallels & Meridians)
+      // 3. Graticule
       const graticule = d3.geoGraticule().step([20, 20])
       context.beginPath()
       path(graticule())
       context.strokeStyle = "#A16207"
       context.lineWidth = 0.5 * scaleFactor
-      context.globalAlpha = 0.16
+      context.globalAlpha = 0.18
       context.stroke()
       context.globalAlpha = 1.0
 
       if (landGeo) {
-        // 4. Continent Mass Fill
+        // 4. Continent Land Mass Fill
         context.beginPath()
         path(landGeo)
-        context.fillStyle = "#14171E"
-        context.globalAlpha = 0.9
+        context.fillStyle = "#131B16"
+        context.globalAlpha = 0.95
         context.fill()
         context.globalAlpha = 1.0
 
-        // 5. Authentic Country Coastlines
+        // 5. Individual Country Borders
+        if (countriesGeo) {
+          context.beginPath()
+          path(countriesGeo)
+          context.strokeStyle = "#D4AF37"
+          context.lineWidth = 0.55 * scaleFactor
+          context.globalAlpha = 0.45
+          context.stroke()
+          context.globalAlpha = 1.0
+        }
+
+        // 6. Prominent Coastlines
         context.beginPath()
         path(landGeo)
-        context.strokeStyle = "#D4AF37"
-        context.lineWidth = 0.85 * scaleFactor
-        context.globalAlpha = 0.65
+        context.strokeStyle = "#F3E5AB"
+        context.lineWidth = 1.1 * scaleFactor
+        context.globalAlpha = 0.8
         context.stroke()
         context.globalAlpha = 1.0
 
-        // 6. Geographic Country Dots
+        // 7. Country Matrix Dots with 3D Spherical Light Attenuation
         countryDots.forEach((pt) => {
           const coords = projection(pt)
           if (
             coords &&
-            coords[0] >= 0 && coords[0] <= containerWidth &&
-            coords[1] >= 0 && coords[1] <= containerHeight
+            coords[0] >= 0 &&
+            coords[0] <= containerWidth &&
+            coords[1] >= 0 &&
+            coords[1] <= containerHeight
+          ) {
+            const dx = coords[0] - cx
+            const dy = coords[1] - cy
+            const distFromCenter = Math.sqrt(dx * dx + dy * dy)
+            const sphereFactor = Math.max(0.2, 1 - (distFromCenter / currentScale) * 0.7)
+
+            context.beginPath()
+            context.arc(coords[0], coords[1], 1.1 * scaleFactor * sphereFactor, 0, 2 * Math.PI)
+            context.fillStyle = "#F59E0B"
+            context.globalAlpha = 0.75 * sphereFactor
+            context.fill()
+          }
+        })
+        context.globalAlpha = 1.0
+
+        // 8. Capital / Safety Hub Beacons
+        const beaconSize = (1 + Math.sin(pulseTick) * 0.35) * scaleFactor
+        majorHubs.forEach((hub) => {
+          const coords = projection([hub.lng, hub.lat])
+          if (
+            coords &&
+            coords[0] >= 0 &&
+            coords[0] <= containerWidth &&
+            coords[1] >= 0 &&
+            coords[1] <= containerHeight
           ) {
             context.beginPath()
-            context.arc(coords[0], coords[1], 0.95 * scaleFactor, 0, 2 * Math.PI)
+            context.arc(coords[0], coords[1], 3.5 * beaconSize, 0, 2 * Math.PI)
             context.fillStyle = "#F59E0B"
-            context.globalAlpha = 0.85
+            context.globalAlpha = 0.25
+            context.fill()
+
+            context.beginPath()
+            context.arc(coords[0], coords[1], 1.6 * scaleFactor, 0, 2 * Math.PI)
+            context.fillStyle = "#FFFBEB"
+            context.globalAlpha = 0.95
             context.fill()
           }
         })
         context.globalAlpha = 1.0
       }
+
+      // 9. 3D Spherical Shading Overlay
+      const shadowGrad = context.createRadialGradient(
+        cx - radius * 0.4,
+        cy - radius * 0.4,
+        radius * 0.2,
+        cx,
+        cy,
+        currentScale
+      )
+      shadowGrad.addColorStop(0, "rgba(243, 229, 171, 0.12)")
+      shadowGrad.addColorStop(0.65, "rgba(0, 0, 0, 0)")
+      shadowGrad.addColorStop(1, "rgba(0, 0, 0, 0.65)")
+
+      context.beginPath()
+      context.arc(cx, cy, currentScale, 0, 2 * Math.PI)
+      context.fillStyle = shadowGrad
+      context.fill()
     }
 
     const loadWorldData = async () => {
       try {
         setIsLoading(true)
-        const response = await fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json")
-        if (!response.ok) throw new Error("Failed to load world map")
+        const response = await fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json")
+        if (!response.ok) throw new Error("Failed to load countries")
         const world: any = await response.json()
         landGeo = topojson.feature(world, world.objects.land)
+        countriesGeo = topojson.feature(world, world.objects.countries)
         const dots = buildCountryDots(landGeo)
         dots.forEach((d) => countryDots.push(d))
         render()
@@ -151,6 +247,7 @@ export default function CircleGuardLoader({
 
     const rotate = () => {
       rotation[0] += rotationSpeed
+      pulseTick += 0.06
       projection.rotate(rotation)
       render()
     }
@@ -175,9 +272,9 @@ export default function CircleGuardLoader({
         <canvas
           ref={canvasRef}
           className="rounded-full"
-          style={{ filter: "drop-shadow(0 0 24px rgba(212,175,55,0.4))" }}
+          style={{ filter: "drop-shadow(0 0 24px rgba(212,175,55,0.45))" }}
         />
-        {/* Pulsing ring overlay for the "guardian radar" brand motif */}
+        {/* Pulsing radar ring */}
         <div className="absolute inset-0 rounded-full border border-[#D4AF37]/40 animate-ping" />
       </div>
 
