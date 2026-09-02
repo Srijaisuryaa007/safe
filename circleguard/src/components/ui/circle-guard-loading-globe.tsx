@@ -55,7 +55,6 @@ export default function CircleGuardLoader({
       { name: "London", lat: 51.5074, lng: -0.1278 },
       { name: "Paris", lat: 48.8566, lng: 2.3522 },
       { name: "New York", lat: 40.7128, lng: -74.006 },
-      { name: "San Francisco", lat: 37.7749, lng: -122.4194 },
       { name: "Tokyo", lat: 35.6762, lng: 139.6503 },
       { name: "Mumbai", lat: 19.076, lng: 72.8777 },
       { name: "Delhi", lat: 28.6139, lng: 77.209 },
@@ -69,7 +68,7 @@ export default function CircleGuardLoader({
 
     function buildCountryDots(features: any) {
       const dots: [number, number][] = []
-      const step = 3.8
+      const step = 3.2
 
       for (let lng = -180; lng <= 180; lng += step) {
         for (let lat = -85; lat <= 85; lat += step) {
@@ -88,6 +87,9 @@ export default function CircleGuardLoader({
       context.clearRect(0, 0, containerWidth, containerHeight)
       const currentScale = projection.scale()
       const scaleFactor = currentScale / radius
+
+      const rot = projection.rotate()
+      const center: [number, number] = [-rot[0], -rot[1]]
 
       // 1. Deep Midnight Ocean Base
       const oceanGrad = context.createRadialGradient(
@@ -128,7 +130,7 @@ export default function CircleGuardLoader({
         // 4. Continent Land Mass Fill
         context.beginPath()
         path(landGeo)
-        context.fillStyle = "#131B16"
+        context.fillStyle = "#141C17"
         context.globalAlpha = 0.95
         context.fill()
         context.globalAlpha = 1.0
@@ -149,56 +151,55 @@ export default function CircleGuardLoader({
         path(landGeo)
         context.strokeStyle = "#F3E5AB"
         context.lineWidth = 1.1 * scaleFactor
-        context.globalAlpha = 0.8
+        context.globalAlpha = 0.85
         context.stroke()
         context.globalAlpha = 1.0
 
-        // 7. Country Matrix Dots with 3D Spherical Light Attenuation
-        countryDots.forEach((pt) => {
-          const coords = projection(pt)
-          if (
-            coords &&
-            coords[0] >= 0 &&
-            coords[0] <= containerWidth &&
-            coords[1] >= 0 &&
-            coords[1] <= containerHeight
-          ) {
-            const dx = coords[0] - cx
-            const dy = coords[1] - cy
-            const distFromCenter = Math.sqrt(dx * dx + dy * dy)
-            const sphereFactor = Math.max(0.2, 1 - (distFromCenter / currentScale) * 0.7)
+        // 7. STRICT CANVAS LAND CLIPPING: Dots are locked strictly inside land boundaries
+        context.save()
+        context.beginPath()
+        path(landGeo)
+        context.clip()
 
-            context.beginPath()
-            context.arc(coords[0], coords[1], 1.1 * scaleFactor * sphereFactor, 0, 2 * Math.PI)
-            context.fillStyle = "#F59E0B"
-            context.globalAlpha = 0.75 * sphereFactor
-            context.fill()
+        countryDots.forEach((pt) => {
+          if (d3.geoDistance(center, pt) <= Math.PI / 2 - 0.02) {
+            const coords = projection(pt)
+            if (coords) {
+              const dx = coords[0] - cx
+              const dy = coords[1] - cy
+              const distFromCenter = Math.sqrt(dx * dx + dy * dy)
+              const sphereFactor = Math.max(0.3, 1 - (distFromCenter / currentScale) * 0.65)
+
+              context.beginPath()
+              context.arc(coords[0], coords[1], 1.15 * scaleFactor * sphereFactor, 0, 2 * Math.PI)
+              context.fillStyle = "#F59E0B"
+              context.globalAlpha = 0.8 * sphereFactor
+              context.fill()
+            }
           }
         })
-        context.globalAlpha = 1.0
+
+        context.restore()
 
         // 8. Capital / Safety Hub Beacons
         const beaconSize = (1 + Math.sin(pulseTick) * 0.35) * scaleFactor
         majorHubs.forEach((hub) => {
-          const coords = projection([hub.lng, hub.lat])
-          if (
-            coords &&
-            coords[0] >= 0 &&
-            coords[0] <= containerWidth &&
-            coords[1] >= 0 &&
-            coords[1] <= containerHeight
-          ) {
-            context.beginPath()
-            context.arc(coords[0], coords[1], 3.5 * beaconSize, 0, 2 * Math.PI)
-            context.fillStyle = "#F59E0B"
-            context.globalAlpha = 0.25
-            context.fill()
+          const pt: [number, number] = [hub.lng, hub.lat]
+          if (d3.geoDistance(center, pt) <= Math.PI / 2 - 0.05) {
+            const coords = projection(pt)
+            if (coords) {
+              context.beginPath()
+              context.arc(coords[0], coords[1], 3.5 * beaconSize, 0, 2 * Math.PI)
+              context.fillStyle = "#F59E0B"
+              context.globalAlpha = 0.25
+              context.fill()
 
-            context.beginPath()
-            context.arc(coords[0], coords[1], 1.6 * scaleFactor, 0, 2 * Math.PI)
-            context.fillStyle = "#FFFBEB"
-            context.globalAlpha = 0.95
-            context.fill()
+              context.beginPath()
+              context.arc(coords[0], coords[1], 1.6 * scaleFactor, 0, 2 * Math.PI)
+              context.fillStyle = "#FFFBEB"
+              context.globalAlpha = 0.95
+              context.fill()
+            }
           }
         })
         context.globalAlpha = 1.0

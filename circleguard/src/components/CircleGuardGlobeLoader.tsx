@@ -72,12 +72,11 @@ const GLOBE_HTML = (size: number) => `
       let countriesGeo = null;
       let countryDots = [];
 
-      // Major World Metropolises & Safety Beacons (Lat/Lng)
+      // Major World Metropolises & Safety Beacons
       const majorHubs = [
         { name: 'London', lat: 51.5074, lng: -0.1278 },
         { name: 'Paris', lat: 48.8566, lng: 2.3522 },
         { name: 'New York', lat: 40.7128, lng: -74.0060 },
-        { name: 'San Francisco', lat: 37.7749, lng: -122.4194 },
         { name: 'Tokyo', lat: 35.6762, lng: 139.6503 },
         { name: 'Mumbai', lat: 19.0760, lng: 72.8777 },
         { name: 'Delhi', lat: 28.6139, lng: 77.2090 },
@@ -87,15 +86,12 @@ const GLOBE_HTML = (size: number) => `
         { name: 'Cairo', lat: 30.0444, lng: 31.2357 },
         { name: 'São Paulo', lat: -23.5505, lng: -46.6333 },
         { name: 'Johannesburg', lat: -26.2041, lng: 28.0473 },
-        { name: 'Berlin', lat: 52.5200, lng: 13.4050 },
-        { name: 'Toronto', lat: 43.6532, lng: -79.3832 },
-        { name: 'Seoul', lat: 37.5665, lng: 126.9780 },
       ];
 
       // High-precision country-fill sampling matrix
       function buildCountryDots(features) {
         const dots = [];
-        const step = 3.8; // Dense sampling so countries are filled realistically
+        const step = 3.2;
 
         for (let lng = -180; lng <= 180; lng += step) {
           for (let lat = -85; lat <= 85; lat += step) {
@@ -114,6 +110,10 @@ const GLOBE_HTML = (size: number) => `
         context.clearRect(0, 0, size, size);
         const currentScale = projection.scale();
         const scaleFactor = currentScale / radius;
+
+        // Current rotation center for strict hemisphere culling
+        const rot = projection.rotate();
+        const center = [-rot[0], -rot[1]];
 
         // 1. Deep Midnight Spherical Ocean Base
         const oceanGrad = context.createRadialGradient(
@@ -150,7 +150,7 @@ const GLOBE_HTML = (size: number) => `
           // 4. Continent Shaded Landmass (Deep Obsidian Green)
           context.beginPath();
           path(landGeo);
-          context.fillStyle = '#131B16';
+          context.fillStyle = '#141C17';
           context.globalAlpha = 0.95;
           context.fill();
           context.globalAlpha = 1.0;
@@ -171,52 +171,64 @@ const GLOBE_HTML = (size: number) => `
           path(landGeo);
           context.strokeStyle = '#F3E5AB';
           context.lineWidth = 1.1 * scaleFactor;
-          context.globalAlpha = 0.8;
+          context.globalAlpha = 0.85;
           context.stroke();
           context.globalAlpha = 1.0;
 
-          // 7. Geographic Country Matrix Dots with 3D Spherical Light Attenuation
-          countryDots.forEach(function(pt) {
-            const coords = projection(pt);
-            if (coords && coords[0] >= 0 && coords[0] <= size && coords[1] >= 0 && coords[1] <= size) {
-              const dx = coords[0] - cx;
-              const dy = coords[1] - cy;
-              const distFromCenter = Math.sqrt(dx * dx + dy * dy);
-              const sphereFactor = Math.max(0.2, 1 - (distFromCenter / currentScale) * 0.7);
+          // 7. STRICT CANVAS LAND CLIPPING: Dots are physically clipped to land boundaries
+          context.save();
+          context.beginPath();
+          path(landGeo);
+          context.clip(); // <--- Zero dots can ever spill into the ocean
 
-              context.beginPath();
-              context.arc(coords[0], coords[1], 1.1 * scaleFactor * sphereFactor, 0, 2 * Math.PI);
-              context.fillStyle = '#F59E0B';
-              context.globalAlpha = 0.75 * sphereFactor;
-              context.fill();
+          countryDots.forEach(function(pt) {
+            // Strict visible hemisphere check (distance from center < 90 degrees)
+            if (d3.geoDistance(center, pt) <= (Math.PI / 2 - 0.02)) {
+              const coords = projection(pt);
+              if (coords) {
+                const dx = coords[0] - cx;
+                const dy = coords[1] - cy;
+                const distFromCenter = Math.sqrt(dx * dx + dy * dy);
+                const sphereFactor = Math.max(0.3, 1 - (distFromCenter / currentScale) * 0.65);
+
+                context.beginPath();
+                context.arc(coords[0], coords[1], 1.15 * scaleFactor * sphereFactor, 0, 2 * Math.PI);
+                context.fillStyle = '#F59E0B';
+                context.globalAlpha = 0.8 * sphereFactor;
+                context.fill();
+              }
             }
           });
-          context.globalAlpha = 1.0;
 
-          // 8. Major Capital & City Safety Beacons (Pulsing Beacons)
+          context.restore(); // Restore unclipped state for beacons and overlays
+
+          // 8. Major Capital & City Safety Beacons
           const beaconSize = (1 + Math.sin(pulseTick) * 0.35) * scaleFactor;
           majorHubs.forEach(function(hub) {
-            const coords = projection([hub.lng, hub.lat]);
-            if (coords && coords[0] >= 0 && coords[0] <= size && coords[1] >= 0 && coords[1] <= size) {
-              // Pulse Halo
-              context.beginPath();
-              context.arc(coords[0], coords[1], 3.5 * beaconSize, 0, 2 * Math.PI);
-              context.fillStyle = '#F59E0B';
-              context.globalAlpha = 0.25;
-              context.fill();
+            const pt = [hub.lng, hub.lat];
+            if (d3.geoDistance(center, pt) <= (Math.PI / 2 - 0.05)) {
+              const coords = projection(pt);
+              if (coords) {
+                // Pulse Halo
+                context.beginPath();
+                context.arc(coords[0], coords[1], 3.5 * beaconSize, 0, 2 * Math.PI);
+                context.fillStyle = '#F59E0B';
+                context.globalAlpha = 0.25;
+                context.fill();
 
-              // Solid Center Pin
-              context.beginPath();
-              context.arc(coords[0], coords[1], 1.6 * scaleFactor, 0, 2 * Math.PI);
-              context.fillStyle = '#FFFBEB';
-              context.globalAlpha = 0.95;
-              context.fill();
+                // Solid Center Pin
+                context.beginPath();
+                context.arc(coords[0], coords[1], 1.6 * scaleFactor, 0, 2 * Math.PI);
+                context.fillStyle = '#FFFBEB';
+                context.globalAlpha = 0.95;
+                context.fill();
+              }
             }
           });
           context.globalAlpha = 1.0;
         }
 
-        // 9. Spherical 3D Shading Overlay (Light Specular on top-left, Shadow on bottom-right)
+        // 9. Spherical 3D Shading Overlay
         const shadowGrad = context.createRadialGradient(
           cx - radius * 0.4, cy - radius * 0.4, radius * 0.2,
           cx, cy, currentScale
