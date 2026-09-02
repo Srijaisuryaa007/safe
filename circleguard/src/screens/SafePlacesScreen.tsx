@@ -804,19 +804,72 @@ export default function SafePlacesScreen() {
               }).addTo(map);
             }
 
-            if (data.endPoint) {
-              endMarker = L.marker([data.endPoint.latitude, data.endPoint.longitude], {
-                icon: L.divIcon({ className: 'custom-icon', html: '<div class="end-pin"></div>', iconSize: [18, 18] })
-              }).addTo(map).bindPopup("End Point");
-
-              if (data.startPoint) {
-                routePolyline = L.polyline([
-                  [data.startPoint.latitude, data.startPoint.longitude],
-                  [data.endPoint.latitude, data.endPoint.longitude]
-                ], { color: '#60A5FA', weight: 3, dashArray: '6, 6' }).addTo(map);
-              }
+        function fetchOsrmRoute(originLng, originLat, destLng, destLat, callback) {
+          var endpoints = [
+            'https://router.project-osrm.org/route/v1/driving/',
+            'https://routing.openstreetmap.de/routed-car/route/v1/driving/'
+          ];
+          var coordStr = originLng.toFixed(6) + ',' + originLat.toFixed(6) + ';' + destLng.toFixed(6) + ',' + destLat.toFixed(6);
+          
+          function tryFetch(index) {
+            if (index >= endpoints.length) {
+              callback(null);
+              return;
             }
-          };
+            var url = endpoints[index] + coordStr + '?overview=full&geometries=geojson';
+            var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            var timeoutId = controller ? setTimeout(function() { controller.abort(); }, 6000) : null;
+            
+            fetch(url, controller ? { signal: controller.signal } : {})
+              .then(function(res) {
+                if (timeoutId) clearTimeout(timeoutId);
+                return res.json();
+              })
+              .then(function(json) {
+                if (json && json.routes && json.routes.length > 0) {
+                  var coords = json.routes[0].geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+                  callback(coords);
+                } else {
+                  tryFetch(index + 1);
+                }
+              })
+              .catch(function() {
+                if (timeoutId) clearTimeout(timeoutId);
+                tryFetch(index + 1);
+              });
+          }
+          tryFetch(0);
+        }
+
+        if (data.endPoint) {
+          endMarker = L.marker([data.endPoint.latitude, data.endPoint.longitude], {
+            icon: L.divIcon({ className: 'custom-icon', html: '<div class="end-pin"></div>', iconSize: [18, 18] })
+          }).addTo(map).bindPopup("End Point");
+
+          if (data.startPoint) {
+            var sLat = data.startPoint.latitude;
+            var sLng = data.startPoint.longitude;
+            var eLat = data.endPoint.latitude;
+            var eLng = data.endPoint.longitude;
+
+            fetchOsrmRoute(sLng, sLat, eLng, eLat, function(coords) {
+              if (routePolyline) {
+                try { map.removeLayer(routePolyline); } catch(e) {}
+              }
+              if (coords && coords.length > 0) {
+                routePolyline = L.polyline(coords, {
+                  color: '#3B82F6',
+                  weight: 5,
+                  opacity: 0.95,
+                  dashArray: '4, 10',
+                  lineCap: 'round',
+                  lineJoin: 'round'
+                }).addTo(map);
+              }
+            });
+          }
+        }
+      };
       </script>
     </body>
     </html>

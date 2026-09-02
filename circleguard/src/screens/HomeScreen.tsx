@@ -181,6 +181,8 @@ export default function HomeScreen() {
       if (activeCircle?.id) {
         await Promise.all([
           useCircleStore.getState().fetchMembers(activeCircle.id),
+          useCircleStore.getState().fetchPlaces(activeCircle.id),
+          fetchHomePlaces(activeCircle.id),
           fetchCircleActivity(activeCircle.id),
         ]);
       }
@@ -214,6 +216,7 @@ export default function HomeScreen() {
     } else if (activeCircle?.id) {
       fetchCircleActivity(activeCircle.id);
       fetchHomePlaces(activeCircle.id);
+      useCircleStore.getState().fetchPlaces(activeCircle.id);
     } else {
       setRecentActivities([]);
       setCirclePlaces([]);

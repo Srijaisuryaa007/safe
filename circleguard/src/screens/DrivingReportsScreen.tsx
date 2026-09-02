@@ -271,7 +271,7 @@ export default function DrivingReportsScreen() {
             if (hLat && hLng && leg.endLat && leg.endLng) {
               const dToHome = Math.hypot((leg.endLat - hLat) * 111000, (leg.endLng - hLng) * 111000);
               if (dToHome <= (homePlace.radius_m || 200)) {
-                tripTitle = `🏠 Return to ${homePlace.name}`;
+                tripTitle = `Return to ${homePlace.name}`;
               }
             }
           }
@@ -399,7 +399,7 @@ export default function DrivingReportsScreen() {
 
           // Start Departure Marker (Emerald Green)
           var startPinHtml = '<div style="display:flex;flex-direction:column;align-items:center;">' +
-            '<div style="background:#10B981;color:#FFFFFF;padding:3px 7px;border-radius:10px;font-size:9px;font-weight:900;font-family:sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.5);margin-bottom:2px;white-space:nowrap;">🟢 DEPARTURE (${selectedTrip.startTime})</div>' +
+            '<div style="background:#10B981;color:#FFFFFF;padding:3px 7px;border-radius:10px;font-size:9px;font-weight:900;font-family:sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.5);margin-bottom:2px;white-space:nowrap;">DEPARTURE (${selectedTrip.startTime})</div>' +
             '<div style="width:18px;height:18px;border-radius:50%;background:#10B981;border:2.5px solid #FFFFFF;box-shadow:0 0 12px rgba(16,185,129,0.9);"></div>' +
             '</div>';
           var startIcon = L.divIcon({ className: 'custom-pin', html: startPinHtml, iconSize: [120, 36], iconAnchor: [60, 36] });
@@ -407,7 +407,7 @@ export default function DrivingReportsScreen() {
 
           // End Arrival Marker (Crimson Red)
           var endPinHtml = '<div style="display:flex;flex-direction:column;align-items:center;">' +
-            '<div style="background:#EF4444;color:#FFFFFF;padding:3px 7px;border-radius:10px;font-size:9px;font-weight:900;font-family:sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.5);margin-bottom:2px;white-space:nowrap;">🔴 ARRIVAL (${selectedTrip.endTime})</div>' +
+            '<div style="background:#EF4444;color:#FFFFFF;padding:3px 7px;border-radius:10px;font-size:9px;font-weight:900;font-family:sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.5);margin-bottom:2px;white-space:nowrap;">ARRIVAL (${selectedTrip.endTime})</div>' +
             '<div style="width:18px;height:18px;border-radius:50%;background:#EF4444;border:2.5px solid #FFFFFF;box-shadow:0 0 12px rgba(239,68,68,0.9);"></div>' +
             '</div>';
           var endIcon = L.divIcon({ className: 'custom-pin', html: endPinHtml, iconSize: [120, 36], iconAnchor: [60, 36] });
@@ -661,8 +661,9 @@ export default function DrivingReportsScreen() {
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                           <Text style={[styles.tripTitle, { color: colors.foreground, textTransform: 'none', fontWeight: '800' }]}>{trip.title}</Text>
-                          <View style={[styles.headingBadge, { borderRadius: 6 }]}>
-                            <Text style={styles.headingBadgeText}>🧭 {trip.cardinalDirection} ({trip.bearingDegrees}°)</Text>
+                          <View style={[styles.headingBadge, { borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                            <Ionicons name="compass-outline" size={11} color="#3B82F6" />
+                            <Text style={styles.headingBadgeText}>{trip.cardinalDirection} ({trip.bearingDegrees}°)</Text>
                           </View>
                         </View>
                         <Text style={[styles.tripTime, { color: colors.textMuted }]}>
@@ -732,8 +733,9 @@ export default function DrivingReportsScreen() {
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20 }} showsVerticalScrollIndicator={false}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                 <Text style={[styles.modalTripTitle, { color: colors.foreground, flex: 1 }]}>{selectedTrip.title}</Text>
-                <View style={styles.headingBadge}>
-                  <Text style={styles.headingBadgeText}>🧭 {selectedTrip.cardinalDirection} ({selectedTrip.bearingDegrees}°)</Text>
+                <View style={[styles.headingBadge, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                  <Ionicons name="compass-outline" size={11} color="#3B82F6" />
+                  <Text style={styles.headingBadgeText}>{selectedTrip.cardinalDirection} ({selectedTrip.bearingDegrees}°)</Text>
                 </View>
               </View>
 

@@ -12,6 +12,7 @@ import { useThemeStore } from '../store/useThemeStore';
 import { useCircleStore, CircleMember } from '../store/useCircleStore';
 import { useNavigation } from '@react-navigation/native';
 import { getHaversineDistanceInMeters } from '../services/GeofenceEngine';
+import { fetchDrivingDistance } from '../services/RoadRoutingService';
 
 interface MemberStatusPillsCarouselProps {
   safePlaces?: any[];
@@ -55,6 +56,33 @@ export default function MemberStatusPillsCarousel({
   const { members } = useCircleStore();
   const { profile } = useAuthStore();
   const navigation = useNavigation<any>();
+
+  const [roadDistances, setRoadDistances] = React.useState<Record<string, string>>({});
+
+  React.useEffect(() => {
+    if (!userLoc || !members || members.length === 0) return;
+    let isMounted = true;
+
+    members.forEach(async (m) => {
+      const { lat, lng } = parseCoords(m);
+      const isSelf = profile?.id && (m.user_id === profile.id || (m as any).id === profile.id);
+      if (isSelf || !lat || !lng || lat === 0 || lng === 0) return;
+
+      const mId = m.user_id || (m as any).id;
+      const res = await fetchDrivingDistance(
+        { latitude: userLoc.latitude, longitude: userLoc.longitude },
+        { latitude: lat, longitude: lng }
+      );
+      if (isMounted && res && res.distText) {
+        setRoadDistances(prev => ({
+          ...prev,
+          [mId]: `${res.distText} away`
+        }));
+      }
+    });
+
+    return () => { isMounted = false; };
+  }, [members, userLoc?.latitude, userLoc?.longitude, profile?.id]);
 
   const getMemberDisplayName = (m: any): string => {
     return m.profile?.full_name || m.full_name || 'Member';
@@ -132,6 +160,16 @@ export default function MemberStatusPillsCarousel({
     }
 
     if (userLoc && !isNaN(userLoc.latitude) && !isNaN(userLoc.longitude)) {
+      const memberId = m.user_id || m.id;
+      if (roadDistances[memberId]) {
+        return {
+          label: roadDistances[memberId],
+          icon: 'navigate-outline' as const,
+          color: colors.textMuted || '#8E8E93',
+          isMoving: false,
+        };
+      }
+
       const distM = getHaversineDistanceInMeters(userLoc.latitude, userLoc.longitude, lat, lng);
       if (distM < 60) {
         return {

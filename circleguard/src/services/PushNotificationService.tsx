@@ -41,27 +41,23 @@ export interface PushMessagePayload {
 }
 
 /**
- * Engaging, Humorous & Apple-Minimalist Push Notification Templates
- * Designed to spark curiosity and encourage circle members to open the app and view live locations!
+ * Professional Security & Location Telemetry Notification Templates
+ * Precise, restrained, and executive security product microcopy.
  */
 export const CREATIVE_NOTIFICATION_TEMPLATES = {
   arrival: (name: string, placeName: string) => {
     const templates = [
       {
-        title: `🎯 ${name} just landed at ${placeName}!`,
-        body: `Wonder what they're up to? 👀 Tap to inspect their live spot on CircleGuard!`,
+        title: `${name} arrived at ${placeName}`,
+        body: `Location confirmed within designated geofence perimeter.`,
       },
       {
-        title: `🍕 Radar Alert: ${name} @ ${placeName}`,
-        body: `Are they grabbing snacks without you? 📍 Tap to check their live radar coordinates!`,
+        title: `Geofence Entry: ${placeName}`,
+        body: `${name} has checked into ${placeName}. Tap to view live telemetry.`,
       },
       {
-        title: `🚀 Touchdown: ${name} arrived at ${placeName}`,
-        body: `Safe and sound inside the perimeter! 🗺️ Tap to view their live circle pin.`,
-      },
-      {
-        title: `🏡 Look who just arrived: ${name}!`,
-        body: `Checked into ${placeName}. 📍 Tap to see their battery & distance!`,
+        title: `Perimeter Check: ${name}`,
+        body: `Safely arrived at ${placeName}. Status and battery level verified.`,
       },
     ];
     return templates[Math.floor(Math.random() * templates.length)];
@@ -70,51 +66,47 @@ export const CREATIVE_NOTIFICATION_TEMPLATES = {
   departure: (name: string, placeName: string, speedKmh?: number) => {
     const templates = [
       {
-        title: `🏎️ Zoom! ${name} is on the move from ${placeName}`,
+        title: `${name} departed ${placeName}`,
         body: speedKmh && speedKmh > 20
-          ? `Cruising at ${speedKmh} km/h 💨 Where are they heading next? 🧭 Tap to track live route!`
-          : `Just stepped outside ${placeName}! 💨 Tap to follow their live breadcrumb trail!`,
+          ? `In transit at ${speedKmh} km/h. Tap to monitor live route.`
+          : `Departed ${placeName}. Tap to monitor live location on map.`,
       },
       {
-        title: `🕵️‍♂️ Stealth Exit: ${name} left ${placeName}`,
-        body: `On a secret mission? 👀 Tap to see their live direction & GPS heading!`,
-      },
-      {
-        title: `💨 ${name} just broke perimeter at ${placeName}`,
-        body: `Catch them on the map before they get too far! 📍 Tap to open live radar.`,
+        title: `Geofence Exit: ${placeName}`,
+        body: `${name} has left ${placeName}. Real-time tracking is active.`,
       },
     ];
     return templates[Math.floor(Math.random() * templates.length)];
   },
 
   lowBattery: (name: string, batteryPct: number) => ({
-    title: `🪫 Code Red: ${name}'s phone is at ${batteryPct}%!`,
-    body: `Their battery is on life support! ⚡ Remind them to charge before they vanish into the void 🔌`,
+    title: `Low Battery Advisory: ${name}`,
+    body: `Device battery is at ${batteryPct}%. Advise connecting to a charger to maintain location telemetry.`,
   }),
 
   speeding: (name: string, speedKmh: number) => ({
-    title: `🚀 Fast & Furious: ${name} @ ${speedKmh} km/h!`,
-    body: `Speeding alert! 🏎️💨 Tap to check their live telemetry, road route & driving score.`,
+    title: `Speed Advisory: ${name}`,
+    body: `Speed telemetry recorded at ${speedKmh} km/h. Tap to review driving analytics.`,
   }),
 
   sos: (name: string) => ({
-    title: `🚨 CRITICAL DISTRESS: ${name} NEEDS HELP!`,
-    body: `Emergency SOS triggered! ⚠️ Tap immediately for real-time GPS coordinates and hotline dispatch.`,
+    title: `CRITICAL DISTRESS ALERT: ${name}`,
+    body: `Emergency SOS triggered. Open immediately for real-time coordinates and emergency response.`,
   }),
 
   curiosityPing: (name: string) => ({
-    title: `👀 Psst... Where in the world is ${name}?`,
-    body: `Someone's exploring the city right now 🗺️ Tap to reveal their real-time location radar!`,
+    title: `Location Update: ${name}`,
+    body: `Active movement recorded. Tap to view current location and route.`,
   }),
 
   nightCheckIn: () => ({
-    title: `🌙 Late Night Perimeter Sweep`,
-    body: `Everyone accounted for? 🛡️ Tap to check your circle's midnight status & battery levels.`,
+    title: `Perimeter Security Check`,
+    body: `All circle members accounted for. Tap to review status and battery telemetry.`,
   }),
 
   ghostMode: (name: string) => ({
-    title: `👻 Ninja Mode: ${name} vanished into thin air!`,
-    body: `Ghost Mode activated 💨 Their GPS signal is now mysteriously obfuscated.`,
+    title: `Privacy Mode Active: ${name}`,
+    body: `Location precision has been set to privacy mode by the user.`,
   }),
 };
 

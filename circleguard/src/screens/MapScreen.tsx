@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, TextInput, Linking, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, TextInput, Linking, ScrollView, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRoute, useNavigation } from '@react-navigation/native';
 import { WebView } from 'react-native-webview';
@@ -30,7 +30,7 @@ import { useThemeStore } from '../store/useThemeStore';
 import { queueAndSyncLocationHistory, flushOfflineBreadcrumbs } from '../services/OfflineLocationQueueService';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import { scheduleLocalNotification } from '../services/PushNotificationService';
-import { calculateDijkstraRouteBetweenUsers } from '../services/RoadRoutingService';
+import { calculateDijkstraRouteBetweenUsers, fetchDrivingDistance, fetchMultipleDrivingRoutes, DrivingRouteOption } from '../services/RoadRoutingService';
 
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
@@ -405,7 +405,7 @@ const LEAFLET_HTML = `
           '<div class="self-pulse-wave"></div>' +
           '<div class="self-heading-arrow" style="' + headingStyle + '"></div>' +
           '<div style="position:absolute; bottom:44px; left:50%; transform:translateX(-50%); white-space:nowrap; background:rgba(22,24,31,0.95); color:#FFFFFF; font-size:10px; font-weight:800; font-family:sans-serif; padding:3px 8px; border-radius:10px; border:1px solid #D4AF37; box-shadow:0 4px 10px rgba(0,0,0,0.5); pointer-events:none; z-index:1000;">' +
-            '📍 ' + speedText +
+            speedText +
           '</div>' +
           '<div class="self-avatar-circle">' + avatarContent + '</div>' +
           '</div>';
@@ -439,6 +439,43 @@ const LEAFLET_HTML = `
         }
       };
 
+      function fetchOsrmRoute(originLng, originLat, destLng, destLat, callback) {
+        var endpoints = [
+          'https://router.project-osrm.org/route/v1/driving/',
+          'https://routing.openstreetmap.de/routed-car/route/v1/driving/'
+        ];
+        var coordStr = originLng.toFixed(6) + ',' + originLat.toFixed(6) + ';' + destLng.toFixed(6) + ',' + destLat.toFixed(6);
+        
+        function tryFetch(index) {
+          if (index >= endpoints.length) {
+            callback(null);
+            return;
+          }
+          var url = endpoints[index] + coordStr + '?overview=full&geometries=geojson';
+          var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          var timeoutId = controller ? setTimeout(function() { controller.abort(); }, 6000) : null;
+          
+          fetch(url, controller ? { signal: controller.signal } : {})
+            .then(function(res) {
+              if (timeoutId) clearTimeout(timeoutId);
+              return res.json();
+            })
+            .then(function(json) {
+              if (json && json.routes && json.routes.length > 0) {
+                var coords = json.routes[0].geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+                callback(coords, json.routes[0].distance, json.routes[0].duration);
+              } else {
+                tryFetch(index + 1);
+              }
+            })
+            .catch(function() {
+              if (timeoutId) clearTimeout(timeoutId);
+              tryFetch(index + 1);
+            });
+        }
+        tryFetch(0);
+      }
+
       window.cachedRoadRoutes = {};
       function fetchAndDrawRoadRoute(pId, startLatLng, endLatLng, polylineLayer) {
         if (!startLatLng || !endLatLng || !polylineLayer) return;
@@ -448,65 +485,118 @@ const LEAFLET_HTML = `
           return;
         }
 
-        var url = 'https://router.project-osrm.org/route/v1/driving/' + startLatLng[1].toFixed(6) + ',' + startLatLng[0].toFixed(6) + ';' + endLatLng[1].toFixed(6) + ',' + endLatLng[0].toFixed(6) + '?overview=full&geometries=geojson';
-        fetch(url)
-          .then(function(res) { return res.json(); })
-          .then(function(json) {
-            if (json && json.routes && json.routes.length > 0) {
-              var coords = json.routes[0].geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
-              window.cachedRoadRoutes[cacheKey] = coords;
-              if (polylineLayer) {
-                polylineLayer.setLatLngs(coords);
-              }
+        fetchOsrmRoute(startLatLng[1], startLatLng[0], endLatLng[1], endLatLng[0], function(coords) {
+          if (coords && coords.length > 0) {
+            window.cachedRoadRoutes[cacheKey] = coords;
+            if (polylineLayer) {
+              polylineLayer.setLatLngs(coords);
             }
-          })
-          .catch(function() {});
+          }
+        });
       }
 
-      window.activeMemberRoutePolyline = null;
-      window.drawMemberDijkstraRoute = function(userLat, userLng, memLat, memLng) {
-        if (window.activeMemberRoutePolyline) {
-          try { map.removeLayer(window.activeMemberRoutePolyline); } catch(e) {}
-          window.activeMemberRoutePolyline = null;
-        }
-
-        if (!userLat || !userLng || !memLat || !memLng || (userLat === memLat && userLng === memLng)) return;
-
-        var url = 'https://router.project-osrm.org/route/v1/driving/' + userLng.toFixed(6) + ',' + userLat.toFixed(6) + ';' + memLng.toFixed(6) + ',' + memLat.toFixed(6) + '?overview=full&geometries=geojson';
-        fetch(url)
-          .then(function(res) { return res.json(); })
-          .then(function(json) {
-            if (json && json.routes && json.routes.length > 0) {
-              var coords = json.routes[0].geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
-              if (window.activeMemberRoutePolyline) {
-                try { map.removeLayer(window.activeMemberRoutePolyline); } catch(e) {}
-              }
-              window.activeMemberRoutePolyline = L.polyline(coords, {
-                color: '#10B981',
-                weight: 5,
-                opacity: 0.9,
-                dashArray: '8, 8',
-                lineJoin: 'round'
-              }).addTo(map);
-
-              var group = L.featureGroup([
-                L.marker([userLat, userLng]),
-                L.marker([memLat, memLng]),
-                window.activeMemberRoutePolyline
-              ]);
-              map.fitBounds(group.getBounds(), { padding: [70, 70] });
-            }
-          })
-          .catch(function(err) {
-            console.warn('Dijkstra route fetch note:', err);
+      window.activeMemberRouteLayers = [];
+      window.clearMemberRoute = function() {
+        if (window.activeMemberRouteLayers && window.activeMemberRouteLayers.length > 0) {
+          window.activeMemberRouteLayers.forEach(function(layer) {
+            try { map.removeLayer(layer); } catch(e) {}
           });
+          window.activeMemberRouteLayers = [];
+        }
       };
 
-      window.clearMemberRoute = function() {
-        if (window.activeMemberRoutePolyline) {
-          try { map.removeLayer(window.activeMemberRoutePolyline); } catch(e) {}
-          window.activeMemberRoutePolyline = null;
+      window.drawMultipleRoadRoutes = function(routes, activeIndex) {
+        window.clearMemberRoute();
+        if (!routes || !Array.isArray(routes) || routes.length === 0) return;
+
+        var allLayers = [];
+        var boundsGroup = [];
+
+        // 1. Draw alternative / non-selected routes first (underneath active route)
+        routes.forEach(function(r, idx) {
+          if (idx === activeIndex || !r.roadCoords || r.roadCoords.length < 2) return;
+
+          // Outer shadow casing for alternative route
+          var altCasing = L.polyline(r.roadCoords, {
+            color: '#1E293B',
+            weight: 7,
+            opacity: 0.65,
+            lineCap: 'round',
+            lineJoin: 'round'
+          }).addTo(map);
+
+          // Inner dashed line for alternative route
+          var altLine = L.polyline(r.roadCoords, {
+            color: '#94A3B8',
+            weight: 4.5,
+            opacity: 0.95,
+            dashArray: '7, 9',
+            lineCap: 'round',
+            lineJoin: 'round'
+          }).addTo(map);
+
+          var clickHandler = function() {
+            sendAppMessage({ type: 'ROUTE_SELECTED', routeIndex: idx });
+          };
+          altCasing.on('click', clickHandler);
+          altLine.on('click', clickHandler);
+
+          allLayers.push(altCasing, altLine);
+          boundsGroup.push(altLine);
+        });
+
+        // 2. Draw active / selected route on top with signature Google Maps highway styling
+        var activeRoute = routes[activeIndex] || routes[0];
+        if (activeRoute && activeRoute.roadCoords && activeRoute.roadCoords.length > 1) {
+          var isFastest = activeRoute.tag === 'fastest' || activeIndex === 0;
+          var mainColor = isFastest ? '#2563EB' : '#D97706';
+          var casingColor = isFastest ? '#1E3A8A' : '#78350F';
+          var pulseColor = isFastest ? '#93C5FD' : '#FDE68A';
+
+          var casingLayer = L.polyline(activeRoute.roadCoords, {
+            color: casingColor,
+            weight: 8.5,
+            opacity: 0.85,
+            lineCap: 'round',
+            lineJoin: 'round'
+          }).addTo(map);
+
+          var mainLayer = L.polyline(activeRoute.roadCoords, {
+            color: mainColor,
+            weight: 5.5,
+            opacity: 0.98,
+            lineCap: 'round',
+            lineJoin: 'round'
+          }).addTo(map);
+
+          var dotsLayer = L.polyline(activeRoute.roadCoords, {
+            color: pulseColor,
+            weight: 2.2,
+            opacity: 0.92,
+            dashArray: '4, 10',
+            lineCap: 'round',
+            lineJoin: 'round'
+          }).addTo(map);
+
+          allLayers.push(casingLayer, mainLayer, dotsLayer);
+          boundsGroup.push(mainLayer);
         }
+
+        window.activeMemberRouteLayers = allLayers;
+
+        if (boundsGroup.length > 0) {
+          var fg = L.featureGroup(boundsGroup);
+          map.fitBounds(fg.getBounds(), { padding: [80, 80], maxZoom: 16 });
+        }
+      };
+
+      window.drawMemberDijkstraRoute = function(userLat, userLng, memLat, memLng) {
+        if (!userLat || !userLng || !memLat || !memLng) return;
+        fetchOsrmRoute(userLng, userLat, memLng, memLat, function(coords) {
+          if (coords && coords.length > 0) {
+            window.drawMultipleRoadRoutes([{ roadCoords: coords, tag: 'fastest', timeText: 'Live Route', distText: 'Direct' }], 0);
+          }
+        });
       };
 
       // DELETION HOOK: Instant removal of deleted zone layers
@@ -540,7 +630,6 @@ const LEAFLET_HTML = `
         var shortName = name && name.length > 25 ? name.substring(0, 23) + '...' : (name || 'Searched Location');
         var html = '<div class="poi-badge-container">' +
           '<div class="poi-pill" style="background:linear-gradient(135deg, #D4AF37, #B45309); border:2px solid #FFFFFF; box-shadow:0 0 16px rgba(212,175,55,0.7);">' +
-          '<span>📍</span>' +
           '<span>' + shortName + '</span>' +
           '</div>' +
           '<div class="poi-arrow" style="border-top:6px solid #B45309;"></div>' +
@@ -619,7 +708,7 @@ const LEAFLET_HTML = `
 
             if (m.isGhost) {
               roleColor = '#A855F7';
-              roleBadgeSymbol = '👻 ';
+              roleBadgeSymbol = '';
             } else if (m.role === 'owner') {
               roleColor = '#D4AF37';
             } else if (m.role === 'co_leader') {
@@ -680,26 +769,20 @@ const LEAFLET_HTML = `
 
             var pLatLng = [p.lat, p.lng];
 
-            // Resolve Category Theme Colors & Emojis
+            // Resolve Category Theme Colors
             var cat = p.category || 'home';
             var zoneColor = '#D4AF37';
-            var zoneEmoji = '🛡️';
             
             if (cat === 'home') {
               zoneColor = '#10B981';
-              zoneEmoji = '🏠';
             } else if (cat === 'work') {
               zoneColor = '#3B82F6';
-              zoneEmoji = '💼';
             } else if (cat === 'school') {
               zoneColor = '#F59E0B';
-              zoneEmoji = '🎓';
             } else if (cat === 'fitness' || cat === 'gym') {
               zoneColor = '#8B5CF6';
-              zoneEmoji = '💪';
             } else if (cat === 'danger') {
               zoneColor = '#EF4444';
-              zoneEmoji = '⚠️';
             }
 
             // A. Geofence Boundary Circle
@@ -731,10 +814,10 @@ const LEAFLET_HTML = `
             }
 
             // B. Center Badge
-            var memberCountTag = p.assignedCount ? ' • ' + p.assignedCount + '👤' : '';
+            var memberCountTag = p.assignedCount ? ' • ' + p.assignedCount + ' assigned' : '';
             var radiusTag = p.radius >= 1000 ? ((p.radius/1000).toFixed(1) + 'km') : (p.radius + 'm');
             var badgeHtml = '<div style="position:relative;display:flex;align-items:center;justify-content:center;transform:translate(-50%, -50%);background:rgba(22,24,31,0.92);color:#FFFFFF;border:1.5px solid ' + zoneColor + ';padding:4px 10px;border-radius:14px;box-shadow:0 4px 12px rgba(0,0,0,0.6);font-size:10.5px;font-weight:800;white-space:nowrap;font-family:sans-serif;cursor:pointer;">' +
-              '<span style="margin-right:5px;">' + zoneEmoji + '</span>' + p.name + ' (' + radiusTag + memberCountTag + ')' +
+              '<span style="display:inline-block;width:6px;height:6px;border-radius:3px;background:' + zoneColor + ';margin-right:6px;"></span>' + p.name + ' (' + radiusTag + memberCountTag + ')' +
               '</div>';
 
             var badgeIcon = L.divIcon({
@@ -822,33 +905,27 @@ const LEAFLET_HTML = `
           data.pois.forEach(function(p) {
             currentPoiIds[p.id] = true;
             var poiLatLng = [p.lat, p.lng];
-            var poiEmoji = '📍';
             var poiLabel = p.name ? p.name.toUpperCase() : 'POI';
             var bgGradient = 'linear-gradient(135deg, #EF4444, #B91C1C)';
             var arrowColor = '#B91C1C';
 
             if (p.category === 'hospital') {
-              poiEmoji = '🏥';
               poiLabel = p.name || 'HOSPITAL';
               bgGradient = 'linear-gradient(135deg, #EF4444, #DC2626)';
               arrowColor = '#DC2626';
             } else if (p.category === 'police') {
-              poiEmoji = '🛡️';
               poiLabel = p.name || 'POLICE';
               bgGradient = 'linear-gradient(135deg, #D4AF37, #B45309)';
               arrowColor = '#B45309';
             } else if (p.category === 'school') {
-              poiEmoji = '🎓';
               poiLabel = p.name || 'SCHOOL';
               bgGradient = 'linear-gradient(135deg, #3B82F6, #2563EB)';
               arrowColor = '#2563EB';
             } else if (p.category === 'restaurant') {
-              poiEmoji = '🍴';
               poiLabel = p.name || 'DINING';
               bgGradient = 'linear-gradient(135deg, #F59E0B, #D97706)';
               arrowColor = '#D97706';
             } else if (p.category === 'fuel') {
-              poiEmoji = '⛽';
               poiLabel = p.name || 'FUEL';
               bgGradient = 'linear-gradient(135deg, #10B981, #059669)';
               arrowColor = '#059669';
@@ -858,7 +935,6 @@ const LEAFLET_HTML = `
 
             var htmlStr = '<div class="poi-badge-container">' +
               '<div class="poi-pill" style="background:' + bgGradient + ';">' +
-              '<span>' + poiEmoji + '</span>' +
               '<span>' + shortLabel + '</span>' +
               '</div>' +
               '<div class="poi-arrow" style="border-top:6px solid ' + arrowColor + ';"></div>' +
@@ -976,9 +1052,13 @@ export default function MapScreen() {
   }, []);
 
   const lastHandledFocusKeyRef = useRef<string | null>(null);
+  const pendingFocusRef = useRef<{ lat?: number; lng?: number; name?: string; userId?: string } | null>(null);
 
   const handleCloseMemberCard = () => {
     setSelectedMember(null);
+    setMemberRoadInfo(null);
+    setAvailableRoutes([]);
+    setSelectedRouteIndex(0);
     if (webViewRef.current) {
       webViewRef.current.injectJavaScript(`if (window.clearMemberRoute) { window.clearMemberRoute(); } true;`);
     }
@@ -992,9 +1072,9 @@ export default function MapScreen() {
     }
   };
 
-  // Focus from chat or other screens
+  // Focus from search, chat, or other screens
   useEffect(() => {
-    const focusKey = `${focusUserId || ''}_${focusLat || ''}_${focusLng || ''}`;
+    const focusKey = `${focusUserId || ''}_${focusLat || ''}_${focusLng || ''}_${focusUserName || ''}`;
     if (!focusUserId && !focusLat && !focusLng) {
       lastHandledFocusKeyRef.current = null;
       return;
@@ -1005,27 +1085,76 @@ export default function MapScreen() {
     }
     lastHandledFocusKeyRef.current = focusKey;
 
-    if (focusLat && focusLng && !isNaN(focusLat) && !isNaN(focusLng)) {
+    const latNum = focusLat ? Number(focusLat) : undefined;
+    const lngNum = focusLng ? Number(focusLng) : undefined;
+
+    pendingFocusRef.current = {
+      lat: latNum,
+      lng: lngNum,
+      name: focusUserName,
+      userId: focusUserId,
+    };
+
+    // CRITICAL: Disable automatic GPS camera snapping so map stays at searched place
+    setIsFollowUserActive(false);
+
+    if (latNum && lngNum && !isNaN(latNum) && !isNaN(lngNum)) {
       if (webViewRef.current) {
-        const js = `if (window.map) { window.map.setView([${focusLat}, ${focusLng}], 17); } true;`;
+        const js = `
+          if (window.showSearchedPlace) {
+            window.showSearchedPlace(${latNum}, ${lngNum}, ${JSON.stringify(focusUserName || 'Searched Location')});
+          } else if (window.map) {
+            window.map.setView([${latNum}, ${lngNum}], 16, { animate: true, duration: 1.0 });
+          }
+          true;
+        `;
         webViewRef.current.injectJavaScript(js);
       }
 
-      const found = members.find(m => String(m.user_id).toLowerCase() === String(focusUserId).toLowerCase());
-      if (found) {
-        setSelectedMember({
-          ...found,
-          latitude: focusLat,
-          longitude: focusLng,
+      if (focusUserId) {
+        // Focus on member
+        const found = members.find(m => String(m.user_id).toLowerCase() === String(focusUserId).toLowerCase());
+        setSelectedPlace(null);
+        setSelectedPoi(null);
+        if (found) {
+          handleSelectMember({
+            ...found,
+            latitude: latNum,
+            longitude: lngNum,
+          });
+        } else {
+          handleSelectMember({
+            user_id: focusUserId,
+            profile: { full_name: focusUserName || 'Circle Member', avatar_url: null },
+            isOnline: true,
+            latitude: latNum,
+            longitude: lngNum,
+          });
+        }
+      } else {
+        // Focus on Searched Place or POI
+        setSelectedMember(null);
+        const matchingPlace = (places || []).find(p => {
+          const pt = parseLocationPoint(p);
+          const nameMatch = focusUserName && p.name && p.name.toLowerCase() === focusUserName.toLowerCase();
+          const coordMatch = Math.abs(pt.latitude - latNum) < 0.001 && Math.abs(pt.longitude - lngNum) < 0.001;
+          return nameMatch || coordMatch;
         });
-      } else if (focusUserId) {
-        setSelectedMember({
-          user_id: focusUserId,
-          profile: { full_name: focusUserName || 'Circle Member', avatar_url: null },
-          isOnline: true,
-          latitude: focusLat,
-          longitude: focusLng,
-        });
+
+        if (matchingPlace) {
+          setSelectedPoi(null);
+          setSelectedPlace(matchingPlace);
+        } else {
+          setSelectedPlace(null);
+          setSelectedPoi({
+            id: `search_${Date.now()}`,
+            name: focusUserName || 'Searched Location',
+            subText: `Coordinates: ${latNum.toFixed(4)}, ${lngNum.toFixed(4)}`,
+            category: 'location',
+            lat: latNum,
+            lng: lngNum,
+          });
+        }
       }
     } else if (focusUserId) {
       const found = members.find(m => String(m.user_id).toLowerCase() === String(focusUserId).toLowerCase());
@@ -1034,12 +1163,19 @@ export default function MapScreen() {
       const targetLng = loc?.longitude || found?.longitude;
 
       if (targetLat && targetLng && webViewRef.current) {
-        const js = `if (window.map) { window.map.setView([${targetLat}, ${targetLng}], 17); } true;`;
+        const js = `
+          if (window.map) {
+            window.map.setView([${targetLat}, ${targetLng}], 16, { animate: true, duration: 1.0 });
+          }
+          true;
+        `;
         webViewRef.current.injectJavaScript(js);
       }
-      if (found) setSelectedMember(found);
+      if (found) {
+        handleSelectMember(found);
+      }
     }
-  }, [focusUserId, focusLat, focusLng, focusUserName, members, locations]);
+  }, [focusUserId, focusLat, focusLng, focusUserName, members, locations, places]);
 
   const handleDeleteSelectedPlace = async () => {
     if (!selectedPlace) return;
@@ -1306,36 +1442,98 @@ export default function MapScreen() {
   };
 
   const [memberRoadInfo, setMemberRoadInfo] = useState<{ distText: string } | null>(null);
+  const [memberRoadDistances, setMemberRoadDistances] = useState<Record<string, string>>({});
+  const [availableRoutes, setAvailableRoutes] = useState<DrivingRouteOption[]>([]);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState<number>(0);
+
+  useEffect(() => {
+    if (!userLoc || !members || members.length === 0) return;
+    let isMounted = true;
+
+    members.forEach(async (m) => {
+      const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
+      if (isSelf) return;
+      const loc = locations.find(l => String(l.user_id).toLowerCase() === String(m.user_id).toLowerCase());
+      const targetLat = loc?.latitude || m.latitude;
+      const targetLng = loc?.longitude || m.longitude;
+      if (!targetLat || !targetLng || targetLat === 0 || targetLng === 0) return;
+
+      const res = await fetchDrivingDistance(
+        { latitude: userLoc.latitude, longitude: userLoc.longitude },
+        { latitude: targetLat, longitude: targetLng }
+      );
+      if (isMounted && res && res.distText) {
+        setMemberRoadDistances(prev => ({
+          ...prev,
+          [m.user_id]: res.distText
+        }));
+      }
+    });
+
+    return () => { isMounted = false; };
+  }, [members, locations, userLoc?.latitude, userLoc?.longitude, profile?.id]);
 
   useEffect(() => {
     if (!selectedMember || !userLoc) {
       setMemberRoadInfo(null);
+      setAvailableRoutes([]);
+      setSelectedRouteIndex(0);
       return;
     }
     const isSelf = String(selectedMember.user_id).toLowerCase() === String(profile?.id).toLowerCase();
     if (isSelf) {
       setMemberRoadInfo({ distText: 'Your Location' });
+      setAvailableRoutes([]);
+      setSelectedRouteIndex(0);
       return;
     }
     const memberLoc = locations.find(l => l.user_id === selectedMember.user_id);
-    const targetLat = memberLoc?.latitude;
-    const targetLng = memberLoc?.longitude;
+    const targetLat = memberLoc?.latitude || selectedMember.latitude;
+    const targetLng = memberLoc?.longitude || selectedMember.longitude;
     if (!targetLat || !targetLng || targetLat === 0 || targetLng === 0) return;
 
     let isMounted = true;
-    calculateDijkstraRouteBetweenUsers(
+    fetchMultipleDrivingRoutes(
       { latitude: userLoc.latitude, longitude: userLoc.longitude },
       { latitude: targetLat, longitude: targetLng }
-    ).then((r) => {
-      if (isMounted && r.totalDistanceKm > 0) {
+    ).then((routes) => {
+      if (isMounted && routes && routes.length > 0) {
+        setAvailableRoutes(routes);
+        setSelectedRouteIndex(0);
+        const active = routes[0];
         setMemberRoadInfo({
-          distText: r.totalDistanceKm >= 1 ? `${r.totalDistanceKm} km (via road)` : `${Math.round(r.totalDistanceKm * 1000)}m (via road)`
+          distText: `${active.distText} (via road) • ~${active.timeText}`
         });
+
+        if (webViewRef.current) {
+          webViewRef.current.injectJavaScript(`
+            if (window.drawMultipleRoadRoutes) {
+              window.drawMultipleRoadRoutes(${JSON.stringify(routes)}, 0);
+            } true;
+          `);
+        }
       }
     }).catch(() => {});
 
     return () => { isMounted = false; };
   }, [selectedMember?.user_id, userLoc?.latitude, userLoc?.longitude]);
+
+  const handleSelectRouteOption = (index: number) => {
+    setSelectedRouteIndex(index);
+    if (availableRoutes[index]) {
+      const active = availableRoutes[index];
+      setMemberRoadInfo({
+        distText: `${active.distText} (via road) • ~${active.timeText}`
+      });
+      if (webViewRef.current) {
+        webViewRef.current.injectJavaScript(`
+          if (window.drawMultipleRoadRoutes) {
+            window.drawMultipleRoadRoutes(${JSON.stringify(availableRoutes)}, ${index});
+          } true;
+        `);
+      }
+    }
+  };
 
   const handleClosePoi = () => {
     setSelectedPoi(null);
@@ -1344,25 +1542,41 @@ export default function MapScreen() {
     }
   };
 
+
+
   const handleSelectMember = (m: any) => {
     setIsFollowUserActive(false);
     setSelectedPoi(null);
     setSelectedPlace(null);
     setSelectedMember(m);
+    setSelectedRouteIndex(0);
 
     const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
     const memberLoc = isSelf ? { latitude: userLoc?.latitude, longitude: userLoc?.longitude } : locations.find(l => l.user_id === m.user_id);
     const targetLat = memberLoc?.latitude;
     const targetLng = memberLoc?.longitude;
 
-    if (!isSelf && userLoc && targetLat && targetLng && userLoc.latitude && userLoc.longitude && webViewRef.current) {
-      webViewRef.current.injectJavaScript(`
-        if (window.drawMemberDijkstraRoute) {
-          window.drawMemberDijkstraRoute(${userLoc.latitude}, ${userLoc.longitude}, ${targetLat}, ${targetLng});
-        } else if (map) {
-          map.flyTo([${targetLat}, ${targetLng}], 16, { animate: true, duration: 1.0 });
-        } true;
-      `);
+    if (!isSelf && userLoc && targetLat && targetLng && userLoc.latitude && userLoc.longitude) {
+      fetchMultipleDrivingRoutes(
+        { latitude: userLoc.latitude, longitude: userLoc.longitude },
+        { latitude: targetLat, longitude: targetLng }
+      ).then((routes) => {
+        if (routes && routes.length > 0) {
+          setAvailableRoutes(routes);
+          setSelectedRouteIndex(0);
+          const active = routes[0];
+          setMemberRoadInfo({
+            distText: `${active.distText} (via road) • ~${active.timeText}`
+          });
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript(`
+              if (window.drawMultipleRoadRoutes) {
+                window.drawMultipleRoadRoutes(${JSON.stringify(routes)}, 0);
+              } true;
+            `);
+          }
+        }
+      }).catch(() => {});
     } else if (targetLat && targetLng && webViewRef.current) {
       webViewRef.current.injectJavaScript(`if (map) { map.flyTo([${targetLat}, ${targetLng}], 16, { animate: true, duration: 1.0 }); } true;`);
     }
@@ -2052,12 +2266,38 @@ export default function MapScreen() {
         originWhitelist={['*']}
         source={webViewSource}
         style={styles.map}
-        onLoadEnd={pushMapData}
+        onLoadEnd={() => {
+          pushMapData();
+          if (pendingFocusRef.current?.lat && pendingFocusRef.current?.lng && webViewRef.current) {
+            const { lat, lng, name } = pendingFocusRef.current;
+            const js = `
+              if (window.showSearchedPlace) {
+                window.showSearchedPlace(${lat}, ${lng}, ${JSON.stringify(name || 'Searched Location')});
+              } else if (window.map) {
+                window.map.setView([${lat}, ${lng}], 16);
+              }
+              true;
+            `;
+            webViewRef.current.injectJavaScript(js);
+          }
+        }}
         onMessage={(event) => {
           try {
             const msg = JSON.parse(event.nativeEvent.data);
             if (msg.type === 'MAP_READY') {
               pushMapData();
+              if (pendingFocusRef.current?.lat && pendingFocusRef.current?.lng && webViewRef.current) {
+                const { lat, lng, name } = pendingFocusRef.current;
+                const js = `
+                  if (window.showSearchedPlace) {
+                    window.showSearchedPlace(${lat}, ${lng}, ${JSON.stringify(name || 'Searched Location')});
+                  } else if (window.map) {
+                    window.map.setView([${lat}, ${lng}], 16);
+                  }
+                  true;
+                `;
+                webViewRef.current.injectJavaScript(js);
+              }
             } else if (msg.type === 'USER_DRAGGED_MAP') {
               setIsFollowUserActive(false);
             } else if (msg.type === 'MAP_MOVE' && msg.lat && msg.lng) {
@@ -2110,6 +2350,8 @@ export default function MapScreen() {
                 setSelectedPlace(null);
                 setSelectedPoi(found);
               }
+            } else if (msg.type === 'ROUTE_SELECTED' && typeof msg.routeIndex === 'number') {
+              handleSelectRouteOption(msg.routeIndex);
             }
           } catch(e) {}
         }}
@@ -2211,8 +2453,12 @@ export default function MapScreen() {
 
                 let distLabel = '';
                 if (!isSelf && userLoc && targetLat && targetLng && targetLat !== 0 && targetLng !== 0) {
-                  const dMeters = getDistanceInMeters(userLoc.latitude, userLoc.longitude, targetLat, targetLng);
-                  distLabel = dMeters > 1000 ? `${(dMeters / 1000).toFixed(1)}km` : `${Math.round(dMeters)}m`;
+                  if (memberRoadDistances[m.user_id]) {
+                    distLabel = memberRoadDistances[m.user_id];
+                  } else {
+                    const dMeters = getDistanceInMeters(userLoc.latitude, userLoc.longitude, targetLat, targetLng);
+                    distLabel = dMeters > 1000 ? `${(dMeters / 1000).toFixed(1)}km` : `${Math.round(dMeters)}m`;
+                  }
                 }
 
                 return (
@@ -2269,8 +2515,12 @@ export default function MapScreen() {
         
         let distText = isSelf ? 'Your Location' : 'Nearby';
         if (!isSelf && userLoc && lat && lng && lat !== 0 && lng !== 0) {
-          const meters = getDistanceInMeters(userLoc.latitude, userLoc.longitude, lat, lng);
-          distText = meters > 1000 ? `${(meters / 1000).toFixed(1)} km away` : `${Math.round(meters)} m away`;
+          if (memberRoadDistances[selectedMember.user_id]) {
+            distText = `${memberRoadDistances[selectedMember.user_id]} (via road)`;
+          } else {
+            const meters = getDistanceInMeters(userLoc.latitude, userLoc.longitude, lat, lng);
+            distText = meters > 1000 ? `${(meters / 1000).toFixed(1)} km away` : `${Math.round(meters)} m away`;
+          }
         }
 
         const handleNavigate = () => {
@@ -2298,120 +2548,191 @@ export default function MapScreen() {
           }
         };
 
+        const activeRoute = availableRoutes[selectedRouteIndex] || availableRoutes[0];
+        const displayDuration = activeRoute ? activeRoute.timeText : (memberRoadInfo?.distText?.split('~')[1]?.trim() || 'Calculating...');
+        const displayDistance = activeRoute ? activeRoute.distText : (memberRoadInfo?.distText?.split('(')[0]?.trim() || distText);
+
         return (
-          <View style={[styles.memberCardSheet, sheetStyles]}>
-            <View style={styles.memberCardHeader}>
-              <View style={[styles.memberAvatar, { borderColor: colors.accentGold, backgroundColor: colors.surfaceMuted, borderRadius: 22 }]}>
-                <Text style={[styles.avatarText, { color: colors.foreground }]}>
-                  {String(selectedMember.profile?.full_name || (isSelf ? 'Y' : 'M')).charAt(0).toUpperCase()}
-                </Text>
+          <View style={[styles.memberCardSheet, sheetStyles, { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 22 }]}>
+            {/* Top Sheet Drag Handle */}
+            <View style={styles.sheetHandleContainer}>
+              <View style={[styles.sheetHandleBar, { backgroundColor: isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)' }]} />
+            </View>
+
+            {/* Profile Header Row */}
+            <View style={styles.modernMemberHeader}>
+              <View style={styles.modernAvatarContainer}>
+                {selectedMember.profile?.avatar_url ? (
+                  <Image source={{ uri: selectedMember.profile.avatar_url }} style={styles.modernAvatarImg} />
+                ) : (
+                  <View style={[styles.modernAvatarPlaceholder, { backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }]}>
+                    <Text style={[styles.modernAvatarInitials, { color: colors.foreground }]}>
+                      {String(selectedMember.profile?.full_name || (isSelf ? 'Y' : 'M')).charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <View style={[styles.modernOnlineIndicator, { backgroundColor: selectedMember.isOnline ? '#10B981' : '#94A3B8' }]} />
               </View>
-              <View style={styles.memberMainInfo}>
-                <Text style={[styles.memberCardName, { color: colors.foreground }]}>{isSelf ? 'You (Current User)' : (selectedMember.profile?.full_name || 'Circle Member')}</Text>
-                <View style={styles.safeBadge}>
-                  <View style={[styles.safeDot, { backgroundColor: selectedMember.isOnline ? '#10B981' : '#9CA3AF' }]} />
-                  <Text style={[styles.safeBadgeText, { color: selectedMember.isOnline ? '#10B981' : '#9CA3AF' }]}>
-                    {selectedMember.isOnline ? 'ONLINE & ACTIVE' : (selectedMember.lastSeenText || 'OFFLINE').toUpperCase()}
+
+              <View style={styles.modernMemberMeta}>
+                <Text style={[styles.modernMemberName, { color: colors.foreground }]} numberOfLines={1}>
+                  {isSelf ? 'Your Location' : (selectedMember.profile?.full_name || 'Circle Member')}
+                </Text>
+                <View style={styles.modernStatusRow}>
+                  <Text style={[styles.modernStatusSubtext, { color: colors.textMuted }]}>
+                    {selectedMember.isOnline ? 'Active now' : (selectedMember.lastSeenText || 'Offline')}
+                  </Text>
+                  <Text style={[styles.modernStatusDot, { color: colors.textMuted }]}>•</Text>
+                  <Ionicons name="battery-charging-outline" size={13} color={colors.accentGold} />
+                  <Text style={[styles.modernStatusSubtext, { color: colors.textMuted }]}>
+                    {memberLoc?.battery_pct ? `${memberLoc.battery_pct}%` : 'Optimal'}
                   </Text>
                 </View>
               </View>
+
               <TouchableOpacity 
                 onPress={handleCloseMemberCard}
-                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-                style={{ padding: 4 }}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                style={[styles.modernCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}
                 activeOpacity={0.7}
               >
-                <Ionicons name="close" size={24} color={colors.foreground} />
+                <Ionicons name="close" size={18} color={colors.foreground} />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.metricsGrid}>
-              <View style={[styles.metricItem, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: 10 }]}>
-                <Ionicons name="battery-charging-outline" size={16} color={colors.accentGold} />
-                <Text style={[styles.metricText, { color: colors.foreground }]}>
-                  {memberLoc?.battery_pct ? `BATTERY ${memberLoc.battery_pct}%` : 'BATTERY OPTIMAL'}
-                </Text>
+            {/* Google Maps ETA Hero Banner */}
+            {!isSelf && (
+              <View style={[styles.etaHeroCard, { backgroundColor: isDark ? 'rgba(30, 41, 59, 0.7)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0' }]}>
+                <View style={styles.etaHeroLeft}>
+                  <View style={styles.etaTimeRow}>
+                    <Text style={[styles.etaDurationText, { color: '#10B981' }]}>
+                      {displayDuration}
+                    </Text>
+                    <View style={styles.liveTrafficPill}>
+                      <View style={styles.liveTrafficDot} />
+                      <Text style={styles.liveTrafficText}>Fastest</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.etaSubText, { color: colors.textMuted }]}>
+                    {displayDistance} • via physical road network
+                  </Text>
+                </View>
               </View>
+            )}
 
-              <View style={[styles.metricItem, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: 10 }]}>
-                <Ionicons name="navigate-outline" size={16} color={colors.accentGold} />
-                <Text style={[styles.metricText, { color: colors.foreground }]}>{(memberRoadInfo?.distText || distText).toUpperCase()}</Text>
+            {/* Route Options Segmented Selector (UI/UX Pro Max Bento & Tactile Design) */}
+            {!isSelf && availableRoutes.length > 1 && (
+              <View style={styles.routeSelectorBlock}>
+                <View style={styles.routeSelectorHeaderRow}>
+                  <Text style={[styles.routeSelectorTitle, { color: colors.textMuted }]}>DRIVING ROUTE OPTIONS</Text>
+                  <Text style={[styles.routeSelectorCount, { color: colors.textMuted }]}>{availableRoutes.length} Available</Text>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.routeCardsScroll}>
+                  {availableRoutes.map((r, rIdx) => {
+                    const isSelected = rIdx === selectedRouteIndex;
+                    const isFastest = r.tag === 'fastest';
+                    return (
+                      <TouchableOpacity
+                        key={r.id}
+                        style={[
+                          styles.routeCardOption,
+                          {
+                            backgroundColor: isSelected 
+                              ? (isDark ? 'rgba(37, 99, 235, 0.16)' : '#EFF6FF') 
+                              : (isDark ? 'rgba(30, 41, 59, 0.55)' : '#FFFFFF'),
+                            borderColor: isSelected 
+                              ? '#2563EB' 
+                              : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0'),
+                          }
+                        ]}
+                        onPress={() => handleSelectRouteOption(rIdx)}
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.routeCardHeaderRow}>
+                          <View style={styles.routeCardTagGroup}>
+                            <Ionicons 
+                              name={isFastest ? 'flash' : 'git-branch'} 
+                              size={13} 
+                              color={isSelected ? '#2563EB' : (isFastest ? '#10B981' : colors.textMuted)} 
+                            />
+                            <Text style={[styles.routeCardName, { color: isSelected ? '#1D4ED8' : colors.foreground }]}>
+                              {isFastest ? 'Recommended' : `Bypass Route`}
+                            </Text>
+                          </View>
+                          <Ionicons 
+                            name={isSelected ? 'radio-button-on' : 'radio-button-off'} 
+                            size={16} 
+                            color={isSelected ? '#2563EB' : colors.border} 
+                          />
+                        </View>
+
+                        <View style={styles.routeCardBody}>
+                          <Text style={[styles.routeCardDuration, { color: isSelected ? '#1D4ED8' : colors.foreground }]}>
+                            {r.timeText}
+                          </Text>
+                          <View style={styles.routeCardMetaRow}>
+                            <Text style={[styles.routeCardDistance, { color: colors.textMuted }]}>
+                              {r.distText}
+                            </Text>
+                            <View style={[
+                              styles.routeDeltaPill, 
+                              { 
+                                backgroundColor: isFastest 
+                                  ? (isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5') 
+                                  : (isDark ? 'rgba(148, 163, 184, 0.12)' : '#F1F5F9') 
+                              }
+                            ]}>
+                              <Text style={[styles.routeDeltaText, { color: isFastest ? '#059669' : colors.textMuted }]}>
+                                {r.diffKmText}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
               </View>
+            )}
 
-              <View style={[styles.metricItem, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: 10 }]}>
-                <Ionicons name="shield-checkmark-outline" size={16} color="#10B981" />
-                <Text style={[styles.metricText, { color: colors.foreground }]}>
-                  {selectedMember.role === 'owner' ? 'CIRCLE OWNER' : (selectedMember.role || 'MEMBER').toUpperCase()}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.cardActionRow}>
+            {/* Action Buttons Row (Tactile High-Contrast CTAs) */}
+            <View style={styles.modernActionRow}>
               <TouchableOpacity 
-                style={[
-                  styles.cardBtnPrimary, 
-                  { 
-                    backgroundColor: primaryBtnStyles.backgroundColor,
-                    borderRadius: primaryBtnStyles.borderRadius,
-                    borderWidth: primaryBtnStyles.borderWidth,
-                    borderColor: primaryBtnStyles.borderColor,
-                    shadowColor: primaryBtnStyles.shadowColor,
-                    shadowOffset: primaryBtnStyles.shadowOffset,
-                    shadowOpacity: primaryBtnStyles.shadowOpacity,
-                    shadowRadius: primaryBtnStyles.shadowRadius,
-                    elevation: primaryBtnStyles.elevation,
-                  }
-                ]} 
+                style={styles.modernNavigateBtn} 
                 onPress={handleNavigate}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
-                <Ionicons name="navigate" size={16} color={primaryBtnStyles.textColor} />
-                <Text style={[styles.cardBtnPrimaryText, { color: primaryBtnStyles.textColor }]}>NAVIGATE</Text>
+                <Ionicons name="navigate" size={17} color="#FFFFFF" />
+                <Text style={styles.modernNavigateBtnText}>Start in Google Maps</Text>
+                <Ionicons name="arrow-forward" size={15} color="rgba(255,255,255,0.7)" />
               </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={[
-                  styles.cardBtnSecondary, 
-                  { 
-                    backgroundColor: secondaryBtnStyles.backgroundColor,
-                    borderRadius: secondaryBtnStyles.borderRadius,
-                    borderWidth: secondaryBtnStyles.borderWidth,
-                    borderColor: secondaryBtnStyles.borderColor,
-                    shadowColor: secondaryBtnStyles.shadowColor,
-                    shadowOffset: secondaryBtnStyles.shadowOffset,
-                    shadowOpacity: secondaryBtnStyles.shadowOpacity,
-                    shadowRadius: secondaryBtnStyles.shadowRadius,
-                    elevation: secondaryBtnStyles.elevation,
-                  }
-                ]} 
-                onPress={handleCall}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="call" size={16} color={secondaryBtnStyles.textColor} />
-                <Text style={[styles.cardBtnSecondaryText, { color: secondaryBtnStyles.textColor }]}>CALL</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[
-                  styles.cardBtnSecondary, 
-                  { 
-                    backgroundColor: secondaryBtnStyles.backgroundColor,
-                    borderRadius: secondaryBtnStyles.borderRadius,
-                    borderWidth: secondaryBtnStyles.borderWidth,
-                    borderColor: secondaryBtnStyles.borderColor,
-                    shadowColor: secondaryBtnStyles.shadowColor,
-                    shadowOffset: secondaryBtnStyles.shadowOffset,
-                    shadowOpacity: secondaryBtnStyles.shadowOpacity,
-                    shadowRadius: secondaryBtnStyles.shadowRadius,
-                    elevation: secondaryBtnStyles.elevation,
-                  }
-                ]} 
-                onPress={handleCloseMemberCard}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.cardBtnSecondaryText, { color: secondaryBtnStyles.textColor }]}>DISMISS</Text>
-              </TouchableOpacity>
+              {selectedMember.profile?.phone ? (
+                <TouchableOpacity 
+                  style={[
+                    styles.modernIconActionBtn, 
+                    { 
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F8FAFC', 
+                      borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E2E8F0' 
+                    }
+                  ]} 
+                  onPress={handleCall}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons name="call-outline" size={18} color={colors.foreground} />
+                </TouchableOpacity>
+              ) : null}
             </View>
+
+            {/* Subtle Realistic Road Network Disclaimer Footer */}
+            {!isSelf && (
+              <View style={styles.subtleFooterNotice}>
+                <Ionicons name="information-circle-outline" size={13} color={colors.textMuted} />
+                <Text style={[styles.subtleFooterText, { color: colors.textMuted }]}>
+                  Live GIS road preview. Traffic & road conditions may vary.
+                </Text>
+              </View>
+            )}
           </View>
         );
       })() : null}
@@ -2477,7 +2798,8 @@ export default function MapScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.zoneAllocScroll}>
               {assignedMembersList.length === 0 ? (
                 <View style={[styles.zoneMemberPill, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: 12 }]}>
-                  <Text style={[styles.zoneMemberPillText, { color: colors.accentGold }]}>🛡️ Applied to entire circle</Text>
+                  <Ionicons name="shield-checkmark-outline" size={14} color={colors.accentGold} />
+                  <Text style={[styles.zoneMemberPillText, { color: colors.accentGold }]}>Applied to entire circle</Text>
                 </View>
               ) : (
                 assignedMembersList.map(m => {
@@ -2505,9 +2827,12 @@ export default function MapScreen() {
                       </View>
                       <View>
                         <Text style={[styles.zoneMemberName, { color: colors.foreground }]}>{mName.split(' ')[0]}</Text>
-                        <Text style={[styles.zoneMemberStatus, { color: isInside ? '#10B981' : colors.textMuted }]}>
-                          {isInside ? '🟢 Inside' : `⚪ ${distText}`}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: isInside ? '#10B981' : '#94A3B8' }} />
+                          <Text style={[styles.zoneMemberStatus, { color: isInside ? '#10B981' : colors.textMuted }]}>
+                            {isInside ? 'Inside Zone' : distText}
+                          </Text>
+                        </View>
                       </View>
                     </View>
                   );
@@ -3207,5 +3532,259 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '900',
     letterSpacing: 0.8,
+  },
+  sheetHandleContainer: {
+    width: '100%',
+    alignItems: 'center',
+    paddingBottom: 8,
+  },
+  sheetHandleBar: {
+    width: 36,
+    height: 4.5,
+    borderRadius: 3,
+  },
+  modernMemberHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+  },
+  modernAvatarContainer: {
+    position: 'relative',
+    width: 44,
+    height: 44,
+  },
+  modernAvatarImg: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  modernAvatarPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modernAvatarInitials: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  modernOnlineIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  modernMemberMeta: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  modernMemberName: {
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  modernStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 2,
+  },
+  modernStatusSubtext: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  modernStatusDot: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  modernCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  etaHeroCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  etaHeroLeft: {
+    gap: 2,
+  },
+  etaTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  etaDurationText: {
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+  },
+  liveTrafficPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(16, 185, 129, 0.14)',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+  },
+  liveTrafficDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#10B981',
+  },
+  liveTrafficText: {
+    color: '#10B981',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  etaSubText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+
+  routeSelectorBlock: {
+    marginBottom: 12,
+  },
+  routeSelectorHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  routeSelectorTitle: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  routeSelectorCount: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  routeCardsScroll: {
+    gap: 10,
+    paddingRight: 6,
+  },
+  routeCardOption: {
+    width: 185,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  routeCardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  routeCardTagGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  routeCardName: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: -0.1,
+  },
+  routeCardBody: {
+    gap: 3,
+  },
+  routeCardDuration: {
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  routeCardMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  routeCardDistance: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  routeDeltaPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  routeDeltaText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+
+  modernActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 4,
+  },
+  modernNavigateBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#2563EB',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#1D4ED8',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  modernNavigateBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  modernIconActionBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1.2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+
+  subtleFooterNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    marginTop: 10,
+  },
+  subtleFooterText: {
+    fontSize: 11,
+    fontWeight: '500',
   },
 });

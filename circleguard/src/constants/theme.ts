@@ -44,19 +44,70 @@ export const LIGHT_THEME = {
   } as ThemeColors,
 };
 
+export const CIRCLE_GUARD_DESIGN_SYSTEM = {
+  colors: {
+    surface: '#111317',
+    surfaceDim: '#111317',
+    surfaceBright: '#37393d',
+    surfaceContainerLowest: '#0c0e11',
+    surfaceContainerLow: '#1a1c1f',
+    surfaceContainer: '#1e2023',
+    surfaceContainerHigh: '#282a2d',
+    surfaceContainerHighest: '#333538',
+    onSurface: '#e2e2e6',
+    onSurfaceVariant: '#bdcabc',
+    inverseSurface: '#e2e2e6',
+    inverseOnSurface: '#2f3034',
+    outline: '#879487',
+    outlineVariant: '#3e4a3f',
+    surfaceTint: '#66dd8b',
+    primary: '#6ee591',
+    onPrimary: '#003919',
+    primaryContainer: '#50c878',
+    onPrimaryContainer: '#005025',
+    inversePrimary: '#006d36',
+    secondary: '#e9c349',
+    onSecondary: '#3c2f00',
+    secondaryContainer: '#af8d11',
+    onSecondaryContainer: '#342800',
+    tertiary: '#ffbeb1',
+    onTertiary: '#650b00',
+    tertiaryContainer: '#ff9580',
+    onTertiaryContainer: '#891200',
+    error: '#ff4b2b',
+    onError: '#690005',
+    errorContainer: '#93000a',
+    onErrorContainer: '#ffdad6',
+    background: '#111317',
+    onBackground: '#e2e2e6',
+    surfaceVariant: '#333538',
+  },
+  typography: {
+    fontFamily: 'Hanken Grotesk',
+  },
+  rounded: {
+    sm: 4,
+    DEFAULT: 8,
+    md: 12,
+    lg: 16,
+    xl: 24,
+    full: 9999,
+  },
+};
+
 export const DARK_THEME = {
   colors: {
-    background: '#0D0E12', // Obsidian Pure Dark
-    foreground: '#FFFFFF', // Primary White Label
-    surface: '#1C1D24', // Luxury Surface Background
-    surfaceMuted: '#282A36', // Elevated Card Background
-    textMuted: '#9CA3AF', // Cool Muted Slate
-    accentGold: '#D4AF37', // Metallic Gold
-    accentGoldLight: 'rgba(212, 175, 55, 0.15)',
-    sosRed: '#EF4444', // Emergency Crimson
-    border: 'rgba(255, 255, 255, 0.10)', // Subtle Hairline Divider
-    borderDark: '#FFFFFF',
-    borderGold: '#D4AF37',
+    background: '#111317', // Circle Guard Deep Surface Background
+    foreground: '#E2E2E6', // onSurface High Contrast Label
+    surface: '#1E2023', // surface-container
+    surfaceMuted: '#282A2D', // surface-container-high
+    textMuted: '#BDCABC', // on-surface-variant
+    accentGold: '#E9C349', // secondary soft gold
+    accentGoldLight: 'rgba(233, 195, 73, 0.15)',
+    sosRed: '#FF4B2B', // Reserved Alert Red
+    border: 'rgba(255, 255, 255, 0.08)', // Subtle 1px rim divider
+    borderDark: '#333538',
+    borderGold: '#E9C349',
   } as ThemeColors,
 };
 

@@ -193,7 +193,7 @@ export default function AppNavigator() {
           ) : null}
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             {!session || isProfileFetching ? (
-              // Unauthenticated / In-Flight Auth Flow (keeps Login screen active during spin)
+              // Unauthenticated / In-Flight Auth Flow (Direct to Login/SignUp)
               <>
                 <Stack.Screen name="Login" component={LoginScreen} />
                 <Stack.Screen name="SignUp" component={SignUpScreen} />

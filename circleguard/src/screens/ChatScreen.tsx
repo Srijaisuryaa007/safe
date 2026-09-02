@@ -466,7 +466,7 @@ export default function ChatScreen() {
 
       setSending(true);
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const locContent = `📍 Shared Live Location: ${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`;
+      const locContent = `Shared Live Location: ${loc.coords.latitude.toFixed(5)}, ${loc.coords.longitude.toFixed(5)}`;
       await handleSendText(locContent, 'location');
     } catch (err) {
       console.error('Error sharing location in chat:', err);
@@ -600,7 +600,7 @@ export default function ChatScreen() {
                   </Text>
                 </View>
                 <Text style={{ color: bubbleThemeStyle.textColor, fontSize: 11, opacity: 0.9 }}>
-                  {item.content.replace('📍 Shared Live Location:', '').trim() || 'Tap to view live location on map'}
+                  {item.content.replace('Shared Live Location:', '').replace('📍', '').trim() || 'Tap to view live location on map'}
                 </Text>
                 <TouchableOpacity
                   style={{
@@ -610,12 +610,15 @@ export default function ChatScreen() {
                     paddingHorizontal: 10,
                     alignSelf: 'flex-start',
                     marginTop: 4,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
                   }}
                   onPress={() => {
                     let targetLat: number | undefined;
                     let targetLng: number | undefined;
 
-                    const pointMatch = item.content.match(/POINT\s*\(\s*([-\d.]+)[,\s]+([-\d.]+)\s*\)/i);
+                    const pointMatch = item.content.match(/POINT\s*\(\s*(-?\d+\.\d+)\s+(-?\d+\.\d+)\s*\)/i);
                     if (pointMatch) {
                       targetLng = parseFloat(pointMatch[1]);
                       targetLat = parseFloat(pointMatch[2]);
@@ -638,7 +641,8 @@ export default function ChatScreen() {
                     });
                   }}
                 >
-                  <Text style={{ fontSize: 10, fontWeight: '800', color: bubbleThemeStyle.textColor }}>🧭 VIEW ON MAP</Text>
+                  <Ionicons name="map-outline" size={12} color={bubbleThemeStyle.textColor} />
+                  <Text style={{ fontSize: 10, fontWeight: '800', color: bubbleThemeStyle.textColor }}>VIEW ON MAP</Text>
                 </TouchableOpacity>
               </View>
             ) : isGifMsg ? (

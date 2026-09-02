@@ -579,8 +579,9 @@ export default function DashboardScreen() {
                       </View>
 
                       {isGhost && (
-                        <View style={[styles.celestialRolePill, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
-                          <Text style={[styles.celestialRoleText, { color: '#C084FC' }]}>👻 GHOST</Text>
+                        <View style={[styles.celestialRolePill, { backgroundColor: 'rgba(168, 85, 247, 0.15)', flexDirection: 'row', alignItems: 'center', gap: 3 }]}>
+                          <Ionicons name="eye-off-outline" size={8.5} color="#C084FC" />
+                          <Text style={[styles.celestialRoleText, { color: '#C084FC' }]}>PRIVACY MODE</Text>
                         </View>
                       )}
                     </View>
