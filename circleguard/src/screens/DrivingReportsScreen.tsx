@@ -13,6 +13,7 @@ import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBadgeSt
 import { segmentTripsByStops, analyzeTripTelemetry } from '../services/TripSegmentationService';
 import { fetchRoadSnappedRoute } from '../services/RoadRoutingService';
 import AnimatedListDropdown from '../components/AnimatedListDropdown';
+import CircleGuardGlobeLoader from '../components/CircleGuardGlobeLoader';
 import { usePaywall } from '../hooks/usePaywall';
 import PaywallModal from '../components/PaywallModal';
 
@@ -535,10 +536,7 @@ export default function DrivingReportsScreen() {
 
       <ScrollView style={styles.scrollContent} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {loading ? (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color={colors.accentGold} />
-            <Text style={[styles.loadingText, { color: colors.textMuted }]}>Analyzing Driving Telemetry...</Text>
-          </View>
+          <CircleGuardGlobeLoader size={180} loadingLabel="Analyzing Driving Telemetry…" />
         ) : (
           <>
             {/* Safety Score Card */}

@@ -86,9 +86,15 @@ export default function SwiggySearchBar({ safePlaces = [] }: SwiggySearchBarProp
     return name.includes(query) || cat.includes(query) || addr.includes(query);
   });
 
+  const activeControllerRef = useRef<AbortController | null>(null);
+
   // Live Geocoded External Places Search (Nominatim / OpenStreetMap)
   useEffect(() => {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (activeControllerRef.current) {
+      activeControllerRef.current.abort();
+      activeControllerRef.current = null;
+    }
 
     const q = searchQuery.trim();
     if (q.length < 2) {
@@ -99,12 +105,13 @@ export default function SwiggySearchBar({ safePlaces = [] }: SwiggySearchBarProp
 
     searchTimeoutRef.current = setTimeout(async () => {
       setIsSearchingExternal(true);
+      const controller = new AbortController();
+      activeControllerRef.current = controller;
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+
       try {
         const queryEncoded = encodeURIComponent(q);
         const url = `https://nominatim.openstreetmap.org/search?format=json&q=${queryEncoded}&limit=6&addressdetails=1`;
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3500);
 
         const res = await fetch(url, {
           headers: { 'User-Agent': 'CircleGuardApp/1.0' },
@@ -128,14 +135,19 @@ export default function SwiggySearchBar({ safePlaces = [] }: SwiggySearchBarProp
           }
         }
       } catch (e) {
-        // network fallback
+        // network fallback / abort ignored
       } finally {
+        activeControllerRef.current = null;
         setIsSearchingExternal(false);
       }
     }, 350);
 
     return () => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      if (activeControllerRef.current) {
+        activeControllerRef.current.abort();
+        activeControllerRef.current = null;
+      }
     };
   }, [searchQuery]);
 

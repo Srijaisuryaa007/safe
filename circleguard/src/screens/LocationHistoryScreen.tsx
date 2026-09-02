@@ -13,6 +13,7 @@ import { fetchRoadSnappedRoute, getCardinalDirection, calculateBearing } from '.
 import { smoothTrajectoryPoints, calculateHaversineDistanceMeters } from '../services/LocationSmoothingService';
 import { segmentTripsByStops } from '../services/TripSegmentationService';
 import AnimatedListDropdown from '../components/AnimatedListDropdown';
+import CircleGuardGlobeLoader from '../components/CircleGuardGlobeLoader';
 
 interface HistoryPoint {
   id: string;
@@ -841,7 +842,11 @@ export default function LocationHistoryScreen() {
 
       {/* Daily Metrics & Movement Timeline */}
       <ScrollView style={styles.metricsScroll} contentContainerStyle={styles.metricsContent} showsVerticalScrollIndicator={false}>
-        {/* Metric Cards Grid */}
+        {loading ? (
+          <CircleGuardGlobeLoader size={180} loadingLabel="Retrieving Location History…" />
+        ) : (
+          <>
+            {/* Metric Cards Grid */}
         <View style={styles.metricsRow}>
           <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
@@ -947,6 +952,8 @@ export default function LocationHistoryScreen() {
               </TouchableOpacity>
             );
           })
+        )}
+          </>
         )}
       </ScrollView>
     </View>

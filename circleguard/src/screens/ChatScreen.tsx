@@ -27,6 +27,7 @@ import { sendExpoPushNotification } from '../services/PushNotificationService';
 import TypingIndicator from '../components/TypingIndicator';
 import ReadReceiptCheckmarks from '../components/ReadReceiptCheckmarks';
 import EmojiGifPickerModal from '../components/EmojiGifPickerModal';
+import CircleGuardGlobeLoader from '../components/CircleGuardGlobeLoader';
 
 export interface ChatMessage {
   id: string;
@@ -97,12 +98,20 @@ export default function ChatScreen() {
   };
 
   useEffect(() => {
+    let cleanupFn: (() => void) | undefined;
     if (activeCircle?.id) {
       fetchMessages(activeCircle.id);
-      subscribeToRealtimeChat(activeCircle.id);
+      cleanupFn = subscribeToRealtimeChat(activeCircle.id);
     } else {
       setLoading(false);
     }
+    return () => {
+      if (cleanupFn) cleanupFn();
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
   }, [activeCircle?.id]);
 
   const isPermissionOrSystemMsg = (content?: string) => {
@@ -778,7 +787,7 @@ export default function ChatScreen() {
       {/* Messages Feed */}
       {loading ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={colors.accentGold} />
+          <CircleGuardGlobeLoader size={180} loadingLabel="Connecting Encrypted Channel…" />
         </View>
       ) : messages.length === 0 ? (
         <View style={styles.centerContainer}>
