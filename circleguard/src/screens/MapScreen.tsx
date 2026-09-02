@@ -30,7 +30,7 @@ import { useThemeStore } from '../store/useThemeStore';
 import { queueAndSyncLocationHistory, flushOfflineBreadcrumbs } from '../services/OfflineLocationQueueService';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import { scheduleLocalNotification } from '../services/PushNotificationService';
-import { calculateDijkstraRouteBetweenUsers, fetchDrivingDistance, fetchMultipleDrivingRoutes, DrivingRouteOption } from '../services/RoadRoutingService';
+import { calculateDijkstraRouteBetweenUsers, fetchDrivingDistance, fetchMultipleDrivingRoutes, DrivingRouteOption, openExternalRoadNavigation } from '../services/RoadRoutingService';
 
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
@@ -2525,7 +2525,7 @@ export default function MapScreen() {
 
         const handleNavigate = () => {
           if (lat && lng && lat !== 0 && lng !== 0) {
-            Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
+            openExternalRoadNavigation(lat, lng, userLoc, selectedMember.profile?.full_name);
           } else {
             showAlert({
               title: 'Location Unavailable',
@@ -2858,7 +2858,7 @@ export default function MapScreen() {
                 ]} 
                 onPress={() => {
                   if (placePt.latitude && placePt.longitude) {
-                    Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${placePt.latitude},${placePt.longitude}`);
+                    openExternalRoadNavigation(placePt.latitude, placePt.longitude, userLoc, selectedPlace.name);
                   }
                 }}
                 activeOpacity={0.8}
@@ -2947,8 +2947,7 @@ export default function MapScreen() {
                 }
               ]} 
               onPress={() => {
-                const url = `https://www.google.com/maps/dir/?api=1&destination=${selectedPoi.lat},${selectedPoi.lng}`;
-                Linking.openURL(url);
+                openExternalRoadNavigation(selectedPoi.lat, selectedPoi.lng, userLoc, selectedPoi.name);
               }}
               activeOpacity={0.8}
             >

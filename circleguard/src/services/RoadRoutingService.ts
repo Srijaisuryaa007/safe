@@ -4,6 +4,8 @@
  * Snaps raw/sparse GPS points onto actual street networks (like Google Maps).
  */
 
+import { Linking, Platform } from 'react-native';
+
 export interface LatLng {
   latitude: number;
   longitude: number;
@@ -490,6 +492,66 @@ export async function fetchMultipleDrivingRoutes(
   }
 
   return results;
+}
+
+/**
+ * Opens Google Maps (or native navigation) with live turn-by-turn driving mode.
+ * Explicitly specifies origin, destination, travelmode=driving, and dir_action=navigate
+ * to guarantee that actual road networks are followed instead of straight lines.
+ */
+export async function openExternalRoadNavigation(
+  destLat: number,
+  destLng: number,
+  userLoc?: { latitude: number; longitude: number } | null,
+  label?: string
+): Promise<void> {
+  if (!destLat || !destLng || isNaN(destLat) || isNaN(destLng) || destLat === 0 || destLng === 0) {
+    return;
+  }
+
+  const originParam = userLoc && userLoc.latitude && userLoc.longitude
+    ? `&origin=${userLoc.latitude},${userLoc.longitude}`
+    : '';
+
+  // 1. Android Native Google Maps Intent (forces live turn-by-turn road navigation)
+  const androidNativeUri = `google.navigation:q=${destLat},${destLng}&mode=d`;
+
+  // 2. iOS Google Maps App URL
+  const iosGoogleMapsUri = `comgooglemaps://?daddr=${destLat},${destLng}&directionsmode=driving`;
+
+  // 3. Apple Maps App URL
+  const appleMapsUri = `maps://?daddr=${destLat},${destLng}&dirflg=d`;
+
+  // 4. Universal Web/App Google Maps Turn-By-Turn Driving URL
+  const encodedLabel = label ? `&destination_place_id=${encodeURIComponent(label)}` : '';
+  const webGoogleMapsUrl = `https://www.google.com/maps/dir/?api=1${originParam}&destination=${destLat},${destLng}&travelmode=driving&dir_action=navigate${encodedLabel}`;
+
+  try {
+    if (Platform.OS === 'android') {
+      const canOpen = await Linking.canOpenURL(androidNativeUri).catch(() => false);
+      if (canOpen) {
+        await Linking.openURL(androidNativeUri);
+        return;
+      }
+    } else if (Platform.OS === 'ios') {
+      const canOpenGmaps = await Linking.canOpenURL(iosGoogleMapsUri).catch(() => false);
+      if (canOpenGmaps) {
+        await Linking.openURL(iosGoogleMapsUri);
+        return;
+      }
+      const canOpenApple = await Linking.canOpenURL(appleMapsUri).catch(() => false);
+      if (canOpenApple) {
+        await Linking.openURL(appleMapsUri);
+        return;
+      }
+    }
+
+    // Universal Fallback (Always opens Google Maps in driving navigation mode)
+    await Linking.openURL(webGoogleMapsUrl);
+  } catch (err) {
+    console.warn('Navigation launch error:', err);
+    Linking.openURL(webGoogleMapsUrl).catch(() => {});
+  }
 }
 
 
