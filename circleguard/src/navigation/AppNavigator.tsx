@@ -19,6 +19,7 @@ import ChatScreen from '../screens/ChatScreen';
 
 import GlobalSOSModal from '../components/GlobalSOSModal';
 import GlobalLocationShareModal from '../components/GlobalLocationShareModal';
+import GlobalCircleSwitchLoader from '../components/GlobalCircleSwitchLoader';
 import NetworkStatusBanner from '../components/NetworkStatusBanner';
 import { scheduleLocalNotification } from '../services/PushNotificationService';
 
@@ -182,6 +183,7 @@ export default function AppNavigator() {
       <BiometricLockGate>
         <NavigationContainer>
           <NetworkStatusBanner />
+          <GlobalCircleSwitchLoader />
           {session && profile ? (
             <>
               <GlobalSOSModal />

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -48,7 +48,7 @@ function AnimatedActivityItem({ children, index }: { children: React.ReactNode; 
     </Animated.View>
   );
 }
-import { useCircleStore } from '../store/useCircleStore';
+import { useCircleStore, CircleMember } from '../store/useCircleStore';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import {
@@ -70,6 +70,8 @@ import MagnificationDock, { DockItemData } from '../components/MagnificationDock
 import JellySqueezeButton from '../components/JellySqueezeButton';
 import AnimatedList from '../components/AnimatedList';
 import HomeMiniMapCard from '../components/HomeMiniMapCard';
+import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
+import CircleQRCodeModal from '../components/CircleQRCodeModal';
 import * as Location from 'expo-location';
 import { getHaversineDistanceInMeters } from '../services/GeofenceEngine';
 
@@ -77,7 +79,7 @@ export default function HomeScreen() {
   const { colors, isDark, themeMode } = useThemeStore();
   const navigation = useNavigation<any>();
   const { profile } = useAuthStore();
-  const { activeCircle, members } = useCircleStore();
+  const { activeCircle, members, places, circleFetched, isLoading: circleLoading, isSwitchingCircle, switchingTargetName, switchingStepText } = useCircleStore();
 
   const [userLoc, setUserLoc] = useState<{ latitude: number; longitude: number } | null>(null);
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
@@ -85,8 +87,15 @@ export default function HomeScreen() {
   const [sharingLocation, setSharingLocation] = useState(false);
   const [isTrackingActive, setIsTrackingActive] = useState(true);
   const [circlePlaces, setCirclePlaces] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (Array.isArray(places) && places.length > 0) {
+      setCirclePlaces(places);
+    }
+  }, [places]);
   const [fakeCallVisible, setFakeCallVisible] = useState(false);
   const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [qrModalVisible, setQrModalVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const { showAlert } = useLuxuryAlert();
 
@@ -170,21 +179,32 @@ export default function HomeScreen() {
     setShareModalVisible(true);
   };
 
-  const safeMembers = activeCircle ? (members || []) : [];
+  // Strictly filter members for the active circle to guarantee no cross-circle data leaks
+  const circleMembers: CircleMember[] = useMemo(() => {
+    if (!activeCircle?.id || !Array.isArray(members)) return [];
+    return members.filter(m => !m.circle_id || m.circle_id === activeCircle.id);
+  }, [members, activeCircle?.id]);
+
+  const safeMembers: CircleMember[] = activeCircle ? circleMembers : [];
   const firstName = String(profile?.full_name || 'User').split(' ')[0];
 
   const onRefresh = async () => {
     if (!profile) return;
     setRefreshing(true);
     try {
-      await useCircleStore.getState().fetchActiveCircle(profile.id);
-      if (activeCircle?.id) {
+      const currentCircle = activeCircle || useCircleStore.getState().activeCircle;
+      if (currentCircle?.id) {
+        // Refresh only the CURRENT active circle data - NEVER switch circle on pull-to-refresh!
         await Promise.all([
-          useCircleStore.getState().fetchMembers(activeCircle.id),
-          useCircleStore.getState().fetchPlaces(activeCircle.id),
-          fetchHomePlaces(activeCircle.id),
-          fetchCircleActivity(activeCircle.id),
+          useCircleStore.getState().fetchMembers(currentCircle.id),
+          useCircleStore.getState().fetchPlaces(currentCircle.id),
+          fetchHomePlaces(currentCircle.id),
+          fetchCircleActivity(currentCircle.id),
         ]);
+        // Also refresh user's circles list in background to pick up newly added circles without switching active
+        useCircleStore.getState().fetchUserCircles(profile.id).catch(() => {});
+      } else {
+        await useCircleStore.getState().fetchActiveCircle(profile.id);
       }
     } catch (e) {
       console.error('Refresh error:', e);
@@ -214,9 +234,12 @@ export default function HomeScreen() {
       setCirclePlaces([]);
       useCircleStore.getState().fetchActiveCircle(profile.id);
     } else if (activeCircle?.id) {
+      setRecentActivities([]);
+      setCirclePlaces([]);
       fetchCircleActivity(activeCircle.id);
       fetchHomePlaces(activeCircle.id);
       useCircleStore.getState().fetchPlaces(activeCircle.id);
+      useCircleStore.getState().fetchMembers(activeCircle.id);
     } else {
       setRecentActivities([]);
       setCirclePlaces([]);
@@ -316,13 +339,7 @@ export default function HomeScreen() {
 
   const handleInviteMember = async () => {
     if (activeCircle?.invite_code) {
-      await Clipboard.setStringAsync(activeCircle.invite_code);
-      showAlert({
-        title: 'Invite Code Copied',
-        message: `Invite Code: ${activeCircle.invite_code}\n\nCopied to clipboard. Share this key to invite members.`,
-        type: 'success',
-        buttonText: 'DONE',
-      });
+      setQrModalVisible(true);
     } else {
       navigation.navigate('Circle');
     }
@@ -438,7 +455,7 @@ export default function HomeScreen() {
   };
 
   // Find member currently genuinely in-transit or moving (strict check)
-  const inTransitMember = (members || []).find((m: any) => {
+  const inTransitMember = circleMembers.find((m: any) => {
     const { lat, lng } = parseMemberPoint(m);
     if (!lat || !lng || m.isOnline === false) {
       return false;
@@ -451,7 +468,7 @@ export default function HomeScreen() {
   }) || null;
 
   // Find member currently OUTSIDE all registered safe places
-  const outsideMember = !inTransitMember ? (members || []).find((m: any) => {
+  const outsideMember = !inTransitMember ? circleMembers.find((m: any) => {
     const { lat, lng } = parseMemberPoint(m);
     if (!lat || !lng || m.isOnline === false) return false;
     if (!circlePlaces || circlePlaces.length === 0) return false;
@@ -466,6 +483,19 @@ export default function HomeScreen() {
 
     return !isInsideAny;
   }) || null : null;
+
+  // When opening the Home tab, fetching initial circle, or actively switching circle
+  if ((!circleFetched && !activeCircle) || isSwitchingCircle) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
+        <LuxuryRadarLoading
+          message={switchingTargetName ? `SYNCING ${switchingTargetName.toUpperCase()}...` : "LOADING HOME..."}
+          subMessage={switchingStepText || "Syncing members & telemetry"}
+          size={130}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: isDark ? colors.background : '#FAF9F5' }]}>
@@ -1061,6 +1091,11 @@ export default function HomeScreen() {
         }
       />
       <FakeCallModal visible={fakeCallVisible} onClose={() => setFakeCallVisible(false)} />
+      <CircleQRCodeModal
+        visible={qrModalVisible}
+        circle={activeCircle}
+        onClose={() => setQrModalVisible(false)}
+      />
     </View>
   );
 }
@@ -1072,7 +1107,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 24,
+    paddingBottom: 28,
   },
   heroCard: {
     borderRadius: 24,

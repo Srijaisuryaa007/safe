@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
 
@@ -106,6 +106,49 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
     setVisible(false);
   };
 
+  // Global Alert.alert polyfill: intercepts any raw Alert.alert calls across the app
+  useEffect(() => {
+    const originalAlert = Alert.alert;
+    Alert.alert = (title: string, message?: string, buttons?: any[]) => {
+      if (buttons && buttons.length >= 2) {
+        const cancelBtn = buttons.find(b => b.style === 'cancel') || buttons[0];
+        const confirmBtn = buttons.find(b => b.style !== 'cancel') || buttons[1];
+        showConfirm({
+          title: title || 'Notice',
+          message: message || '',
+          cancelText: cancelBtn?.text || 'Cancel',
+          confirmText: confirmBtn?.text || 'Confirm',
+          isDestructive: confirmBtn?.style === 'destructive',
+          onCancel: cancelBtn?.onPress,
+          onConfirm: confirmBtn?.onPress,
+        });
+      } else {
+        const singleBtn = buttons && buttons.length === 1 ? buttons[0] : null;
+        const lowTitle = (title || '').toLowerCase();
+        let alertType: AlertType = 'info';
+        if (lowTitle.includes('error') || lowTitle.includes('failed') || lowTitle.includes('denied')) {
+          alertType = 'error';
+        } else if (lowTitle.includes('warning') || lowTitle.includes('caution')) {
+          alertType = 'warning';
+        } else if (lowTitle.includes('created') || lowTitle.includes('success') || lowTitle.includes('joined') || lowTitle.includes('saved') || lowTitle.includes('copied')) {
+          alertType = 'success';
+        }
+
+        showAlert({
+          title: title || 'Notice',
+          message: message || '',
+          type: alertType,
+          buttonText: singleBtn?.text || 'OK',
+          onPress: singleBtn?.onPress,
+        });
+      }
+    };
+
+    return () => {
+      Alert.alert = originalAlert;
+    };
+  }, []);
+
   const handleAlertPress = () => {
     hideAlert();
     if (alertConfig.onPress) alertConfig.onPress();
@@ -134,13 +177,13 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
   const getAlertIcon = () => {
     switch (alertConfig.type) {
       case 'success':
-        return { name: 'checkmark-circle' as const, color: '#30D158', bg: isDark ? 'rgba(48, 209, 88, 0.15)' : '#DCFCE7' };
+        return { name: 'checkmark-circle' as const, color: '#10B981', bg: isDark ? 'rgba(16, 185, 129, 0.16)' : 'rgba(16, 185, 129, 0.12)' };
       case 'warning':
-        return { name: 'alert-circle' as const, color: '#FF9F0A', bg: isDark ? 'rgba(255, 159, 10, 0.15)' : '#FEF3C7' };
+        return { name: 'alert-circle' as const, color: '#F59E0B', bg: isDark ? 'rgba(245, 158, 11, 0.16)' : 'rgba(245, 158, 11, 0.12)' };
       case 'error':
-        return { name: 'close-circle' as const, color: '#FF453A', bg: isDark ? 'rgba(255, 69, 58, 0.15)' : '#FEE2E2' };
+        return { name: 'close-circle' as const, color: '#EF4444', bg: isDark ? 'rgba(239, 68, 68, 0.16)' : 'rgba(239, 68, 68, 0.12)' };
       default:
-        return { name: 'information-circle' as const, color: '#0A84FF', bg: isDark ? 'rgba(10, 132, 255, 0.15)' : '#DBEAFE' };
+        return { name: 'information-circle' as const, color: '#38BDF8', bg: isDark ? 'rgba(56, 189, 248, 0.16)' : 'rgba(56, 189, 248, 0.12)' };
     }
   };
 
@@ -149,46 +192,51 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
   return (
     <LuxuryAlertContext.Provider value={{ showAlert, showConfirm, showPrivacyRequest, hideAlert }}>
       {children}
-      <Modal visible={visible} transparent animationType="fade" onRequestClose={hideAlert}>
+      <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={hideAlert}>
         <View style={styles.overlay}>
           {modalMode === 'alert' ? (
-            /* Apple HIG Informational Dialog */
+            /* Modern Enterprise Alert Dialog */
             <View
               style={[
                 styles.card,
                 {
-                  backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E5E7EB',
+                  backgroundColor: isDark ? '#141619' : '#FFFFFF',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
                 },
               ]}
             >
               <View style={[styles.iconBox, { backgroundColor: iconInfo.bg }]}>
-                <Ionicons name={iconInfo.name} size={30} color={iconInfo.color} />
+                <Ionicons name={iconInfo.name} size={32} color={iconInfo.color} />
               </View>
 
-              <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#111827' }]}>
+              <Text style={[styles.title, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>
                 {alertConfig.title}
               </Text>
-              <Text style={[styles.message, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
+              <Text style={[styles.message, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                 {alertConfig.message}
               </Text>
 
               <TouchableOpacity
-                style={[styles.primaryBtn, { backgroundColor: colors.accentGold || '#D4AF37' }]}
+                style={[
+                  styles.primaryBtn,
+                  { backgroundColor: isDark ? '#F8FAFC' : '#0F172A' },
+                ]}
                 onPress={handleAlertPress}
                 activeOpacity={0.8}
               >
-                <Text style={styles.primaryBtnText}>{alertConfig.buttonText || 'OK'}</Text>
+                <Text style={[styles.primaryBtnText, { color: isDark ? '#0F172A' : '#FFFFFF' }]}>
+                  {alertConfig.buttonText || 'OK'}
+                </Text>
               </TouchableOpacity>
             </View>
           ) : modalMode === 'confirm' ? (
-            /* Apple HIG Confirmation Dialog */
+            /* Modern Enterprise Confirmation Dialog */
             <View
               style={[
                 styles.card,
                 {
-                  backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E5E7EB',
+                  backgroundColor: isDark ? '#141619' : '#FFFFFF',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
                 },
               ]}
             >
@@ -197,22 +245,22 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                   styles.iconBox,
                   {
                     backgroundColor: confirmConfig.isDestructive
-                      ? (isDark ? 'rgba(255, 69, 58, 0.15)' : '#FEE2E2')
-                      : (isDark ? 'rgba(10, 132, 255, 0.15)' : '#DBEAFE'),
+                      ? (isDark ? 'rgba(239, 68, 68, 0.16)' : 'rgba(239, 68, 68, 0.12)')
+                      : (isDark ? 'rgba(56, 189, 248, 0.16)' : 'rgba(56, 189, 248, 0.12)'),
                   },
                 ]}
               >
                 <Ionicons
                   name={confirmConfig.isDestructive ? 'trash-outline' : 'help-circle-outline'}
-                  size={30}
-                  color={confirmConfig.isDestructive ? '#FF453A' : '#0A84FF'}
+                  size={32}
+                  color={confirmConfig.isDestructive ? '#EF4444' : '#38BDF8'}
                 />
               </View>
 
-              <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#111827' }]}>
+              <Text style={[styles.title, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>
                 {confirmConfig.title}
               </Text>
-              <Text style={[styles.message, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
+              <Text style={[styles.message, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                 {confirmConfig.message}
               </Text>
 
@@ -220,12 +268,16 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                 <TouchableOpacity
                   style={[
                     styles.cancelBtn,
-                    { backgroundColor: isDark ? '#2C2C2E' : '#F3F4F6' },
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                      borderWidth: 1,
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
+                    },
                   ]}
                   onPress={handleCancelPress}
                   activeOpacity={0.8}
                 >
-                  <Text style={[styles.cancelBtnText, { color: isDark ? '#FFFFFF' : '#374151' }]}>
+                  <Text style={[styles.cancelBtnText, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>
                     {confirmConfig.cancelText || 'Cancel'}
                   </Text>
                 </TouchableOpacity>
@@ -233,36 +285,36 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                 <TouchableOpacity
                   style={[
                     styles.confirmBtn,
-                    { backgroundColor: confirmConfig.isDestructive ? '#FF453A' : (colors.accentGold || '#0A84FF') },
+                    { backgroundColor: confirmConfig.isDestructive ? '#EF4444' : (isDark ? '#F8FAFC' : '#0F172A') },
                   ]}
                   onPress={handleConfirmPress}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.confirmBtnText}>
+                  <Text style={[styles.confirmBtnText, { color: confirmConfig.isDestructive ? '#FFFFFF' : (isDark ? '#0F172A' : '#FFFFFF') }]}>
                     {confirmConfig.confirmText || 'Confirm'}
                   </Text>
                 </TouchableOpacity>
               </View>
             </View>
           ) : (
-            /* Apple HIG Privacy Request Modal */
+            /* Modern Enterprise Privacy Request Modal */
             <View
               style={[
                 styles.card,
                 {
-                  backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E5E7EB',
+                  backgroundColor: isDark ? '#141619' : '#FFFFFF',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
                 },
               ]}
             >
-              <View style={[styles.iconBox, { backgroundColor: isDark ? 'rgba(10, 132, 255, 0.15)' : '#DBEAFE' }]}>
-                <Ionicons name="shield-half" size={30} color="#0A84FF" />
+              <View style={[styles.iconBox, { backgroundColor: isDark ? 'rgba(56, 189, 248, 0.16)' : 'rgba(56, 189, 248, 0.12)' }]}>
+                <Ionicons name="shield-half" size={32} color="#38BDF8" />
               </View>
 
-              <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#111827' }]}>
+              <Text style={[styles.title, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>
                 Privacy Request
               </Text>
-              <Text style={[styles.message, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
+              <Text style={[styles.message, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                 {privacyConfig.requesterName} requested permission to enable {privacyConfig.featureName}. As Circle Leader, do you authorize this?
               </Text>
 
@@ -270,20 +322,20 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                 <TouchableOpacity
                   style={[
                     styles.cancelBtn,
-                    { backgroundColor: isDark ? '#2C2C2E' : '#FEE2E2' },
+                    { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.12)' : '#FEE2E2' },
                   ]}
                   onPress={handlePrivacyDecline}
                   activeOpacity={0.8}
                 >
-                  <Text style={[styles.cancelBtnText, { color: '#FF453A' }]}>Decline</Text>
+                  <Text style={[styles.cancelBtnText, { color: '#EF4444' }]}>DECLINE</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.confirmBtn, { backgroundColor: '#30D158' }]}
+                  style={[styles.confirmBtn, { backgroundColor: '#10B981' }]}
                   onPress={handlePrivacyApprove}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.confirmBtnText}>Authorize</Text>
+                  <Text style={styles.confirmBtnText}>AUTHORIZE</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -297,56 +349,56 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
   card: {
     width: '100%',
-    maxWidth: 320,
-    borderRadius: 22,
+    maxWidth: 330,
+    borderRadius: 24,
     borderWidth: 1,
-    padding: 22,
+    padding: 24,
     alignItems: 'center',
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.35,
+    shadowRadius: 28,
+    elevation: 14,
   },
   iconBox: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 14,
+    marginBottom: 16,
   },
   title: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
     textAlign: 'center',
-    marginBottom: 6,
-    letterSpacing: -0.2,
+    marginBottom: 8,
+    letterSpacing: -0.3,
   },
   message: {
-    fontSize: 13,
+    fontSize: 13.5,
     textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 18,
+    lineHeight: 20,
+    marginBottom: 20,
   },
   primaryBtn: {
     width: '100%',
-    height: 44,
-    borderRadius: 12,
+    height: 48,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryBtnText: {
-    color: '#111827',
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
   btnRow: {
     flexDirection: 'row',
@@ -355,25 +407,27 @@ const styles = StyleSheet.create({
   },
   cancelBtn: {
     flex: 1,
-    height: 44,
-    borderRadius: 12,
+    height: 48,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancelBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.8,
   },
   confirmBtn: {
     flex: 1,
-    height: 44,
-    borderRadius: 12,
+    height: 48,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   confirmBtnText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
 });

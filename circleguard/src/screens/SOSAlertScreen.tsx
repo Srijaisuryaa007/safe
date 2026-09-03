@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Vibration, Linking, Modal, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Vibration, Linking, Modal, ScrollView, Alert, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -169,6 +169,7 @@ export default function SOSAlertScreen() {
               shadowColor: '#DC2626',
             },
           ]}
+          contentStyle={styles.sosButtonContent}
           onPress={triggerEmergency}
           glowColor="#DC2626"
         >
@@ -300,8 +301,15 @@ export default function SOSAlertScreen() {
       <Modal visible={callModalVisible} animationType="slide" transparent={false}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
           <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-            <TouchableOpacity onPress={() => setCallModalVisible(false)} style={styles.modalCloseBtn}>
-              <Ionicons name="close" size={24} color={colors.foreground} />
+            <TouchableOpacity 
+              onPress={() => setCallModalVisible(false)} 
+              style={[
+                styles.modalCloseBtn,
+                { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)' }
+              ]}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close" size={20} color={colors.foreground} />
             </TouchableOpacity>
             <View style={styles.modalTitleBox}>
               <Text style={[styles.modalOverline, { color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}>DIRECT DIAL DIRECTORY</Text>
@@ -310,33 +318,47 @@ export default function SOSAlertScreen() {
           </View>
 
           <ScrollView contentContainerStyle={styles.modalContent}>
-            {/* Section 1: Specific Profile Emergency Contacts (Father, Mother, Brother, etc.) */}
+            {/* Section 1: Specific Profile Emergency Contacts */}
             <View style={styles.sectionTitleBox}>
-              <Ionicons name="heart" size={18} color={LUXURY_THEME.colors.sosRed} />
+              <Ionicons name="heart" size={17} color={LUXURY_THEME.colors.sosRed} />
               <Text style={styles.sectionTitleText}>SAVED PROFILE CONTACTS</Text>
             </View>
 
             {emergencyContacts.length === 0 ? (
-              <Text style={styles.emptyText}>No emergency contacts added in profile yet.</Text>
+              <Text style={[styles.emptyText, { color: colors.textMuted }]}>No emergency contacts added in profile yet.</Text>
             ) : (
               <View style={styles.contactList}>
                 {emergencyContacts.map((c) => (
-                  <View key={c.id} style={styles.contactCard}>
+                  <View 
+                    key={c.id} 
+                    style={[
+                      styles.contactCard,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#FFFFFF',
+                        borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                      }
+                    ]}
+                  >
                     <View style={styles.contactLeft}>
-                      <View style={styles.avatarBox}>
-                        <Ionicons name="person" size={20} color={LUXURY_THEME.colors.accentGold} />
+                      <View style={[styles.avatarBox, { backgroundColor: isDark ? 'rgba(233, 195, 73, 0.12)' : 'rgba(212, 175, 55, 0.12)', borderColor: colors.accentGold }]}>
+                        <Ionicons name="person" size={18} color={colors.accentGold} />
                       </View>
-                      <View>
-                        <Text style={styles.contactName}>{c.name}</Text>
-                        <Text style={styles.contactSub}>{c.relationship.toUpperCase()} • {c.phone}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.contactName, { color: colors.foreground }]} numberOfLines={1}>
+                          {c.name}
+                        </Text>
+                        <Text style={[styles.contactSub, { color: colors.textMuted }]} numberOfLines={1}>
+                          {c.relationship.toUpperCase()} • {c.phone}
+                        </Text>
                       </View>
                     </View>
 
                     <TouchableOpacity 
                       style={styles.callActionBtn} 
                       onPress={() => handleCallNumber(c.phone, c.name)}
+                      activeOpacity={0.8}
                     >
-                      <Ionicons name="call" size={18} color="#FFFFFF" />
+                      <Ionicons name="call" size={15} color="#FFFFFF" />
                       <Text style={styles.callActionText}>CALL</Text>
                     </TouchableOpacity>
                   </View>
@@ -346,28 +368,39 @@ export default function SOSAlertScreen() {
 
             {/* Section 2: Circle Members */}
             <View style={[styles.sectionTitleBox, { marginTop: 28 }]}>
-              <Ionicons name="people" size={18} color={LUXURY_THEME.colors.accentGold} />
+              <Ionicons name="people" size={17} color={colors.accentGold} />
               <Text style={styles.sectionTitleText}>CIRCLE MEMBERS ({members.length})</Text>
             </View>
 
             {members.length === 0 ? (
-              <Text style={styles.emptyText}>No circle members found.</Text>
+              <Text style={[styles.emptyText, { color: colors.textMuted }]}>No circle members found.</Text>
             ) : (
               <View style={styles.contactList}>
                 {members.map((m) => {
                   const mName = m.profile?.full_name || 'Circle Member';
                   const mPhone = m.profile?.phone;
                   return (
-                    <View key={m.user_id} style={styles.contactCard}>
+                    <View 
+                      key={m.user_id} 
+                      style={[
+                        styles.contactCard,
+                        {
+                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#FFFFFF',
+                          borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                        }
+                      ]}
+                    >
                       <View style={styles.contactLeft}>
-                        <View style={[styles.avatarBox, { borderColor: m.isOnline ? '#10B981' : LUXURY_THEME.colors.border }]}>
-                          <Text style={styles.initialText}>
+                        <View style={[styles.avatarBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : '#F1F5F9', borderColor: m.isOnline ? '#10B981' : colors.border }]}>
+                          <Text style={[styles.initialText, { color: colors.foreground }]}>
                             {String(mName).charAt(0).toUpperCase()}
                           </Text>
                         </View>
-                        <View>
-                          <Text style={styles.contactName}>{mName}</Text>
-                          <Text style={styles.contactSub}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.contactName, { color: colors.foreground }]} numberOfLines={1}>
+                            {mName}
+                          </Text>
+                          <Text style={[styles.contactSub, { color: colors.textMuted }]} numberOfLines={1}>
                             {m.isOnline ? 'ONLINE' : 'OFFLINE'} • {mPhone || 'No Phone Saved'}
                           </Text>
                         </View>
@@ -377,12 +410,13 @@ export default function SOSAlertScreen() {
                         <TouchableOpacity 
                           style={styles.callActionBtn} 
                           onPress={() => handleCallNumber(mPhone, mName)}
+                          activeOpacity={0.8}
                         >
-                          <Ionicons name="call" size={18} color="#FFFFFF" />
+                          <Ionicons name="call" size={15} color="#FFFFFF" />
                           <Text style={styles.callActionText}>CALL</Text>
                         </TouchableOpacity>
                       ) : (
-                        <Text style={styles.noPhoneText}>NO PHONE</Text>
+                        <Text style={[styles.noPhoneText, { color: colors.textMuted }]}>NO PHONE</Text>
                       )}
                     </View>
                   );
@@ -393,12 +427,13 @@ export default function SOSAlertScreen() {
             {/* Section 3: National Emergency Hotline Speed Dial */}
             <View style={[styles.sectionTitleBox, { marginTop: 28, justifyContent: 'space-between' }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="shield-checkmark" size={18} color="#10B981" />
+                <Ionicons name="shield-checkmark" size={17} color="#10B981" />
                 <Text style={styles.sectionTitleText}>{country.name.toUpperCase()} EMERGENCY HOTLINES</Text>
               </View>
               <TouchableOpacity
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: 'rgba(212, 175, 55, 0.12)' }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: isDark ? 'rgba(212, 175, 55, 0.12)' : 'rgba(212, 175, 55, 0.1)' }}
                 onPress={() => setCountryModalVisible(true)}
+                activeOpacity={0.7}
               >
                 <Text style={{ fontSize: 13 }}>{country.flag}</Text>
                 <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.accentGold }}>CHANGE</Text>
@@ -407,28 +442,35 @@ export default function SOSAlertScreen() {
 
             {country.services.map((srv) => {
               const badgeBg = srv.category === 'police' 
-                ? 'rgba(59, 130, 246, 0.2)' 
-                : (srv.category === 'medical' ? 'rgba(16, 185, 129, 0.2)' : (srv.category === 'fire' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(212, 175, 55, 0.2)'));
+                ? 'rgba(59, 130, 246, 0.15)' 
+                : (srv.category === 'medical' ? 'rgba(16, 185, 129, 0.15)' : (srv.category === 'fire' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(212, 175, 55, 0.15)'));
               const badgeText = srv.category === 'police' 
-                ? '#60A5FA' 
+                ? '#3B82F6' 
                 : (srv.category === 'medical' ? '#10B981' : (srv.category === 'fire' ? '#EF4444' : colors.accentGold));
 
               return (
                 <TouchableOpacity 
                   key={srv.id}
-                  style={[styles.hotlineCard, { marginBottom: 10 }]}
+                  style={[
+                    styles.hotlineCard, 
+                    { 
+                      marginBottom: 10,
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#FFFFFF',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                    }
+                  ]}
                   onPress={() => handleCallNumber(srv.number, `${srv.name} (${srv.number})`)}
                   activeOpacity={0.7}
                 >
                   <View style={styles.hotlineLeft}>
                     <Ionicons 
                       name={(srv.icon || 'alert-circle') as any} 
-                      size={22} 
+                      size={20} 
                       color={badgeText} 
                     />
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.hotlineTitle}>{srv.name.toUpperCase()}</Text>
-                      <Text style={styles.hotlineSub}>{srv.description}</Text>
+                      <Text style={[styles.hotlineTitle, { color: colors.foreground }]}>{srv.name.toUpperCase()}</Text>
+                      <Text style={[styles.hotlineSub, { color: colors.textMuted }]}>{srv.description}</Text>
                     </View>
                   </View>
                   <View style={[styles.hotlineBadge, { backgroundColor: badgeBg }]}>
@@ -521,17 +563,26 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 10,
   },
+  sosButtonContent: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
   sosTextLarge: {
     color: '#FFFFFF',
-    fontSize: 34,
+    fontSize: 38,
     fontWeight: '900',
     letterSpacing: 2,
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   sosSubPrompt: {
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: 'rgba(255, 255, 255, 0.95)',
     fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 1.2,
+    letterSpacing: 1.5,
+    textAlign: 'center',
     marginTop: 2,
   },
   dispatchSubLabel: {
@@ -658,161 +709,164 @@ const styles = StyleSheet.create({
   /* Modal Styling */
   modalContainer: {
     flex: 1,
-    backgroundColor: '#0D0E12',
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 60,
-    paddingBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 56 : 42,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.15)',
   },
   modalCloseBtn: {
-    width: 40,
-    height: 40,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 14,
   },
   modalTitleBox: {
     flex: 1,
   },
   modalOverline: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: LUXURY_THEME.colors.accentGold,
-    letterSpacing: 2,
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 1.8,
     marginBottom: 2,
   },
   modalTitle: {
     fontSize: 20,
-    fontFamily: LUXURY_THEME.typography.fontFamilySerif,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontWeight: '800',
   },
   modalContent: {
-    padding: 24,
+    padding: 20,
+    paddingBottom: 40,
   },
   sectionTitleBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   sectionTitleText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: LUXURY_THEME.colors.accentGold,
-    letterSpacing: 1.5,
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+    color: '#D4AF37',
   },
   emptyText: {
     fontSize: 12,
-    color: LUXURY_THEME.colors.textMuted,
     marginBottom: 12,
   },
   contactList: {
-    gap: 12,
+    gap: 10,
   },
   contactCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    padding: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   contactLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
     flex: 1,
+    marginRight: 8,
   },
   avatarBox: {
-    width: 40,
-    height: 40,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.accentGold,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1.5,
   },
   initialText: {
-    color: LUXURY_THEME.colors.accentGold,
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   contactName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    fontSize: 14.5,
+    fontWeight: '700',
     marginBottom: 2,
   },
   contactSub: {
-    fontSize: 10,
-    color: LUXURY_THEME.colors.textMuted,
+    fontSize: 11,
     fontWeight: '500',
   },
   callActionBtn: {
     flexDirection: 'row',
-    height: 38,
+    height: 34,
     paddingHorizontal: 14,
+    borderRadius: 17,
     backgroundColor: '#10B981',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
   },
   callActionText: {
     color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.5,
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
   noPhoneText: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '700',
-    color: LUXURY_THEME.colors.textMuted,
-    letterSpacing: 1,
+    letterSpacing: 0.8,
   },
   hotlineCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'rgba(220, 38, 38, 0.15)',
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.sosRed,
-    padding: 18,
+    padding: 14,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   hotlineLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
     flex: 1,
+    marginRight: 8,
   },
   hotlineTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 1,
+    fontSize: 12.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
     marginBottom: 2,
   },
   hotlineSub: {
     fontSize: 11,
-    color: LUXURY_THEME.colors.textMuted,
   },
   hotlineBadge: {
-    backgroundColor: LUXURY_THEME.colors.sosRed,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
+    borderRadius: 12,
   },
   hotlineBadgeText: {
-    color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
 });

@@ -33,34 +33,16 @@ export default function AnimatedListDropdown({
   items,
   selectedIndex = -1,
   onItemSelect,
-  showGradients = true,
-  maxHeight = 260,
+  showGradients = false,
+  maxHeight = 280,
 }: AnimatedListDropdownProps) {
   const { colors, isDark } = useThemeStore();
-  const [topOpacity, setTopOpacity] = useState(0);
-  const [bottomOpacity, setBottomOpacity] = useState(1);
   const [currentSelected, setCurrentSelected] = useState(selectedIndex);
-
-  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    const y = contentOffset.y;
-    const maxScroll = contentSize.height - layoutMeasurement.height;
-
-    // Calculate top and bottom gradient fades
-    setTopOpacity(Math.min(y / 30, 1));
-    if (maxScroll <= 0) {
-      setBottomOpacity(0);
-    } else {
-      setBottomOpacity(Math.min((maxScroll - y) / 30, 1));
-    }
-  };
 
   return (
     <View style={[styles.container, { maxHeight }]}>
       <ScrollView
-        showsVerticalScrollIndicator={true}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
         {items.map((item, index) => {
@@ -74,12 +56,18 @@ export default function AnimatedListDropdown({
                 {
                   backgroundColor: isSelected
                     ? isDark
-                      ? 'rgba(180, 139, 30, 0.16)'
-                      : '#FAF5DB'
+                      ? 'rgba(255, 255, 255, 0.08)'
+                      : '#F1F5F9'
                     : isDark
-                    ? colors.surfaceMuted
-                    : '#F8F9FA',
-                  borderColor: isSelected ? '#B48B1E' : isDark ? colors.border : '#E4E4E7',
+                    ? 'rgba(255, 255, 255, 0.03)'
+                    : '#F8FAFC',
+                  borderColor: isSelected
+                    ? isDark
+                      ? 'rgba(255, 255, 255, 0.25)'
+                      : '#0F172A'
+                    : isDark
+                    ? 'rgba(255, 255, 255, 0.06)'
+                    : '#E2E8F0',
                 },
               ]}
               onPress={() => {
@@ -95,17 +83,19 @@ export default function AnimatedListDropdown({
                     styles.iconBox,
                     {
                       backgroundColor: isSelected
-                        ? '#B48B1E'
+                        ? isDark
+                          ? 'rgba(255, 255, 255, 0.15)'
+                          : '#0F172A'
                         : isDark
-                        ? colors.surface
-                        : '#E4E4E7',
+                        ? 'rgba(255, 255, 255, 0.06)'
+                        : '#E2E8F0',
                     },
                   ]}
                 >
                   <Ionicons
                     name={item.iconName}
                     size={16}
-                    color={isSelected ? '#FFFFFF' : isDark ? colors.foreground : '#4B5563'}
+                    color={isSelected ? '#FFFFFF' : isDark ? '#F8FAFC' : '#475569'}
                   />
                 </View>
               ) : null}
@@ -116,11 +106,7 @@ export default function AnimatedListDropdown({
                   style={[
                     styles.itemTitle,
                     {
-                      color: isSelected
-                        ? '#B48B1E'
-                        : isDark
-                        ? colors.foreground
-                        : '#18181B',
+                      color: isDark ? '#F8FAFC' : '#0F172A',
                       fontWeight: isSelected ? '700' : '600',
                     },
                   ]}
@@ -131,7 +117,7 @@ export default function AnimatedListDropdown({
                   <Text
                     style={[
                       styles.itemSubtitle,
-                      { color: isDark ? colors.textMuted : '#71717A' },
+                      { color: isDark ? '#94A3B8' : '#64748B' },
                     ]}
                   >
                     {item.subtitle}
@@ -142,7 +128,7 @@ export default function AnimatedListDropdown({
               {/* Active Badge / Check Icon */}
               {isSelected ? (
                 <View style={styles.checkWrap}>
-                  <Ionicons name="checkmark-circle" size={18} color="#B48B1E" />
+                  <Ionicons name="checkmark-circle" size={19} color={isDark ? '#38BDF8' : '#0F172A'} />
                 </View>
               ) : item.badge ? (
                 <View style={styles.badgePill}>
@@ -153,30 +139,6 @@ export default function AnimatedListDropdown({
           );
         })}
       </ScrollView>
-
-      {/* Top & Bottom Soft Fading Gradient Overlays */}
-      {showGradients && (
-        <>
-          {topOpacity > 0 && (
-            <View
-              pointerEvents="none"
-              style={[
-                styles.topGradient,
-                { opacity: topOpacity, backgroundColor: isDark ? colors.surface : '#FFFFFF' },
-              ]}
-            />
-          )}
-          {bottomOpacity > 0 && (
-            <View
-              pointerEvents="none"
-              style={[
-                styles.bottomGradient,
-                { opacity: bottomOpacity, backgroundColor: isDark ? colors.surface : '#FFFFFF' },
-              ]}
-            />
-          )}
-        </>
-      )}
     </View>
   );
 }

@@ -17,6 +17,7 @@ export class RevenueCatService {
   }
 
   static async initialize(appUserID?: string): Promise<void> {
+    if (Platform.OS === 'web') return;
     try {
       await getSubscriptionStore().getState().loadSubscriptionState();
       getSubscriptionStore().getState().initListeners();

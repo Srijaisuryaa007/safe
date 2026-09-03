@@ -7,10 +7,11 @@ interface JellySqueezeButtonProps {
   children: React.ReactNode;
   onPress?: () => void;
   style?: ViewStyle | ViewStyle[];
+  contentStyle?: ViewStyle;
   glowColor?: string;
 }
 
-export default function JellySqueezeButton({ children, onPress, style, glowColor = '#EF4444' }: JellySqueezeButtonProps) {
+export default function JellySqueezeButton({ children, onPress, style, contentStyle, glowColor = '#EF4444' }: JellySqueezeButtonProps) {
   const scaleX = useRef(new Animated.Value(1)).current;
   const scaleY = useRef(new Animated.Value(1)).current;
 
@@ -88,7 +89,7 @@ export default function JellySqueezeButton({ children, onPress, style, glowColor
       <View style={styles.glassHighlightStripe} />
       
       {/* Button Inner Content */}
-      <View style={styles.contentWrap}>
+      <View style={[styles.contentWrap, contentStyle]}>
         {children}
       </View>
     </AnimatedTouchableOpacity>

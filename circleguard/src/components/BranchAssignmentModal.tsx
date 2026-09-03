@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, LayoutAnim
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
 import { useCircleStore, CircleMember } from '../store/useCircleStore';
+import { supabase } from '../lib/supabase';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -33,23 +34,33 @@ export default function BranchAssignmentModal({
   const founder = members.find(m => m.role === 'owner') || members[0];
   const founderName = founder?.profile?.full_name || 'Circle Leader';
 
-  // Sub-branch leaders: Co-Leaders and Guardians ONLY (excluding Founder and target member themselves)
-  const coLeaderAndGuardianBranches = members.filter(
-    m =>
-      (m.role === 'co_leader' || m.role === 'guardian') &&
-      m.user_id !== founder?.user_id &&
-      m.user_id !== targetMember.user_id
+  // All eligible supervisors: Co-Leaders, Guardians, and all other circle members (excluding Founder & target member)
+  const eligibleGuardianBranches = members.filter(
+    m => m.user_id !== founder?.user_id && m.user_id !== targetMember.user_id
   );
 
   const isUnderFounder = !currentSupervisorId || (founder && currentSupervisorId === founder.user_id);
 
-  const handleSelectSupervisor = (supervisorId: string | null) => {
+  const handleSelectSupervisor = async (supervisor: CircleMember | null) => {
     try {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     } catch (e) {}
 
+    const supervisorId = supervisor ? supervisor.user_id : null;
+
+    // If selected member is standard member, promote them to 'guardian' rank as well
+    if (supervisor && supervisor.role === 'member') {
+      try {
+        await supabase
+          .from('circle_members')
+          .update({ role: 'guardian' })
+          .eq('circle_id', circleId)
+          .eq('user_id', supervisor.user_id);
+      } catch (e) {}
+    }
+
     // Instant optimistic update (0ms lag)
-    assignMemberSupervisor(circleId, targetMember.user_id, supervisorId);
+    await assignMemberSupervisor(circleId, targetMember.user_id, supervisorId);
     onClose();
   };
 
@@ -60,7 +71,7 @@ export default function BranchAssignmentModal({
           {/* Header */}
           <View style={styles.headerRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text style={[styles.overline, { color: colors.accentGold }]}>COMMAND BRANCH ASSIGNMENT</Text>
+              <Text style={[styles.overline, { color: colors.accentGold }]}>SAFETY GUARDIAN ASSIGNMENT</Text>
               <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>
                 Assign {memberName}
               </Text>
@@ -71,11 +82,11 @@ export default function BranchAssignmentModal({
           </View>
 
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            Select the leadership branch responsible for {memberName}'s safety monitoring:
+            Select a Safety Guardian to supervise and receive priority emergency alerts for {memberName}:
           </Text>
 
           <ScrollView contentContainerStyle={styles.listContainer} showsVerticalScrollIndicator={false}>
-              {/* Unified Option 1: Circle Leader & Main Command */}
+              {/* Option 1: Circle Leader & Main Command */}
               <TouchableOpacity
                 style={[
                   styles.branchCard,
@@ -108,13 +119,16 @@ export default function BranchAssignmentModal({
                 />
               </TouchableOpacity>
 
-              {/* Option List: Co-Leaders and Guardians Branches */}
-              {coLeaderAndGuardianBranches.map((sup) => {
+              {/* Option List: All other Circle Members / Guardians */}
+              {eligibleGuardianBranches.map((sup) => {
                 const isSelected = currentSupervisorId === sup.user_id;
-                const supName = sup.profile?.full_name || 'Supervisor';
-                const roleColor = sup.role === 'co_leader' ? '#A855F7' : '#3B82F6';
-                const roleBadge = sup.role === 'co_leader' ? 'CO-LEADER' : 'GUARDIAN';
-                const roleIcon: keyof typeof Ionicons.glyphMap = sup.role === 'co_leader' ? 'shield-checkmark' : 'shield';
+                const supName = sup.profile?.full_name || 'Member';
+                const isCoLeader = sup.role === 'co_leader';
+                const isGuardian = sup.role === 'guardian';
+
+                const roleColor = isCoLeader ? '#A855F7' : (isGuardian ? '#3B82F6' : '#10B981');
+                const roleBadge = isCoLeader ? 'CO-LEADER' : (isGuardian ? 'GUARDIAN' : 'ASSIGN AS GUARDIAN');
+                const roleIcon: keyof typeof Ionicons.glyphMap = isCoLeader ? 'shield-checkmark' : (isGuardian ? 'shield' : 'shield-outline');
 
                 return (
                   <TouchableOpacity
@@ -124,7 +138,7 @@ export default function BranchAssignmentModal({
                       { backgroundColor: colors.background, borderColor: isSelected ? roleColor : colors.border },
                       isSelected && styles.branchCardActive,
                     ]}
-                    onPress={() => handleSelectSupervisor(sup.user_id)}
+                    onPress={() => handleSelectSupervisor(sup)}
                     activeOpacity={0.8}
                   >
                     <View style={[styles.iconBox, { backgroundColor: `${roleColor}15`, borderColor: roleColor }]}>
@@ -133,13 +147,13 @@ export default function BranchAssignmentModal({
 
                     <View style={styles.cardInfo}>
                       <View style={styles.titleRow}>
-                        <Text style={[styles.cardTitle, { color: colors.foreground }]}>{supName}'s Branch</Text>
+                        <Text style={[styles.cardTitle, { color: colors.foreground }]}>{supName}</Text>
                         <View style={[styles.badgePill, { backgroundColor: `${roleColor}20` }]}>
                           <Text style={[styles.badgeText, { color: roleColor }]}>{roleBadge}</Text>
                         </View>
                       </View>
                       <Text style={[styles.cardDesc, { color: colors.textMuted }]}>
-                        Monitored under {supName}'s leadership branch.
+                        Monitored under {supName}'s safety supervision.
                       </Text>
                     </View>
 

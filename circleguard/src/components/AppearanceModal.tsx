@@ -1,8 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore, ThemeMode } from '../store/useThemeStore';
-
 interface AppearanceModalProps {
   visible: boolean;
   onClose: () => void;

@@ -775,77 +775,72 @@ export default function LocationHistoryScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Main Map Viewport */}
-      <View style={styles.mapViewportWrapper}>
-        <View style={[styles.mapContainer, { borderColor: 'rgba(212, 175, 55, 0.15)' }]}>
-          {loading ? (
-            <View style={styles.loadingBox}>
-              <ActivityIndicator size="large" color="#FF536A" />
-              <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading Precise Trajectory...</Text>
-            </View>
-          ) : (
-            <WebView
-              ref={webViewRef}
-              originWhitelist={['*']}
-              source={{ html: htmlContent }}
-              style={styles.webView}
-              onLoadEnd={updateMapPlaybackPin}
-            />
-          )}
+      {loading ? (
+        <View style={styles.centeredLoadingScreen}>
+          <CircleGuardGlobeLoader size={200} loadingLabel="Retrieving Location History…" />
         </View>
-
-        {/* Docked Playback Control Panel Below Map */}
-        {historyPoints.length > 0 ? (
-          <View style={[styles.playbackCardDocked, { backgroundColor: colors.surface, borderColor: colors.border, marginTop: 10, borderRadius: 16, padding: 14, borderWidth: 1 }]}>
-            <View style={styles.playbackHeader}>
-              <TouchableOpacity
-                style={[styles.playBtn, { backgroundColor: isPlaying ? '#D4AF37' : '#FF5266', borderRadius: 20 }]}
-                onPress={() => setIsPlaying(!isPlaying)}
-                activeOpacity={0.8}
-              >
-                <Ionicons name={isPlaying ? "pause" : "play"} size={20} color="#FFFFFF" />
-              </TouchableOpacity>
-
-              <View style={styles.playbackInfo}>
-                <Text style={[styles.playbackTimeText, { color: colors.foreground, fontSize: 13, fontWeight: '700' }]}>
-                  {activePoint?.timestamp || '--:--'} • {activePoint?.speedKmh || 0} km/h • {getCardinalDirection(roadBearings[Math.min(Math.floor((playbackIndex / Math.max(1, historyPoints.length - 1)) * Math.max(0, roadCoords.length - 1)), Math.max(0, roadCoords.length - 1))] || 0)}
-                </Text>
-                <Text style={[styles.playbackAddress, { color: colors.textMuted, fontSize: 11 }]} numberOfLines={1}>
-                  {activePoint?.address || `${selectedMemberName}'s Waypoint #${playbackIndex + 1}`}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={[styles.speedBtn, { borderColor: colors.accentGold, backgroundColor: 'rgba(217, 184, 76, 0.1)', borderRadius: 12 }]}
-                onPress={() => setPlaybackSpeed(prev => (prev === 1 ? 2 : prev === 2 ? 5 : 1))}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.speedBtnText, { color: colors.accentGold, fontWeight: '800' }]}>{playbackSpeed}x</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Scrubber Progress Bar */}
-            <View style={[styles.scrubberTrack, { marginTop: 10 }]}>
-              <View
-                style={[
-                  styles.scrubberFill,
-                  {
-                    backgroundColor: colors.accentGold,
-                    width: `${((playbackIndex + 1) / historyPoints.length) * 100}%`,
-                  },
-                ]}
+      ) : (
+        <>
+          {/* Main Map Viewport */}
+          <View style={styles.mapViewportWrapper}>
+            <View style={[styles.mapContainer, { borderColor: 'rgba(212, 175, 55, 0.15)' }]}>
+              <WebView
+                ref={webViewRef}
+                originWhitelist={['*']}
+                source={{ html: htmlContent }}
+                style={styles.webView}
+                onLoadEnd={updateMapPlaybackPin}
               />
             </View>
-          </View>
-        ) : null}
-      </View>
 
-      {/* Daily Metrics & Movement Timeline */}
-      <ScrollView style={styles.metricsScroll} contentContainerStyle={styles.metricsContent} showsVerticalScrollIndicator={false}>
-        {loading ? (
-          <CircleGuardGlobeLoader size={180} loadingLabel="Retrieving Location History…" />
-        ) : (
-          <>
+            {/* Docked Playback Control Panel Below Map */}
+            {historyPoints.length > 0 ? (
+              <View style={[styles.playbackCardDocked, { backgroundColor: colors.surface, borderColor: colors.border, marginTop: 10, borderRadius: 16, padding: 14, borderWidth: 1 }]}>
+                <View style={styles.playbackHeader}>
+                  <TouchableOpacity
+                    style={[styles.playBtn, { backgroundColor: isPlaying ? '#D4AF37' : '#FF5266', borderRadius: 20 }]}
+                    onPress={() => setIsPlaying(!isPlaying)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name={isPlaying ? "pause" : "play"} size={20} color="#FFFFFF" />
+                  </TouchableOpacity>
+
+                  <View style={styles.playbackInfo}>
+                    <Text style={[styles.playbackTimeText, { color: colors.foreground, fontSize: 13, fontWeight: '700' }]}>
+                      {activePoint?.timestamp || '--:--'} • {activePoint?.speedKmh || 0} km/h • {getCardinalDirection(roadBearings[Math.min(Math.floor((playbackIndex / Math.max(1, historyPoints.length - 1)) * Math.max(0, roadCoords.length - 1)), Math.max(0, roadCoords.length - 1))] || 0)}
+                    </Text>
+                    <Text style={[styles.playbackAddress, { color: colors.textMuted, fontSize: 11 }]} numberOfLines={1}>
+                      {activePoint?.address || `${selectedMemberName}'s Waypoint #${playbackIndex + 1}`}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.speedBtn, { borderColor: colors.accentGold, backgroundColor: 'rgba(217, 184, 76, 0.1)', borderRadius: 12 }]}
+                    onPress={() => setPlaybackSpeed(prev => (prev === 1 ? 2 : prev === 2 ? 5 : 1))}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.speedBtnText, { color: colors.accentGold, fontWeight: '800' }]}>{playbackSpeed}x</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Scrubber Progress Bar */}
+                <View style={[styles.scrubberTrack, { marginTop: 10 }]}>
+                  <View
+                    style={[
+                      styles.scrubberFill,
+                      {
+                        backgroundColor: colors.accentGold,
+                        width: `${((playbackIndex + 1) / historyPoints.length) * 100}%`,
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Daily Metrics & Movement Timeline */}
+          <ScrollView style={styles.metricsScroll} contentContainerStyle={styles.metricsContent} showsVerticalScrollIndicator={false}>
             {/* Metric Cards Grid */}
         <View style={styles.metricsRow}>
           <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -953,9 +948,9 @@ export default function LocationHistoryScreen() {
             );
           })
         )}
-          </>
-        )}
-      </ScrollView>
+          </ScrollView>
+        </>
+      )}
     </View>
   );
 }
@@ -963,6 +958,12 @@ export default function LocationHistoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  centeredLoadingScreen: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: 40,
   },
   header: {
     flexDirection: 'row',

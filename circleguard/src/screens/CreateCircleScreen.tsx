@@ -65,14 +65,13 @@ export default function CreateCircleScreen() {
 
       if (memberError) throw memberError;
 
-      // 3. Fetch circle members and set active circle
-      await useCircleStore.getState().fetchMembers(circleData.id);
-      setActiveCircle(circleData as any);
+      // 3. Save circle to store with persistence & fetch members
+      await useCircleStore.getState().addCreatedCircle(circleData as any, userId);
       Alert.alert(
         'Circle Created',
-        `Your circle "${circleData.name}" is ready with ${trackingMode === 'continuous' ? 'Continuous 24/7 Safety Tracking' : 'Privacy-First Disconnect'} mode!`
+        `Your circle "${circleData.name}" is ready with ${trackingMode === 'continuous' ? 'Continuous 24/7 Safety Tracking' : 'Privacy-First Disconnect'} mode!`,
+        [{ text: 'CONTINUE', onPress: () => navigation.goBack() }]
       );
-      navigation.goBack();
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to create circle.');
     } finally {

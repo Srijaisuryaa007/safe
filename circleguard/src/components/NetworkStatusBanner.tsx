@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
 import { useAuthStore } from '../store/useAuthStore';
+import { useNetworkStore } from '../store/useNetworkStore';
 import { flushOfflineBreadcrumbs } from '../services/OfflineLocationQueueService';
 
 type NetworkState = 'good' | 'slow' | 'offline';
@@ -72,6 +73,7 @@ export default function NetworkStatusBanner() {
   const handleStateTransition = (newState: NetworkState) => {
     const prevState = prevStateRef.current;
     prevStateRef.current = newState;
+    useNetworkStore.getState().setNetworkState(newState, latencyMs);
 
     if (prevState !== 'good' && newState === 'good') {
       // Transition from slow/offline back to healthy! Show "Restored" pill briefly and flush queued GPS points
@@ -121,37 +123,27 @@ export default function NetworkStatusBanner() {
     return null;
   }
 
+  // UI/UX Pro Max Liquid Glass Palette
   const bannerBg = showRestored
+    ? 'rgba(10, 32, 22, 0.94)'
+    : isOffline
+    ? 'rgba(32, 12, 14, 0.95)'
+    : 'rgba(32, 26, 12, 0.94)';
+
+  const borderColor = showRestored
+    ? 'rgba(16, 185, 129, 0.6)'
+    : isOffline
+    ? 'rgba(239, 68, 68, 0.55)'
+    : 'rgba(233, 195, 73, 0.55)';
+
+  const accentColor = showRestored
     ? '#10B981'
     : isOffline
     ? '#EF4444'
-    : isDark
-    ? '#2D2005'
-    : '#FFFBEB';
+    : '#E9C349';
 
-  const borderColor = showRestored
-    ? '#059669'
-    : isOffline
-    ? '#DC2626'
-    : isDark
-    ? '#D97706'
-    : '#FDE68A';
-
-  const textColor = showRestored
-    ? '#FFFFFF'
-    : isOffline
-    ? '#FFFFFF'
-    : isDark
-    ? '#FDE68A'
-    : '#92400E';
-
-  const subtextColor = showRestored
-    ? 'rgba(255, 255, 255, 0.9)'
-    : isOffline
-    ? 'rgba(255, 255, 255, 0.85)'
-    : isDark
-    ? '#FCD34D'
-    : '#B45309';
+  const textColor = '#FFFFFF';
+  const subtextColor = 'rgba(255, 255, 255, 0.78)';
 
   return (
     <Animated.View style={[styles.floatingContainer, { transform: [{ translateY }] }]}>
@@ -249,28 +241,34 @@ const styles = StyleSheet.create({
   bannerCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 11,
     paddingHorizontal: 14,
-    borderRadius: 16,
+    borderRadius: 20,
     borderWidth: 1.2,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.38,
+    shadowRadius: 16,
+    elevation: 12,
   },
   iconContainer: {
-    marginRight: 10,
+    marginRight: 11,
     alignItems: 'center',
     justifyContent: 'center',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   slowIconWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
     position: 'relative',
   },
   turtleBadge: {
     position: 'absolute',
     bottom: -2,
     right: -4,
-    backgroundColor: '#FEF3C7',
+    backgroundColor: '#E9C349',
     borderRadius: 6,
     padding: 1,
   },

@@ -125,9 +125,17 @@ interface CircleState {
   circles: Circle[];
   members: CircleMember[];
   places: Place[];
+  membersByCircle: Record<string, CircleMember[]>;
+  placesByCircle: Record<string, Place[]>;
   isLoading: boolean;
   circleFetched: boolean;
+  isSwitchingCircle: boolean;
+  switchingTargetName: string | null;
+  switchingStepText: string | null;
   setActiveCircle: (circle: Circle | null) => void;
+  switchActiveCircle: (circle: Circle) => Promise<void>;
+  addCreatedCircle: (circle: Circle, userId?: string) => Promise<void>;
+  fetchUserCircles: (userId: string) => Promise<Circle[]>;
   setMembers: (members: CircleMember[]) => void;
   setPlaces: (places: Place[]) => void;
   setLoading: (isLoading: boolean) => void;
@@ -145,10 +153,176 @@ export const useCircleStore = create<CircleState>((set, get) => ({
   circles: [],
   members: [],
   places: [],
+  membersByCircle: {},
+  placesByCircle: {},
   isLoading: false,
   circleFetched: false,
-  resetCircleStore: () => set({ activeCircle: null, circles: [], members: [], places: [], circleFetched: false, isLoading: false }),
-  setActiveCircle: (activeCircle) => set({ activeCircle, circleFetched: true }),
+  isSwitchingCircle: false,
+  switchingTargetName: null,
+  switchingStepText: null,
+  resetCircleStore: () => set({ activeCircle: null, circles: [], members: [], places: [], membersByCircle: {}, placesByCircle: {}, circleFetched: false, isLoading: false, isSwitchingCircle: false, switchingTargetName: null, switchingStepText: null }),
+  switchActiveCircle: async (targetCircle: Circle) => {
+    if (!targetCircle) return;
+    const startTime = Date.now();
+
+    // 1. Show the rotating globe loading animation immediately with initial status
+    set({
+      isSwitchingCircle: true,
+      switchingTargetName: targetCircle.name,
+      switchingStepText: 'Connecting satellite telemetry...',
+    });
+
+    // 2. Persist target selection in storage
+    await AsyncStorage.setItem('@circleguard_active_circle_id', targetCircle.id).catch(() => {});
+
+    // 3. Concurrently fetch fresh members and places for the target circle behind the globe
+    const [fetchedMembers, fetchedPlaces] = await Promise.all([
+      get().fetchMembers(targetCircle.id),
+      get().fetchPlaces(targetCircle.id),
+    ]).catch(e => {
+      console.warn('Error loading circle data on switch:', e);
+      return [[], []];
+    });
+
+    // 4. Progressive 2.6-second enterprise telemetry feedback cycle
+    setTimeout(() => {
+      if (get().isSwitchingCircle) {
+        set({ switchingStepText: 'Synchronizing members & live GPS coordinates...' });
+      }
+    }, 850);
+
+    setTimeout(() => {
+      if (get().isSwitchingCircle) {
+        set({ switchingStepText: 'Securing perimeter & loading safe zones...' });
+      }
+    }, 1750);
+
+    setTimeout(() => {
+      if (get().isSwitchingCircle) {
+        set({ switchingStepText: 'Perimeter active • Decrypting feeds...' });
+      }
+    }, 2350);
+
+    // Wait for both data fetching and the 2.6s (2600ms) full globe animation window
+    const elapsed = Date.now() - startTime;
+    if (elapsed < 2600) {
+      await new Promise(res => setTimeout(res, 2600 - elapsed));
+    }
+
+    const currentCircles = get().circles;
+    const exists = currentCircles.some(c => c.id === targetCircle.id);
+    const updatedCircles = exists ? currentCircles : [targetCircle, ...currentCircles];
+
+    const finalMembers = (Array.isArray(fetchedMembers) && fetchedMembers.length > 0)
+      ? fetchedMembers
+      : (get().membersByCircle[targetCircle.id] || []);
+
+    const finalPlaces = (Array.isArray(fetchedPlaces) && fetchedPlaces.length > 0)
+      ? fetchedPlaces
+      : (get().placesByCircle[targetCircle.id] || []);
+
+    // 5. ATOMIC COMMIT: Commit fully synchronized circle, members, and places simultaneously
+    set({
+      activeCircle: targetCircle,
+      circles: updatedCircles,
+      members: finalMembers,
+      places: finalPlaces,
+      membersByCircle: {
+        ...get().membersByCircle,
+        [targetCircle.id]: finalMembers,
+      },
+      placesByCircle: {
+        ...get().placesByCircle,
+        [targetCircle.id]: finalPlaces,
+      },
+      isSwitchingCircle: false,
+      switchingTargetName: null,
+      switchingStepText: null,
+      circleFetched: true,
+    });
+  },
+  setActiveCircle: (activeCircle) => {
+    if (activeCircle) {
+      AsyncStorage.setItem('@circleguard_active_circle_id', activeCircle.id).catch(() => {});
+      const currentCircles = get().circles;
+      const exists = currentCircles.some(c => c.id === activeCircle.id);
+      const updatedCircles = exists ? currentCircles : [activeCircle, ...currentCircles];
+
+      // INSTANT ISOLATION:
+      // Pull cached members and places for THIS exact circle ID immediately!
+      const cachedMembers = get().membersByCircle[activeCircle.id];
+      const cachedPlaces = get().placesByCircle[activeCircle.id];
+
+      // If no cached members yet, seed with self to avoid displaying old circle members!
+      let initialMembers: CircleMember[] = cachedMembers || [];
+      if (initialMembers.length === 0) {
+        const selfProfile = useAuthStore.getState().profile;
+        if (selfProfile?.id) {
+          initialMembers = [{
+            circle_id: activeCircle.id,
+            user_id: selfProfile.id,
+            role: 'owner',
+            joined_at: new Date().toISOString(),
+            profile: selfProfile,
+            isOnline: true,
+            lastSeenText: 'Online now',
+          }];
+        }
+      }
+
+      set({
+        activeCircle,
+        circles: updatedCircles,
+        members: initialMembers,
+        places: cachedPlaces || [],
+        circleFetched: true,
+      });
+
+      // Concurrently revalidate fresh data for this circle
+      get().fetchMembers(activeCircle.id);
+      get().fetchPlaces(activeCircle.id);
+    } else {
+      AsyncStorage.removeItem('@circleguard_active_circle_id').catch(() => {});
+      set({ activeCircle: null, members: [], places: [], circleFetched: true });
+    }
+  },
+  addCreatedCircle: async (newCircle: Circle, userId?: string) => {
+    const currentCircles = get().circles;
+    const exists = currentCircles.some(c => c.id === newCircle.id);
+    const updatedCircles = exists ? currentCircles.map(c => c.id === newCircle.id ? newCircle : c) : [newCircle, ...currentCircles];
+    await AsyncStorage.setItem('@circleguard_active_circle_id', newCircle.id);
+
+    // Initial member for newly created circle is creator
+    const selfProfile = useAuthStore.getState().profile;
+    const initialMembers: CircleMember[] = selfProfile?.id ? [{
+      circle_id: newCircle.id,
+      user_id: selfProfile.id,
+      role: 'owner',
+      joined_at: new Date().toISOString(),
+      profile: selfProfile,
+      isOnline: true,
+      lastSeenText: 'Online now',
+    }] : [];
+
+    const updatedMembersCache = { ...get().membersByCircle, [newCircle.id]: initialMembers };
+
+    set({
+      activeCircle: newCircle,
+      circles: updatedCircles,
+      members: initialMembers,
+      places: [],
+      membersByCircle: updatedMembersCache,
+      circleFetched: true,
+    });
+
+    await Promise.all([
+      get().fetchMembers(newCircle.id),
+      get().fetchPlaces(newCircle.id),
+    ]);
+    if (userId) {
+      get().fetchUserCircles(userId).catch(() => {});
+    }
+  },
   setMembers: (members) => set({ members }),
   setPlaces: (places) => set({ places }),
   setLoading: (isLoading) => set({ isLoading }),
@@ -169,7 +343,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
         // Tier 2: Fallback query for core columns
         const res2 = await supabase
           .from('circle_members')
-          .select('circle_id, user_id, role, joined_at, profiles(full_name, avatar_url, phone)')
+          .select('circle_id, user_id, role, supervisor_id, joined_at, profiles(full_name, avatar_url, phone)')
           .eq('circle_id', circleId);
 
         if (!res2.error && res2.data) {
@@ -178,7 +352,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
           // Tier 3: Direct fallback without relational join if PostgREST join syntax fails
           const { data: rawCmRows, error: cmErr } = await supabase
             .from('circle_members')
-            .select('circle_id, user_id, role, joined_at')
+            .select('circle_id, user_id, role, supervisor_id, joined_at')
             .eq('circle_id', circleId);
 
           if (cmErr) throw cmErr;
@@ -335,21 +509,29 @@ export const useCircleStore = create<CircleState>((set, get) => ({
         };
       });
 
-      set({ members: formattedMembers });
+      const updatedMembersByCircle = {
+        ...get().membersByCircle,
+        [circleId]: formattedMembers,
+      };
+
+      // RACE CONDITION DEFENSE:
+      // Only set active members if this circle is still the active circle!
+      if (get().activeCircle?.id === circleId) {
+        set({ members: formattedMembers, membersByCircle: updatedMembersByCircle });
+      } else {
+        set({ membersByCircle: updatedMembersByCircle });
+      }
+
       return formattedMembers;
     } catch (err) {
       console.error('Error fetching members:', err);
       return [];
     }
   },
-  fetchActiveCircle: async (userId: string) => {
-    if (!userId) return null;
-    set({ isLoading: true });
+  fetchUserCircles: async (userId: string) => {
+    if (!userId) return [];
     try {
-      let circleObj: Circle | null = null;
       let allCircles: Circle[] = [];
-
-      // Tier 1: Relational join query
       const { data: memberData, error: memberError } = await supabase
         .from('circle_members')
         .select('circle_id, role, circles(*)')
@@ -363,9 +545,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
             return c;
           })
           .filter(Boolean);
-        if (allCircles.length > 0) circleObj = allCircles[0];
       } else {
-        // Tier 2: Direct fallback without relational join
         const { data: cmRows } = await supabase
           .from('circle_members')
           .select('circle_id, role')
@@ -380,19 +560,62 @@ export const useCircleStore = create<CircleState>((set, get) => ({
 
           if (circleRows && circleRows.length > 0) {
             allCircles = circleRows as Circle[];
-            circleObj = allCircles[0];
           }
         }
       }
 
-      if (circleObj) {
-        set({ activeCircle: circleObj, circles: allCircles, circleFetched: true });
-        await get().fetchMembers(circleObj.id);
-        return circleObj;
-      } else {
-        set({ activeCircle: null, circles: [], members: [], circleFetched: true });
-        return null;
+      if (allCircles.length > 0) {
+        const currentActive = get().activeCircle;
+        const savedId = await AsyncStorage.getItem('@circleguard_active_circle_id');
+
+        // STRICT PRESERVATION:
+        // 1. If currently selected activeCircle is in allCircles, ALWAYS keep it!
+        // 2. Else if saved ID from AsyncStorage is in allCircles, keep it!
+        // 3. Only if neither exists, fall back to allCircles[0].
+        let activeToKeep = currentActive ? allCircles.find(c => c.id === currentActive.id) : null;
+        if (!activeToKeep && savedId) {
+          activeToKeep = allCircles.find(c => c.id === savedId) || null;
+        }
+        if (!activeToKeep) {
+          activeToKeep = allCircles[0];
+        }
+
+        if (activeToKeep) {
+          AsyncStorage.setItem('@circleguard_active_circle_id', activeToKeep.id).catch(() => {});
+        }
+
+        set({ circles: allCircles, activeCircle: activeToKeep, circleFetched: true });
+        return allCircles;
       }
+      return [];
+    } catch (e) {
+      console.warn('fetchUserCircles error:', e);
+      return [];
+    }
+  },
+  fetchActiveCircle: async (userId: string) => {
+    if (!userId) return null;
+    
+    // If active circle is ALREADY active, refresh its members and DO NOT switch!
+    const existingActive = get().activeCircle;
+    if (existingActive) {
+      await get().fetchMembers(existingActive.id);
+      get().fetchUserCircles(userId).catch(() => {});
+      return existingActive;
+    }
+
+    set({ isLoading: true });
+    try {
+      const allCircles = await get().fetchUserCircles(userId);
+      if (allCircles.length > 0) {
+        const active = get().activeCircle;
+        if (active) {
+          await get().fetchMembers(active.id);
+          return active;
+        }
+      }
+      set({ activeCircle: null, circles: [], members: [], circleFetched: true });
+      return null;
     } catch (err) {
       console.error('Error fetching active circle:', err);
       set({ circleFetched: true });
@@ -406,7 +629,13 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       // 1. Optimistic state update for 0ms visual re-branching
       const current = get().members;
       const updated = current.map(m => m.user_id === memberId ? { ...m, supervisor_id: supervisorId } : m);
-      set({ members: updated });
+      set({
+        members: updated,
+        membersByCircle: {
+          ...get().membersByCircle,
+          [circleId]: updated,
+        },
+      });
 
       // 2. Persist to AsyncStorage for permanent retention
       try {
@@ -483,7 +712,18 @@ export const useCircleStore = create<CircleState>((set, get) => ({
         };
       }).filter(p => p.latitude !== 0 && p.longitude !== 0);
 
-      set({ places: formatted });
+      const updatedPlacesByCircle = {
+        ...get().placesByCircle,
+        [circleId]: formatted,
+      };
+
+      // RACE CONDITION DEFENSE:
+      // Only set active places if this circle is still the active circle!
+      if (get().activeCircle?.id === circleId) {
+        set({ places: formatted, placesByCircle: updatedPlacesByCircle });
+      } else {
+        set({ placesByCircle: updatedPlacesByCircle });
+      }
       return formatted;
     } catch (e) {
       console.warn('Error fetching circle places:', e);

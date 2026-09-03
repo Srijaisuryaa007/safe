@@ -13,6 +13,7 @@ interface MemberRoleModalProps {
   member: {
     user_id: string;
     role: CircleRole;
+    supervisor_id?: string | null;
     profile?: {
       full_name: string;
       avatar_url: string | null;
@@ -21,6 +22,7 @@ interface MemberRoleModalProps {
   circleId: string;
   canEdit?: boolean;
   onRoleUpdated?: (userId: string, newRole: CircleRole) => void;
+  onAssignGuardian?: (member: any) => void;
 }
 
 export default function MemberRoleModal({
@@ -30,9 +32,10 @@ export default function MemberRoleModal({
   circleId,
   canEdit = true,
   onRoleUpdated,
+  onAssignGuardian,
 }: MemberRoleModalProps) {
   const { colors } = useThemeStore();
-  const { fetchMembers, removeMember, activeCircle } = useCircleStore();
+  const { fetchMembers, removeMember, activeCircle, members } = useCircleStore();
   const [updating, setUpdating] = useState(false);
   const [activeRole, setActiveRole] = useState<CircleRole | null>(null);
 
@@ -246,6 +249,61 @@ export default function MemberRoleModal({
             </View>
           ) : (
             <ScrollView contentContainerStyle={styles.listContainer} showsVerticalScrollIndicator={false}>
+              {/* Guardian Assignment Section */}
+              {!isTargetOwner && (
+                <View style={[styles.guardianSectionCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                  <View style={styles.guardianHeaderRow}>
+                    <View style={[styles.guardianIconWrap, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
+                      <Ionicons name="shield-checkmark" size={18} color="#38BDF8" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.guardianSectionOverline, { color: '#38BDF8' }]}>ASSIGNED SAFETY GUARDIAN</Text>
+                      <Text style={[styles.guardianSectionName, { color: colors.foreground }]}>
+                        {(() => {
+                          const liveMember = members.find(m => m.user_id === member.user_id) || member;
+                          const sup = members.find(m => m.user_id === liveMember.supervisor_id);
+                          if (sup) {
+                            const supRole = sup.role === 'co_leader' ? 'Co-Leader' : (sup.role === 'owner' ? 'Leader' : 'Guardian');
+                            return `${sup.profile?.full_name || 'Guardian'} (${supRole})`;
+                          }
+                          return 'Direct Circle Command';
+                        })()}
+                      </Text>
+                      <Text style={[styles.guardianSectionDesc, { color: colors.textMuted }]}>
+                        {(() => {
+                          const liveMember = members.find(m => m.user_id === member.user_id) || member;
+                          return liveMember.supervisor_id
+                            ? 'Monitored under their assigned Guardian with priority SOS routing.'
+                            : 'Not assigned to a specific Guardian. Supervised under Circle Main Command.';
+                        })()}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {canEdit && (
+                    <TouchableOpacity
+                      style={[styles.assignGuardianBtn, { borderColor: 'rgba(56, 189, 248, 0.35)', backgroundColor: 'rgba(56, 189, 248, 0.08)' }]}
+                      onPress={() => {
+                        const liveMember = members.find(m => m.user_id === member.user_id) || member;
+                        onClose();
+                        setTimeout(() => {
+                          if (onAssignGuardian) onAssignGuardian(liveMember);
+                        }, 250);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="swap-horizontal" size={14} color="#38BDF8" />
+                      <Text style={[styles.assignGuardianBtnText, { color: '#38BDF8' }]}>
+                        {(() => {
+                          const liveMember = members.find(m => m.user_id === member.user_id) || member;
+                          return liveMember.supervisor_id ? 'CHANGE ASSIGNED GUARDIAN' : 'ASSIGN UNDER A GUARDIAN';
+                        })()}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
               {roleOptions.map((opt) => {
                 const isSelected = currentRole === opt.id;
 
@@ -552,5 +610,53 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 1,
+  },
+  guardianSectionCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 16,
+  },
+  guardianHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  guardianIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guardianSectionOverline: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    marginBottom: 2,
+  },
+  guardianSectionName: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  guardianSectionDesc: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  assignGuardianBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  assignGuardianBtnText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
 });

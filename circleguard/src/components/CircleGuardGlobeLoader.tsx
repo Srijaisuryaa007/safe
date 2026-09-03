@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Dimensions } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -18,213 +18,443 @@ import Svg, {
   RadialGradient,
   Stop,
   ClipPath,
-  Rect,
+  Line,
 } from 'react-native-svg';
 import { useThemeStore } from '../store/useThemeStore';
+import {
+  REAL_WORLD_LAND_PATH,
+  REAL_WORLD_COUNTRIES_PATH,
+  REAL_WORLD_HUBS,
+  WORLD_TILE_WIDTH,
+} from './globe/realWorldVector';
 
-interface CircleGuardGlobeLoaderProps {
+export interface CircleGuardGlobeLoaderProps {
   size?: number;
   loadingLabel?: string;
   subLabel?: string;
   fullscreen?: boolean;
 }
 
-// Authentic Vector World Continent Paths (Repeated seamlessly for 360° spherical rotation)
-// Canonical coordinates scaled to 400x200 world canvas projection
-const WORLD_CONTINENTS_SVG = `
-  M 30,25 C 45,20 70,22 85,35 C 95,45 105,70 90,85 C 80,95 65,90 55,80 C 45,75 35,65 25,45 Z
-  M 58,85 C 65,92 78,110 82,130 C 85,150 75,175 68,185 C 62,180 58,160 55,135 C 52,115 54,95 58,85 Z
-  M 180,30 C 195,25 210,28 215,40 C 205,50 190,52 180,48 Z
-  M 175,55 C 190,50 215,55 225,75 C 230,95 235,130 220,155 C 205,170 190,165 180,140 C 170,115 168,85 175,55 Z
-  M 215,30 C 245,25 290,28 320,45 C 330,65 315,85 290,90 C 275,80 250,75 230,65 Z
-  M 255,75 C 265,85 272,105 268,118 C 260,115 252,95 255,75 Z
-  M 290,120 C 315,115 335,130 330,155 C 315,165 285,155 290,120 Z
-  M 315,55 C 322,60 325,75 320,82 C 315,75 314,62 315,55 Z
-`;
+const TELEMETRY_FEED = [
+  'ENCRYPTION ACTIVE',
+  'SATELLITE SYNC',
+  'GRID SECURE',
+  'LIVE RADAR',
+];
 
 export default function CircleGuardGlobeLoader({
   size = 180,
-  loadingLabel = 'Securing your Circle…',
+  loadingLabel = 'SECURING CIRCLE...',
   subLabel,
   fullscreen = false,
 }: CircleGuardGlobeLoaderProps) {
   const { colors, isDark } = useThemeStore();
+  const [telemetryIdx, setTelemetryIdx] = useState(0);
 
-  const rotationAnim = useSharedValue(0);
-  const pulseAnim = useSharedValue(0);
-  const beaconPulse = useSharedValue(1);
+  const r = size / 2;
+  const containerSize = size + 56;
+  const scale = size / 360;
+  const tilePixelWidth = WORLD_TILE_WIDTH * scale;
+
+  // Reanimated Shared Values for instant native 60fps animations
+  const globeTranslateX = useSharedValue(0);
+  const orbitalRing1Rotation = useSharedValue(0);
+  const orbitalRing2Rotation = useSharedValue(0);
+  const shockwavePulse = useSharedValue(0);
+  const beaconGlow = useSharedValue(1);
+  const shieldAuraPulse = useSharedValue(0.85);
 
   useEffect(() => {
-    // 360° Infinite Continuous Rotation
-    rotationAnim.value = withRepeat(
-      withTiming(-200, { duration: 7500, easing: Easing.linear }),
+    // 1. Seamless 360° Earth Rotation on UI thread (instant 0ms start)
+    globeTranslateX.value = withRepeat(
+      withTiming(-tilePixelWidth, { duration: 10000, easing: Easing.linear }),
       -1,
       false
     );
 
-    // Outer Radar Ring Pulse
-    pulseAnim.value = withRepeat(
-      withTiming(1, { duration: 2200, easing: Easing.bezier(0.2, 0.8, 0.2, 1) }),
+    // 2. Gyroscopic Orbital Shield Rings (Opposing 3D spins)
+    orbitalRing1Rotation.value = withRepeat(
+      withTiming(360, { duration: 6500, easing: Easing.linear }),
+      -1,
+      false
+    );
+    orbitalRing2Rotation.value = withRepeat(
+      withTiming(-360, { duration: 9500, easing: Easing.linear }),
       -1,
       false
     );
 
-    // City Beacons Heartbeat
-    beaconPulse.value = withRepeat(
+    // 3. Expanding Defense Shockwave Pulse
+    shockwavePulse.value = withRepeat(
+      withTiming(1, { duration: 2400, easing: Easing.bezier(0.16, 1, 0.3, 1) }),
+      -1,
+      false
+    );
+
+    // 4. Node Beacons Heartbeat
+    beaconGlow.value = withRepeat(
       withSequence(
-        withTiming(1.35, { duration: 800, easing: Easing.inOut(Easing.quad) }),
-        withTiming(0.9, { duration: 800, easing: Easing.inOut(Easing.quad) })
+        withTiming(1.4, { duration: 750, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.8, { duration: 750, easing: Easing.inOut(Easing.ease) })
       ),
       -1,
       true
     );
-  }, []);
 
-  const globeRotationStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: rotationAnim.value }],
+    // 5. Shield Atmosphere Aura Breathing
+    shieldAuraPulse.value = withRepeat(
+      withSequence(
+        withTiming(1.12, { duration: 1600, easing: Easing.inOut(Easing.quad) }),
+        withTiming(0.88, { duration: 1600, easing: Easing.inOut(Easing.quad) })
+      ),
+      -1,
+      true
+    );
+
+    // Dynamic Telemetry Status Ticker
+    const ticker = setInterval(() => {
+      setTelemetryIdx((prev) => (prev + 1) % TELEMETRY_FEED.length);
+    }, 2800);
+
+    return () => clearInterval(ticker);
+  }, [tilePixelWidth]);
+
+  // Animated Styles
+  const globeAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: globeTranslateX.value }],
   }));
 
-  const radarRingStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(pulseAnim.value, [0, 0.35, 1], [0.85, 0.35, 0]),
-    transform: [{ scale: interpolate(pulseAnim.value, [0, 1], [0.92, 1.45]) }],
+  const orbit1Style = useAnimatedStyle(() => ({
+    transform: [
+      { rotateZ: '28deg' },
+      { rotateX: '65deg' },
+      { rotateZ: `${orbitalRing1Rotation.value}deg` },
+    ],
   }));
 
-  const r = size / 2;
+  const orbit2Style = useAnimatedStyle(() => ({
+    transform: [
+      { rotateZ: '-32deg' },
+      { rotateX: '68deg' },
+      { rotateZ: `${orbitalRing2Rotation.value}deg` },
+    ],
+  }));
+
+  const shockwaveStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(shockwavePulse.value, [0, 0.3, 0.85, 1], [0.85, 0.5, 0.12, 0]),
+    transform: [{ scale: interpolate(shockwavePulse.value, [0, 1], [0.92, 1.55]) }],
+  }));
+
+  const auraStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: shieldAuraPulse.value }],
+    opacity: interpolate(shieldAuraPulse.value, [0.88, 1.12], [0.35, 0.75]),
+  }));
 
   const content = (
     <View style={styles.contentContainer}>
-      {/* Globe Container */}
-      <View style={[styles.globeWrapper, { width: size + 24, height: size + 24 }]}>
-        {/* Pulsing Outer Golden Radar Ring */}
+      {/* Globe & Gyro Housing Frame */}
+      <View style={[styles.outerHousing, { width: containerSize, height: containerSize }]}>
+        {/* 1. Tactical HUD Corner Accents */}
+        <View style={[styles.cornerBracket, styles.bracketTL]} />
+        <View style={[styles.cornerBracket, styles.bracketTR]} />
+        <View style={[styles.cornerBracket, styles.bracketBL]} />
+        <View style={[styles.cornerBracket, styles.bracketBR]} />
+
+        {/* 2. Expanding Golden Shockwave Pulse */}
         <Animated.View
           style={[
-            styles.radarRing,
+            styles.shockwaveRing,
             {
-              width: size,
-              height: size,
-              borderRadius: size / 2,
+              width: size + 16,
+              height: size + 16,
+              borderRadius: (size + 16) / 2,
             },
-            radarRingStyle,
+            shockwaveStyle,
           ]}
         />
 
-        {/* 3D Realistic Earth Orb */}
-        <View style={[styles.sphereCard, { width: size, height: size, borderRadius: r }]}>
+        {/* 3. Outer Glowing Atmosphere Aura */}
+        <Animated.View
+          style={[
+            styles.atmosphereAura,
+            {
+              width: size + 10,
+              height: size + 10,
+              borderRadius: (size + 10) / 2,
+            },
+            auraStyle,
+          ]}
+        />
+
+        {/* 4. Gyroscopic 3D Orbital Satellite Ring 1 (+28° Tilt) */}
+        <Animated.View
+          style={[
+            styles.orbitalTrack,
+            {
+              width: size + 36,
+              height: size + 36,
+              borderRadius: (size + 36) / 2,
+            },
+            orbit1Style,
+          ]}
+        >
+          {/* Orbiting Satellite Node 1 */}
+          <View style={styles.satelliteNode} />
+        </Animated.View>
+
+        {/* 5. Gyroscopic 3D Orbital Satellite Ring 2 (-32° Tilt) */}
+        <Animated.View
+          style={[
+            styles.orbitalTrack2,
+            {
+              width: size + 32,
+              height: size + 32,
+              borderRadius: (size + 32) / 2,
+            },
+            orbit2Style,
+          ]}
+        >
+          {/* Orbiting Satellite Node 2 */}
+          <View style={styles.satelliteNodeEmerald} />
+        </Animated.View>
+
+        {/* 6. Precision Outer Calibration HUD Dial */}
+        <Svg
+          width={size + 24}
+          height={size + 24}
+          viewBox={`0 0 ${size + 24} ${size + 24}`}
+          style={StyleSheet.absoluteFill}
+        >
+          {/* Outer Dashed Track */}
+          <Circle
+            cx={(size + 24) / 2}
+            cy={(size + 24) / 2}
+            r={r + 8}
+            stroke="rgba(233, 195, 73, 0.28)"
+            strokeWidth={1}
+            strokeDasharray="3, 7"
+            fill="none"
+          />
+          {/* Cardinal Radar Tick Crosshairs */}
+          <Line
+            x1={(size + 24) / 2}
+            y1={2}
+            x2={(size + 24) / 2}
+            y2={7}
+            stroke="#E9C349"
+            strokeWidth={1.5}
+          />
+          <Line
+            x1={(size + 24) / 2}
+            y1={size + 17}
+            x2={(size + 24) / 2}
+            y2={size + 22}
+            stroke="#E9C349"
+            strokeWidth={1.5}
+          />
+          <Line
+            x1={2}
+            y1={(size + 24) / 2}
+            x2={7}
+            y2={(size + 24) / 2}
+            stroke="#E9C349"
+            strokeWidth={1.5}
+          />
+          <Line
+            x1={size + 17}
+            y1={(size + 24) / 2}
+            x2={size + 22}
+            y2={(size + 24) / 2}
+            stroke="#E9C349"
+            strokeWidth={1.5}
+          />
+        </Svg>
+
+        {/* 7. Central 3D Earth Sphere (Instant 0ms Native Render) */}
+        <View style={[styles.sphereCore, { width: size, height: size, borderRadius: r }]}>
           <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
             <Defs>
-              {/* Deep Ocean Base Radial Gradient */}
+              {/* Deep Oceanic Base Gradient */}
               <RadialGradient id="oceanGrad" cx="35%" cy="30%" r="70%">
-                <Stop offset="0%" stopColor="#131B24" stopOpacity="1" />
-                <Stop offset="65%" stopColor="#080C10" stopOpacity="1" />
-                <Stop offset="100%" stopColor="#030507" stopOpacity="1" />
+                <Stop offset="0%" stopColor="#0F1722" stopOpacity="1" />
+                <Stop offset="55%" stopColor="#080D14" stopOpacity="1" />
+                <Stop offset="90%" stopColor="#040609" stopOpacity="1" />
+                <Stop offset="100%" stopColor="#020305" stopOpacity="1" />
               </RadialGradient>
 
-              {/* Gold Landmass Fill Gradient */}
+              {/* Luxury Gold Landmass Gradient */}
               <LinearGradient id="landGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <Stop offset="0%" stopColor="#1E2B22" stopOpacity="0.98" />
-                <Stop offset="100%" stopColor="#121C16" stopOpacity="0.99" />
+                <Stop offset="0%" stopColor="#15241B" stopOpacity="0.98" />
+                <Stop offset="50%" stopColor="#101D15" stopOpacity="0.99" />
+                <Stop offset="100%" stopColor="#09120D" stopOpacity="1" />
               </LinearGradient>
 
-              {/* Spherical 3D Lighting & Specular Highlight */}
-              <RadialGradient id="specular3D" cx="30%" cy="25%" r="75%">
-                <Stop offset="0%" stopColor="#F3E5AB" stopOpacity="0.22" />
-                <Stop offset="45%" stopColor="#D4AF37" stopOpacity="0.05" />
-                <Stop offset="75%" stopColor="#000000" stopOpacity="0.4" />
-                <Stop offset="100%" stopColor="#000000" stopOpacity="0.8" />
+              {/* Tactical Country Border Linework */}
+              <LinearGradient id="countryEdgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <Stop offset="0%" stopColor="#F5D061" stopOpacity="0.9" />
+                <Stop offset="60%" stopColor="#D4AF37" stopOpacity="0.7" />
+                <Stop offset="100%" stopColor="#A17C15" stopOpacity="0.5" />
+              </LinearGradient>
+
+              {/* 3D Spherical Specular Light & Atmospheric Fresnel Shading */}
+              <RadialGradient id="specular3D" cx="28%" cy="24%" r="75%">
+                <Stop offset="0%" stopColor="#FFFBEB" stopOpacity="0.26" />
+                <Stop offset="30%" stopColor="#E9C349" stopOpacity="0.08" />
+                <Stop offset="65%" stopColor="#000000" stopOpacity="0.08" />
+                <Stop offset="88%" stopColor="#000000" stopOpacity="0.65" />
+                <Stop offset="100%" stopColor="#000000" stopOpacity="0.92" />
+              </RadialGradient>
+
+              {/* Atmospheric Golden Rim Corona */}
+              <RadialGradient id="coronaRing" cx="50%" cy="50%" r="50%">
+                <Stop offset="84%" stopColor="transparent" stopOpacity="0" />
+                <Stop offset="94%" stopColor="#E9C349" stopOpacity="0.25" />
+                <Stop offset="100%" stopColor="#E9C349" stopOpacity="0.65" />
               </RadialGradient>
 
               {/* Sphere Clipping Mask */}
               <ClipPath id="sphereClip">
-                <Circle cx={r} cy={r} r={r - 1} />
+                <Circle cx={r} cy={r} r={r - 0.8} />
               </ClipPath>
             </Defs>
 
-            {/* 1. Deep Spherical Ocean Base */}
-            <Circle cx={r} cy={r} r={r - 1} fill="url(#oceanGrad)" />
+            {/* A. Base Ocean Sphere */}
+            <Circle cx={r} cy={r} r={r - 0.5} fill="url(#oceanGrad)" />
 
-            {/* 2. Rotating Continents & Country Dots Group (Clipped to Sphere) */}
+            {/* B. Clipped Earth Content (Rotating Real Continents & Country Outlines) */}
             <G clipPath="url(#sphereClip)">
-              {/* Graticule Latitude Parallels */}
-              <G opacity={0.2} stroke="#A16207" strokeWidth={0.75}>
-                <Path d={`M 0,${r * 0.4} Q ${r},${r * 0.3} ${size},${r * 0.4}`} fill="none" />
-                <Path d={`M 0,${r * 0.7} Q ${r},${r * 0.65} ${size},${r * 0.7}`} fill="none" />
-                <Path d={`M 0,${r} Q ${r},${r} ${size},${r}`} fill="none" />
-                <Path d={`M 0,${r * 1.3} Q ${r},${r * 1.35} ${size},${r * 1.3}`} fill="none" />
-                <Path d={`M 0,${r * 1.6} Q ${r},${r * 1.7} ${size},${r * 1.6}`} fill="none" />
+              {/* 1. Curved 3D Graticule Latitude Parallels */}
+              <G opacity={0.22} stroke="#E9C349" strokeWidth={0.75} fill="none">
+                {/* Arctic */}
+                <Path d={`M ${r * 0.3},${r * 0.35} Q ${r},${r * 0.22} ${size - r * 0.3},${r * 0.35}`} />
+                {/* Tropic of Cancer */}
+                <Path d={`M ${r * 0.1},${r * 0.65} Q ${r},${r * 0.52} ${size - r * 0.1},${r * 0.65}`} />
+                {/* Equator (Curved Perspective) */}
+                <Path d={`M 0,${r} Q ${r},${r * 0.94} ${size},${r}`} strokeWidth={1} opacity={0.35} />
+                {/* Tropic of Capricorn */}
+                <Path d={`M ${r * 0.1},${r * 1.35} Q ${r},${r * 1.48} ${size - r * 0.1},${r * 1.35}`} />
+                {/* Antarctic */}
+                <Path d={`M ${r * 0.3},${r * 1.65} Q ${r},${r * 1.78} ${size - r * 0.3},${r * 1.65}`} />
+                {/* Prime Meridians */}
+                <Path d={`M ${r},0 Q ${r * 0.55},${r} ${r},${size}`} opacity={0.3} />
+                <Path d={`M ${r},0 Q ${r * 1.45},${r} ${r},${size}`} opacity={0.3} />
+                <Path d={`M ${r},0 L ${r},${size}`} opacity={0.25} />
               </G>
 
-              {/* Rotating Landmass Layer (Seamless 2x Duplication) */}
-              <Animated.View style={[{ width: size * 2.5, height: size }, globeRotationStyle]}>
-                <Svg width={size * 2.5} height={size} viewBox="0 0 600 200">
-                  {/* First World Tile */}
+              {/* 2. Rotating Real Continents & Countries Layer (Seamless Double-Tile) */}
+              <Animated.View style={[{ width: tilePixelWidth * 2, height: size }, globeAnimStyle]}>
+                <Svg width={tilePixelWidth * 2} height={size} viewBox={`0 0 ${WORLD_TILE_WIDTH * 2} 360`}>
+                  {/* Tile 1: Authentic Natural Earth Continents & Country Borders */}
                   <G transform="scale(1, 1)">
+                    {/* Continent Landmasses */}
                     <Path
-                      d={WORLD_CONTINENTS_SVG}
+                      d={REAL_WORLD_LAND_PATH}
                       fill="url(#landGrad)"
-                      stroke="#D4AF37"
-                      strokeWidth={1.2}
-                      opacity={0.92}
+                      stroke="#F5D061"
+                      strokeWidth={1.5}
+                      strokeLinejoin="round"
                     />
-                    {/* Geographic Country Nodes (India, Europe, Americas, Asia, Australia) */}
-                    <Circle cx={60} cy={55} r={2.8} fill="#F59E0B" />
-                    <Circle cx={70} cy={135} r={2.8} fill="#F59E0B" />
-                    <Circle cx={195} cy={42} r={2.8} fill="#F59E0B" />
-                    <Circle cx={205} cy={105} r={2.8} fill="#F59E0B" />
-                    <Circle cx={262} cy={95} r={3.2} fill="#FBBF24" />{/* India */}
-                    <Circle cx={285} cy={60} r={2.8} fill="#F59E0B" />
-                    <Circle cx={318} cy={68} r={2.8} fill="#F59E0B" />{/* Japan */}
-                    <Circle cx={310} cy={140} r={2.8} fill="#F59E0B" />{/* Australia */}
+                    {/* Individual Country Borders */}
+                    <Path
+                      d={REAL_WORLD_COUNTRIES_PATH}
+                      fill="none"
+                      stroke="url(#countryEdgeGrad)"
+                      strokeWidth={0.8}
+                      opacity={0.65}
+                      strokeLinejoin="round"
+                    />
+                    {/* Real Global Defense & Security Hubs */}
+                    {REAL_WORLD_HUBS.map((hub, i) => (
+                      <G key={`t1-hub-${i}`}>
+                        <Circle cx={hub.x} cy={hub.y} r={7} fill="rgba(233, 195, 73, 0.2)" />
+                        <Circle cx={hub.x} cy={hub.y} r={3.2} fill="#E9C349" />
+                        <Circle cx={hub.x} cy={hub.y} r={1.5} fill="#FFFBEB" />
+                      </G>
+                    ))}
                   </G>
 
-                  {/* Second World Tile for Seamless Infinite Loop */}
-                  <G transform="translate(300, 0)">
+                  {/* Tile 2: Exact Duplicate shifted by 720 for 100% seamless 360° wrap */}
+                  <G transform={`translate(${WORLD_TILE_WIDTH}, 0)`}>
                     <Path
-                      d={WORLD_CONTINENTS_SVG}
+                      d={REAL_WORLD_LAND_PATH}
                       fill="url(#landGrad)"
-                      stroke="#D4AF37"
-                      strokeWidth={1.2}
-                      opacity={0.92}
+                      stroke="#F5D061"
+                      strokeWidth={1.5}
+                      strokeLinejoin="round"
                     />
-                    <Circle cx={60} cy={55} r={2.8} fill="#F59E0B" />
-                    <Circle cx={70} cy={135} r={2.8} fill="#F59E0B" />
-                    <Circle cx={195} cy={42} r={2.8} fill="#F59E0B" />
-                    <Circle cx={205} cy={105} r={2.8} fill="#F59E0B" />
-                    <Circle cx={262} cy={95} r={3.2} fill="#FBBF24" />
-                    <Circle cx={285} cy={60} r={2.8} fill="#F59E0B" />
-                    <Circle cx={318} cy={68} r={2.8} fill="#F59E0B" />
-                    <Circle cx={310} cy={140} r={2.8} fill="#F59E0B" />
+                    <Path
+                      d={REAL_WORLD_COUNTRIES_PATH}
+                      fill="none"
+                      stroke="url(#countryEdgeGrad)"
+                      strokeWidth={0.8}
+                      opacity={0.65}
+                      strokeLinejoin="round"
+                    />
+                    {REAL_WORLD_HUBS.map((hub, i) => (
+                      <G key={`t2-hub-${i}`}>
+                        <Circle cx={hub.x} cy={hub.y} r={7} fill="rgba(233, 195, 73, 0.2)" />
+                        <Circle cx={hub.x} cy={hub.y} r={3.2} fill="#E9C349" />
+                        <Circle cx={hub.x} cy={hub.y} r={1.5} fill="#FFFBEB" />
+                      </G>
+                    ))}
                   </G>
                 </Svg>
               </Animated.View>
             </G>
 
-            {/* 3. 3D Spherical Specular Light & Shadow Overlay */}
-            <Circle cx={r} cy={r} r={r - 1} fill="url(#specular3D)" />
+            {/* C. 3D Spherical Volume Shading & Specular Gloss Overlay */}
+            <Circle cx={r} cy={r} r={r - 0.8} fill="url(#specular3D)" />
 
-            {/* 4. Golden Outer Horizon Ring */}
-            <Circle cx={r} cy={r} r={r - 1.2} stroke="#D4AF37" strokeWidth={1.6} fill="none" opacity={0.85} />
+            {/* D. Atmospheric Corona Glow Ring */}
+            <Circle cx={r} cy={r} r={r - 0.8} fill="url(#coronaRing)" />
+
+            {/* E. Precision Golden Rim Border */}
+            <Circle
+              cx={r}
+              cy={r}
+              r={r - 0.8}
+              stroke="#E9C349"
+              strokeWidth={1.6}
+              fill="none"
+              opacity={0.9}
+            />
           </Svg>
         </View>
       </View>
 
-      {/* Brand & Loading Labels */}
+      {/* Brand & Loading Status Typography */}
       <View style={styles.textStack}>
-        <Text style={styles.brandTitle}>CIRCLE GUARD</Text>
-        <Text style={[styles.loadingLabel, { color: colors.textMuted || '#94A3B8' }]}>
+        {/* Brand Badge with Mini Shield */}
+        <View style={styles.brandRow}>
+          <View style={styles.brandDot} />
+          <Text style={styles.brandTitle}>CIRCLE GUARD</Text>
+          <View style={styles.brandDot} />
+        </View>
+
+        {/* Primary Loading Message */}
+        <Text style={[styles.loadingLabel, { color: colors.foreground || '#E2E2E6' }]}>
           {loadingLabel}
         </Text>
-        {subLabel ? (
-          <Text style={[styles.subLabel, { color: colors.textMuted || '#64748B' }]}>
-            {subLabel}
+
+        {/* Secondary Sublabel or Dynamic Telemetry Badge */}
+        <View style={styles.telemetryBadge}>
+          <View style={styles.pulsingIndicator} />
+          <Text style={styles.telemetryText}>
+            {subLabel || TELEMETRY_FEED[telemetryIdx]}
           </Text>
-        ) : null}
+        </View>
       </View>
     </View>
   );
 
   if (fullscreen) {
     return (
-      <View style={[styles.fullscreenContainer, { backgroundColor: isDark ? '#0B0D10' : '#111317' }]}>
+      <View
+        style={[
+          styles.fullscreenContainer,
+          { backgroundColor: isDark ? '#0A0C0F' : 'rgba(10, 12, 15, 0.97)' },
+        ]}
+      >
         {content}
       </View>
     );
@@ -247,56 +477,177 @@ const styles = StyleSheet.create({
   inlineContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 20,
+    paddingVertical: 24,
   },
   contentContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
+    gap: 20,
   },
-  globeWrapper: {
+  outerHousing: {
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
   },
-  radarRing: {
+  // HUD Corner Brackets
+  cornerBracket: {
+    position: 'absolute',
+    width: 10,
+    height: 10,
+    borderColor: 'rgba(233, 195, 73, 0.35)',
+  },
+  bracketTL: {
+    top: 0,
+    left: 0,
+    borderTopWidth: 1.5,
+    borderLeftWidth: 1.5,
+  },
+  bracketTR: {
+    top: 0,
+    right: 0,
+    borderTopWidth: 1.5,
+    borderRightWidth: 1.5,
+  },
+  bracketBL: {
+    bottom: 0,
+    left: 0,
+    borderBottomWidth: 1.5,
+    borderLeftWidth: 1.5,
+  },
+  bracketBR: {
+    bottom: 0,
+    right: 0,
+    borderBottomWidth: 1.5,
+    borderRightWidth: 1.5,
+  },
+  // Shockwave Pulse
+  shockwaveRing: {
     position: 'absolute',
     borderWidth: 1.5,
-    borderColor: '#D4AF37',
+    borderColor: 'rgba(233, 195, 73, 0.65)',
   },
-  sphereCard: {
-    overflow: 'hidden',
-    backgroundColor: '#0B0D10',
-    borderWidth: 1.5,
-    borderColor: 'rgba(212, 175, 55, 0.45)',
-    shadowColor: '#D4AF37',
+  // Atmosphere Outer Aura
+  atmosphereAura: {
+    position: 'absolute',
+    backgroundColor: 'rgba(233, 195, 73, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(233, 195, 73, 0.25)',
+    shadowColor: '#E9C349',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.45,
-    shadowRadius: 20,
-    elevation: 8,
+    shadowOpacity: 0.6,
+    shadowRadius: 24,
+  },
+  // Gyro Orbital Rings
+  orbitalTrack: {
+    position: 'absolute',
+    borderWidth: 1.2,
+    borderColor: 'rgba(233, 195, 73, 0.4)',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  orbitalTrack2: {
+    position: 'absolute',
+    borderWidth: 1,
+    borderColor: 'rgba(110, 229, 145, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  satelliteNode: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FFFBEB',
+    shadowColor: '#E9C349',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 6,
+    elevation: 4,
+    marginTop: -3,
+  },
+  satelliteNodeEmerald: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#F5D061',
+    shadowColor: '#E9C349',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 6,
+    elevation: 4,
+    marginBottom: -2.5,
+  },
+  // Sphere Core
+  sphereCore: {
+    overflow: 'hidden',
+    backgroundColor: '#070B11',
+    borderWidth: 1.5,
+    borderColor: 'rgba(233, 195, 73, 0.5)',
+    shadowColor: '#E9C349',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 25,
+    elevation: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   textStack: {
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  brandDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E9C349',
+    opacity: 0.75,
   },
   brandTitle: {
-    color: '#D4AF37',
-    fontSize: 13,
+    color: '#E9C349',
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 3.5,
+    letterSpacing: 4,
     textTransform: 'uppercase',
   },
   loadingLabel: {
-    fontSize: 12.5,
-    fontWeight: '500',
-    letterSpacing: 0.4,
+    fontSize: 13.5,
+    fontWeight: '600',
+    letterSpacing: 0.5,
     textAlign: 'center',
+    maxWidth: 260,
   },
-  subLabel: {
-    fontSize: 11,
-    fontWeight: '400',
-    letterSpacing: 0.2,
-    textAlign: 'center',
+  telemetryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 4.5,
+    borderRadius: 9999,
+    backgroundColor: 'rgba(233, 195, 73, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(233, 195, 73, 0.22)',
     marginTop: 2,
+  },
+  pulsingIndicator: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#6EE591',
+    shadowColor: '#6EE591',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 4,
+  },
+  telemetryText: {
+    color: '#BDCABC',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
 });

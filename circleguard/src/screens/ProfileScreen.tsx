@@ -27,6 +27,7 @@ import { useCountryStore } from '../store/useCountryStore';
 
 import SpringTouchable from '../components/SpringTouchable';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
+import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 
 import PaywallModal from '../components/PaywallModal';
 import { useSubscriptionStore } from '../store/useSubscriptionStore';
@@ -357,6 +358,18 @@ export default function ProfileScreen() {
     },
   ];
 
+  if (!profile) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }}>
+        <LuxuryRadarLoading
+          message="LOADING PROFILE..."
+          subMessage="Decrypting settings"
+          size={130}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1 }}>
       <ScrollView 
@@ -667,7 +680,7 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     paddingTop: 46,
-    paddingBottom: 40,
+    paddingBottom: 28,
   },
   topNavRow: {
     marginBottom: 16,

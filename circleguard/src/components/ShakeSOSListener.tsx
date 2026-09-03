@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Vibration } from 'react-native';
+import { Vibration, Platform } from 'react-native';
 import { Accelerometer } from 'expo-sensors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
@@ -19,6 +19,7 @@ export default function ShakeSOSListener() {
   const subscriptionRef = useRef<any>(null);
 
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     let isMounted = true;
 
     const startListening = async () => {

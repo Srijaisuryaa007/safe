@@ -13,6 +13,7 @@ import { getHaversineDistanceInMeters, fetchCirclePlacesWithMembers } from '../s
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import { useSubscriptionStore } from '../store/useSubscriptionStore';
 import PaywallModal from '../components/PaywallModal';
+import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 
 function parseEWKBPoint(hexStr: string): { latitude: number; longitude: number } | null {
   try {
@@ -1327,7 +1328,13 @@ export default function SafePlacesScreen() {
         </View>
 
         {loadingPlaces ? (
-          <ActivityIndicator size="small" color={colors.accentGold} style={{ marginVertical: 20 }} />
+          <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+            <LuxuryRadarLoading
+              size={120}
+              message="LOADING PLACES..."
+              subMessage="Syncing geofences"
+            />
+          </View>
         ) : savedPlaces.length === 0 ? (
           <View style={[styles.emptyCard, cardStyles]}>
             <Ionicons name="shield-checkmark-outline" size={32} color={colors.textMuted} />

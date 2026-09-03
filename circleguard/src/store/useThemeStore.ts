@@ -37,7 +37,11 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     try {
       const saved = await AsyncStorage.getItem(STORAGE_KEY);
       const savedMapStyle = await AsyncStorage.getItem(MAP_STYLE_KEY);
-      const mode: ThemeMode = (saved as ThemeMode) || 'dark';
+      let mode: ThemeMode = (saved as ThemeMode) || 'dark';
+      if (mode !== 'dark' && mode !== 'light' && mode !== 'brand_green' && mode !== 'system') {
+        mode = 'dark';
+        await AsyncStorage.setItem(STORAGE_KEY, 'dark');
+      }
       const mapStyle: MapStyleType = (savedMapStyle as MapStyleType) || 'vector';
       const sysScheme = Appearance.getColorScheme();
       const config = getThemeConfig(mode, sysScheme);

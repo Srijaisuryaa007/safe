@@ -9,6 +9,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { MotiView } from 'moti';
 import { useThemeStore } from '../store/useThemeStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useNavigation } from '@react-navigation/native';
@@ -193,7 +194,14 @@ export default function ZomatoLiveJourneyCard({
   };
 
   return (
-    <View
+    <MotiView
+      from={{ opacity: 0, scale: 0.94, translateY: 14 }}
+      animate={{ opacity: 1, scale: 1, translateY: 0 }}
+      transition={{
+        type: 'spring',
+        damping: 18,
+        stiffness: 140,
+      }}
       style={[
         styles.cardContainer,
         {
@@ -303,7 +311,7 @@ export default function ZomatoLiveJourneyCard({
           <Text style={[styles.actionBtnText, { color: '#1A1A1A', fontWeight: '800' }]}>Live Track</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </MotiView>
   );
 }
 

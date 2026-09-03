@@ -18,6 +18,7 @@ import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import CircleHierarchyTree from '../components/CircleHierarchyTree';
 import BranchAssignmentModal from '../components/BranchAssignmentModal';
+import CircleQRCodeModal from '../components/CircleQRCodeModal';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
 
 type DashboardNavigationProp = CompositeNavigationProp<
@@ -30,15 +31,21 @@ export default function DashboardScreen() {
   const { showAlert, showConfirm } = useLuxuryAlert();
   const navigation = useNavigation<DashboardNavigationProp>();
   const { profile } = useAuthStore();
-  const { activeCircle, members, circleFetched, isLoading, fetchActiveCircle, setActiveCircle, setMembers } = useCircleStore();
+  const { activeCircle, members, circleFetched, isLoading, isSwitchingCircle, switchingTargetName, switchingStepText, fetchActiveCircle, setActiveCircle, setMembers } = useCircleStore();
 
-  const myMemberRecord = members.find(m => m.user_id === profile?.id);
+  const circleMembers = React.useMemo(() => {
+    if (!activeCircle?.id || !Array.isArray(members)) return [];
+    return members.filter(m => !m.circle_id || m.circle_id === activeCircle.id);
+  }, [members, activeCircle?.id]);
+
+  const myMemberRecord = circleMembers.find(m => m.user_id === profile?.id);
   const myRole = myMemberRecord?.role || 'member';
   const isOwner = (activeCircle && profile && activeCircle.owner_id === profile.id) || myRole === 'owner';
   const canManageRanks = isOwner || myRole === 'co_leader';
 
   const [selectedRoleMember, setSelectedRoleMember] = useState<any>(null);
   const [branchModalMember, setBranchModalMember] = useState<any>(null);
+  const [qrModalVisible, setQrModalVisible] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'tree'>('tree');
   const [refreshing, setRefreshing] = useState(false);
   const [pendingRequests, setPendingRequests] = useState<Array<{
@@ -184,9 +191,12 @@ export default function DashboardScreen() {
     if (!profile) return;
     setRefreshing(true);
     try {
-      await useCircleStore.getState().fetchActiveCircle(profile.id);
-      if (activeCircle?.id) {
-        await useCircleStore.getState().fetchMembers(activeCircle.id);
+      const currentCircle = activeCircle || useCircleStore.getState().activeCircle;
+      if (currentCircle?.id) {
+        await useCircleStore.getState().fetchMembers(currentCircle.id);
+        useCircleStore.getState().fetchUserCircles(profile.id).catch(() => {});
+      } else {
+        await useCircleStore.getState().fetchActiveCircle(profile.id);
       }
     } catch (e) {
       console.error('Refresh error:', e);
@@ -278,13 +288,13 @@ export default function DashboardScreen() {
     }
   };
 
-  // Display luxury custom loading animation while circle syncs from cloud database
-  if (isLoading || !circleFetched) {
+  // Display luxury custom loading animation while circle syncs from cloud database or switches
+  if (isLoading || !circleFetched || isSwitchingCircle) {
     return (
       <View style={[styles.container, styles.centerContent, { backgroundColor: colors.background }]}>
         <LuxuryRadarLoading
-          message="SYNCING FAMILY CIRCLE..."
-          subMessage="Fetching encrypted circle data & member status"
+          message={switchingTargetName ? `SWITCHING TO ${switchingTargetName.toUpperCase()}...` : 'SYNCING CIRCLE...'}
+          subMessage={switchingStepText || 'Connecting members & safe zones'}
           size={130}
         />
       </View>
@@ -339,7 +349,7 @@ export default function DashboardScreen() {
       <View style={styles.statsGridRow}>
         <View style={[styles.statBox, getThemeCardStyles(themeMode), { backgroundColor: colors.surface }]}>
           <Ionicons name="shield-checkmark-sharp" size={20} color={themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold} />
-          <Text style={[styles.statValue, { color: colors.foreground }]}>{members.length} Members</Text>
+          <Text style={[styles.statValue, { color: colors.foreground }]}>{circleMembers.length} Members</Text>
           <Text style={[styles.statLabel, { color: colors.textMuted }]}>MONITORED 24/7</Text>
         </View>
 
@@ -434,21 +444,41 @@ export default function DashboardScreen() {
             <Text style={[styles.inviteOverline, { color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}>CIRCLE ACCESS CODE</Text>
             <Text style={[styles.circleName, { color: colors.foreground }]} numberOfLines={1}>{activeCircle.name}</Text>
           </View>
-          <TouchableOpacity style={[styles.copyBtn, { backgroundColor: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]} onPress={handleCopyCode}>
-            <Ionicons name="copy-outline" size={14} color={themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A'} />
-            <Text style={[styles.copyBtnText, { color: themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A' }]}>SHARE</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <TouchableOpacity 
+              style={[styles.copyBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]} 
+              onPress={() => setQrModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="qr-code-outline" size={14} color={colors.foreground} />
+              <Text style={[styles.copyBtnText, { color: colors.foreground }]}>QR CODE</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.copyBtn, { backgroundColor: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]} 
+              onPress={handleCopyCode}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="copy-outline" size={14} color={themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A'} />
+              <Text style={[styles.copyBtnText, { color: themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A' }]}>SHARE</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        <View style={[styles.codeBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
+        <TouchableOpacity 
+          style={[styles.codeBox, { backgroundColor: colors.background, borderColor: colors.border }]} 
+          onPress={() => setQrModalVisible(true)}
+          activeOpacity={0.8}
+        >
           <Text style={[styles.codeText, { color: colors.accentGold }]}>{activeCircle.invite_code}</Text>
-        </View>
-        <Text style={[styles.inviteTip, { color: colors.textMuted }]}>Share this 6-character encryption key to add members.</Text>
+          <Ionicons name="qr-code" size={16} color={colors.textMuted} style={{ position: 'absolute', right: 14 }} />
+        </TouchableOpacity>
+        <Text style={[styles.inviteTip, { color: colors.textMuted }]}>Tap to view scannable QR code or share 6-character key.</Text>
       </View>
 
       {/* Members Directory Header & View Switcher */}
       <View style={styles.sectionHeaderRow}>
-        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>MEMBERS ({members.length})</Text>
+        <Text style={[styles.sectionTitle, { color: colors.foreground }]}>MEMBERS ({circleMembers.length})</Text>
         
         <View style={[styles.viewModeToggle, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <TouchableOpacity
@@ -473,7 +503,7 @@ export default function DashboardScreen() {
 
       {viewMode === 'tree' ? (
         <CircleHierarchyTree
-          members={members}
+          members={circleMembers}
           currentUserId={profile?.id}
           isOwner={isOwner}
           canManageRanks={canManageRanks}
@@ -482,7 +512,7 @@ export default function DashboardScreen() {
         />
       ) : (
         <View style={styles.membersList}>
-          {[...members]
+          {[...circleMembers]
             .sort((a, b) => {
               const weights: Record<string, number> = { owner: 1, co_leader: 2, guardian: 3, member: 4 };
               return (weights[a.role] || 99) - (weights[b.role] || 99);
@@ -517,6 +547,7 @@ export default function DashboardScreen() {
               const isHideOnline = !!item?.profile?.hide_online_presence;
               const isOnline = (isGhost || isHideOnline) ? false : (item.isOnline ?? true);
               const battery = item.batteryPct !== undefined && item.batteryPct !== null ? item.batteryPct : 95;
+              const supervisor = item.supervisor_id ? circleMembers.find(m => m.user_id === item.supervisor_id) : null;
 
               return (
                 <SpringTouchable
@@ -578,6 +609,15 @@ export default function DashboardScreen() {
                         <Text style={[styles.celestialRoleText, { color: roleColor }]}>{roleTitle}</Text>
                       </View>
 
+                      {supervisor ? (
+                        <View style={[styles.celestialGuardianPill, { backgroundColor: 'rgba(56, 189, 248, 0.12)', borderColor: 'rgba(56, 189, 248, 0.3)' }]}>
+                          <Ionicons name="shield-checkmark" size={8} color="#38BDF8" />
+                          <Text style={[styles.celestialGuardianText, { color: '#38BDF8' }]} numberOfLines={1}>
+                            Guardian: {supervisor.profile?.full_name || 'Assigned'}
+                          </Text>
+                        </View>
+                      ) : null}
+
                       {isGhost && (
                         <View style={[styles.celestialRolePill, { backgroundColor: 'rgba(168, 85, 247, 0.15)', flexDirection: 'row', alignItems: 'center', gap: 3 }]}>
                           <Ionicons name="eye-off-outline" size={8.5} color="#C084FC" />
@@ -625,6 +665,9 @@ export default function DashboardScreen() {
         onRoleUpdated={(userId, newRole) => {
           setSelectedRoleMember((prev: any) => prev ? { ...prev, role: newRole } : null);
         }}
+        onAssignGuardian={(m) => {
+          setBranchModalMember(m);
+        }}
       />
 
       <BranchAssignmentModal
@@ -632,6 +675,12 @@ export default function DashboardScreen() {
         targetMember={branchModalMember}
         circleId={activeCircle.id}
         onClose={() => setBranchModalMember(null)}
+      />
+
+      <CircleQRCodeModal
+        visible={qrModalVisible}
+        circle={activeCircle}
+        onClose={() => setQrModalVisible(false)}
       />
     </ScrollView>
   );
@@ -645,7 +694,7 @@ const styles = StyleSheet.create({
   content: {
     padding: 24,
     paddingTop: 60,
-    paddingBottom: 40,
+    paddingBottom: 28,
   },
   centerContent: {
     justifyContent: 'center',
@@ -889,6 +938,20 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  celestialGuardianPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  celestialGuardianText: {
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   celestialRightCol: {
     alignItems: 'flex-end',

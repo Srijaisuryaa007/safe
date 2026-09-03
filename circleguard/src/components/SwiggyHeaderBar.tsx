@@ -15,9 +15,9 @@ interface SwiggyHeaderBarProps {
 }
 
 export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }: SwiggyHeaderBarProps) {
-  const { colors, themeMode } = useThemeStore();
-  const { profile } = useAuthStore();
-  const { activeCircle, circles, setActiveCircle } = useCircleStore();
+  const { colors, themeMode, isDark } = useThemeStore();
+  const { profile, user } = useAuthStore();
+  const { activeCircle, circles, setActiveCircle, switchActiveCircle, fetchUserCircles } = useCircleStore();
   const navigation = useNavigation<any>();
 
   const [addressTitle, setAddressTitle] = useState('GOLDEN CITY');
@@ -29,6 +29,14 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
   const [editMode, setEditMode] = useState(false);
   const [customAreaInput, setCustomAreaInput] = useState('Golden City');
   const [customRoadInput, setCustomRoadInput] = useState('Thotagri Road');
+
+  const handleOpenCircleModal = () => {
+    const uid = profile?.id || user?.id;
+    if (uid) {
+      fetchUserCircles(uid).catch(() => {});
+    }
+    setCircleModalVisible(true);
+  };
 
   const cleanAddressPart = (val?: string | null) => {
     if (!val) return '';
@@ -200,8 +208,8 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
   }, []);
 
   const handleSelectCircle = (circle: any) => {
-    setActiveCircle(circle);
     setCircleModalVisible(false);
+    switchActiveCircle(circle);
   };
 
   return (
@@ -216,47 +224,87 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
           },
         ]}
       >
-        {/* Left Side: Swiggy-Style Location Address Bar */}
+        {/* Left Side: Location Address Chip */}
         <TouchableOpacity
           style={styles.locationSelector}
           onPress={() => setModalVisible(true)}
           activeOpacity={0.7}
         >
-          <View style={[styles.pinCircle, { backgroundColor: 'rgba(212, 175, 55, 0.15)', borderWidth: 0, borderColor: '#121212' }]}>
-            <Ionicons name="location" size={20} color={colors.accentGold} />
+          <View style={[styles.pinCircle, { backgroundColor: isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(15, 23, 42, 0.06)' }]}>
+            <Ionicons name="location" size={18} color={isDark ? '#38BDF8' : '#0F172A'} />
           </View>
 
           <View style={styles.addressTextBox}>
             <View style={styles.titleRow}>
-              <Text style={[styles.locationTitle, { color: colors.foreground }]}>{addressTitle}</Text>
-              <Ionicons name="chevron-down" size={14} color={colors.accentGold} />
+              <Text
+                style={[styles.locationTitle, { color: isDark ? '#F8FAFC' : '#0F172A' }]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {addressTitle}
+              </Text>
+              <Ionicons name="chevron-down" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
             </View>
-            <Text style={[styles.addressText, { color: colors.textMuted }]} numberOfLines={1}>
+            <Text
+              style={[styles.addressText, { color: isDark ? '#94A3B8' : '#64748B' }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
               {loadingAddress ? 'Locating...' : formattedAddress}
             </Text>
           </View>
         </TouchableOpacity>
 
-        {/* Right Side: Notification Bell Button */}
+        {/* Right Side: Circle Switcher Badge & Notification Bell Button */}
         <View style={styles.rightActionRow}>
+          {activeCircle ? (
+            <TouchableOpacity
+              style={[
+                styles.circleBadgePill,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.07)' : '#F1F5F9',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.14)' : '#E2E8F0',
+                },
+              ]}
+              onPress={handleOpenCircleModal}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="shield-checkmark" size={14} color={isDark ? '#38BDF8' : '#0F172A'} />
+              <Text
+                style={[styles.circleBadgeText, { color: isDark ? '#F8FAFC' : '#0F172A' }]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {activeCircle.name || 'Circle'}
+              </Text>
+              <Ionicons name="chevron-down" size={12} color={isDark ? '#94A3B8' : '#64748B'} />
+            </TouchableOpacity>
+          ) : null}
+
           <TouchableOpacity
-            style={[styles.bellBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            style={[
+              styles.bellBtn,
+              {
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.07)' : '#F1F5F9',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.14)' : '#E2E8F0',
+              },
+            ]}
             onPress={() => (onNotificationPress ? onNotificationPress() : navigation.navigate('Activity'))}
             activeOpacity={0.8}
           >
-            <Ionicons name="notifications-outline" size={18} color={colors.foreground} />
+            <Ionicons name="notifications-outline" size={18} color={isDark ? '#F8FAFC' : '#0F172A'} />
             {hasNotification ? <View style={styles.notificationDot} /> : null}
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Circle Switcher Drawer Modal */}
-      <Modal visible={circleModalVisible} animationType="slide" transparent onRequestClose={() => setCircleModalVisible(false)}>
+      <Modal visible={circleModalVisible} animationType="slide" transparent statusBarTranslucent={true} onRequestClose={() => setCircleModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.modalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Ionicons name="shield-checkmark" size={22} color={colors.accentGold} />
+                <Ionicons name="shield-checkmark" size={22} color={isDark ? '#38BDF8' : '#0F172A'} />
                 <Text style={[styles.modalTitle, { color: colors.foreground }]}>Your Active Safety Circles</Text>
               </View>
               <TouchableOpacity onPress={() => setCircleModalVisible(false)}>
@@ -285,35 +333,73 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
               )}
             </View>
 
-            <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ gap: 10 }}>
               <TouchableOpacity
-                style={[styles.actionBtnHalf, { backgroundColor: colors.accentGold }]}
+                style={[
+                  styles.actionBtnFull,
+                  {
+                    backgroundColor: isDark ? '#F8FAFC' : '#0F172A',
+                    borderRadius: 14,
+                  },
+                ]}
                 onPress={() => {
                   setCircleModalVisible(false);
                   navigation.navigate('CreateCircle');
                 }}
+                activeOpacity={0.8}
               >
-                <Ionicons name="add-circle-outline" size={16} color="#1A1A1A" />
-                <Text style={styles.actionBtnTextDark}>CREATE CIRCLE</Text>
+                <Ionicons name="add-circle-outline" size={17} color={isDark ? '#0F172A' : '#FFFFFF'} />
+                <Text style={[styles.actionBtnTextDark, { color: isDark ? '#0F172A' : '#FFFFFF' }]}>CREATE NEW CIRCLE</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.actionBtnHalf, { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border }]}
-                onPress={() => {
-                  setCircleModalVisible(false);
-                  navigation.navigate('JoinCircle');
-                }}
-              >
-                <Ionicons name="qr-code-outline" size={16} color={colors.foreground} />
-                <Text style={[styles.actionBtnTextDark, { color: colors.foreground }]}>JOIN WITH CODE</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity
+                  style={[
+                    styles.actionBtnHalf,
+                    {
+                      backgroundColor: isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(14, 165, 233, 0.08)',
+                      borderWidth: 1,
+                      borderColor: isDark ? 'rgba(56, 189, 248, 0.3)' : 'rgba(14, 165, 233, 0.25)',
+                      borderRadius: 14,
+                    },
+                  ]}
+                  onPress={() => {
+                    setCircleModalVisible(false);
+                    navigation.navigate('JoinCircle', { initialTab: 'qr' });
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="qr-code-outline" size={16} color={isDark ? '#38BDF8' : '#0284C7'} />
+                  <Text style={[styles.actionBtnTextDark, { color: isDark ? '#38BDF8' : '#0284C7' }]}>JOIN WITH QR</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.actionBtnHalf,
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : '#FFFFFF',
+                      borderWidth: 1,
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0',
+                      borderRadius: 14,
+                    },
+                  ]}
+                  onPress={() => {
+                    setCircleModalVisible(false);
+                    navigation.navigate('JoinCircle', { initialTab: 'code' });
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="keypad-outline" size={16} color={colors.foreground} />
+                  <Text style={[styles.actionBtnTextDark, { color: colors.foreground }]}>ENTER CODE</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </View>
       </Modal>
 
       {/* Swiggy-Style Full Address Details Modal */}
-      <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={() => setModalVisible(false)}>
+      <Modal visible={modalVisible} animationType="slide" transparent statusBarTranslucent={true} onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.modalHeader}>
@@ -436,9 +522,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 58 : 44,
-    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 56 : 42,
+    paddingBottom: 10,
   },
   locationSelector: {
     flexDirection: 'row',
@@ -448,14 +534,15 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   pinCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
   addressTextBox: {
     flex: 1,
+    justifyContent: 'center',
   },
   titleRow: {
     flexDirection: 'row',
@@ -463,13 +550,15 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   locationTitle: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    letterSpacing: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    flexShrink: 1,
   },
   addressText: {
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 11.5,
+    marginTop: 1,
+    fontWeight: '500',
   },
   rightActionRow: {
     flexDirection: 'row',
@@ -479,21 +568,22 @@ const styles = StyleSheet.create({
   circleBadgePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 16,
+    gap: 6,
+    paddingHorizontal: 11,
+    height: 38,
+    borderRadius: 19,
     borderWidth: 1,
-    maxWidth: 125,
+    maxWidth: 135,
   },
   circleBadgeText: {
-    fontSize: 11,
-    fontWeight: 'bold',
+    fontSize: 12,
+    fontWeight: '700',
+    maxWidth: 72,
   },
   bellBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -501,12 +591,14 @@ const styles = StyleSheet.create({
   },
   notificationDot: {
     position: 'absolute',
-    top: 7,
-    right: 7,
-    width: 7,
-    height: 7,
+    top: 8,
+    right: 8,
+    width: 8,
+    height: 8,
     borderRadius: 4,
     backgroundColor: '#EF4444',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
   },
   modalOverlay: {
     flex: 1,
@@ -514,10 +606,11 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalCard: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     borderWidth: 1,
-    padding: 24,
+    padding: 22,
+    paddingBottom: Platform.OS === 'ios' ? 44 : 32,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -553,6 +646,15 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: 'bold',
     letterSpacing: 1,
+  },
+  actionBtnFull: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
   },
   actionBtnHalf: {
     flex: 1,

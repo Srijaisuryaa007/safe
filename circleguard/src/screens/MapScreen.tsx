@@ -2231,8 +2231,8 @@ export default function MapScreen() {
     return (
       <View style={styles.centerContainer}>
         <LuxuryRadarLoading
-          message="INITIALIZING MAP ENGINE..."
-          subMessage="Synchronizing circle nodes & live telemetry"
+          message="LOADING MAP..."
+          subMessage="Syncing live circle"
           size={130}
         />
       </View>
@@ -2251,8 +2251,8 @@ export default function MapScreen() {
     return (
       <View style={styles.centerContainer}>
         <LuxuryRadarLoading
-          message="CALIBRATING HIGH-PRECISION GPS..."
-          subMessage="Requesting satellite location permissions"
+          message="CALIBRATING GPS..."
+          subMessage="Requesting location"
           size={130}
         />
       </View>

@@ -8,6 +8,7 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { MotiView } from 'moti';
 import { useThemeStore } from '../store/useThemeStore';
 import { useCircleStore, CircleMember } from '../store/useCircleStore';
 import { useNavigation } from '@react-navigation/native';
@@ -53,17 +54,22 @@ export default function MemberStatusPillsCarousel({
   onSosPress,
 }: MemberStatusPillsCarouselProps) {
   const { colors, isDark } = useThemeStore();
-  const { members } = useCircleStore();
+  const { members, activeCircle } = useCircleStore();
   const { profile } = useAuthStore();
   const navigation = useNavigation<any>();
 
   const [roadDistances, setRoadDistances] = React.useState<Record<string, string>>({});
 
+  const safeMemberList = React.useMemo(() => {
+    if (!Array.isArray(members) || !activeCircle?.id) return [];
+    return members.filter((m: any) => !m.circle_id || m.circle_id === activeCircle.id);
+  }, [members, activeCircle?.id]);
+
   React.useEffect(() => {
-    if (!userLoc || !members || members.length === 0) return;
+    if (!userLoc || !safeMemberList || safeMemberList.length === 0) return;
     let isMounted = true;
 
-    members.forEach(async (m) => {
+    safeMemberList.forEach(async (m) => {
       const { lat, lng } = parseCoords(m);
       const isSelf = profile?.id && (m.user_id === profile.id || (m as any).id === profile.id);
       if (isSelf || !lat || !lng || lat === 0 || lng === 0) return;
@@ -225,8 +231,6 @@ export default function MemberStatusPillsCarousel({
     }
   };
 
-  const safeMemberList = Array.isArray(members) ? members : [];
-
   return (
     <ScrollView
       horizontal
@@ -243,53 +247,64 @@ export default function MemberStatusPillsCarousel({
         const battery = member.batteryPct ?? member.battery_pct ?? 85;
 
         return (
-          <TouchableOpacity
+          <MotiView
             key={uniqueKey}
-            style={[
-              styles.memberPill,
-              {
-                backgroundColor: isDark ? colors.surface : '#FFFFFF',
-                borderColor: status.isMoving ? (colors.accentGold || '#10B981') : (colors.border || '#E5E7EB'),
-              },
-            ]}
-            onPress={() => handleMemberPress(member)}
-            activeOpacity={0.7}
+            from={{ opacity: 0, scale: 0.9, translateX: 14 }}
+            animate={{ opacity: 1, scale: 1, translateX: 0 }}
+            transition={{
+              type: 'spring',
+              damping: 18,
+              stiffness: 160,
+              delay: index * 50,
+            }}
           >
-            {/* Avatar */}
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.pillAvatar} />
-            ) : (
-              <View style={[styles.initialAvatar, { backgroundColor: isDark ? '#2C2C2E' : '#F1F5F9' }]}>
-                <Text style={[styles.initialText, { color: colors.foreground }]}>{initial}</Text>
-              </View>
-            )}
+            <TouchableOpacity
+              style={[
+                styles.memberPill,
+                {
+                  backgroundColor: isDark ? colors.surface : '#FFFFFF',
+                  borderColor: status.isMoving ? (colors.accentGold || '#10B981') : (colors.border || '#E5E7EB'),
+                },
+              ]}
+              onPress={() => handleMemberPress(member)}
+              activeOpacity={0.7}
+            >
+              {/* Avatar */}
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={styles.pillAvatar} />
+              ) : (
+                <View style={[styles.initialAvatar, { backgroundColor: isDark ? '#2C2C2E' : '#F1F5F9' }]}>
+                  <Text style={[styles.initialText, { color: colors.foreground }]}>{initial}</Text>
+                </View>
+              )}
 
-            <View style={styles.pillTextBox}>
-              <View style={styles.pillNameRow}>
-                <Text style={[styles.pillName, { color: colors.foreground }]} numberOfLines={1}>
-                  {name.split(' ')[0] || 'Member'}
-                </Text>
-                {/* Battery percentage */}
-                <View style={styles.batteryBadge}>
-                  <Ionicons
-                    name={battery < 20 ? 'battery-dead' : 'battery-charging'}
-                    size={11}
-                    color={battery < 20 ? '#EF4444' : '#10B981'}
-                  />
-                  <Text style={[styles.batteryText, { color: battery < 20 ? '#EF4444' : (colors.textMuted || '#8E8E93') }]}>
-                    {battery}%
+              <View style={styles.pillTextBox}>
+                <View style={styles.pillNameRow}>
+                  <Text style={[styles.pillName, { color: colors.foreground }]} numberOfLines={1}>
+                    {name.split(' ')[0] || 'Member'}
+                  </Text>
+                  {/* Battery percentage */}
+                  <View style={styles.batteryBadge}>
+                    <Ionicons
+                      name={battery < 20 ? 'battery-dead' : 'battery-charging'}
+                      size={11}
+                      color={battery < 20 ? '#EF4444' : '#10B981'}
+                    />
+                    <Text style={[styles.batteryText, { color: battery < 20 ? '#EF4444' : (colors.textMuted || '#8E8E93') }]}>
+                      {battery}%
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.pillStatusRow}>
+                  <Ionicons name={status.icon} size={11} color={status.color} />
+                  <Text style={[styles.pillStatusText, { color: status.color }]} numberOfLines={1}>
+                    {status.label}
                   </Text>
                 </View>
               </View>
-
-              <View style={styles.pillStatusRow}>
-                <Ionicons name={status.icon} size={11} color={status.color} />
-                <Text style={[styles.pillStatusText, { color: status.color }]} numberOfLines={1}>
-                  {status.label}
-                </Text>
-              </View>
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </MotiView>
         );
       })}
     </ScrollView>
