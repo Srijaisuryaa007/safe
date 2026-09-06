@@ -21,6 +21,16 @@ import { decode } from 'base64-arraybuffer';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
+import { useCountryStore, SUPPORTED_COUNTRIES, CountryInfo } from '../store/useCountryStore';
+import CountrySelectorModal from './CountrySelectorModal';
+import {
+  validateAndNormalizePhone,
+  checkDuplicatePhoneNumber,
+  detectCountryFromPhone,
+  extractNationalDigits,
+  COUNTRY_PHONE_RULES,
+  DEFAULT_PHONE_RULE,
+} from '../lib/phoneValidation';
 import { getThemeCardStyles, getThemeButtonStyles, getThemeBorderStyles } from '../constants/theme';
 import { useLuxuryAlert } from './LuxuryAlertModal';
 
@@ -33,10 +43,13 @@ interface EditProfileModalProps {
 export default function EditProfileModal({ visible, onClose, onProfileUpdated }: EditProfileModalProps) {
   const { colors, themeMode, isDark } = useThemeStore();
   const { profile, session, setProfile } = useAuthStore();
+  const { country: globalCountry, countryCode: globalCountryCode } = useCountryStore();
   const { showAlert } = useLuxuryAlert();
 
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  const [phoneCountryCode, setPhoneCountryCode] = useState(globalCountryCode || 'IN');
+  const [countryModalVisible, setCountryModalVisible] = useState(false);
   const [email, setEmail] = useState('');
   const [dob, setDob] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -48,12 +61,26 @@ export default function EditProfileModal({ visible, onClose, onProfileUpdated }:
   const primaryBtnStyles = getThemeButtonStyles(themeMode, 'primary');
   const secondaryBtnStyles = getThemeButtonStyles(themeMode, 'secondary');
 
+  const selectedCountry = SUPPORTED_COUNTRIES[phoneCountryCode] || globalCountry || SUPPORTED_COUNTRIES.IN;
+  const phoneRule = COUNTRY_PHONE_RULES[phoneCountryCode] || {
+    ...DEFAULT_PHONE_RULE,
+    dialCode: selectedCountry?.dialCode || '+1',
+  };
+
+  const cleanDigits = phone.replace(/\D/g, '');
+  const isLengthMatched = phoneRule.minLen === phoneRule.maxLen
+    ? cleanDigits.length === phoneRule.minLen
+    : cleanDigits.length >= phoneRule.minLen && cleanDigits.length <= phoneRule.maxLen;
+  const isOverflow = cleanDigits.length > phoneRule.maxLen;
+
   const getDobStorageKey = (uid?: string) => uid ? `@circleguard_user_dob_${uid}` : '@circleguard_user_dob';
 
   useEffect(() => {
     if (visible && profile) {
       setFullName(profile.full_name || '');
-      setPhone(profile.phone || '');
+      const detected = detectCountryFromPhone(profile.phone, globalCountryCode || 'IN');
+      setPhoneCountryCode(detected);
+      setPhone(extractNationalDigits(profile.phone, detected));
       setEmail((profile as any)?.email || session?.user?.email || '');
       setAvatarUrl(profile.avatar_url || null);
 
@@ -124,9 +151,19 @@ export default function EditProfileModal({ visible, onClose, onProfileUpdated }:
       const newAvatarUrl = publicUrlData.publicUrl;
       setAvatarUrl(newAvatarUrl);
 
+      // Instantly persist avatar to Supabase and Zustand store so it's never lost if modal is closed
+      const { error: avatarUpdateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: newAvatarUrl })
+        .eq('id', profile.id);
+
+      if (!avatarUpdateError) {
+        setProfile({ ...profile, avatar_url: newAvatarUrl });
+      }
+
       showAlert({
-        title: 'Photo Selected',
-        message: 'New profile photo loaded. Tap "SAVE CHANGES" to apply.',
+        title: 'Photo Updated',
+        message: 'Your new profile photo has been saved successfully.',
         type: 'success',
       });
     } catch (err: any) {
@@ -152,12 +189,41 @@ export default function EditProfileModal({ visible, onClose, onProfileUpdated }:
       return;
     }
 
+    let validatedPhone: string | null = null;
+    if (phone.trim()) {
+      // 1. Strict country phone validation & E.164 normalization
+      const validation = validateAndNormalizePhone(phone, phoneCountryCode);
+      if (!validation.isValid) {
+        showAlert({
+          title: 'Invalid Phone Number',
+          message: validation.error || `Please enter a valid mobile number for ${selectedCountry.name}.`,
+          type: 'warning',
+        });
+        return;
+      }
+
+      setSaving(true);
+      // 2. Proactive duplicate phone check across all profiles
+      const dupCheck = await checkDuplicatePhoneNumber(validation.e164, profile.id);
+      if (dupCheck.isDuplicate) {
+        showAlert({
+          title: 'Phone Number In Use',
+          message: dupCheck.error || 'This phone number is already registered to another account. Every member must have a unique mobile number.',
+          type: 'error',
+        });
+        setSaving(false);
+        return;
+      }
+
+      validatedPhone = validation.e164;
+    }
+
     setSaving(true);
     try {
       // 1. Update Supabase Profiles Table
       const updatePayload: any = {
         full_name: fullName.trim(),
-        phone: phone.trim() || null,
+        phone: validatedPhone,
         avatar_url: avatarUrl,
       };
 
@@ -168,6 +234,16 @@ export default function EditProfileModal({ visible, onClose, onProfileUpdated }:
 
       if (profileError) {
         console.warn('Profile direct update warning:', profileError);
+        if (profileError.message && (profileError.message.includes('unique constraint') || profileError.message.includes('profiles_phone_key'))) {
+          showAlert({
+            title: 'Phone Already Registered',
+            message: 'This phone number is already registered to another account. Every member must have a unique mobile number.',
+            type: 'error',
+          });
+          setSaving(false);
+          return;
+        }
+        throw profileError;
       }
 
       // 2. Persist DOB locally and in metadata
@@ -195,7 +271,7 @@ export default function EditProfileModal({ visible, onClose, onProfileUpdated }:
       const updatedProfile = {
         ...profile,
         full_name: fullName.trim(),
-        phone: phone.trim() || null,
+        phone: validatedPhone,
         avatar_url: avatarUrl,
         email: email.trim(),
         dob: dob.trim(),
@@ -256,7 +332,7 @@ export default function EditProfileModal({ visible, onClose, onProfileUpdated }:
                 activeOpacity={0.8}
               >
                 {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                  <Image key={avatarUrl} source={{ uri: avatarUrl }} style={styles.avatarImage} />
                 ) : (
                   <View style={[styles.avatarPlaceholder, { backgroundColor: colors.accentGold }]}>
                     <Text style={styles.avatarInitial}>{initial}</Text>
@@ -300,16 +376,90 @@ export default function EditProfileModal({ visible, onClose, onProfileUpdated }:
               {/* Mobile Number */}
               <View style={styles.fieldGroup}>
                 <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>MOBILE NUMBER</Text>
-                <View style={[styles.inputWrapper, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                  <Ionicons name="call" size={18} color={colors.accentGold} style={styles.inputIcon} />
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    {
+                      backgroundColor: colors.background,
+                      borderColor: isOverflow
+                        ? '#EF4444'
+                        : isLengthMatched
+                        ? '#10B981'
+                        : colors.border,
+                    },
+                  ]}
+                >
+                  <TouchableOpacity
+                    style={[styles.countryBadgeBtn, { borderRightColor: colors.border }]}
+                    onPress={() => setCountryModalVisible(true)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ fontSize: 14 }}>{selectedCountry.flag}</Text>
+                    <Text style={[styles.countryDialText, { color: colors.foreground }]}>{phoneRule.dialCode}</Text>
+                    <Ionicons name="chevron-down" size={11} color={colors.textMuted} />
+                  </TouchableOpacity>
                   <TextInput
-                    style={[styles.textInput, { color: colors.foreground }]}
-                    placeholder="+91 98765 43210"
+                    style={[styles.textInput, { color: colors.foreground, paddingLeft: 8 }]}
+                    placeholder={phoneRule.placeholder}
                     placeholderTextColor={colors.textMuted}
                     value={phone}
                     onChangeText={setPhone}
                     keyboardType="phone-pad"
                   />
+                  {isLengthMatched ? (
+                    <Ionicons name="checkmark-circle" size={17} color="#10B981" style={{ marginRight: 2 }} />
+                  ) : isOverflow ? (
+                    <Ionicons name="alert-circle" size={17} color="#EF4444" style={{ marginRight: 2 }} />
+                  ) : null}
+                </View>
+
+                {/* Country Rule Hint & Digit Counter */}
+                <View style={styles.phoneHintRow}>
+                  <Text style={[styles.phoneRuleHint, { color: colors.textMuted }]}>
+                    {selectedCountry.flag} {selectedCountry.name}: {phoneRule.hint}
+                  </Text>
+                  <View
+                    style={[
+                      styles.lengthBadge,
+                      {
+                        backgroundColor: isLengthMatched
+                          ? 'rgba(16, 185, 129, 0.12)'
+                          : isOverflow
+                          ? 'rgba(239, 68, 68, 0.12)'
+                          : cleanDigits.length > 0
+                          ? isDark
+                            ? 'rgba(212, 175, 55, 0.12)'
+                            : 'rgba(212, 175, 55, 0.2)'
+                          : isDark
+                          ? 'rgba(255, 255, 255, 0.04)'
+                          : '#F3F4F6',
+                        borderColor: isLengthMatched
+                          ? '#10B981'
+                          : isOverflow
+                          ? '#EF4444'
+                          : cleanDigits.length > 0
+                          ? colors.accentGold
+                          : 'transparent',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.lengthBadgeText,
+                        {
+                          color: isLengthMatched
+                            ? '#10B981'
+                            : isOverflow
+                            ? '#EF4444'
+                            : cleanDigits.length > 0
+                            ? colors.accentGold
+                            : colors.textMuted,
+                        },
+                      ]}
+                    >
+                      {cleanDigits.length} / {phoneRule.minLen === phoneRule.maxLen ? phoneRule.minLen : `${phoneRule.minLen}-${phoneRule.maxLen}`}
+                    </Text>
+                  </View>
                 </View>
               </View>
 
@@ -388,6 +538,14 @@ export default function EditProfileModal({ visible, onClose, onProfileUpdated }:
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+
+      <CountrySelectorModal
+        visible={countryModalVisible}
+        onClose={() => setCountryModalVisible(false)}
+        onSelectCountry={(c) => {
+          setPhoneCountryCode(c.code);
+        }}
+      />
     </Modal>
   );
 }
@@ -507,6 +665,44 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     fontWeight: '600',
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' as any } : {}),
+  },
+  countryBadgeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingRight: 8,
+    borderRightWidth: 1,
+  },
+  countryDialText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  phoneHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 2,
+    marginTop: 2,
+    gap: 6,
+  },
+  phoneRuleHint: {
+    fontSize: 10.5,
+    fontWeight: '500',
+    flex: 1,
+  },
+  lengthBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 7,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lengthBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   actionsRow: {
     flexDirection: 'row',

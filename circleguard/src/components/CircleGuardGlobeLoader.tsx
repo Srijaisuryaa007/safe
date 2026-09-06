@@ -57,6 +57,7 @@ export default function CircleGuardGlobeLoader({
   const tilePixelWidth = WORLD_TILE_WIDTH * scale;
 
   // Reanimated Shared Values for instant native 60fps animations
+  const entranceOpacity = useSharedValue(0.3);
   const globeTranslateX = useSharedValue(0);
   const orbitalRing1Rotation = useSharedValue(0);
   const orbitalRing2Rotation = useSharedValue(0);
@@ -65,6 +66,9 @@ export default function CircleGuardGlobeLoader({
   const shieldAuraPulse = useSharedValue(0.85);
 
   useEffect(() => {
+    // 0. Smooth entrance fade-in
+    entranceOpacity.value = withTiming(1, { duration: 280, easing: Easing.out(Easing.cubic) });
+
     // 1. Seamless 360° Earth Rotation on UI thread (instant 0ms start)
     globeTranslateX.value = withRepeat(
       withTiming(-tilePixelWidth, { duration: 10000, easing: Easing.linear }),
@@ -120,6 +124,10 @@ export default function CircleGuardGlobeLoader({
   }, [tilePixelWidth]);
 
   // Animated Styles
+  const entranceAnimStyle = useAnimatedStyle(() => ({
+    opacity: entranceOpacity.value,
+  }));
+
   const globeAnimStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: globeTranslateX.value }],
   }));
@@ -151,7 +159,7 @@ export default function CircleGuardGlobeLoader({
   }));
 
   const content = (
-    <View style={styles.contentContainer}>
+    <Animated.View style={[styles.contentContainer, entranceAnimStyle]}>
       {/* Globe & Gyro Housing Frame */}
       <View style={[styles.outerHousing, { width: containerSize, height: containerSize }]}>
         {/* 1. Tactical HUD Corner Accents */}
@@ -270,33 +278,94 @@ export default function CircleGuardGlobeLoader({
           />
         </Svg>
 
-        {/* 7. Central 3D Earth Sphere (Instant 0ms Native Render) */}
+        {/* 7. Central 3D Earth Sphere (Hardware-accelerated layered render) */}
         <View style={[styles.sphereCore, { width: size, height: size, borderRadius: r }]}>
-          <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          {/* Layer A: Base Oceanic Sphere */}
+          <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={StyleSheet.absoluteFill}>
             <Defs>
-              {/* Deep Oceanic Base Gradient */}
               <RadialGradient id="oceanGrad" cx="35%" cy="30%" r="70%">
                 <Stop offset="0%" stopColor="#0F1722" stopOpacity="1" />
                 <Stop offset="55%" stopColor="#080D14" stopOpacity="1" />
                 <Stop offset="90%" stopColor="#040609" stopOpacity="1" />
                 <Stop offset="100%" stopColor="#020305" stopOpacity="1" />
               </RadialGradient>
+            </Defs>
+            <Circle cx={r} cy={r} r={r} fill="url(#oceanGrad)" />
+          </Svg>
 
-              {/* Luxury Gold Landmass Gradient */}
-              <LinearGradient id="landGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <Stop offset="0%" stopColor="#15241B" stopOpacity="0.98" />
-                <Stop offset="50%" stopColor="#101D15" stopOpacity="0.99" />
-                <Stop offset="100%" stopColor="#09120D" stopOpacity="1" />
-              </LinearGradient>
+          {/* Layer B: GPU-Accelerated Rotating Continents & Landmasses */}
+          <Animated.View style={[{ position: 'absolute', top: 0, left: 0, width: tilePixelWidth * 2, height: size }, globeAnimStyle]}>
+            <Svg width={tilePixelWidth * 2} height={size} viewBox={`0 0 ${WORLD_TILE_WIDTH * 2} 360`}>
+              <Defs>
+                <LinearGradient id="landGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <Stop offset="0%" stopColor="#15241B" stopOpacity="0.98" />
+                  <Stop offset="50%" stopColor="#101D15" stopOpacity="0.99" />
+                  <Stop offset="100%" stopColor="#09120D" stopOpacity="1" />
+                </LinearGradient>
+                <LinearGradient id="countryEdgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <Stop offset="0%" stopColor="#F5D061" stopOpacity="0.9" />
+                  <Stop offset="60%" stopColor="#D4AF37" stopOpacity="0.7" />
+                  <Stop offset="100%" stopColor="#A17C15" stopOpacity="0.5" />
+                </LinearGradient>
+              </Defs>
 
-              {/* Tactical Country Border Linework */}
-              <LinearGradient id="countryEdgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <Stop offset="0%" stopColor="#F5D061" stopOpacity="0.9" />
-                <Stop offset="60%" stopColor="#D4AF37" stopOpacity="0.7" />
-                <Stop offset="100%" stopColor="#A17C15" stopOpacity="0.5" />
-              </LinearGradient>
+              {/* Tile 1: Continents & Hubs */}
+              <G transform="scale(1, 1)">
+                <Path
+                  d={REAL_WORLD_LAND_PATH}
+                  fill="url(#landGrad)"
+                  stroke="#F5D061"
+                  strokeWidth={1.5}
+                  strokeLinejoin="round"
+                />
+                <Path
+                  d={REAL_WORLD_COUNTRIES_PATH}
+                  fill="none"
+                  stroke="url(#countryEdgeGrad)"
+                  strokeWidth={0.8}
+                  opacity={0.65}
+                  strokeLinejoin="round"
+                />
+                {REAL_WORLD_HUBS.map((hub, i) => (
+                  <G key={`t1-hub-${i}`}>
+                    <Circle cx={hub.x} cy={hub.y} r={7} fill="rgba(233, 195, 73, 0.2)" />
+                    <Circle cx={hub.x} cy={hub.y} r={3.2} fill="#E9C349" />
+                    <Circle cx={hub.x} cy={hub.y} r={1.5} fill="#FFFBEB" />
+                  </G>
+                ))}
+              </G>
 
-              {/* 3D Spherical Specular Light & Atmospheric Fresnel Shading */}
+              {/* Tile 2: Exact Duplicate for 100% seamless 360° wrap */}
+              <G transform={`translate(${WORLD_TILE_WIDTH}, 0)`}>
+                <Path
+                  d={REAL_WORLD_LAND_PATH}
+                  fill="url(#landGrad)"
+                  stroke="#F5D061"
+                  strokeWidth={1.5}
+                  strokeLinejoin="round"
+                />
+                <Path
+                  d={REAL_WORLD_COUNTRIES_PATH}
+                  fill="none"
+                  stroke="url(#countryEdgeGrad)"
+                  strokeWidth={0.8}
+                  opacity={0.65}
+                  strokeLinejoin="round"
+                />
+                {REAL_WORLD_HUBS.map((hub, i) => (
+                  <G key={`t2-hub-${i}`}>
+                    <Circle cx={hub.x} cy={hub.y} r={7} fill="rgba(233, 195, 73, 0.2)" />
+                    <Circle cx={hub.x} cy={hub.y} r={3.2} fill="#E9C349" />
+                    <Circle cx={hub.x} cy={hub.y} r={1.5} fill="#FFFBEB" />
+                  </G>
+                ))}
+              </G>
+            </Svg>
+          </Animated.View>
+
+          {/* Layer C: 3D Spherical Volume Shading, Graticules & Specular Gloss Overlay */}
+          <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={StyleSheet.absoluteFill}>
+            <Defs>
               <RadialGradient id="specular3D" cx="28%" cy="24%" r="75%">
                 <Stop offset="0%" stopColor="#FFFBEB" stopOpacity="0.26" />
                 <Stop offset="30%" stopColor="#E9C349" stopOpacity="0.08" />
@@ -304,111 +373,27 @@ export default function CircleGuardGlobeLoader({
                 <Stop offset="88%" stopColor="#000000" stopOpacity="0.65" />
                 <Stop offset="100%" stopColor="#000000" stopOpacity="0.92" />
               </RadialGradient>
-
-              {/* Atmospheric Golden Rim Corona */}
               <RadialGradient id="coronaRing" cx="50%" cy="50%" r="50%">
                 <Stop offset="84%" stopColor="transparent" stopOpacity="0" />
                 <Stop offset="94%" stopColor="#E9C349" stopOpacity="0.25" />
                 <Stop offset="100%" stopColor="#E9C349" stopOpacity="0.65" />
               </RadialGradient>
-
-              {/* Sphere Clipping Mask */}
-              <ClipPath id="sphereClip">
-                <Circle cx={r} cy={r} r={r - 0.8} />
-              </ClipPath>
             </Defs>
 
-            {/* A. Base Ocean Sphere */}
-            <Circle cx={r} cy={r} r={r - 0.5} fill="url(#oceanGrad)" />
-
-            {/* B. Clipped Earth Content (Rotating Real Continents & Country Outlines) */}
-            <G clipPath="url(#sphereClip)">
-              {/* 1. Curved 3D Graticule Latitude Parallels */}
-              <G opacity={0.22} stroke="#E9C349" strokeWidth={0.75} fill="none">
-                {/* Arctic */}
-                <Path d={`M ${r * 0.3},${r * 0.35} Q ${r},${r * 0.22} ${size - r * 0.3},${r * 0.35}`} />
-                {/* Tropic of Cancer */}
-                <Path d={`M ${r * 0.1},${r * 0.65} Q ${r},${r * 0.52} ${size - r * 0.1},${r * 0.65}`} />
-                {/* Equator (Curved Perspective) */}
-                <Path d={`M 0,${r} Q ${r},${r * 0.94} ${size},${r}`} strokeWidth={1} opacity={0.35} />
-                {/* Tropic of Capricorn */}
-                <Path d={`M ${r * 0.1},${r * 1.35} Q ${r},${r * 1.48} ${size - r * 0.1},${r * 1.35}`} />
-                {/* Antarctic */}
-                <Path d={`M ${r * 0.3},${r * 1.65} Q ${r},${r * 1.78} ${size - r * 0.3},${r * 1.65}`} />
-                {/* Prime Meridians */}
-                <Path d={`M ${r},0 Q ${r * 0.55},${r} ${r},${size}`} opacity={0.3} />
-                <Path d={`M ${r},0 Q ${r * 1.45},${r} ${r},${size}`} opacity={0.3} />
-                <Path d={`M ${r},0 L ${r},${size}`} opacity={0.25} />
-              </G>
-
-              {/* 2. Rotating Real Continents & Countries Layer (Seamless Double-Tile) */}
-              <Animated.View style={[{ width: tilePixelWidth * 2, height: size }, globeAnimStyle]}>
-                <Svg width={tilePixelWidth * 2} height={size} viewBox={`0 0 ${WORLD_TILE_WIDTH * 2} 360`}>
-                  {/* Tile 1: Authentic Natural Earth Continents & Country Borders */}
-                  <G transform="scale(1, 1)">
-                    {/* Continent Landmasses */}
-                    <Path
-                      d={REAL_WORLD_LAND_PATH}
-                      fill="url(#landGrad)"
-                      stroke="#F5D061"
-                      strokeWidth={1.5}
-                      strokeLinejoin="round"
-                    />
-                    {/* Individual Country Borders */}
-                    <Path
-                      d={REAL_WORLD_COUNTRIES_PATH}
-                      fill="none"
-                      stroke="url(#countryEdgeGrad)"
-                      strokeWidth={0.8}
-                      opacity={0.65}
-                      strokeLinejoin="round"
-                    />
-                    {/* Real Global Defense & Security Hubs */}
-                    {REAL_WORLD_HUBS.map((hub, i) => (
-                      <G key={`t1-hub-${i}`}>
-                        <Circle cx={hub.x} cy={hub.y} r={7} fill="rgba(233, 195, 73, 0.2)" />
-                        <Circle cx={hub.x} cy={hub.y} r={3.2} fill="#E9C349" />
-                        <Circle cx={hub.x} cy={hub.y} r={1.5} fill="#FFFBEB" />
-                      </G>
-                    ))}
-                  </G>
-
-                  {/* Tile 2: Exact Duplicate shifted by 720 for 100% seamless 360° wrap */}
-                  <G transform={`translate(${WORLD_TILE_WIDTH}, 0)`}>
-                    <Path
-                      d={REAL_WORLD_LAND_PATH}
-                      fill="url(#landGrad)"
-                      stroke="#F5D061"
-                      strokeWidth={1.5}
-                      strokeLinejoin="round"
-                    />
-                    <Path
-                      d={REAL_WORLD_COUNTRIES_PATH}
-                      fill="none"
-                      stroke="url(#countryEdgeGrad)"
-                      strokeWidth={0.8}
-                      opacity={0.65}
-                      strokeLinejoin="round"
-                    />
-                    {REAL_WORLD_HUBS.map((hub, i) => (
-                      <G key={`t2-hub-${i}`}>
-                        <Circle cx={hub.x} cy={hub.y} r={7} fill="rgba(233, 195, 73, 0.2)" />
-                        <Circle cx={hub.x} cy={hub.y} r={3.2} fill="#E9C349" />
-                        <Circle cx={hub.x} cy={hub.y} r={1.5} fill="#FFFBEB" />
-                      </G>
-                    ))}
-                  </G>
-                </Svg>
-              </Animated.View>
+            {/* Graticule Latitude Parallels */}
+            <G opacity={0.2} stroke="#E9C349" strokeWidth={0.75} fill="none">
+              <Path d={`M ${r * 0.3},${r * 0.35} Q ${r},${r * 0.22} ${size - r * 0.3},${r * 0.35}`} />
+              <Path d={`M ${r * 0.1},${r * 0.65} Q ${r},${r * 0.52} ${size - r * 0.1},${r * 0.65}`} />
+              <Path d={`M 0,${r} Q ${r},${r * 0.94} ${size},${r}`} strokeWidth={1} opacity={0.3} />
+              <Path d={`M ${r * 0.1},${r * 1.35} Q ${r},${r * 1.48} ${size - r * 0.1},${r * 1.35}`} />
+              <Path d={`M ${r * 0.3},${r * 1.65} Q ${r},${r * 1.78} ${size - r * 0.3},${r * 1.65}`} />
             </G>
 
-            {/* C. 3D Spherical Volume Shading & Specular Gloss Overlay */}
-            <Circle cx={r} cy={r} r={r - 0.8} fill="url(#specular3D)" />
+            {/* Specular & Atmospheric Highlights */}
+            <Circle cx={r} cy={r} r={r} fill="url(#specular3D)" />
+            <Circle cx={r} cy={r} r={r} fill="url(#coronaRing)" />
 
-            {/* D. Atmospheric Corona Glow Ring */}
-            <Circle cx={r} cy={r} r={r - 0.8} fill="url(#coronaRing)" />
-
-            {/* E. Precision Golden Rim Border */}
+            {/* Precision Golden Rim */}
             <Circle
               cx={r}
               cy={r}
@@ -444,7 +429,7 @@ export default function CircleGuardGlobeLoader({
           </Text>
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 
   if (fullscreen) {

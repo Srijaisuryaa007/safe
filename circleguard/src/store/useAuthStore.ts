@@ -9,6 +9,8 @@ export interface Profile {
   is_ghost_mode?: boolean;
   hide_online_presence?: boolean;
   is_premium?: boolean;
+  medical_info?: any;
+  emergency_contacts?: any;
   created_at: string;
 }
 
@@ -22,6 +24,7 @@ interface AuthState {
   setProfile: (profile: Profile | null) => void;
   setLoading: (isLoading: boolean) => void;
   setProfileFetching: (isProfileFetching: boolean) => void;
+  resetAuthStore: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -34,4 +37,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   setProfile: (profile) => set({ profile }),
   setLoading: (isLoading) => set({ isLoading }),
   setProfileFetching: (isProfileFetching) => set({ isProfileFetching }),
+  resetAuthStore: () => set({ session: null, user: null, profile: null, isLoading: false, isProfileFetching: false }),
 }));
+
+if (typeof window !== 'undefined') {
+  (window as any).__useAuthStore = useAuthStore;
+}

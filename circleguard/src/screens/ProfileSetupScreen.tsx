@@ -17,6 +17,12 @@ import { useThemeStore } from '../store/useThemeStore';
 import AnimatedCircleGuardLogo from '../components/AnimatedCircleGuardLogo';
 import { useCountryStore } from '../store/useCountryStore';
 import CountrySelectorModal from '../components/CountrySelectorModal';
+import {
+  validateAndNormalizePhone,
+  checkDuplicatePhoneNumber,
+  COUNTRY_PHONE_RULES,
+  DEFAULT_PHONE_RULE,
+} from '../lib/phoneValidation';
 
 export default function ProfileSetupScreen() {
   const { colors, isDark, themeMode } = useThemeStore();
@@ -32,6 +38,17 @@ export default function ProfileSetupScreen() {
   const [nameFocused, setNameFocused] = useState(false);
   const [phoneFocused, setPhoneFocused] = useState(false);
 
+  const phoneRule = COUNTRY_PHONE_RULES[country.code] || {
+    ...DEFAULT_PHONE_RULE,
+    dialCode: country.dialCode || '+1',
+  };
+
+  const cleanDigits = phone.replace(/\D/g, '');
+  const isLengthMatched = phoneRule.minLen === phoneRule.maxLen
+    ? cleanDigits.length === phoneRule.minLen
+    : cleanDigits.length >= phoneRule.minLen && cleanDigits.length <= phoneRule.maxLen;
+  const isOverflow = cleanDigits.length > phoneRule.maxLen;
+
   const handleSaveProfile = async () => {
     setErrorMsg('');
     if (!fullName.trim()) {
@@ -40,32 +57,60 @@ export default function ProfileSetupScreen() {
     }
 
     if (!phone.trim()) {
-      setErrorMsg('Please enter your mobile phone number.');
+      setErrorMsg(`Please enter your mobile phone number for ${country.name}.`);
       return;
     }
 
-    const cleanPhone = phone.trim().replace(/\s+/g, '');
-    const fullPhoneNumber = cleanPhone.startsWith('+') ? cleanPhone : `${country.dialCode} ${cleanPhone}`;
+    // 1. Strict Country-Specific Phone Validation & E.164 Normalization
+    const validation = validateAndNormalizePhone(phone, country.code);
+    if (!validation.isValid) {
+      setErrorMsg(validation.error || 'Please enter a valid phone number for your selected country.');
+      return;
+    }
 
     if (!user) return;
 
     setLoading(true);
     try {
+      // 2. Proactive Duplicate Phone Detection
+      const dupCheck = await checkDuplicatePhoneNumber(validation.e164, user.id);
+      if (dupCheck.isDuplicate) {
+        setErrorMsg(dupCheck.error || 'This phone number is already registered to another account.');
+        setLoading(false);
+        return;
+      }
+
+      // 3. Preserve existing avatar_url if available
+      let safeAvatarUrl = profile?.avatar_url;
+      if (!safeAvatarUrl) {
+        const { data: existingProf } = await supabase
+          .from('profiles')
+          .select('avatar_url')
+          .eq('id', user.id)
+          .maybeSingle();
+        safeAvatarUrl = existingProf?.avatar_url || user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+      }
+
+      // 4. Upsert canonical profile with strict E.164 (no formatting spaces)
       const { data, error } = await supabase
         .from('profiles')
         .upsert([
           { 
             id: user.id, 
             full_name: fullName.trim(), 
-            phone: fullPhoneNumber,
-            avatar_url: profile?.avatar_url || null,
+            phone: validation.e164,
+            avatar_url: safeAvatarUrl,
           }
         ])
         .select()
         .single();
 
       if (error) {
-        setErrorMsg(error.message);
+        if (error.message && (error.message.includes('unique constraint') || error.message.includes('profiles_phone_key'))) {
+          setErrorMsg(`The phone number ${validation.formattedDisplay} is already registered to another account. Please use your unique mobile number.`);
+        } else {
+          setErrorMsg(error.message);
+        }
       } else if (data) {
         setProfile(data);
       }
@@ -164,13 +209,21 @@ export default function ProfileSetupScreen() {
 
           {/* Phone Number Input */}
           <View style={styles.inputGroup}>
-            <Text style={[styles.inputLabel, { color: colors.foreground }]}>PHONE NUMBER</Text>
+            <Text style={[styles.inputLabel, { color: colors.foreground }]}>MOBILE PHONE NUMBER</Text>
             <View
               style={[
                 styles.inputWrapper,
                 {
                   backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F9FAFB',
-                  borderColor: phoneFocused ? colors.accentGold : isDark ? 'rgba(255, 255, 255, 0.12)' : '#E5E7EB',
+                  borderColor: isOverflow
+                    ? '#EF4444'
+                    : isLengthMatched
+                    ? '#10B981'
+                    : phoneFocused
+                    ? colors.accentGold
+                    : isDark
+                    ? 'rgba(255, 255, 255, 0.12)'
+                    : '#E5E7EB',
                 },
               ]}
             >
@@ -185,7 +238,7 @@ export default function ProfileSetupScreen() {
               </TouchableOpacity>
               <TextInput
                 style={[styles.inputField, { color: colors.foreground, paddingLeft: 12 }]}
-                placeholder="98765 43210"
+                placeholder={phoneRule.placeholder}
                 placeholderTextColor={colors.textMuted}
                 value={phone}
                 onChangeText={setPhone}
@@ -193,6 +246,60 @@ export default function ProfileSetupScreen() {
                 onBlur={() => setPhoneFocused(false)}
                 keyboardType="phone-pad"
               />
+              {isLengthMatched ? (
+                <Ionicons name="checkmark-circle" size={18} color="#10B981" style={{ marginRight: 2 }} />
+              ) : isOverflow ? (
+                <Ionicons name="alert-circle" size={18} color="#EF4444" style={{ marginRight: 2 }} />
+              ) : null}
+            </View>
+
+            {/* Country Requirement & Digit Counter */}
+            <View style={styles.phoneHintRow}>
+              <Text style={[styles.phoneRuleHint, { color: colors.textMuted }]}>
+                {country.flag} {country.name}: {phoneRule.hint}
+              </Text>
+              <View
+                style={[
+                  styles.lengthBadge,
+                  {
+                    backgroundColor: isLengthMatched
+                      ? 'rgba(16, 185, 129, 0.12)'
+                      : isOverflow
+                      ? 'rgba(239, 68, 68, 0.12)'
+                      : cleanDigits.length > 0
+                      ? isDark
+                        ? 'rgba(212, 175, 55, 0.12)'
+                        : 'rgba(212, 175, 55, 0.18)'
+                      : isDark
+                      ? 'rgba(255, 255, 255, 0.04)'
+                      : '#F3F4F6',
+                    borderColor: isLengthMatched
+                      ? '#10B981'
+                      : isOverflow
+                      ? '#EF4444'
+                      : cleanDigits.length > 0
+                      ? colors.accentGold
+                      : 'transparent',
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.lengthBadgeText,
+                    {
+                      color: isLengthMatched
+                        ? '#10B981'
+                        : isOverflow
+                        ? '#EF4444'
+                        : cleanDigits.length > 0
+                        ? colors.accentGold
+                        : colors.textMuted,
+                    },
+                  ]}
+                >
+                  {cleanDigits.length} / {phoneRule.minLen === phoneRule.maxLen ? phoneRule.minLen : `${phoneRule.minLen}-${phoneRule.maxLen}`}
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -331,6 +438,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontWeight: '600',
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' as any } : {}),
   },
   countryCodeBadge: {
     flexDirection: 'row',
@@ -342,6 +450,32 @@ const styles = StyleSheet.create({
   countryCodeText: {
     fontSize: 14,
     fontWeight: '700',
+  },
+  phoneHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginTop: 3,
+    gap: 8,
+  },
+  phoneRuleHint: {
+    fontSize: 11,
+    fontWeight: '500',
+    flex: 1,
+  },
+  lengthBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lengthBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   primaryButton: {
     height: 52,

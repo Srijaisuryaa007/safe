@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView, ActivityIndicator, Image, Modal, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { WebView } from 'react-native-webview';
@@ -160,6 +160,7 @@ export default function SafePlacesScreen() {
 
   // Interactive Mini Map & Start/End Points State
   const webViewRef = useRef<WebView | null>(null);
+  const expandedWebViewRef = useRef<WebView | null>(null);
   const [startPoint, setStartPoint] = useState<{ latitude: number; longitude: number } | null>(null);
   const [endPoint, setEndPoint] = useState<{ latitude: number; longitude: number } | null>(null);
   const [activePointMode, setActivePointMode] = useState<'start' | 'end'>('start');
@@ -170,6 +171,8 @@ export default function SafePlacesScreen() {
   const [loadingPlaces, setLoadingPlaces] = useState(true);
   const [editingPlaceId, setEditingPlaceId] = useState<string | null>(null);
   const mainScrollViewRef = useRef<ScrollView | null>(null);
+  const [isScrollEnabled, setIsScrollEnabled] = useState(true);
+  const [isMapExpanded, setIsMapExpanded] = useState(false);
   const [memberLocations, setMemberLocations] = useState<Array<{
     userId: string;
     name: string;
@@ -238,13 +241,10 @@ export default function SafePlacesScreen() {
           lng = loc.longitude;
         }
 
-        // Fallback positioning for mini map
-        if (!lat || !lng || lat === 0 || lng === 0) {
-          const baseLat = userLoc?.latitude || 20.5937;
-          const baseLng = userLoc?.longitude || 78.9629;
-          const angle = (idx * (360 / Math.max(1, memberRows.length))) * (Math.PI / 180);
-          lat = baseLat + 0.0015 * Math.cos(angle);
-          lng = baseLng + 0.0015 * Math.sin(angle);
+        // Only record real GPS locations (0 if none available)
+        if (!lat || !lng || lat === 0 || lng === 0 || isNaN(lat) || isNaN(lng)) {
+          lat = 0;
+          lng = 0;
         }
 
         return {
@@ -303,7 +303,6 @@ export default function SafePlacesScreen() {
   }, [activeCircle?.id, userLoc]);
 
   const pushMiniMapData = (forceResetZoom = false) => {
-    if (!webViewRef.current) return;
     const centerLat = startPoint?.latitude || userLoc?.latitude || 20.5937;
     const centerLng = startPoint?.longitude || userLoc?.longitude || 78.9629;
 
@@ -311,6 +310,7 @@ export default function SafePlacesScreen() {
       center: [centerLat, centerLng],
       startPoint,
       endPoint,
+      activePointMode,
       radius,
       memberLocations,
       savedPlaces: savedPlaces.map(p => {
@@ -336,17 +336,107 @@ export default function SafePlacesScreen() {
         } else {
           setTimeout(function() {
             if (window.updateMiniMap) window.updateMiniMap(${JSON.stringify(data)});
-          }, 300);
+          }, 250);
         }
       })();
       true;
     `;
-    webViewRef.current.injectJavaScript(jsCode);
+
+    // 1. Update on Web (All map iframes: inline mini-map and expanded modal map)
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const iframes = document.querySelectorAll('iframe');
+      iframes.forEach((ifr: any) => {
+        try {
+          if (ifr.contentWindow && (ifr.contentWindow as any).updateMiniMap) {
+            (ifr.contentWindow as any).updateMiniMap(data);
+          } else if (ifr.contentWindow && ifr.contentWindow.postMessage) {
+            ifr.contentWindow.postMessage(JSON.stringify({ type: 'UPDATE_MAP_DATA', payload: data }), '*');
+          }
+        } catch (e) {}
+      });
+    }
+
+    // 2. Update inline mini-map on Native
+    if (webViewRef.current && (webViewRef.current as any).injectJavaScript) {
+      (webViewRef.current as any).injectJavaScript(jsCode);
+    }
+
+    // 3. Update expanded modal map on Native
+    if (expandedWebViewRef.current && (expandedWebViewRef.current as any).injectJavaScript) {
+      (expandedWebViewRef.current as any).injectJavaScript(jsCode);
+    }
+  };
+
+  const centerMapOn = (lat: number, lng: number, zoom = 16) => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const iframes = document.querySelectorAll('iframe');
+      iframes.forEach((ifr: any) => {
+        try {
+          if (ifr.contentWindow && (ifr.contentWindow as any).centerMap) {
+            (ifr.contentWindow as any).centerMap(lat, lng, zoom);
+          } else if (ifr.contentWindow && ifr.contentWindow.postMessage) {
+            ifr.contentWindow.postMessage(JSON.stringify({ type: 'CENTER_MAP', lat, lng, zoom }), '*');
+          }
+        } catch (e) {}
+      });
+    }
+
+    const jsCode = `
+      (function() {
+        if (window.centerMap) window.centerMap(${lat}, ${lng}, ${zoom});
+      })();
+      true;
+    `;
+    if (webViewRef.current && (webViewRef.current as any).injectJavaScript) {
+      (webViewRef.current as any).injectJavaScript(jsCode);
+    }
+    if (expandedWebViewRef.current && (expandedWebViewRef.current as any).injectJavaScript) {
+      (expandedWebViewRef.current as any).injectJavaScript(jsCode);
+    }
   };
 
   useEffect(() => {
-    pushMiniMapData();
-  }, [startPoint, endPoint, radius, memberLocations, savedPlaces]);
+    pushMiniMapData(false);
+  }, [startPoint, endPoint, activePointMode, radius, memberLocations, savedPlaces]);
+
+  useEffect(() => {
+    if (isMapExpanded) {
+      const t1 = setTimeout(() => pushMiniMapData(true), 150);
+      const t2 = setTimeout(() => pushMiniMapData(true), 400);
+      const t3 = setTimeout(() => pushMiniMapData(false), 800);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
+    } else {
+      const t = setTimeout(() => pushMiniMapData(true), 150);
+      return () => clearTimeout(t);
+    }
+  }, [isMapExpanded]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const handleWebMsg = (e: MessageEvent) => {
+        try {
+          const msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+          if (msg?.type === 'MAP_READY') {
+            pushMiniMapData(false);
+          } else if (msg?.type === 'MAP_TAP' && typeof msg.lat === 'number' && typeof msg.lng === 'number') {
+            handleMapTap(msg.lat, msg.lng);
+          } else if (msg?.type === 'MEMBER_TAP') {
+            const newStart = { latitude: msg.lat, longitude: msg.lng };
+            setStartPoint(newStart);
+            if (msg.userId) setTargetUserId(msg.userId);
+            if (msg.name) setPlaceName(`${msg.name.split(' ')[0]}'s Safe Zone`);
+            setTimeout(() => pushMiniMapData(true), 50);
+          }
+        } catch (err) {}
+      };
+      window.addEventListener('message', handleWebMsg);
+      return () => window.removeEventListener('message', handleWebMsg);
+    }
+  }, [startPoint, endPoint, activePointMode, savedPlaces, memberLocations]);
 
   const handleMapTap = (lat: number, lng: number) => {
     if (activePointMode === 'start') {
@@ -614,16 +704,122 @@ export default function SafePlacesScreen() {
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
       <style>
-        body, html, #map { margin: 0; padding: 0; height: 100%; width: 100%; background: #1C2321; }
-        .start-pin { background: #10B981; border: 2.5px solid #FFFFFF; border-radius: 50%; width: 20px; height: 20px; box-shadow: 0 0 14px rgba(16,185,129,0.95); }
-        .end-pin { background: #EF4444; border: 2.5px solid #FFFFFF; border-radius: 50%; width: 20px; height: 20px; box-shadow: 0 0 14px rgba(239,68,68,0.95); }
+        body, html, #map { 
+          margin: 0; 
+          padding: 0; 
+          height: 100%; 
+          width: 100%; 
+          background: #15171E; 
+          touch-action: none !important;
+          -webkit-user-select: none;
+          user-select: none;
+          overscroll-behavior: none;
+        }
         .member-pin-icon, .leaflet-div-icon { background: transparent !important; border: none !important; }
+        
+        .start-pin-wrapper, .end-pin-wrapper {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          position: relative;
+          cursor: pointer;
+          filter: drop-shadow(0 4px 10px rgba(0,0,0,0.65));
+          user-select: none;
+        }
+        .start-pin-badge {
+          background: #10B981;
+          color: #FFFFFF;
+          font-size: 9px;
+          font-weight: 900;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          padding: 2px 7px;
+          border-radius: 6px;
+          border: 1.5px solid #FFFFFF;
+          white-space: nowrap;
+          letter-spacing: 0.5px;
+          box-shadow: 0 2px 8px rgba(16,185,129,0.7);
+          margin-bottom: 2px;
+        }
+        .start-pin-core {
+          width: 26px;
+          height: 26px;
+          background: radial-gradient(circle at 35% 35%, #34D399, #059669);
+          border: 2.5px solid #FFFFFF;
+          border-radius: 50%;
+          box-shadow: 0 0 16px rgba(16,185,129,0.95), inset 0 0 4px rgba(0,0,0,0.35);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #FFFFFF;
+          font-weight: 900;
+          font-size: 11px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          animation: pulse-green 2s infinite ease-in-out;
+        }
+        .end-pin-badge {
+          background: #EF4444;
+          color: #FFFFFF;
+          font-size: 9px;
+          font-weight: 900;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          padding: 2px 7px;
+          border-radius: 6px;
+          border: 1.5px solid #FFFFFF;
+          white-space: nowrap;
+          letter-spacing: 0.5px;
+          box-shadow: 0 2px 8px rgba(239,68,68,0.7);
+          margin-bottom: 2px;
+        }
+        .end-pin-core {
+          width: 26px;
+          height: 26px;
+          background: radial-gradient(circle at 35% 35%, #F87171, #DC2626);
+          border: 2.5px solid #FFFFFF;
+          border-radius: 50%;
+          box-shadow: 0 0 16px rgba(239,68,68,0.95), inset 0 0 4px rgba(0,0,0,0.35);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #FFFFFF;
+          font-weight: 900;
+          font-size: 11px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          animation: pulse-red 2s infinite ease-in-out;
+        }
+        .pin-pointer {
+          width: 0;
+          height: 0;
+          border-left: 5px solid transparent;
+          border-right: 5px solid transparent;
+          margin-top: -2px;
+        }
+        .start-pointer {
+          border-top: 7px solid #059669;
+        }
+        .end-pointer {
+          border-top: 7px solid #DC2626;
+        }
+        @keyframes pulse-green {
+          0%, 100% { transform: scale(1); box-shadow: 0 0 14px rgba(16,185,129,0.9); }
+          50% { transform: scale(1.08); box-shadow: 0 0 22px rgba(16,185,129,1); }
+        }
+        @keyframes pulse-red {
+          0%, 100% { transform: scale(1); box-shadow: 0 0 14px rgba(239,68,68,0.9); }
+          50% { transform: scale(1.08); box-shadow: 0 0 22px rgba(239,68,68,1); }
+        }
       </style>
     </head>
     <body>
       <div id="map"></div>
       <script>
-        var map = L.map('map', { zoomControl: true }).setView([20.5937, 78.9629], 13);
+        var map = L.map('map', { 
+          zoomControl: true,
+          dragging: true,
+          touchZoom: true,
+          scrollWheelZoom: true,
+          tap: false
+        }).setView([20.5937, 78.9629], 13);
+        
         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19,
           maxNativeZoom: 19,
@@ -637,13 +833,27 @@ export default function SafePlacesScreen() {
         var endMarker = null;
         var geofenceCircle = null;
         var routePolyline = null;
+        var provisionalStartMarker = null;
+        var provisionalEndMarker = null;
         var memberMarkers = {};
+        var savedPlaceMarkers = {};
         var userInteracted = false;
         var initialBoundsSet = false;
+        var currentActiveMode = 'start';
 
         map.on('dragstart zoomstart touchstart', function() {
           userInteracted = true;
         });
+
+        window.addEventListener('resize', function() {
+          if (map) map.invalidateSize();
+        });
+
+        window.centerMap = function(lat, lng, zoom) {
+          if (map && lat && lng) {
+            map.setView([lat, lng], zoom || 16, { animate: true });
+          }
+        };
 
         function sendAppMessage(msg) {
           var str = typeof msg === 'string' ? msg : JSON.stringify(msg);
@@ -655,155 +865,55 @@ export default function SafePlacesScreen() {
         }
 
         map.on('click', function(e) {
+          var lat = e.latlng.lat;
+          var lng = e.latlng.lng;
+
+          // 0ms instant local feedback: drop or move pin immediately under finger
+          if (currentActiveMode === 'start') {
+            if (startMarker) map.removeLayer(startMarker);
+            if (!provisionalStartMarker) {
+              provisionalStartMarker = L.marker([lat, lng], {
+                icon: L.divIcon({
+                  className: 'leaflet-div-icon',
+                  html: '<div class="start-pin-wrapper"><div class="start-pin-badge">START (A)</div><div class="start-pin-core">A</div><div class="pin-pointer start-pointer"></div></div>',
+                  iconSize: [60, 60],
+                  iconAnchor: [30, 58]
+                }),
+                zIndexOffset: 1500
+              }).addTo(map);
+            } else {
+              provisionalStartMarker.setLatLng([lat, lng]);
+            }
+          } else {
+            if (endMarker) map.removeLayer(endMarker);
+            if (!provisionalEndMarker) {
+              provisionalEndMarker = L.marker([lat, lng], {
+                icon: L.divIcon({
+                  className: 'leaflet-div-icon',
+                  html: '<div class="end-pin-wrapper"><div class="end-pin-badge">END (B)</div><div class="end-pin-core">B</div><div class="pin-pointer end-pointer"></div></div>',
+                  iconSize: [60, 60],
+                  iconAnchor: [30, 58]
+                }),
+                zIndexOffset: 1501
+              }).addTo(map);
+            } else {
+              provisionalEndMarker.setLatLng([lat, lng]);
+            }
+          }
+
           sendAppMessage({
             type: 'MAP_TAP',
-            lat: e.latlng.lat,
-            lng: e.latlng.lng
+            lat: lat,
+            lng: lng
           });
         });
 
-          var memberMarkers = {};
-          var savedPlaceMarkers = {};
-
-          window.deletePlaceLayer = function(id) {
-            if (savedPlaceMarkers[id]) {
-              map.removeLayer(savedPlaceMarkers[id]);
-              delete savedPlaceMarkers[id];
-            }
-          };
-
-          window.updateMiniMap = function(data) {
-            if (!data) return;
-            
-            var bounds = [];
-
-            if (startMarker) map.removeLayer(startMarker);
-            if (endMarker) map.removeLayer(endMarker);
-            if (geofenceCircle) map.removeLayer(geofenceCircle);
-            if (routePolyline) map.removeLayer(routePolyline);
-
-            // Render existing saved circle safe zones
-            if (data.savedPlaces) {
-              var currentPlaceIds = {};
-              data.savedPlaces.forEach(function(p) {
-                if (!p.lat || !p.lng) return;
-                currentPlaceIds[p.id] = true;
-                var pLatLng = [p.lat, p.lng];
-                bounds.push(pLatLng);
-
-                if (savedPlaceMarkers[p.id]) {
-                  savedPlaceMarkers[p.id].setLatLng(pLatLng);
-                  savedPlaceMarkers[p.id].setRadius(p.radius);
-                } else {
-                  savedPlaceMarkers[p.id] = L.circle(pLatLng, {
-                    radius: p.radius,
-                    color: '#D4AF37',
-                    fillColor: '#D4AF37',
-                    fillOpacity: 0.22,
-                    weight: 2
-                  }).addTo(map).bindPopup("Safe Zone: " + p.name);
-                }
-              });
-
-              // Instantly remove deleted safe zones from the mini map
-              Object.keys(savedPlaceMarkers).forEach(function(id) {
-                if (!currentPlaceIds[id]) {
-                  map.removeLayer(savedPlaceMarkers[id]);
-                  delete savedPlaceMarkers[id];
-                }
-              });
-            }
-
-            // Clear old member markers
-            Object.keys(memberMarkers).forEach(function(id) {
-              map.removeLayer(memberMarkers[id]);
-            });
-            memberMarkers = {};
-
-            // Render live member markers on mini-map
-            if (data.memberLocations && data.memberLocations.length > 0) {
-              data.memberLocations.forEach(function(m) {
-                var hasLoc = m.latitude && m.longitude && m.latitude !== 0 && m.longitude !== 0;
-                var lat = hasLoc ? m.latitude : (data.center ? data.center[0] : 20.5937);
-                var lng = hasLoc ? m.longitude : (data.center ? data.center[1] : 78.9629);
-
-                if (hasLoc) bounds.push([lat, lng]);
-
-                var isCurrentSelf = m.isSelf;
-                var roleColor = hasLoc 
-                  ? (m.role === 'owner' ? '#D4AF37' : (m.role === 'co_leader' ? '#A855F7' : (m.role === 'guardian' ? '#3B82F6' : '#10B981')))
-                  : '#6B7280';
-
-                var avatarHtml = m.avatarUrl 
-                  ? '<img src="' + m.avatarUrl + '" style="width:100%;height:100%;object-fit:cover;' + (hasLoc ? '' : 'filter:grayscale(100%);opacity:0.6;') + '" />' 
-                  : '<span style="color:' + (hasLoc ? '#FFF' : '#9CA3AF') + ';font-size:11px;font-weight:bold;">' + m.initial + '</span>';
-
-                var labelText = hasLoc 
-                  ? (isCurrentSelf ? 'You (Tap to Pin)' : m.name.split(' ')[0] + ' (Tap to Pin)')
-                  : m.name.split(' ')[0] + ' (Location Unavailable)';
-
-                var labelBg = hasLoc ? 'rgba(26,26,26,0.92)' : 'rgba(50,50,50,0.85)';
-                var labelHtml = '<div style="position:absolute;bottom:36px;left:50%;transform:translateX(-50%);white-space:nowrap;background:' + labelBg + ';color:' + (hasLoc ? '#FFFFFF' : '#D1D5DB') + ';font-size:9px;font-weight:bold;font-family:sans-serif;padding:3px 7px;border-radius:10px;border:1px solid ' + roleColor + ';box-shadow:0 2px 6px rgba(0,0,0,0.5);pointer-events:none;">' + labelText + '</div>';
-
-                var iconHtml = '<div style="position:relative;width:34px;height:34px;">' + labelHtml + '<div style="width:34px;height:34px;border-radius:50%;overflow:hidden;background:#1A1A1A;border:2px solid ' + roleColor + ';box-shadow:0 0 8px ' + roleColor + '99;display:flex;align-items:center;justify-content:center;' + (hasLoc ? '' : 'opacity:0.75;') + '">' + avatarHtml + '</div></div>';
-
-                var mIcon = L.divIcon({
-                  className: 'member-pin-icon',
-                  html: iconHtml,
-                  iconSize: [34, 34],
-                  iconAnchor: [17, 17]
-                });
-
-                var mMarker = L.marker([lat, lng], { icon: mIcon }).addTo(map);
-                if (hasLoc) {
-                  mMarker.on('click', function() {
-                    sendAppMessage({
-                      type: 'MEMBER_TAP',
-                      userId: m.userId,
-                      lat: m.latitude,
-                      lng: m.longitude,
-                      name: m.name
-                    });
-                  });
-                }
-
-                memberMarkers[m.userId] = mMarker;
-              });
-            }
-
-            if (data.startPoint) {
-              bounds.push([data.startPoint.latitude, data.startPoint.longitude]);
-            }
-
-            // Only adjust map center/zoom on initial load or explicit reset command
-            if (data.resetZoom || !initialBoundsSet) {
-              initialBoundsSet = true;
-              userInteracted = false;
-              if (bounds.length > 1) {
-                try {
-                  map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
-                } catch(e) {
-                  if (data.center) map.setView(data.center, 14);
-                }
-              } else if (data.center) {
-                map.setView(data.center, 14);
-              }
-            }
-
-            if (data.startPoint) {
-              startMarker = L.marker([data.startPoint.latitude, data.startPoint.longitude], {
-                icon: L.divIcon({ className: 'custom-icon', html: '<div class="start-pin"></div>', iconSize: [18, 18] })
-              }).addTo(map).bindPopup("Start Point");
-
-              // Single Primary Safe Zone Boundary (Gold)
-              geofenceCircle = L.circle([data.startPoint.latitude, data.startPoint.longitude], {
-                radius: data.radius || 150,
-                color: '#D4AF37',
-                fillColor: '#D4AF37',
-                fillOpacity: 0.25,
-                weight: 2
-              }).addTo(map);
-            }
+        window.deletePlaceLayer = function(id) {
+          if (savedPlaceMarkers[id]) {
+            map.removeLayer(savedPlaceMarkers[id]);
+            delete savedPlaceMarkers[id];
+          }
+        };
 
         function fetchOsrmRoute(originLng, originLat, destLng, destLat, callback) {
           var endpoints = [
@@ -819,7 +929,7 @@ export default function SafePlacesScreen() {
             }
             var url = endpoints[index] + coordStr + '?overview=full&geometries=geojson';
             var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-            var timeoutId = controller ? setTimeout(function() { controller.abort(); }, 6000) : null;
+            var timeoutId = controller ? setTimeout(function() { controller.abort(); }, 5000) : null;
             
             fetch(url, controller ? { signal: controller.signal } : {})
               .then(function(res) {
@@ -842,35 +952,214 @@ export default function SafePlacesScreen() {
           tryFetch(0);
         }
 
-        if (data.endPoint) {
-          endMarker = L.marker([data.endPoint.latitude, data.endPoint.longitude], {
-            icon: L.divIcon({ className: 'custom-icon', html: '<div class="end-pin"></div>', iconSize: [18, 18] })
-          }).addTo(map).bindPopup("End Point");
+        window.updateMiniMap = function(data) {
+          if (!data) return;
+          if (map) map.invalidateSize();
 
-          if (data.startPoint) {
-            var sLat = data.startPoint.latitude;
-            var sLng = data.startPoint.longitude;
-            var eLat = data.endPoint.latitude;
-            var eLng = data.endPoint.longitude;
+          if (data.activePointMode) {
+            currentActiveMode = data.activePointMode;
+          }
+          
+          var bounds = [];
 
-            fetchOsrmRoute(sLng, sLat, eLng, eLat, function(coords) {
-              if (routePolyline) {
-                try { map.removeLayer(routePolyline); } catch(e) {}
+          if (startMarker) map.removeLayer(startMarker);
+          if (endMarker) map.removeLayer(endMarker);
+          if (geofenceCircle) map.removeLayer(geofenceCircle);
+          if (routePolyline) map.removeLayer(routePolyline);
+
+          // Clear provisional markers when authoritative ones are supplied
+          if (data.startPoint && provisionalStartMarker) {
+            map.removeLayer(provisionalStartMarker);
+            provisionalStartMarker = null;
+          }
+          if (data.endPoint && provisionalEndMarker) {
+            map.removeLayer(provisionalEndMarker);
+            provisionalEndMarker = null;
+          }
+
+          // Render existing saved circle safe zones
+          if (data.savedPlaces) {
+            var currentPlaceIds = {};
+            data.savedPlaces.forEach(function(p) {
+              if (!p.lat || !p.lng) return;
+              currentPlaceIds[p.id] = true;
+              var pLatLng = [p.lat, p.lng];
+              bounds.push(pLatLng);
+
+              if (savedPlaceMarkers[p.id]) {
+                savedPlaceMarkers[p.id].setLatLng(pLatLng);
+                savedPlaceMarkers[p.id].setRadius(p.radius);
+              } else {
+                savedPlaceMarkers[p.id] = L.circle(pLatLng, {
+                  radius: p.radius,
+                  color: '#D4AF37',
+                  fillColor: '#D4AF37',
+                  fillOpacity: 0.22,
+                  weight: 2
+                }).addTo(map).bindPopup("Safe Zone: " + p.name);
               }
-              if (coords && coords.length > 0) {
-                routePolyline = L.polyline(coords, {
-                  color: '#3B82F6',
-                  weight: 5,
-                  opacity: 0.95,
-                  dashArray: '4, 10',
-                  lineCap: 'round',
-                  lineJoin: 'round'
-                }).addTo(map);
+            });
+
+            Object.keys(savedPlaceMarkers).forEach(function(id) {
+              if (!currentPlaceIds[id]) {
+                map.removeLayer(savedPlaceMarkers[id]);
+                delete savedPlaceMarkers[id];
               }
             });
           }
-        }
-      };
+
+          // Clear old member markers
+          Object.keys(memberMarkers).forEach(function(id) {
+            map.removeLayer(memberMarkers[id]);
+          });
+          memberMarkers = {};
+
+          // Render live member markers on mini-map
+          if (data.memberLocations && data.memberLocations.length > 0) {
+            data.memberLocations.forEach(function(m) {
+              var hasLoc = m.latitude && m.longitude && m.latitude !== 0 && m.longitude !== 0 && !isNaN(m.latitude) && !isNaN(m.longitude);
+              if (!hasLoc) return;
+
+              var lat = m.latitude;
+              var lng = m.longitude;
+              bounds.push([lat, lng]);
+
+              var isCurrentSelf = m.isSelf;
+              var roleColor = m.role === 'owner' ? '#D4AF37' : (m.role === 'co_leader' ? '#A855F7' : (m.role === 'guardian' ? '#3B82F6' : '#10B981'));
+
+              var avatarHtml = m.avatarUrl 
+                ? '<img src="' + m.avatarUrl + '" style="width:100%;height:100%;object-fit:cover;' + (hasLoc ? '' : 'filter:grayscale(100%);opacity:0.6;') + '" />' 
+                : '<span style="color:' + (hasLoc ? '#FFF' : '#9CA3AF') + ';font-size:11px;font-weight:bold;">' + m.initial + '</span>';
+
+              var labelText = hasLoc 
+                ? (isCurrentSelf ? 'You (Tap to Pin)' : m.name.split(' ')[0] + ' (Tap to Pin)')
+                : m.name.split(' ')[0] + ' (Location Unavailable)';
+
+              var labelBg = hasLoc ? 'rgba(26,26,26,0.92)' : 'rgba(50,50,50,0.85)';
+              var labelHtml = '<div style="position:absolute;bottom:36px;left:50%;transform:translateX(-50%);white-space:nowrap;background:' + labelBg + ';color:' + (hasLoc ? '#FFFFFF' : '#D1D5DB') + ';font-size:9px;font-weight:bold;font-family:sans-serif;padding:3px 7px;border-radius:10px;border:1px solid ' + roleColor + ';box-shadow:0 2px 6px rgba(0,0,0,0.5);pointer-events:none;">' + labelText + '</div>';
+
+              var iconHtml = '<div style="position:relative;width:34px;height:34px;">' + labelHtml + '<div style="width:34px;height:34px;border-radius:50%;overflow:hidden;background:#1A1A1A;border:2px solid ' + roleColor + ';box-shadow:0 0 8px ' + roleColor + '99;display:flex;align-items:center;justify-content:center;' + (hasLoc ? '' : 'opacity:0.75;') + '">' + avatarHtml + '</div></div>';
+
+              var mIcon = L.divIcon({
+                className: 'member-pin-icon',
+                html: iconHtml,
+                iconSize: [34, 34],
+                iconAnchor: [17, 17]
+              });
+
+              var mMarker = L.marker([lat, lng], { icon: mIcon }).addTo(map);
+              if (hasLoc) {
+                mMarker.on('click', function() {
+                  sendAppMessage({
+                    type: 'MEMBER_TAP',
+                    userId: m.userId,
+                    lat: m.latitude,
+                    lng: m.longitude,
+                    name: m.name
+                  });
+                });
+              }
+
+              memberMarkers[m.userId] = mMarker;
+            });
+          }
+
+          // 1. Authoritative Start Point (A) Marker & Safe Zone Boundary
+          if (data.startPoint && data.startPoint.latitude && data.startPoint.longitude) {
+            bounds.push([data.startPoint.latitude, data.startPoint.longitude]);
+
+            startMarker = L.marker([data.startPoint.latitude, data.startPoint.longitude], {
+              icon: L.divIcon({
+                className: 'leaflet-div-icon',
+                html: '<div class="start-pin-wrapper"><div class="start-pin-badge">START (A)</div><div class="start-pin-core">A</div><div class="pin-pointer start-pointer"></div></div>',
+                iconSize: [60, 60],
+                iconAnchor: [30, 58],
+                popupAnchor: [0, -58]
+              }),
+              zIndexOffset: 1500
+            }).addTo(map).bindPopup("<b>📍 START POINT (A)</b><br/>Lat: " + data.startPoint.latitude.toFixed(5) + "<br/>Lng: " + data.startPoint.longitude.toFixed(5));
+
+            geofenceCircle = L.circle([data.startPoint.latitude, data.startPoint.longitude], {
+              radius: data.radius || 150,
+              color: '#10B981',
+              fillColor: '#10B981',
+              fillOpacity: 0.18,
+              weight: 2.5
+            }).addTo(map);
+          }
+
+          // 2. Authoritative End Point (B) Marker & Destination Boundary
+          if (data.endPoint && data.endPoint.latitude && data.endPoint.longitude) {
+            bounds.push([data.endPoint.latitude, data.endPoint.longitude]);
+
+            endMarker = L.marker([data.endPoint.latitude, data.endPoint.longitude], {
+              icon: L.divIcon({
+                className: 'leaflet-div-icon',
+                html: '<div class="end-pin-wrapper"><div class="end-pin-badge">END (B)</div><div class="end-pin-core">B</div><div class="pin-pointer end-pointer"></div></div>',
+                iconSize: [60, 60],
+                iconAnchor: [30, 58],
+                popupAnchor: [0, -58]
+              }),
+              zIndexOffset: 1501
+            }).addTo(map).bindPopup("<b>🏁 END POINT (B)</b><br/>Lat: " + data.endPoint.latitude.toFixed(5) + "<br/>Lng: " + data.endPoint.longitude.toFixed(5));
+
+            // 2. Connect Start & End with Route Corridor Polyline
+            if (data.startPoint && data.startPoint.latitude && data.startPoint.longitude) {
+              var sLat = data.startPoint.latitude;
+              var sLng = data.startPoint.longitude;
+              var eLat = data.endPoint.latitude;
+              var eLng = data.endPoint.longitude;
+
+              // Immediately draw high-visibility fallback line between points
+              routePolyline = L.polyline([[sLat, sLng], [eLat, eLng]], {
+                color: '#06B6D4',
+                weight: 4.5,
+                opacity: 0.95,
+                dashArray: '6, 10',
+                lineCap: 'round',
+                lineJoin: 'round'
+              }).addTo(map);
+
+              // Upgrade to road coordinates via OSRM if available
+              fetchOsrmRoute(sLng, sLat, eLng, eLat, function(coords) {
+                if (coords && coords.length > 0 && routePolyline) {
+                  try {
+                    routePolyline.setLatLngs(coords);
+                  } catch(e) {}
+                }
+              });
+            }
+          }
+
+          // Adjust map viewport
+          if (data.resetZoom || !initialBoundsSet) {
+            initialBoundsSet = true;
+            userInteracted = false;
+            if (bounds.length > 1) {
+              try {
+                map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+              } catch(e) {
+                if (data.center) map.setView(data.center, 14);
+              }
+            } else if (data.center) {
+              map.setView(data.center, 14);
+            }
+          }
+        };
+
+        window.addEventListener('message', function(ev) {
+          try {
+            var d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+            if (d && d.type === 'UPDATE_MAP_DATA' && d.payload) {
+              window.updateMiniMap(d.payload);
+            } else if (d && d.type === 'CENTER_MAP') {
+              window.centerMap(d.lat, d.lng, d.zoom);
+            }
+          } catch(e) {}
+        });
+
+        // Notify parent that Leaflet map instance is fully loaded & ready
+        sendAppMessage({ type: 'MAP_READY' });
       </script>
     </body>
     </html>
@@ -920,7 +1209,13 @@ export default function SafePlacesScreen() {
         </View>
       </View>
 
-      <ScrollView ref={mainScrollViewRef} contentContainerStyle={styles.content}>
+      <ScrollView 
+        ref={mainScrollViewRef} 
+        contentContainerStyle={styles.content}
+        scrollEnabled={isScrollEnabled}
+        nestedScrollEnabled={true}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={[styles.overline, { color: colors.accentGold }]}>{editingPlaceId ? 'MODIFY BOUNDARY' : 'SETUP BOUNDARY'}</Text>
         <Text style={[styles.title, { color: colors.foreground }]}>{editingPlaceId ? 'Edit Geofence' : 'Define Geofence'}</Text>
 
@@ -1122,10 +1417,21 @@ export default function SafePlacesScreen() {
           <Text style={[styles.inputLabel, { flex: 1, marginBottom: 0, marginRight: 8 }]} numberOfLines={1}>
             GEOFENCE MAP (TAP TO SET PINS)
           </Text>
-          <TouchableOpacity style={styles.resetMapBtn} onPress={handleResetPoints}>
-            <Ionicons name="refresh-outline" size={12} color={LUXURY_THEME.colors.accentGold} />
-            <Text style={styles.resetMapText}>RESET PINS</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+            <TouchableOpacity 
+              style={[styles.resetMapBtn, { borderColor: '#38BDF8', backgroundColor: 'rgba(56, 189, 248, 0.12)' }]} 
+              onPress={() => setIsMapExpanded(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="expand-outline" size={12} color="#38BDF8" />
+              <Text style={[styles.resetMapText, { color: '#38BDF8' }]}>EXPAND</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.resetMapBtn} onPress={handleResetPoints} activeOpacity={0.8}>
+              <Ionicons name="refresh-outline" size={12} color={LUXURY_THEME.colors.accentGold} />
+              <Text style={styles.resetMapText}>RESET PINS</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.modeToggleRow}>
@@ -1150,34 +1456,66 @@ export default function SafePlacesScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.miniMapContainer}>
-          <WebView
-            ref={webViewRef}
-            originWhitelist={['*']}
-            source={{ html: miniMapHtml }}
-            style={styles.miniMap}
-            onLoadEnd={() => pushMiniMapData(false)}
-            onMessage={(event) => {
-              try {
-                const msg = JSON.parse(event.nativeEvent.data);
-                if (msg.type === 'MAP_TAP') {
-                  handleMapTap(msg.lat, msg.lng);
-                } else if (msg.type === 'MEMBER_TAP') {
-                  const newStart = { latitude: msg.lat, longitude: msg.lng };
-                  setStartPoint(newStart);
-                  setTargetUserId(msg.userId);
-                  setSelectedUserIds(prev => prev.includes(msg.userId) ? prev : [...prev, msg.userId]);
-                  setPlaceName(`${msg.name.split(' ')[0]}'s Safe Zone`);
-                  setTimeout(() => pushMiniMapData(true), 50);
-                  showAlert({
-                    title: 'Member Boundary Target Set',
-                    message: `Geofence center pinned to ${msg.name}'s current live position. Assigned tracking specifically to ${msg.name}.`,
-                    type: 'success',
-                  });
-                }
-              } catch(e) {}
-            }}
-          />
+        <View 
+          style={styles.miniMapContainer}
+          onTouchStart={() => setIsScrollEnabled(false)}
+          onTouchEnd={() => setIsScrollEnabled(true)}
+          onTouchCancel={() => setIsScrollEnabled(true)}
+          onResponderGrant={() => setIsScrollEnabled(false)}
+          onResponderRelease={() => setIsScrollEnabled(true)}
+          onResponderTerminate={() => setIsScrollEnabled(true)}
+          onStartShouldSetResponder={() => true}
+          onMoveShouldSetResponder={() => true}
+          {...(Platform.OS === 'web' ? {
+            onMouseEnter: () => setIsScrollEnabled(false),
+            onMouseLeave: () => setIsScrollEnabled(true),
+          } : {})}
+        >
+          {Platform.OS === 'web' ? (
+            <iframe
+              id="inline-safe-places-map"
+              srcDoc={miniMapHtml}
+              style={{ width: '100%', height: '100%', border: 'none', borderRadius: 14 }}
+              onLoad={() => {
+                setTimeout(() => pushMiniMapData(false), 200);
+                setTimeout(() => pushMiniMapData(false), 600);
+              }}
+            />
+          ) : (
+            <WebView
+              ref={webViewRef}
+              originWhitelist={['*']}
+              source={{ html: miniMapHtml }}
+              style={styles.miniMap}
+              nestedScrollEnabled={false}
+              scrollEnabled={false}
+              onLoadEnd={() => {
+                setTimeout(() => pushMiniMapData(false), 200);
+              }}
+              onMessage={(event) => {
+                try {
+                  const msg = JSON.parse(event.nativeEvent.data);
+                  if (msg.type === 'MAP_READY') {
+                    pushMiniMapData(false);
+                  } else if (msg.type === 'MAP_TAP') {
+                    handleMapTap(msg.lat, msg.lng);
+                  } else if (msg.type === 'MEMBER_TAP') {
+                    const newStart = { latitude: msg.lat, longitude: msg.lng };
+                    setStartPoint(newStart);
+                    setTargetUserId(msg.userId);
+                    setSelectedUserIds(prev => prev.includes(msg.userId) ? prev : [...prev, msg.userId]);
+                    setPlaceName(`${msg.name.split(' ')[0]}'s Safe Zone`);
+                    setTimeout(() => pushMiniMapData(true), 50);
+                    showAlert({
+                      title: 'Member Boundary Target Set',
+                      message: `Geofence center pinned to ${msg.name}'s current live position. Assigned tracking specifically to ${msg.name}.`,
+                      type: 'success',
+                    });
+                  }
+                } catch(e) {}
+              }}
+            />
+          )}
         </View>
 
         {/* Real-time Member Proximity & Arrival ETA Live Cards (No Dummy Data) */}
@@ -1423,6 +1761,268 @@ export default function SafePlacesScreen() {
         onClose={() => setPaywallVisible(false)}
         gatedFeatureName={gatedFeatureName}
       />
+
+      <Modal 
+        visible={isMapExpanded} 
+        animationType="slide" 
+        onRequestClose={() => {
+          setIsMapExpanded(false);
+          setTimeout(() => pushMiniMapData(true), 150);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: '#1C2321' }}>
+          {/* Expanded Map Header */}
+          <View style={{ 
+            flexDirection: 'row', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            paddingHorizontal: 20, 
+            paddingTop: Platform.OS === 'ios' ? 56 : (Platform.OS === 'android' ? 44 : 20),
+            paddingBottom: 14,
+            backgroundColor: isDark ? '#15171E' : '#FFFFFF',
+            borderBottomWidth: 1,
+            borderBottomColor: colors.border
+          }}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={{ fontSize: 10, fontWeight: '800', color: colors.accentGold, letterSpacing: 1.5 }}>PRECISION GEOFENCE PINNER</Text>
+              <Text style={{ fontSize: 16, fontWeight: 'bold', color: colors.foreground }} numberOfLines={1}>
+                {placeName || 'Safe Zone Boundary'}
+              </Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+              <TouchableOpacity 
+                style={[styles.resetMapBtn, { borderColor: colors.border, paddingHorizontal: 10 }]} 
+                onPress={handleResetPoints} 
+                activeOpacity={0.8}
+              >
+                <Ionicons name="refresh-outline" size={13} color={colors.accentGold} />
+                <Text style={styles.resetMapText}>RESET</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 5,
+                  backgroundColor: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold,
+                  paddingHorizontal: 16,
+                  paddingVertical: 8,
+                  borderRadius: 10,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.2,
+                  shadowRadius: 4,
+                  elevation: 3
+                }}
+                onPress={() => {
+                  setIsMapExpanded(false);
+                  setTimeout(() => pushMiniMapData(true), 150);
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="checkmark-sharp" size={15} color={themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A'} />
+                <Text style={{ color: themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A', fontWeight: '900', fontSize: 11, letterSpacing: 1 }}>DONE</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Mode Toggle Row in Full Map */}
+          <View style={{ paddingHorizontal: 20, paddingVertical: 10, backgroundColor: isDark ? 'rgba(21, 23, 30, 0.95)' : 'rgba(245, 245, 245, 0.95)', borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <View style={styles.modeToggleRow}>
+              <TouchableOpacity 
+                style={[styles.modeBtn, activePointMode === 'start' ? styles.activeStartModeBtn : null]}
+                onPress={() => setActivePointMode('start')}
+              >
+                <View style={[styles.pinDot, { backgroundColor: '#10B981' }]} />
+                <Text style={[styles.modeBtnText, activePointMode === 'start' ? { color: '#FFFFFF' } : null]}>
+                  {startPoint ? 'START: SET' : 'TAP MAP: SET START'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.modeBtn, activePointMode === 'end' ? styles.activeEndModeBtn : null]}
+                onPress={() => setActivePointMode('end')}
+              >
+                <View style={[styles.pinDot, { backgroundColor: '#EF4444' }]} />
+                <Text style={[styles.modeBtnText, activePointMode === 'end' ? { color: '#FFFFFF' } : null]}>
+                  {endPoint ? 'END: SET' : 'TAP MAP: SET END'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 9.5, color: colors.textMuted, textAlign: 'center', marginTop: 6 }}>
+              Tap any location on the map to place boundary pins • Drag to pan • Pinch to zoom
+            </Text>
+          </View>
+
+          {/* Full-Screen Map WebView */}
+          <View style={{ flex: 1 }}>
+            {Platform.OS === 'web' ? (
+              <iframe
+                id="expanded-safe-places-map"
+                srcDoc={miniMapHtml}
+                style={{ width: '100%', height: '100%', border: 'none' }}
+                onLoad={() => {
+                  setTimeout(() => pushMiniMapData(true), 150);
+                  setTimeout(() => pushMiniMapData(true), 500);
+                }}
+              />
+            ) : (
+              <WebView
+                ref={expandedWebViewRef}
+                originWhitelist={['*']}
+                source={{ html: miniMapHtml }}
+                style={{ flex: 1 }}
+                onLoadEnd={() => {
+                  setTimeout(() => pushMiniMapData(true), 150);
+                  setTimeout(() => pushMiniMapData(true), 500);
+                }}
+                onMessage={(event) => {
+                  try {
+                    const msg = JSON.parse(event.nativeEvent.data);
+                    if (msg.type === 'MAP_READY') {
+                      pushMiniMapData(true);
+                    } else if (msg.type === 'MAP_TAP') {
+                      handleMapTap(msg.lat, msg.lng);
+                    } else if (msg.type === 'MEMBER_TAP') {
+                      const newStart = { latitude: msg.lat, longitude: msg.lng };
+                      setStartPoint(newStart);
+                      setTargetUserId(msg.userId);
+                      setSelectedUserIds(prev => prev.includes(msg.userId) ? prev : [...prev, msg.userId]);
+                      setPlaceName(`${msg.name.split(' ')[0]}'s Safe Zone`);
+                      setTimeout(() => pushMiniMapData(true), 50);
+                    }
+                  } catch(e) {}
+                }}
+              />
+            )}
+
+            {/* Floating Live Coordinates & Precision Controls Dock in Full Map */}
+            <View style={{
+              position: 'absolute',
+              bottom: 24,
+              left: 16,
+              right: 16,
+              backgroundColor: isDark ? 'rgba(21, 23, 30, 0.94)' : 'rgba(255, 255, 255, 0.96)',
+              borderRadius: 16,
+              padding: 12,
+              borderWidth: 1,
+              borderColor: colors.border,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.35,
+              shadowRadius: 10,
+              elevation: 8,
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: 8 }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#10B981' }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, fontWeight: '800', color: '#10B981', letterSpacing: 0.5 }}>START POINT (A)</Text>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.foreground }} numberOfLines={1}>
+                      {startPoint ? `${startPoint.latitude.toFixed(5)}, ${startPoint.longitude.toFixed(5)}` : 'Tap map to choose'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={{ width: 1, height: 26, backgroundColor: colors.border, marginHorizontal: 6 }} />
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginLeft: 8 }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#EF4444' }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, fontWeight: '800', color: '#EF4444', letterSpacing: 0.5 }}>END POINT (B)</Text>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.foreground }} numberOfLines={1}>
+                      {endPoint ? `${endPoint.latitude.toFixed(5)}, ${endPoint.longitude.toFixed(5)}` : 'Tap map to choose (Optional)'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Action Buttons */}
+              <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                {userLoc ? (
+                  <TouchableOpacity
+                    style={{
+                      flex: 1,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
+                      paddingVertical: 7,
+                      borderRadius: 8,
+                      backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                      borderWidth: 1,
+                      borderColor: '#38BDF8',
+                    }}
+                    onPress={() => centerMapOn(userLoc.latitude, userLoc.longitude, 16)}
+                  >
+                    <Ionicons name="locate-outline" size={13} color="#38BDF8" />
+                    <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#38BDF8' }}>MY LOC</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                {startPoint ? (
+                  <TouchableOpacity
+                    style={{
+                      flex: 1,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
+                      paddingVertical: 7,
+                      borderRadius: 8,
+                      backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                      borderWidth: 1,
+                      borderColor: '#10B981',
+                    }}
+                    onPress={() => centerMapOn(startPoint.latitude, startPoint.longitude, 16)}
+                  >
+                    <Ionicons name="flag-outline" size={13} color="#10B981" />
+                    <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#10B981' }}>GO TO START</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                {endPoint ? (
+                  <TouchableOpacity
+                    style={{
+                      flex: 1,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
+                      paddingVertical: 7,
+                      borderRadius: 8,
+                      backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                      borderWidth: 1,
+                      borderColor: '#EF4444',
+                    }}
+                    onPress={() => centerMapOn(endPoint.latitude, endPoint.longitude, 16)}
+                  >
+                    <Ionicons name="navigate-outline" size={13} color="#EF4444" />
+                    <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#EF4444' }}>GO TO END</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                <TouchableOpacity
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 7,
+                    borderRadius: 8,
+                    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(239, 68, 68, 0.3)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onPress={handleResetPoints}
+                >
+                  <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

@@ -5,17 +5,43 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
+import { isValidUuid } from '../lib/utils';
+import { flushOfflineBreadcrumbs } from '../services/OfflineLocationQueueService';
 import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBadgeStyles, getThemeBorderStyles } from '../constants/theme';
-import { segmentTripsByStops, analyzeTripTelemetry } from '../services/TripSegmentationService';
+import { segmentTripsByStops, analyzeTripTelemetry, isVehicularTrip } from '../services/TripSegmentationService';
 import { fetchRoadSnappedRoute } from '../services/RoadRoutingService';
 import AnimatedListDropdown from '../components/AnimatedListDropdown';
 import CircleGuardGlobeLoader from '../components/CircleGuardGlobeLoader';
 import { usePaywall } from '../hooks/usePaywall';
 import PaywallModal from '../components/PaywallModal';
+
+const drivingGeocodeCache: { [key: string]: string } = {};
+
+async function reverseGeocodeFastDriving(lat: number, lng: number): Promise<string> {
+  const cacheKey = `${lat.toFixed(3)},${lng.toFixed(3)}`;
+  if (drivingGeocodeCache[cacheKey]) return drivingGeocodeCache[cacheKey];
+
+  let addr = `Location • ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  try {
+    const geoPromise = Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1800));
+    const geoRes: any = await Promise.race([geoPromise, timeoutPromise]).catch(() => null);
+
+    if (geoRes && geoRes.length > 0) {
+      const p = geoRes[0];
+      const nameParts = [p.name, p.street, p.district || p.subregion || p.city].filter(Boolean);
+      if (nameParts.length > 0) addr = nameParts.join(', ');
+    }
+  } catch (e) {}
+
+  drivingGeocodeCache[cacheKey] = addr;
+  return addr;
+}
 
 interface TripItem {
   id: string;
@@ -133,10 +159,17 @@ export default function DrivingReportsScreen() {
   const webViewModalRef = useRef<WebView | null>(null);
 
   useEffect(() => {
-    if (profile?.id && !selectedMemberId) {
-      setSelectedMemberId(profile.id);
+    if (profile?.id) {
+      // If no selection or selected member is not in current circle (and not self), reset strictly to self
+      const isMemberInCircle = (members || []).some(m => m.user_id === selectedMemberId);
+      if (!selectedMemberId || (!isMemberInCircle && selectedMemberId !== profile.id)) {
+        setSelectedMemberId(profile.id);
+      }
+    } else {
+      setSelectedMemberId('');
+      setTrips([]);
     }
-  }, [profile?.id]);
+  }, [profile?.id, members]);
 
   useEffect(() => {
     fetchDrivingReport();
@@ -165,32 +198,50 @@ export default function DrivingReportsScreen() {
       let baseLng = 78.9629;
       let realCity = 'Current Area';
 
-      const targetUserId = selectedMemberId || profile?.id;
-      if (targetUserId) {
-        const { data: userLocData } = await supabase
-          .from('locations')
-          .select('*')
-          .eq('user_id', targetUserId)
-          .single();
+      let targetUserId = selectedMemberId || profile?.id;
 
-        if (userLocData?.geom) {
-          const coords = parsePointGeom(userLocData.geom);
-          if (coords) {
-            baseLat = coords.latitude;
-            baseLng = coords.longitude;
-          }
-        } else if (userLocData?.latitude && userLocData?.longitude) {
-          baseLat = userLocData.latitude;
-          baseLng = userLocData.longitude;
-        } else {
-          try {
-            const cur = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-            if (cur?.coords) {
-              baseLat = cur.coords.latitude;
-              baseLng = cur.coords.longitude;
-            }
-          } catch (e) { }
+      // Strict Enterprise Privacy Boundary:
+      // Verify that targetUserId is either self OR an active member in current circle
+      const isSelf = targetUserId === profile?.id;
+      const isCircleMember = (members || []).some(m => m.user_id === targetUserId);
+
+      if (!isSelf && !isCircleMember) {
+        // Alien or previous user ID: enforce boundary to self only
+        targetUserId = profile?.id || '';
+        if (targetUserId && targetUserId !== selectedMemberId) {
+          setSelectedMemberId(targetUserId);
         }
+      }
+
+      if (!targetUserId || !isValidUuid(targetUserId)) {
+        setTrips([]);
+        setTotalDistanceKm(0);
+        setTotalDriveMins(0);
+        setTopSpeedKmh(0);
+        setAvgSpeedKmh(0);
+        setTotalHardBrakes(0);
+        setTotalRapidAccels(0);
+        setTotalSpeedingEvents(0);
+        setDriverScore(100);
+        setLoading(false);
+        return;
+      }
+
+      const { data: userLocData } = await supabase
+        .from('locations')
+        .select('*')
+        .eq('user_id', targetUserId)
+        .single();
+
+      if (userLocData?.geom) {
+        const coords = parsePointGeom(userLocData.geom);
+        if (coords) {
+          baseLat = coords.latitude;
+          baseLng = coords.longitude;
+        }
+      } else if (userLocData?.latitude && userLocData?.longitude) {
+        baseLat = userLocData.latitude;
+        baseLng = userLocData.longitude;
       }
 
       // 2. Query Supabase location_history table for selectedDate
@@ -201,6 +252,13 @@ export default function DrivingReportsScreen() {
       const end = new Date(start);
       end.setHours(23, 59, 59, 999);
 
+      const rawHistPoints: {
+        lat: number;
+        lng: number;
+        timeMs: number;
+        speed: number;
+      }[] = [];
+
       const { data: histData } = await supabase
         .from('location_history')
         .select('*')
@@ -209,48 +267,60 @@ export default function DrivingReportsScreen() {
         .lte('recorded_at', end.toISOString())
         .order('recorded_at', { ascending: true });
 
+      if (histData && histData.length > 0) {
+        histData.forEach((h: any) => {
+          const coords = parsePointGeom(h.geom) || (h.latitude && h.longitude ? { latitude: h.latitude, longitude: h.longitude } : null);
+          if (coords && coords.latitude !== 0 && coords.longitude !== 0 && !isNaN(coords.latitude) && !isNaN(coords.longitude)) {
+            rawHistPoints.push({
+              lat: coords.latitude,
+              lng: coords.longitude,
+              timeMs: new Date(h.recorded_at).getTime(),
+              speed: Math.round((h.speed_mps || 0) * 3.6),
+            });
+          }
+        });
+      }
+
+      // 3. Slow Network / Offline Resilience: Read pending local offline buffer from AsyncStorage
+      if (selectedDate === 'today') {
+        try {
+          const offlineRaw = await AsyncStorage.getItem(`@circleguard_offline_breadcrumbs_${targetUserId}`);
+          if (offlineRaw) {
+            const offlineQueue = JSON.parse(offlineRaw);
+            if (Array.isArray(offlineQueue)) {
+              for (let i = 0; i < offlineQueue.length; i++) {
+                const offItem = offlineQueue[i];
+                const coords = offItem.latitude && offItem.longitude
+                  ? { latitude: offItem.latitude, longitude: offItem.longitude }
+                  : parsePointGeom(offItem.geom);
+                if (coords && coords.latitude !== 0 && coords.longitude !== 0 && !isNaN(coords.latitude) && !isNaN(coords.longitude)) {
+                  const timeMs = new Date(offItem.recorded_at).getTime();
+                  if (!rawHistPoints.some(p => Math.abs(p.timeMs - timeMs) < 1500)) {
+                    rawHistPoints.push({
+                      lat: coords.latitude,
+                      lng: coords.longitude,
+                      timeMs,
+                      speed: Math.round((offItem.speed_mps || 0) * 3.6),
+                    });
+                  }
+                }
+              }
+            }
+          }
+          flushOfflineBreadcrumbs(targetUserId).catch(() => {});
+        } catch (e) {}
+      }
+
+      // Sort points chronologically
+      rawHistPoints.sort((a, b) => a.timeMs - b.timeMs);
+
       let generatedTrips: TripItem[] = [];
 
-      if (histData && histData.length >= 2) {
-        const points = histData.map((h: any) => {
-          const coords = parsePointGeom(h.geom) || (h.latitude && h.longitude ? { latitude: h.latitude, longitude: h.longitude } : null);
-          return {
-            lat: coords?.latitude || baseLat,
-            lng: coords?.longitude || baseLng,
-            timeMs: new Date(h.recorded_at).getTime(),
-            speed: Math.round((h.speed_mps || 0) * 3.6),
-          };
-        }).filter(p => p.lat !== 0 && p.lng !== 0 && !isNaN(p.lat) && !isNaN(p.lng));
-
-        const tripLegs = segmentTripsByStops(points, (p) => p.timeMs, (p) => p.lat, (p) => p.lng, 4, 60);
+      if (rawHistPoints.length >= 2) {
+        const tripLegs = segmentTripsByStops(rawHistPoints, (p) => p.timeMs, (p) => p.lat, (p) => p.lng, 4, 60);
 
         for (let idx = 0; idx < tripLegs.length; idx++) {
           const leg = tripLegs[idx];
-          let startAddr = `Departure Location`;
-          let endAddr = `Arrival Destination`;
-
-          try {
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000));
-            const startGeo: any = await Promise.race([
-              Location.reverseGeocodeAsync({ latitude: leg.startLat || baseLat, longitude: leg.startLng || baseLng }),
-              timeoutPromise,
-            ]).catch(() => null);
-
-            if (startGeo && startGeo.length > 0) {
-              const p = startGeo[0];
-              startAddr = [p.name, p.street, p.district || p.subregion || p.city].filter(Boolean).join(', ') || realCity;
-            }
-
-            const endGeo: any = await Promise.race([
-              Location.reverseGeocodeAsync({ latitude: leg.endLat || baseLat, longitude: leg.endLng || baseLng }),
-              timeoutPromise,
-            ]).catch(() => null);
-
-            if (endGeo && endGeo.length > 0) {
-              const p = endGeo[0];
-              endAddr = [p.name, p.street, p.district || p.subregion || p.city].filter(Boolean).join(', ') || realCity;
-            }
-          } catch (_) {}
 
           const analysis = analyzeTripTelemetry(
             leg.points,
@@ -259,6 +329,23 @@ export default function DrivingReportsScreen() {
             p => p.lng,
             p => p.speed
           );
+
+          // STRICT ENTERPRISE FILTER: Only classify as a driving trip if vehicular dynamics verified
+          if (!isVehicularTrip(analysis)) {
+            continue;
+          }
+
+          let startAddr = `Departure Location`;
+          let endAddr = `Arrival Destination`;
+
+          try {
+            const [sAddr, eAddr] = await Promise.all([
+              reverseGeocodeFastDriving(leg.startLat || baseLat, leg.startLng || baseLng),
+              reverseGeocodeFastDriving(leg.endLat || baseLat, leg.endLng || baseLng),
+            ]);
+            startAddr = sAddr;
+            endAddr = eAddr;
+          } catch (_) {}
 
           // Resolve Directional Title
           const cardDir = analysis.cardinalDirection || leg.cardinalDirection || 'NE';
@@ -332,7 +419,6 @@ export default function DrivingReportsScreen() {
 
       const calculatedScore = generatedTrips.length > 0 ? Math.round(sumScore / generatedTrips.length) : 100;
       setDriverScore(calculatedScore);
-
     } catch (e) {
       console.error('Error fetching driving reports:', e);
     } finally {
@@ -354,7 +440,17 @@ export default function DrivingReportsScreen() {
         <script src="https://unpkg.com/leaflet-polylineoffset@1.1.1/leaflet.polylineoffset.js"></script>
         <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
         <style>
-          body, html, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #0D0E12; }
+          body, html, #map { 
+            margin: 0; 
+            padding: 0; 
+            width: 100%; 
+            height: 100%; 
+            background: #0D0E12; 
+            touch-action: none !important;
+            -webkit-user-select: none;
+            user-select: none;
+            overscroll-behavior: none;
+          }
           .leaflet-control-attribution { display: none !important; }
           .custom-pin { background: transparent !important; border: none !important; }
         </style>
@@ -363,7 +459,15 @@ export default function DrivingReportsScreen() {
         <div id="map"></div>
         <script>
           var coords = ${JSON.stringify(activeTripCoords)};
-          var map = L.map('map', { zoomControl: false, attributionControl: false }).setView(coords[0], 14);
+          var map = L.map('map', { 
+            zoomControl: false, 
+            attributionControl: false,
+            preferCanvas: true,
+            dragging: true,
+            touchZoom: true,
+            scrollWheelZoom: true,
+            tap: false
+          }).setView(coords[0], 14);
           
           L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
@@ -720,12 +824,19 @@ export default function DrivingReportsScreen() {
             </View>
 
             <View style={styles.modalMapWrapper}>
-              <WebView
-                ref={webViewModalRef}
-                originWhitelist={['*']}
-                source={{ html: modalHtmlContent }}
-                style={{ flex: 1 }}
-              />
+              {Platform.OS === 'web' ? (
+                <iframe
+                  srcDoc={modalHtmlContent}
+                  style={{ width: '100%', height: '100%', border: 'none' }}
+                />
+              ) : (
+                <WebView
+                  ref={webViewModalRef}
+                  originWhitelist={['*']}
+                  source={{ html: modalHtmlContent }}
+                  style={{ flex: 1 }}
+                />
+              )}
             </View>
 
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20 }} showsVerticalScrollIndicator={false}>

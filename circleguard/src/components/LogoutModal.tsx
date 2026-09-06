@@ -5,6 +5,7 @@ import { useThemeStore } from '../store/useThemeStore';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
+import { stopBatteryOptimizedBackgroundLocation } from '../services/LocationBackgroundService';
 
 interface LogoutModalProps {
   visible: boolean;
@@ -21,15 +22,23 @@ export default function LogoutModal({ visible, onClose }: LogoutModalProps) {
   const handleConfirmLogout = async () => {
     setLoggingOut(true);
     try {
+      // 1. Stop background tracking and cleanse in-memory coordinates
+      await stopBatteryOptimizedBackgroundLocation().catch(() => {});
+
+      // 2. Google OAuth signout
       try {
         const { GoogleSignin } = require('@react-native-google-signin/google-signin');
         await GoogleSignin.signOut();
       } catch (e) {}
 
+      // 3. Supabase Auth signout
       await supabase.auth.signOut();
-      useAuthStore.getState().setSession(null);
-      useAuthStore.getState().setProfile(null);
+
+      // 4. Cleanse stores and user state
+      useAuthStore.getState().resetAuthStore();
       useCircleStore.getState().resetCircleStore();
+      useThemeStore.getState().resetThemeToDefault();
+
       onClose();
     } catch (err) {
       console.error('Logout error:', err);

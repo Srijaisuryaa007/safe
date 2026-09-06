@@ -4,6 +4,9 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LUXURY_THEME } from '../constants/theme';
 
+import { useAuthStore } from '../store/useAuthStore';
+import { supabase } from '../lib/supabase';
+
 export interface MedicalProfile {
   bloodType: string;
   allergies: string;
@@ -17,15 +20,17 @@ interface MedicalInfoModalProps {
   onClose: () => void;
 }
 
-const STORAGE_KEY = '@circleguard_medical_info';
+const getMedicalStorageKey = (userId?: string | null) => userId ? `@circleguard_medical_info_${userId}` : '@circleguard_medical_info_guest';
 
 export default function MedicalInfoModal({ visible, onClose }: MedicalInfoModalProps) {
+  const { profile } = useAuthStore();
   const [bloodType, setBloodType] = useState('O+');
   const [allergies, setAllergies] = useState('');
   const [conditions, setConditions] = useState('');
   const [notes, setNotes] = useState('');
   const [primaryDoctor, setPrimaryDoctor] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const bloodTypes = ['O+', 'A+', 'B+', 'AB+', 'O-', 'A-', 'B-', 'AB-'];
 
@@ -33,11 +38,23 @@ export default function MedicalInfoModal({ visible, onClose }: MedicalInfoModalP
     if (visible) {
       loadMedicalInfo();
     }
-  }, [visible]);
+  }, [visible, profile?.id]);
 
   const loadMedicalInfo = async () => {
+    // Reset to pristine user defaults first to prevent cross-user bleed
+    setBloodType('O+');
+    setAllergies('');
+    setConditions('');
+    setNotes('');
+    setPrimaryDoctor('');
+    setIsEditing(false);
+
+    if (!profile?.id) return;
+
     try {
-      const saved = await AsyncStorage.getItem(STORAGE_KEY);
+      // 1. Check local user-scoped storage
+      const storageKey = getMedicalStorageKey(profile.id);
+      const saved = await AsyncStorage.getItem(storageKey);
       if (saved) {
         const data: MedicalProfile = JSON.parse(saved);
         setBloodType(data.bloodType || 'O+');
@@ -45,6 +62,19 @@ export default function MedicalInfoModal({ visible, onClose }: MedicalInfoModalP
         setConditions(data.conditions || '');
         setNotes(data.notes || '');
         setPrimaryDoctor(data.primaryDoctor || '');
+        return;
+      }
+
+      // 2. Fallback to Supabase profile medical_info if available
+      if ((profile as any).medical_info) {
+        const data = (profile as any).medical_info;
+        setBloodType(data.bloodType || 'O+');
+        setAllergies(data.allergies || '');
+        setConditions(data.conditions || '');
+        setNotes(data.notes || '');
+        setPrimaryDoctor(data.primaryDoctor || '');
+        // Cache to local user storage
+        await AsyncStorage.setItem(storageKey, JSON.stringify(data));
       }
     } catch (e) {
       console.error('Error loading medical info:', e);
@@ -52,6 +82,12 @@ export default function MedicalInfoModal({ visible, onClose }: MedicalInfoModalP
   };
 
   const handleSave = async () => {
+    if (!profile?.id) {
+      Alert.alert('Session Expired', 'Please sign in to save medical information.');
+      return;
+    }
+
+    setIsSaving(true);
     try {
       const data: MedicalProfile = {
         bloodType,
@@ -61,11 +97,30 @@ export default function MedicalInfoModal({ visible, onClose }: MedicalInfoModalP
         primaryDoctor: primaryDoctor.trim(),
       };
 
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      const storageKey = getMedicalStorageKey(profile.id);
+      await AsyncStorage.setItem(storageKey, JSON.stringify(data));
+
+      // Asynchronously sync with Supabase profiles table
+      try {
+        await supabase
+          .from('profiles')
+          .update({ medical_info: data })
+          .eq('id', profile.id);
+
+        useAuthStore.getState().setProfile({
+          ...profile,
+          medical_info: data,
+        } as any);
+      } catch (dbErr) {
+        console.warn('Database sync for medical info deferred:', dbErr);
+      }
+
       Alert.alert('Saved', 'Medical profile updated successfully.');
       setIsEditing(false);
     } catch (e) {
       Alert.alert('Error', 'Failed to save medical information.');
+    } finally {
+      setIsSaving(false);
     }
   };
 

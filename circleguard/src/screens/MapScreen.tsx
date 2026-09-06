@@ -1,13 +1,15 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, TextInput, Linking, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, TextInput, Linking, ScrollView, Image, Dimensions, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRoute, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import * as Battery from 'expo-battery';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
+import { isValidUuid } from '../lib/utils';
 import { useCircleStore, Place } from '../store/useCircleStore';
 import AlertModal from '../components/AlertModal';
 import AddPlaceModal from '../components/AddPlaceModal';
@@ -293,6 +295,28 @@ const LEAFLET_HTML = `
       window.poiMarkers = window.poiMarkers || {};
       var poiMarkers = window.poiMarkers;
       var hasRealCentered = false;
+
+      window.removeMemberMarker = function(id) {
+        if (memberMarkers && memberMarkers[id]) {
+          try { map.removeLayer(memberMarkers[id]); } catch(e) {}
+          delete memberMarkers[id];
+        }
+      };
+
+      window.clearAllMapLayers = function() {
+        if (memberMarkers) {
+          Object.keys(memberMarkers).forEach(function(k) {
+            try { map.removeLayer(memberMarkers[k]); } catch(e) {}
+            delete memberMarkers[k];
+          });
+        }
+        if (placeCircles) {
+          Object.keys(placeCircles).forEach(function(k) {
+            try { map.removeLayer(placeCircles[k]); } catch(e) {}
+            delete placeCircles[k];
+          });
+        }
+      };
 
       var savedStyle = 'vector';
       try {
@@ -586,7 +610,24 @@ const LEAFLET_HTML = `
 
         if (boundsGroup.length > 0) {
           var fg = L.featureGroup(boundsGroup);
-          map.fitBounds(fg.getBounds(), { padding: [80, 80], maxZoom: 16 });
+          window.lastRouteBounds = fg.getBounds();
+          // Asymmetric padding: Protect top 110px (search bar & chips) and bottom 340px (floating bottom card & tab bar footer)
+          map.fitBounds(fg.getBounds(), {
+            paddingTopLeft: [40, 110],
+            paddingBottomRight: [40, 340],
+            maxZoom: 16
+          });
+        }
+      };
+
+      window.refitRouteBounds = function(customBottomPadding) {
+        if (window.lastRouteBounds && map) {
+          var bPad = typeof customBottomPadding === 'number' ? customBottomPadding : 340;
+          map.fitBounds(window.lastRouteBounds, {
+            paddingTopLeft: [40, 110],
+            paddingBottomRight: [40, bPad],
+            maxZoom: 16
+          });
         }
       };
 
@@ -688,7 +729,7 @@ const LEAFLET_HTML = `
         if (data.members) {
           var currentMemberIds = {};
 
-          data.members.forEach(function(m) {
+          data.members.forEach(function(m, idx) {
             if (m.isSelf) {
               window.updateSelfLiveGPS(m.lat, m.lng, m.heading, m.speed, m.accuracy, m.isDriving, data.isFollowActive, m.name, m.avatarUrl);
               return;
@@ -696,6 +737,41 @@ const LEAFLET_HTML = `
 
             currentMemberIds[m.id] = true;
             var mLatLng = [m.lat, m.lng];
+
+            // COLLISION AVOIDANCE: Detect if this member is very close to Self or another member
+            var isNearSelf = false;
+            if (data.userLocation && data.userLocation.latitude && data.userLocation.longitude) {
+              var dy = Math.abs(m.lat - data.userLocation.latitude) * 111320;
+              var dx = Math.abs(m.lng - data.userLocation.longitude) * 111320 * Math.cos(m.lat * Math.PI / 180);
+              var distMeters = Math.sqrt(dx * dx + dy * dy);
+              if (distMeters < 50) {
+                isNearSelf = true;
+                // If practically identical coordinates (< 8 meters), apply micro-offset so avatars don't overlap
+                if (distMeters < 8) {
+                  var spreadAngle = ((idx + 1) * 1.57);
+                  mLatLng = [m.lat + 0.00015 * Math.sin(spreadAngle), m.lng + 0.00018 * Math.cos(spreadAngle)];
+                }
+              }
+            }
+
+            // Also check proximity against other members in circle
+            var isNearOtherMember = false;
+            for (var pIdx = 0; pIdx < idx; pIdx++) {
+              var prevM = data.members[pIdx];
+              if (prevM && !prevM.isSelf && prevM.lat && prevM.lng) {
+                var pDy = Math.abs(m.lat - prevM.lat) * 111320;
+                var pDx = Math.abs(m.lng - prevM.lng) * 111320 * Math.cos(m.lat * Math.PI / 180);
+                var pDist = Math.sqrt(pDx * pDx + pDy * pDy);
+                if (pDist < 45) {
+                  isNearOtherMember = true;
+                  if (pDist < 8) {
+                    var altSpreadAngle = ((idx + 1) * 2.35);
+                    mLatLng = [m.lat + 0.00015 * Math.sin(altSpreadAngle), m.lng + 0.00018 * Math.cos(altSpreadAngle)];
+                  }
+                  break;
+                }
+              }
+            }
 
             var avatarClass = m.isOnline ? 'member-avatar-online' : 'member-avatar-offline';
             var statusTag = m.isOnline ? ' (Online)' : ' (' + (m.lastSeenText || 'Offline') + ')';
@@ -725,7 +801,10 @@ const LEAFLET_HTML = `
 
             var batteryTag = m.batteryPct ? ' • ' + m.batteryPct + '%' : '';
             var activityTag = m.activityText ? ' • ' + m.activityText : '';
-            var labelHtml = '<div style="position:absolute; bottom:44px; left:50%; transform:translateX(-50%); white-space:nowrap; background:rgba(22,24,31,0.95); color:#FFFFFF; font-size:10px; font-weight:bold; font-family:sans-serif; padding:4px 9px; border-radius:12px; border:1px solid ' + roleColor + '; box-shadow:0 4px 12px rgba(0,0,0,0.5); pointer-events:none; z-index:1000;">' + roleBadgeSymbol + m.name + activityTag + batteryTag + '</div>';
+
+            // If close to Self or another member, invert label position (top: 44px) so labels NEVER intersect or collide!
+            var labelPosStyle = (isNearSelf || (isNearOtherMember && idx % 2 === 1)) ? 'top:44px;' : 'bottom:44px;';
+            var labelHtml = '<div style="position:absolute; ' + labelPosStyle + ' left:50%; transform:translateX(-50%); white-space:nowrap; background:rgba(22,24,31,0.95); color:#FFFFFF; font-size:10px; font-weight:bold; font-family:sans-serif; padding:4px 9px; border-radius:12px; border:1px solid ' + roleColor + '; box-shadow:0 4px 12px rgba(0,0,0,0.5); pointer-events:none; z-index:1000;">' + roleBadgeSymbol + m.name + activityTag + batteryTag + '</div>';
 
             var icon = L.divIcon({
               className: 'custom-icon',
@@ -1022,14 +1101,20 @@ export default function MapScreen() {
   const { profile } = useAuthStore();
   const { activeCircle, members, places, circleFetched, fetchActiveCircle, fetchMembers, fetchPlaces, deletePlace, isLoading: circleLoading } = useCircleStore();
   const { showAlert, showConfirm } = useLuxuryAlert();
+  const insets = useSafeAreaInsets();
+  const bottomInset = Platform.OS === 'web' ? 4 : (insets.bottom > 0 ? Math.min(insets.bottom, Platform.OS === 'ios' ? 20 : 12) : 4);
+  const bottomBarHeight = 44 + bottomInset;
+  const sheetBottom = bottomBarHeight + 8;
   
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [locations, setLocations] = useState<any[]>([]);
   const [userLoc, setUserLoc] = useState<{ latitude: number; longitude: number } | null>(null);
   const [isFollowUserActive, setIsFollowUserActive] = useState(true);
+  const [selfBatteryPct, setSelfBatteryPct] = useState<number>(100);
 
   const [selectedMember, setSelectedMember] = useState<any>(null);
   const [selectedPlace, setSelectedPlace] = useState<any>(null);
+  const [isCardCollapsed, setIsCardCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   const [distanceUnit, setDistanceUnit] = useState<'km' | 'mi'>('km');
@@ -1043,6 +1128,14 @@ export default function MapScreen() {
   const floatingControlStyles = getThemeFloatingControlStyles(themeMode);
   const cardBorderStyles = getThemeBorderStyles(themeMode);
 
+  const floatingSheetStyle = useMemo(() => ({
+    borderRadius: 22,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
+    borderWidth: 1.5,
+    borderColor: isDark ? 'rgba(212, 175, 55, 0.45)' : 'rgba(0, 0, 0, 0.12)',
+  }), [isDark]);
+
   useEffect(() => {
     const loadAppSettings = async () => {
       const u = await AsyncStorage.getItem('@circleguard_distance_unit');
@@ -1051,16 +1144,79 @@ export default function MapScreen() {
     loadAppSettings();
   }, []);
 
+  // Authentic Device & Browser Battery Detection & Live Monitoring
+  useEffect(() => {
+    let isMounted = true;
+    const fetchBatteryStatus = async () => {
+      try {
+        if (Platform.OS === 'web' && typeof navigator !== 'undefined' && (navigator as any).getBattery) {
+          const b = await (navigator as any).getBattery();
+          if (isMounted && typeof b.level === 'number') {
+            setSelfBatteryPct(Math.round(b.level * 100));
+          }
+          b.addEventListener('levelchange', () => {
+            if (isMounted && typeof b.level === 'number') {
+              setSelfBatteryPct(Math.round(b.level * 100));
+            }
+          });
+        } else {
+          const level = await Battery.getBatteryLevelAsync();
+          if (isMounted && level >= 0) {
+            setSelfBatteryPct(Math.round(level * 100));
+          }
+        }
+      } catch (e) {}
+    };
+    fetchBatteryStatus();
+
+    let sub: any = null;
+    if (Platform.OS !== 'web' && typeof Battery.addBatteryLevelListener === 'function') {
+      try {
+        sub = Battery.addBatteryLevelListener(({ batteryLevel }) => {
+          if (isMounted && batteryLevel >= 0) {
+            setSelfBatteryPct(Math.round(batteryLevel * 100));
+          }
+        });
+      } catch (e) {}
+    }
+
+    return () => {
+      isMounted = false;
+      try { sub?.remove(); } catch (e) {}
+    };
+  }, []);
+
   const lastHandledFocusKeyRef = useRef<string | null>(null);
   const pendingFocusRef = useRef<{ lat?: number; lng?: number; name?: string; userId?: string } | null>(null);
 
+  const handleToggleCollapse = () => {
+    const nextVal = !isCardCollapsed;
+    setIsCardCollapsed(nextVal);
+    if (webViewRef.current) {
+      const bottomPad = nextVal ? 150 : 340;
+      webViewRef.current.injectJavaScript(`if (window.refitRouteBounds) { window.refitRouteBounds(${bottomPad}); } true;`);
+    }
+  };
+
+  const handleFitRoute = () => {
+    if (webViewRef.current) {
+      const bottomPad = isCardCollapsed ? 150 : (selectedMember || selectedPlace ? 340 : 110);
+      webViewRef.current.injectJavaScript(`if (window.refitRouteBounds) { window.refitRouteBounds(${bottomPad}); } true;`);
+    }
+  };
+
   const handleCloseMemberCard = () => {
     setSelectedMember(null);
+    setIsCardCollapsed(false);
     setMemberRoadInfo(null);
     setAvailableRoutes([]);
     setSelectedRouteIndex(0);
     if (webViewRef.current) {
-      webViewRef.current.injectJavaScript(`if (window.clearMemberRoute) { window.clearMemberRoute(); } true;`);
+      webViewRef.current.injectJavaScript(`
+        if (window.clearMemberRoute) { window.clearMemberRoute(); }
+        if (window.refitRouteBounds) { window.refitRouteBounds(100); }
+        true;
+      `);
     }
     if (navigation && (navigation as any).setParams) {
       (navigation as any).setParams({
@@ -1069,6 +1225,17 @@ export default function MapScreen() {
         focusLng: undefined,
         focusUserName: undefined,
       });
+    }
+  };
+
+  const handleClosePlace = () => {
+    setSelectedPlace(null);
+    setIsCardCollapsed(false);
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        if (window.refitRouteBounds) { window.refitRouteBounds(100); }
+        true;
+      `);
     }
   };
 
@@ -1230,8 +1397,6 @@ export default function MapScreen() {
 
   const homePlace = places.find(p => p.category === 'home') || places[0];
   const homeCoords = homePlace ? parseLocationPoint(homePlace) : null;
-  const fallbackBaseLat = (homeCoords && homeCoords.latitude !== 0) ? homeCoords.latitude : (userLoc?.latitude || 20.5937);
-  const fallbackBaseLng = (homeCoords && homeCoords.longitude !== 0) ? homeCoords.longitude : (userLoc?.longitude || 78.9629);
 
   const fetchAllNearbyPois = async (lat?: number, lng?: number, targetCategories?: string[]) => {
     setLoadingPois(true);
@@ -1240,10 +1405,10 @@ export default function MapScreen() {
       : ['hospital', 'school', 'police', 'restaurant', 'fuel'];
 
     const isMiles = distanceUnit === 'mi';
-    const targetLat = lat || userLoc?.latitude || fallbackBaseLat;
-    const targetLng = lng || userLoc?.longitude || fallbackBaseLng;
+    const targetLat = lat || userLoc?.latitude || (homeCoords && homeCoords.latitude !== 0 ? homeCoords.latitude : 0);
+    const targetLng = lng || userLoc?.longitude || (homeCoords && homeCoords.longitude !== 0 ? homeCoords.longitude : 0);
 
-    if (!targetLat || !targetLng || (targetLat === 20.5937 && targetLng === 78.9629)) {
+    if (!targetLat || !targetLng || targetLat === 0 || targetLng === 0 || (targetLat === 20.5937 && targetLng === 78.9629)) {
       setLoadingPois(false);
       return;
     }
@@ -1352,7 +1517,11 @@ export default function MapScreen() {
         if (map && window.L) {
           try {
             var b = L.latLngBounds(${JSON.stringify(coords)});
-            map.fitBounds(b, { padding: [70, 70], maxZoom: 16 });
+            map.fitBounds(b, {
+              paddingTopLeft: [40, 110],
+              paddingBottomRight: [40, 310],
+              maxZoom: 16
+            });
           } catch(e) {}
         }
         true;
@@ -1537,18 +1706,22 @@ export default function MapScreen() {
 
   const handleClosePoi = () => {
     setSelectedPoi(null);
+    setIsCardCollapsed(false);
     if (webViewRef.current) {
-      webViewRef.current.injectJavaScript(`if (window.showSearchedPlace) { window.showSearchedPlace(null, null, null); } true;`);
+      webViewRef.current.injectJavaScript(`
+        if (window.showSearchedPlace) { window.showSearchedPlace(null, null, null); }
+        if (window.refitRouteBounds) { window.refitRouteBounds(100); }
+        true;
+      `);
     }
   };
-
-
 
   const handleSelectMember = (m: any) => {
     setIsFollowUserActive(false);
     setSelectedPoi(null);
     setSelectedPlace(null);
     setSelectedMember(m);
+    setIsCardCollapsed(false);
     setSelectedRouteIndex(0);
 
     const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
@@ -1581,6 +1754,17 @@ export default function MapScreen() {
       webViewRef.current.injectJavaScript(`if (map) { map.flyTo([${targetLat}, ${targetLng}], 16, { animate: true, duration: 1.0 }); } true;`);
     }
   };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__mapDebug = {
+        selectMember: handleSelectMember,
+        setAvailableRoutes,
+        setSelectedMember,
+        setSelectedPoi,
+      };
+    }
+  }, []);
 
   const handleSelectSearchResult = (item: any, category: 'member' | 'place' | 'poi' | 'location') => {
     setSearchQuery('');
@@ -1661,7 +1845,9 @@ export default function MapScreen() {
             user_id: loc.user_id,
             latitude: loc.latitude,
             longitude: loc.longitude,
-            accuracy_m: loc.accuracy_m
+            accuracy_m: loc.accuracy_m ?? (loc as any).accuracy,
+            speed_mps: loc.speed_mps ?? (loc as any).speed,
+            activity_state: loc.activity_state,
           },
           name,
           places as any
@@ -1676,7 +1862,6 @@ export default function MapScreen() {
             setModalMessage(msg);
             setModalType('sos');
             setModalVisible(true);
-            scheduleLocalNotification(title, msg);
           } else if (firstBreach.type === 'entry') {
             const title = 'GEOFENCE RE-ENTRY ALERT';
             const msg = `${firstBreach.userName} re-entered geofence boundary "${firstBreach.placeName}" (${firstBreach.formattedDistance} from center).`;
@@ -1684,7 +1869,6 @@ export default function MapScreen() {
             setModalMessage(msg);
             setModalType('place');
             setModalVisible(true);
-            scheduleLocalNotification(title, msg);
           }
         }
       }
@@ -1760,9 +1944,9 @@ export default function MapScreen() {
       
       locationSubscription.current = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 2000,
-          distanceInterval: 2,
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 5000,
+          distanceInterval: 5,
         },
         async (loc) => {
           if (!profile) return;
@@ -1822,7 +2006,15 @@ export default function MapScreen() {
           const isDriving = finalSpeed > 4.5;
           const isWalking = finalSpeed >= 0.8;
 
-          setUserLoc({ latitude: finalLat, longitude: finalLng });
+          // Only trigger heavy React re-render if user moved significantly (> 5m)
+          setUserLoc(prev => {
+            if (!prev) return { latitude: finalLat, longitude: finalLng };
+            const movedDist = getDistanceInMeters(prev.latitude, prev.longitude, finalLat, finalLng);
+            if (movedDist >= 5.0) {
+              return { latitude: finalLat, longitude: finalLng };
+            }
+            return prev;
+          });
           
           // Instant live injection into Leaflet map
           if (webViewRef.current) {
@@ -1836,14 +2028,19 @@ export default function MapScreen() {
           }
 
           try {
-            let battPct = 100;
+            let battPct = selfBatteryPct;
             try {
-              const battLevel = await Battery.getBatteryLevelAsync();
-              if (battLevel >= 0) battPct = Math.round(battLevel * 100);
+              if (Platform.OS === 'web' && typeof navigator !== 'undefined' && (navigator as any).getBattery) {
+                const b = await (navigator as any).getBattery();
+                if (typeof b?.level === 'number') battPct = Math.round(b.level * 100);
+              } else {
+                const battLevel = await Battery.getBatteryLevelAsync();
+                if (battLevel >= 0) battPct = Math.round(battLevel * 100);
+              }
             } catch (e) {}
 
             const livePoint = `POINT(${finalLng} ${finalLat})`;
-            await supabase.from('locations').upsert({
+            const locationPayload: any = {
               user_id: profile.id,
               latitude: finalLat,
               longitude: finalLng,
@@ -1854,7 +2051,21 @@ export default function MapScreen() {
               is_driving: isDriving,
               activity_state: isDriving ? 'Driving' : (isWalking ? 'Walking' : 'Stationary'),
               updated_at: new Date().toISOString()
-            }, { onConflict: 'user_id' });
+            };
+            if (activeCircle?.id) {
+              locationPayload.circle_id = activeCircle.id;
+            }
+
+            try {
+              const { error: upsertErr } = await supabase.from('locations').upsert(locationPayload, {
+                onConflict: 'user_id'
+              });
+              if (upsertErr) {
+                console.error('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] MapScreen upsert error:', upsertErr.message);
+              }
+            } catch (e: any) {
+              console.error('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] MapScreen upsert exception:', e?.message);
+            }
 
             let shouldSaveHistory = false;
 
@@ -1902,10 +2113,13 @@ export default function MapScreen() {
     };
   }, [profile, isFollowUserActive]);
 
-  // Realtime Supabase Channels
+  // Realtime Supabase Channels & Instant Marker Purging
   useEffect(() => {
     if (!activeCircle) return;
     
+    // Clear previous circle markers and zones immediately from Leaflet
+    webViewRef.current?.injectJavaScript(`if (window.clearAllMapLayers) { window.clearAllMapLayers(); } true;`);
+
     Promise.all([
       fetchMembers(activeCircle.id),
       fetchPlaces(activeCircle.id),
@@ -1918,7 +2132,32 @@ export default function MapScreen() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'locations' },
-        () => fetchLocations()
+        (payload: any) => {
+          console.log(`[GPS_PIPELINE:LAYER_5_REALTIME_SYNC] Received Realtime postgres_changes event=${payload?.eventType} on locations for user_id=${payload?.new?.user_id || payload?.old?.user_id}`);
+          if (payload?.eventType === 'DELETE' && payload?.old?.user_id) {
+            const delUid = payload.old.user_id;
+            webViewRef.current?.injectJavaScript(`if (window.removeMemberMarker) { window.removeMemberMarker('${delUid}'); } true;`);
+            useCircleStore.getState().purgeUserFromStore(delUid);
+            setLocations(prev => prev.filter(l => l.user_id !== delUid));
+          }
+          fetchMembers(activeCircle.id);
+          fetchLocations();
+          schedulePushMapData();
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'REMOVE_USER_MARKER' },
+        (eventPayload: any) => {
+          const deletedUid = eventPayload?.payload?.user_id || eventPayload?.user_id;
+          if (deletedUid) {
+            console.log(`[GPS_PIPELINE:LAYER_5_REALTIME_SYNC] Received broadcast REMOVE_USER_MARKER for user_id=${deletedUid}`);
+            webViewRef.current?.injectJavaScript(`if (window.removeMemberMarker) { window.removeMemberMarker('${deletedUid}'); } true;`);
+            useCircleStore.getState().purgeUserFromStore(deletedUid);
+            setLocations(prev => prev.filter(l => l.user_id !== deletedUid));
+            schedulePushMapData();
+          }
+        }
       )
       .subscribe();
 
@@ -1927,7 +2166,15 @@ export default function MapScreen() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'circle_members', filter: `circle_id=eq.${activeCircle.id}` },
-        () => fetchMembers(activeCircle.id)
+        (payload: any) => {
+          if (payload?.eventType === 'DELETE' && payload?.old?.user_id) {
+            const delUid = payload.old.user_id;
+            webViewRef.current?.injectJavaScript(`if (window.removeMemberMarker) { window.removeMemberMarker('${delUid}'); } true;`);
+            useCircleStore.getState().purgeUserFromStore(delUid);
+            setLocations(prev => prev.filter(l => l.user_id !== delUid));
+          }
+          fetchMembers(activeCircle.id);
+        }
       )
       .subscribe();
       
@@ -1940,9 +2187,10 @@ export default function MapScreen() {
       )
       .subscribe();
       
+    // Fallback polling only if Supabase Realtime connection drops (every 30s instead of aggressive 3s)
     const fallbackInterval = setInterval(() => {
       fetchLocations();
-    }, 3000);
+    }, 30000);
       
     return () => {
       supabase.removeChannel(channel);
@@ -1989,21 +2237,42 @@ export default function MapScreen() {
         memberUserIds.push(profile.id);
       }
 
-      let query = supabase
-        .from('locations')
-        .select('user_id, latitude, longitude, geom, battery_pct, is_driving, speed_mps, activity_state, updated_at');
-
-      if (memberUserIds.length > 0) {
-        query = query.in('user_id', memberUserIds);
+      const validUids = memberUserIds.filter(isValidUuid);
+      if (validUids.length === 0) {
+        setLocations([]);
+        return;
       }
 
-      let { data, error } = await query;
+      // Group-scoped location query: query valid circle member IDs
+      let allLocs: any[] = [];
+      try {
+        console.log(`[GPS_PIPELINE:LAYER_4_QUERY_FILTER] fetchLocations in MapScreen for ${validUids.length} members`);
+        let query = supabase
+          .from('locations')
+          .select('user_id, latitude, longitude, geom, battery_pct, is_driving, speed_mps, activity_state, updated_at, circle_id')
+          .in('user_id', validUids)
+          .order('updated_at', { ascending: false });
 
-      if (error) {
-        console.error('Error fetching locations:', error);
+        const { data, error } = await query;
+        if (!error && data) {
+          // Deduplicate by user_id: keep freshest updated_at row for each user, preferring matching activeCircle
+          const latestByUser: { [userId: string]: any } = {};
+          data.forEach(item => {
+            const uid = item.user_id;
+            if (!latestByUser[uid]) {
+              latestByUser[uid] = item;
+            } else if (item.circle_id === activeCircle?.id && latestByUser[uid].circle_id !== activeCircle?.id) {
+              latestByUser[uid] = item;
+            }
+          });
+          allLocs = Object.values(latestByUser);
+          console.log(`[GPS_PIPELINE:LAYER_4_QUERY_FILTER] fetchLocations resolved ${allLocs.length} locations for ${validUids.length} members`);
+        } else if (error) {
+          console.error('[GPS_PIPELINE:LAYER_4_QUERY_FILTER] Error fetching locations:', error);
+        }
+      } catch (err) {
+        console.error('[GPS_PIPELINE:LAYER_4_QUERY_FILTER] Error in fetchLocations query:', err);
       }
-
-      let allLocs: any[] = data || [];
 
       if (allLocs.length > 0) {
         const formatted = allLocs.map(item => {
@@ -2016,6 +2285,8 @@ export default function MapScreen() {
         }).filter(item => item.latitude !== 0 && item.longitude !== 0);
 
         setLocations(formatted);
+      } else {
+        setLocations([]);
       }
     } catch (err) {
       console.error('Error in fetchLocations:', err);
@@ -2074,12 +2345,6 @@ export default function MapScreen() {
     const centerLat = focusLat && !isNaN(focusLat) ? focusLat : (userLoc?.latitude || 20.5937);
     const centerLng = focusLng && !isNaN(focusLng) ? focusLng : (userLoc?.longitude || 78.9629);
 
-    // Primary Home / Anchor Place for members whose GPS is stationary at home
-    const homePlace = places.find(p => p.category === 'home') || places[0];
-    const homeCoords = homePlace ? parseLocationPoint(homePlace) : null;
-    const fallbackBaseLat = (homeCoords && homeCoords.latitude !== 0) ? homeCoords.latitude : (userLoc?.latitude || 20.5937);
-    const fallbackBaseLng = (homeCoords && homeCoords.longitude !== 0) ? homeCoords.longitude : (userLoc?.longitude || 78.9629);
-
     const mapData = {
       isDark: isDark,
       mapStyle: mapStyleSetting,
@@ -2102,7 +2367,7 @@ export default function MapScreen() {
         }
 
         return combinedMembers
-          .map((m, idx) => {
+          .map((m) => {
             const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
             const loc = locations.find(l => String(l.user_id).toLowerCase() === String(m.user_id).toLowerCase());
             
@@ -2118,19 +2383,20 @@ export default function MapScreen() {
               const pt = parseLocationPoint(loc);
               lat = pt.latitude;
               lng = pt.longitude;
-              if (lat !== 0 && lng !== 0) isRealLocation = true;
+              if (lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng)) isRealLocation = true;
             } else if (m.latitude && m.longitude) {
-              lat = m.latitude;
-              lng = m.longitude;
-              if (lat !== 0 && lng !== 0) isRealLocation = true;
+              lat = Number(m.latitude);
+              lng = Number(m.longitude);
+              if (lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng)) isRealLocation = true;
             }
 
-            // If a member has not broadcasted GPS yet, anchor them at the Circle Home Safe Place (so they don't wander with your traveling GPS!)
-            if (!lat || !lng || lat === 0 || lng === 0) {
-              const angle = (idx * (360 / Math.max(1, combinedMembers.length))) * (Math.PI / 180);
-              lat = fallbackBaseLat + 0.0012 * Math.cos(angle);
-              lng = fallbackBaseLng + 0.0012 * Math.sin(angle);
+            // ONLY REAL LOCATIONS: If a member has not broadcasted real GPS yet, do NOT plot them with mock coordinates
+            if (!isRealLocation || !lat || !lng || lat === 0 || lng === 0) {
+              console.log(`[GPS_PIPELINE:LAYER_6_UI_RENDER] Member ${m.user_id} (${m.profile?.full_name || 'unknown'}) dropped from map render (isRealLocation=${isRealLocation}, lat=${lat}, lng=${lng})`);
+              return null;
             }
+
+            console.log(`[GPS_PIPELINE:LAYER_6_UI_RENDER] Member ${m.user_id} (${m.profile?.full_name || 'unknown'}) rendered on map at (${lat}, ${lng}), isOnline=${m.isOnline}`);
 
             const isHideOnline = !!m.profile?.hide_online_presence;
             const isGhost = isSelf ? !!profile?.is_ghost_mode : !!m.profile?.is_ghost_mode;
@@ -2143,8 +2409,6 @@ export default function MapScreen() {
             let activityText = 'Stationary';
             if (isGhost) {
               activityText = 'Ghost Mode';
-            } else if (!isRealLocation) {
-              activityText = 'Stationed at Home';
             } else if (loc?.activity_state) {
               activityText = loc.activity_state;
             } else if (speedMps > 4.5) {
@@ -2165,17 +2429,20 @@ export default function MapScreen() {
               avatarUrl: m.profile?.avatar_url || null,
               role: m.role || 'member',
               isGhost,
-              isOnline: (isGhost || isHideOnline) ? false : (m.isOnline ?? (isRealLocation ? true : false)),
-              lastSeenText: isGhost ? 'Ghost Mode' : (isHideOnline ? 'Offline' : (m.lastSeenText || (isRealLocation ? 'Online' : 'Stationed at Home'))),
-              batteryPct: loc?.battery_pct || m.batteryPct || 100,
+              isOnline: (isGhost || isHideOnline) ? false : (m.isOnline ?? true),
+              lastSeenText: isGhost ? 'Ghost Mode' : (isHideOnline ? 'Offline' : (m.lastSeenText || 'Online')),
+              batteryPct: isSelf ? selfBatteryPct : (loc?.battery_pct != null ? loc.battery_pct : (m.batteryPct != null ? m.batteryPct : 100)),
               speed: speedMps,
               isDriving: loc?.is_driving ?? (speedMps > 4.5),
               accuracy: loc?.accuracy_m || 10,
               activityText,
             };
-          });
+          })
+          .filter((m): m is NonNullable<typeof m> => m !== null);
       })(),
-      places: (useCircleStore.getState().places || places).map(p => {
+      places: (useCircleStore.getState().places || places)
+        .filter(p => !activeCircle || !p.circle_id || p.circle_id === activeCircle.id)
+        .map(p => {
         const pt = parseLocationPoint(p);
         const radiusNum = typeof p.radius_m === 'number' ? p.radius_m : parseFloat((p as any).radius_m || (p as any).radius || 150);
         const assignedCount = p.assigned_user_ids?.length || (p.target_user_id ? 1 : 0);
@@ -2240,19 +2507,30 @@ export default function MapScreen() {
   }
 
   if (!activeCircle) {
+    if (circleLoading || !circleFetched) {
+      return (
+        <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
+          <LuxuryRadarLoading
+            message="INITIALIZING MAP RADAR..."
+            subMessage="Connecting to Circle security grid"
+            size={130}
+          />
+        </View>
+      );
+    }
     return (
-      <View style={styles.centerContainer}>
-        <Text style={styles.emptyText}>Join or create a circle to access live mapping.</Text>
+      <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
+        <Text style={[styles.emptyText, { color: colors.foreground }]}>Join or create a circle to access live mapping.</Text>
       </View>
     );
   }
 
   if (hasPermission === null) {
     return (
-      <View style={styles.centerContainer}>
+      <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
         <LuxuryRadarLoading
-          message="CALIBRATING GPS..."
-          subMessage="Requesting location"
+          message="CALIBRATING GPS RADAR..."
+          subMessage="Requesting location permissions"
           size={130}
         />
       </View>
@@ -2266,6 +2544,16 @@ export default function MapScreen() {
         originWhitelist={['*']}
         source={webViewSource}
         style={styles.map}
+        startInLoadingState={true}
+        renderLoading={() => (
+          <View style={[styles.centerContainer, { backgroundColor: colors.background, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }]}>
+            <LuxuryRadarLoading
+              message="INITIALIZING SATELLITE RADAR..."
+              subMessage="Connecting Live GPS Telemetry"
+              size={140}
+            />
+          </View>
+        )}
         onLoadEnd={() => {
           pushMapData();
           if (pendingFocusRef.current?.lat && pendingFocusRef.current?.lng && webViewRef.current) {
@@ -2439,54 +2727,84 @@ export default function MapScreen() {
         ) : null}
 
         {/* Member Quick Selector Bar with Dynamic Distance Indicators */}
-        {members.length > 0 ? (
-          <View style={styles.memberAvatarBar}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.memberAvatarContent}>
-              {members.map(m => {
-                const isSelected = selectedMember?.user_id === m.user_id;
-                const nameFirst = String(m.profile?.full_name || 'Member').split(' ')[0];
-                const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
-                const loc = locations.find(l => String(l.user_id).toLowerCase() === String(m.user_id).toLowerCase());
-                
-                let targetLat = isSelf ? (userLoc?.latitude || 0) : (loc?.latitude || m.latitude || 0);
-                let targetLng = isSelf ? (userLoc?.longitude || 0) : (loc?.longitude || m.longitude || 0);
+        {members.length > 0 ? (() => {
+          const uniqueMembers = Array.from(
+            new Map(members.map(m => [String(m.user_id).toLowerCase(), m])).values()
+          );
 
-                let distLabel = '';
-                if (!isSelf && userLoc && targetLat && targetLng && targetLat !== 0 && targetLng !== 0) {
-                  if (memberRoadDistances[m.user_id]) {
-                    distLabel = memberRoadDistances[m.user_id];
-                  } else {
-                    const dMeters = getDistanceInMeters(userLoc.latitude, userLoc.longitude, targetLat, targetLng);
-                    distLabel = dMeters > 1000 ? `${(dMeters / 1000).toFixed(1)}km` : `${Math.round(dMeters)}m`;
+          const firstNamesCount: Record<string, number> = {};
+          uniqueMembers.forEach(m => {
+            const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
+            if (!isSelf) {
+              const fn = String(m.profile?.full_name || 'Member').trim().split(/\s+/)[0].toUpperCase();
+              firstNamesCount[fn] = (firstNamesCount[fn] || 0) + 1;
+            }
+          });
+
+          return (
+            <View style={styles.memberAvatarBar}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.memberAvatarContent}>
+                {uniqueMembers.map(m => {
+                  const isSelected = selectedMember?.user_id === m.user_id;
+                  const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
+                  const loc = locations.find(l => String(l.user_id).toLowerCase() === String(m.user_id).toLowerCase());
+                  
+                  const rawName = String(m.profile?.full_name || 'Member').trim();
+                  const nameParts = rawName.split(/\s+/);
+                  const nameFirst = nameParts[0].toUpperCase();
+                  let chipTitle = 'YOU';
+                  if (!isSelf) {
+                    if (firstNamesCount[nameFirst] > 1 && nameParts.length > 1) {
+                      chipTitle = `${nameFirst} ${nameParts[1].charAt(0).toUpperCase()}.`;
+                    } else {
+                      chipTitle = nameFirst;
+                    }
                   }
-                }
 
-                return (
-                  <TouchableOpacity
-                    key={m.user_id}
-                    style={[
-                      styles.avatarChip,
-                      {
-                        borderRadius: 12,
-                        borderWidth: 1,
-                        backgroundColor: colors.surface,
-                        borderColor: isSelected ? colors.accentGold : colors.border,
-                      },
-                      m.isOnline ? styles.avatarChipOnline : styles.avatarChipOffline,
-                      isSelected ? styles.avatarChipSelected : null
-                    ]}
-                    onPress={() => handleSelectMember(m)}
-                  >
-                    <View style={[styles.miniDot, { backgroundColor: m.isOnline ? '#10B981' : '#9CA3AF' }]} />
-                    <Text style={[styles.chipText, { color: colors.foreground }]}>
-                      {nameFirst.toUpperCase()}{distLabel ? ` • ${distLabel}` : ''}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        ) : null}
+                  let targetLat = isSelf ? (userLoc?.latitude || 0) : (loc?.latitude || m.latitude || 0);
+                  let targetLng = isSelf ? (userLoc?.longitude || 0) : (loc?.longitude || m.longitude || 0);
+
+                  let distLabel = '';
+                  if (!isSelf) {
+                    if (userLoc && targetLat && targetLng && targetLat !== 0 && targetLng !== 0 && !isNaN(targetLat) && !isNaN(targetLng)) {
+                      if (memberRoadDistances[m.user_id]) {
+                        distLabel = memberRoadDistances[m.user_id];
+                      } else {
+                        const dMeters = getDistanceInMeters(userLoc.latitude, userLoc.longitude, targetLat, targetLng);
+                        distLabel = dMeters > 1000 ? `${(dMeters / 1000).toFixed(1)}km` : `${Math.round(dMeters)}m`;
+                      }
+                    } else {
+                      distLabel = 'No GPS';
+                    }
+                  }
+
+                  return (
+                    <TouchableOpacity
+                      key={m.user_id}
+                      style={[
+                        styles.avatarChip,
+                        {
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          backgroundColor: colors.surface,
+                          borderColor: isSelected ? colors.accentGold : colors.border,
+                        },
+                        m.isOnline ? styles.avatarChipOnline : styles.avatarChipOffline,
+                        isSelected ? styles.avatarChipSelected : null
+                      ]}
+                      onPress={() => handleSelectMember(m)}
+                    >
+                      <View style={[styles.miniDot, { backgroundColor: m.isOnline ? '#10B981' : '#9CA3AF' }]} />
+                      <Text style={[styles.chipText, { color: colors.foreground }]}>
+                        {chipTitle}{distLabel ? ` • ${distLabel}` : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          );
+        })() : null}
 
         {/* Real-time Satellite POI GIS Scanning Banner */}
         {loadingPois && (
@@ -2509,12 +2827,13 @@ export default function MapScreen() {
       {/* Member Details Bottom Card */}
       {selectedMember ? (() => {
         const isSelf = String(selectedMember.user_id).toLowerCase() === String(profile?.id).toLowerCase();
-        const memberLoc = isSelf ? { latitude: userLoc?.latitude, longitude: userLoc?.longitude, battery_pct: 100 } : locations.find(l => l.user_id === selectedMember.user_id);
+        const memberLoc = isSelf ? { latitude: userLoc?.latitude, longitude: userLoc?.longitude, battery_pct: selfBatteryPct } : locations.find(l => l.user_id === selectedMember.user_id);
         const lat = memberLoc?.latitude || (isSelf ? userLoc?.latitude : 0) || 0;
         const lng = memberLoc?.longitude || (isSelf ? userLoc?.longitude : 0) || 0;
+        const hasRealCoords = Boolean(lat && lng && lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng));
         
-        let distText = isSelf ? 'Your Location' : 'Nearby';
-        if (!isSelf && userLoc && lat && lng && lat !== 0 && lng !== 0) {
+        let distText = isSelf ? 'Your Location' : (hasRealCoords ? 'Nearby' : 'No Location Reported');
+        if (!isSelf && userLoc && hasRealCoords) {
           if (memberRoadDistances[selectedMember.user_id]) {
             distText = `${memberRoadDistances[selectedMember.user_id]} (via road)`;
           } else {
@@ -2549,18 +2868,108 @@ export default function MapScreen() {
         };
 
         const activeRoute = availableRoutes[selectedRouteIndex] || availableRoutes[0];
+        const isRouteFastest = !activeRoute || activeRoute.tag === 'fastest' || selectedRouteIndex === 0;
         const displayDuration = activeRoute ? activeRoute.timeText : (memberRoadInfo?.distText?.split('~')[1]?.trim() || 'Calculating...');
         const displayDistance = activeRoute ? activeRoute.distText : (memberRoadInfo?.distText?.split('(')[0]?.trim() || distText);
 
+        const renderRouteCard = (r: DrivingRouteOption, rIdx: number, isGrid: boolean) => {
+          const isSelected = rIdx === selectedRouteIndex;
+          const isFastest = r.tag === 'fastest' || rIdx === 0;
+          const deltaBadgeText = r.diffTimeText || (isFastest ? 'FASTEST' : (r.diffKmText || 'ALT'));
+
+          return (
+            <TouchableOpacity
+              key={r.id || `route_${rIdx}`}
+              style={[
+                isGrid ? styles.routeCardOptionGrid : styles.routeCardOption,
+                {
+                  backgroundColor: isSelected 
+                    ? (isFastest 
+                        ? (isDark ? 'rgba(16, 185, 129, 0.14)' : '#F0FDF4') 
+                        : (isDark ? 'rgba(59, 130, 246, 0.14)' : '#EFF6FF')) 
+                    : (isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC'),
+                  borderColor: isSelected 
+                    ? (isFastest ? '#10B981' : '#3B82F6') 
+                    : (isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0'),
+                  borderWidth: isSelected ? 2 : 1.2,
+                }
+              ]}
+              onPress={() => handleSelectRouteOption(rIdx)}
+              activeOpacity={0.8}
+            >
+              <View style={styles.routeCardTopRow}>
+                <Text style={[
+                  styles.routeCardDuration, 
+                  { 
+                    color: isSelected 
+                      ? (isFastest ? (isDark ? '#34D399' : '#059669') : (isDark ? '#60A5FA' : '#1D4ED8')) 
+                      : colors.foreground 
+                  }
+                ]}>
+                  {r.timeText}
+                </Text>
+                <View style={[
+                  styles.routeBadgePill,
+                  {
+                    backgroundColor: isFastest
+                      ? (isSelected ? (isDark ? 'rgba(16, 185, 129, 0.28)' : '#DCFCE7') : (isDark ? 'rgba(16, 185, 129, 0.12)' : '#F0FDF4'))
+                      : (isSelected ? (isDark ? 'rgba(59, 130, 246, 0.25)' : '#DBEAFE') : (isDark ? 'rgba(148, 163, 184, 0.15)' : '#F1F5F9')),
+                  }
+                ]}>
+                  <Text style={[
+                    styles.routeBadgeText,
+                    {
+                      color: isFastest
+                        ? (isDark ? '#34D399' : '#059669')
+                        : (isSelected ? (isDark ? '#93C5FD' : '#1D4ED8') : (isDark ? '#94A3B8' : '#64748B')),
+                    }
+                  ]}>
+                    {deltaBadgeText}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.routeCardMetaRow}>
+                <Text style={[styles.routeCardDistance, { color: colors.textMuted }]}>
+                  {r.distText}
+                </Text>
+                {isSelected ? (
+                  <View style={styles.routeActiveIndicator}>
+                    <Ionicons 
+                      name="checkmark-circle" 
+                      size={13} 
+                      color={isFastest ? (isDark ? '#34D399' : '#10B981') : (isDark ? '#60A5FA' : '#3B82F6')} 
+                    />
+                    <Text style={[
+                      styles.routeActiveText, 
+                      { color: isFastest ? (isDark ? '#34D399' : '#059669') : (isDark ? '#60A5FA' : '#1D4ED8') }
+                    ]}>
+                      Active
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={[styles.routeInactiveSubtext, { color: colors.textMuted }]}>
+                    {isFastest ? 'Primary' : 'Detour'}
+                  </Text>
+                )}
+              </View>
+            </TouchableOpacity>
+          );
+        };
+
         return (
-          <View style={[styles.memberCardSheet, sheetStyles, { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 22 }]}>
-            {/* Top Sheet Drag Handle */}
-            <View style={styles.sheetHandleContainer}>
+          <View style={[styles.memberCardSheet, sheetStyles, floatingSheetStyle, { bottom: sheetBottom, paddingHorizontal: 16, paddingTop: 8, paddingBottom: isCardCollapsed ? 12 : 16, maxHeight: Dimensions.get('window').height * 0.52 }]}>
+            {/* Top Sheet Drag Handle / Collapse Toggle */}
+            <TouchableOpacity 
+              style={styles.sheetHandleContainer}
+              onPress={handleToggleCollapse}
+              activeOpacity={0.7}
+            >
               <View style={[styles.sheetHandleBar, { backgroundColor: isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)' }]} />
-            </View>
+            </TouchableOpacity>
 
             {/* Profile Header Row */}
-            <View style={styles.modernMemberHeader}>
+            <View style={[styles.modernMemberHeader, isCardCollapsed && { marginBottom: 0 }]}>
               <View style={styles.modernAvatarContainer}>
                 {selectedMember.profile?.avatar_url ? (
                   <Image source={{ uri: selectedMember.profile.avatar_url }} style={styles.modernAvatarImg} />
@@ -2583,155 +2992,153 @@ export default function MapScreen() {
                     {selectedMember.isOnline ? 'Active now' : (selectedMember.lastSeenText || 'Offline')}
                   </Text>
                   <Text style={[styles.modernStatusDot, { color: colors.textMuted }]}>•</Text>
-                  <Ionicons name="battery-charging-outline" size={13} color={colors.accentGold} />
+                  <Ionicons 
+                    name={
+                      (memberLoc?.battery_pct ?? selfBatteryPct) <= 20 
+                        ? "battery-dead-outline" 
+                        : ((memberLoc?.battery_pct ?? selfBatteryPct) <= 50 ? "battery-half-outline" : "battery-charging-outline")
+                    } 
+                    size={13} 
+                    color={(memberLoc?.battery_pct ?? selfBatteryPct) <= 20 ? '#EF4444' : colors.accentGold} 
+                  />
                   <Text style={[styles.modernStatusSubtext, { color: colors.textMuted }]}>
-                    {memberLoc?.battery_pct ? `${memberLoc.battery_pct}%` : 'Optimal'}
+                    {memberLoc?.battery_pct != null ? `${memberLoc.battery_pct}%` : `${selfBatteryPct}%`}
                   </Text>
                 </View>
               </View>
 
-              <TouchableOpacity 
-                onPress={handleCloseMemberCard}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                style={[styles.modernCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="close" size={18} color={colors.foreground} />
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <TouchableOpacity 
+                  onPress={handleToggleCollapse}
+                  style={[styles.modernCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={isCardCollapsed ? "chevron-up" : "chevron-down"} size={18} color={colors.foreground} />
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  onPress={handleCloseMemberCard}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  style={[styles.modernCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close" size={18} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
             </View>
 
-            {/* Google Maps ETA Hero Banner */}
-            {!isSelf && (
-              <View style={[styles.etaHeroCard, { backgroundColor: isDark ? 'rgba(30, 41, 59, 0.7)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0' }]}>
-                <View style={styles.etaHeroLeft}>
-                  <View style={styles.etaTimeRow}>
-                    <Text style={[styles.etaDurationText, { color: '#10B981' }]}>
-                      {displayDuration}
-                    </Text>
-                    <View style={styles.liveTrafficPill}>
-                      <View style={styles.liveTrafficDot} />
-                      <Text style={styles.liveTrafficText}>Fastest</Text>
+            {/* Collapsible Details Body */}
+            {!isCardCollapsed && (
+              <ScrollView 
+                style={{ maxHeight: Dimensions.get('window').height * 0.38 }}
+                contentContainerStyle={{ paddingBottom: 12 }}
+                showsVerticalScrollIndicator={true}
+                bounces={false}
+                nestedScrollEnabled={true}
+              >
+                {/* No Live GPS Telemetry Notice */}
+                {!isSelf && !hasRealCoords && (
+                  <View style={[styles.etaHeroCard, { backgroundColor: isDark ? 'rgba(30, 41, 59, 0.7)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0', paddingVertical: 14, flexDirection: 'row', alignItems: 'center' }]}>
+                    <Ionicons name="location-outline" size={24} color={colors.textMuted} style={{ marginRight: 10 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: colors.foreground }}>
+                        No Live GPS Telemetry Yet
+                      </Text>
+                      <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
+                        Waiting for member to broadcast their real location.
+                      </Text>
                     </View>
                   </View>
-                  <Text style={[styles.etaSubText, { color: colors.textMuted }]}>
-                    {displayDistance} • via physical road network
-                  </Text>
-                </View>
-              </View>
-            )}
+                )}
 
-            {/* Route Options Segmented Selector (UI/UX Pro Max Bento & Tactile Design) */}
-            {!isSelf && availableRoutes.length > 1 && (
-              <View style={styles.routeSelectorBlock}>
-                <View style={styles.routeSelectorHeaderRow}>
-                  <Text style={[styles.routeSelectorTitle, { color: colors.textMuted }]}>DRIVING ROUTE OPTIONS</Text>
-                  <Text style={[styles.routeSelectorCount, { color: colors.textMuted }]}>{availableRoutes.length} Available</Text>
-                </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.routeCardsScroll}>
-                  {availableRoutes.map((r, rIdx) => {
-                    const isSelected = rIdx === selectedRouteIndex;
-                    const isFastest = r.tag === 'fastest';
-                    return (
-                      <TouchableOpacity
-                        key={r.id}
-                        style={[
-                          styles.routeCardOption,
-                          {
-                            backgroundColor: isSelected 
-                              ? (isDark ? 'rgba(37, 99, 235, 0.16)' : '#EFF6FF') 
-                              : (isDark ? 'rgba(30, 41, 59, 0.55)' : '#FFFFFF'),
-                            borderColor: isSelected 
-                              ? '#2563EB' 
-                              : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0'),
-                          }
-                        ]}
-                        onPress={() => handleSelectRouteOption(rIdx)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={styles.routeCardHeaderRow}>
-                          <View style={styles.routeCardTagGroup}>
-                            <Ionicons 
-                              name={isFastest ? 'flash' : 'git-branch'} 
-                              size={13} 
-                              color={isSelected ? '#2563EB' : (isFastest ? '#10B981' : colors.textMuted)} 
-                            />
-                            <Text style={[styles.routeCardName, { color: isSelected ? '#1D4ED8' : colors.foreground }]}>
-                              {isFastest ? 'Recommended' : `Bypass Route`}
-                            </Text>
-                          </View>
-                          <Ionicons 
-                            name={isSelected ? 'radio-button-on' : 'radio-button-off'} 
-                            size={16} 
-                            color={isSelected ? '#2563EB' : colors.border} 
-                          />
-                        </View>
-
-                        <View style={styles.routeCardBody}>
-                          <Text style={[styles.routeCardDuration, { color: isSelected ? '#1D4ED8' : colors.foreground }]}>
-                            {r.timeText}
+                {/* Google Maps ETA Hero Banner (Only when member has real broadcasted GPS) */}
+                {!isSelf && hasRealCoords && (
+                  <View style={[styles.etaHeroCard, { backgroundColor: isDark ? 'rgba(30, 41, 59, 0.7)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0' }]}>
+                    <View style={styles.etaHeroLeft}>
+                      <View style={styles.etaTimeRow}>
+                        <Text style={[styles.etaDurationText, { color: isRouteFastest ? '#10B981' : '#3B82F6' }]}>
+                          {displayDuration}
+                        </Text>
+                        <View style={isRouteFastest ? styles.liveTrafficPill : styles.liveTrafficAltPill}>
+                          <View style={[styles.liveTrafficDot, { backgroundColor: isRouteFastest ? '#10B981' : '#3B82F6' }]} />
+                          <Text style={[styles.liveTrafficText, { color: isRouteFastest ? '#10B981' : '#3B82F6' }]}>
+                            {isRouteFastest ? 'Fastest' : 'Alternative'}
                           </Text>
-                          <View style={styles.routeCardMetaRow}>
-                            <Text style={[styles.routeCardDistance, { color: colors.textMuted }]}>
-                              {r.distText}
-                            </Text>
-                            <View style={[
-                              styles.routeDeltaPill, 
-                              { 
-                                backgroundColor: isFastest 
-                                  ? (isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5') 
-                                  : (isDark ? 'rgba(148, 163, 184, 0.12)' : '#F1F5F9') 
-                              }
-                            ]}>
-                              <Text style={[styles.routeDeltaText, { color: isFastest ? '#059669' : colors.textMuted }]}>
-                                {r.diffKmText}
-                              </Text>
-                            </View>
-                          </View>
                         </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            )}
+                      </View>
+                      <Text style={[styles.etaSubText, { color: colors.textMuted }]}>
+                        {displayDistance} • via physical road network
+                      </Text>
+                    </View>
+                  </View>
+                )}
 
-            {/* Action Buttons Row (Tactile High-Contrast CTAs) */}
-            <View style={styles.modernActionRow}>
-              <TouchableOpacity 
-                style={styles.modernNavigateBtn} 
-                onPress={handleNavigate}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="navigate" size={17} color="#FFFFFF" />
-                <Text style={styles.modernNavigateBtnText}>Start in Google Maps</Text>
-                <Ionicons name="arrow-forward" size={15} color="rgba(255,255,255,0.7)" />
-              </TouchableOpacity>
+                {/* Route Options Segmented Selector (UI/UX Pro Max Bento & Tactile Design) */}
+                {!isSelf && hasRealCoords && availableRoutes.length > 1 && (
+                  <View style={styles.routeSelectorBlock}>
+                    <View style={styles.routeSelectorHeaderRow}>
+                      <View style={styles.routeSelectorTitleGroup}>
+                        <Ionicons name="git-branch-outline" size={13} color={colors.textMuted} />
+                        <Text style={[styles.routeSelectorTitle, { color: colors.textMuted }]}>DRIVING ROUTE OPTIONS</Text>
+                      </View>
+                      <Text style={[styles.routeSelectorCount, { color: colors.textMuted }]}>{availableRoutes.length} Available</Text>
+                    </View>
+                    {availableRoutes.length <= 2 ? (
+                      <View style={styles.routeCardsContainer}>
+                        {availableRoutes.map((r, rIdx) => renderRouteCard(r, rIdx, true))}
+                      </View>
+                    ) : (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.routeCardsScroll}>
+                        {availableRoutes.map((r, rIdx) => renderRouteCard(r, rIdx, false))}
+                      </ScrollView>
+                    )}
+                  </View>
+                )}
 
-              {selectedMember.profile?.phone ? (
-                <TouchableOpacity 
-                  style={[
-                    styles.modernIconActionBtn, 
-                    { 
-                      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F8FAFC', 
-                      borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E2E8F0' 
-                    }
-                  ]} 
-                  onPress={handleCall}
-                  activeOpacity={0.75}
-                >
-                  <Ionicons name="call-outline" size={18} color={colors.foreground} />
-                </TouchableOpacity>
-              ) : null}
-            </View>
+                {/* Action Buttons Row (Tactile High-Contrast CTAs) */}
+                <View style={styles.modernActionRow}>
+                  <TouchableOpacity 
+                    style={[
+                      styles.modernNavigateBtn,
+                      !hasRealCoords && { opacity: 0.6, backgroundColor: isDark ? '#334155' : '#CBD5E1' }
+                    ]} 
+                    onPress={handleNavigate}
+                    activeOpacity={hasRealCoords ? 0.85 : 1}
+                  >
+                    <Ionicons name="navigate" size={17} color={hasRealCoords ? "#FFFFFF" : (isDark ? '#94A3B8' : '#64748B')} />
+                    <Text style={[styles.modernNavigateBtnText, !hasRealCoords && { color: isDark ? '#94A3B8' : '#64748B' }]}>
+                      {hasRealCoords ? 'Start in Google Maps' : 'Location Not Available'}
+                    </Text>
+                    {hasRealCoords && <Ionicons name="arrow-forward" size={15} color="rgba(255,255,255,0.7)" />}
+                  </TouchableOpacity>
 
-            {/* Subtle Realistic Road Network Disclaimer Footer */}
-            {!isSelf && (
-              <View style={styles.subtleFooterNotice}>
-                <Ionicons name="information-circle-outline" size={13} color={colors.textMuted} />
-                <Text style={[styles.subtleFooterText, { color: colors.textMuted }]}>
-                  Live GIS road preview. Traffic & road conditions may vary.
-                </Text>
-              </View>
+                  {selectedMember.profile?.phone ? (
+                    <TouchableOpacity 
+                      style={[
+                        styles.modernIconActionBtn, 
+                        { 
+                          backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F8FAFC', 
+                          borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E2E8F0' 
+                        }
+                      ]} 
+                      onPress={handleCall}
+                      activeOpacity={0.75}
+                    >
+                      <Ionicons name="call-outline" size={18} color={colors.foreground} />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                {/* Subtle Realistic Road Network Disclaimer Footer */}
+                {!isSelf && hasRealCoords && (
+                  <View style={styles.subtleFooterNotice}>
+                    <Ionicons name="information-circle-outline" size={13} color={colors.textMuted} />
+                    <Text style={[styles.subtleFooterText, { color: colors.textMuted }]}>
+                      Live GIS road preview. Traffic & road conditions may vary.
+                    </Text>
+                  </View>
+                )}
+              </ScrollView>
             )}
           </View>
         );
@@ -2774,8 +3181,17 @@ export default function MapScreen() {
         const assignedMembersList = isAllMembers ? members : members.filter(m => assignedIds.includes(m.user_id));
 
         return (
-          <View style={[styles.memberCardSheet, sheetStyles]}>
-            <View style={styles.memberCardHeader}>
+          <View style={[styles.memberCardSheet, sheetStyles, floatingSheetStyle, { bottom: sheetBottom, paddingHorizontal: 16, paddingTop: 8, paddingBottom: isCardCollapsed ? 12 : 18 }]}>
+            {/* Top Sheet Drag Handle / Collapse Toggle */}
+            <TouchableOpacity 
+              style={styles.sheetHandleContainer}
+              onPress={handleToggleCollapse}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.sheetHandleBar, { backgroundColor: isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)' }]} />
+            </TouchableOpacity>
+
+            <View style={[styles.memberCardHeader, isCardCollapsed && { marginBottom: 0 }]}>
               <View style={[styles.memberAvatar, { backgroundColor: `${catColor}20`, borderColor: catColor, borderRadius: 22 }]}>
                 <Ionicons name={catIcon as any} size={22} color={catColor} />
               </View>
@@ -2788,65 +3204,203 @@ export default function MapScreen() {
                   </Text>
                 </View>
               </View>
-              <TouchableOpacity onPress={() => setSelectedPlace(null)} style={{ padding: 4 }}>
-                <Ionicons name="close" size={24} color={colors.foreground} />
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <TouchableOpacity 
+                  onPress={handleToggleCollapse}
+                  style={[styles.modernCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={isCardCollapsed ? "chevron-up" : "chevron-down"} size={18} color={colors.foreground} />
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  onPress={handleClosePlace} 
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  style={[styles.modernCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close" size={18} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
             </View>
 
-            {/* Assigned Members Allocation List with Live Geofence Status */}
-            <Text style={[styles.zoneAllocTitle, { color: colors.textMuted }]}>ZONE ALLOCATION & LIVE MEMBER PRESENCE</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.zoneAllocScroll}>
-              {assignedMembersList.length === 0 ? (
-                <View style={[styles.zoneMemberPill, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: 12 }]}>
-                  <Ionicons name="shield-checkmark-outline" size={14} color={colors.accentGold} />
-                  <Text style={[styles.zoneMemberPillText, { color: colors.accentGold }]}>Applied to entire circle</Text>
-                </View>
-              ) : (
-                assignedMembersList.map(m => {
-                  const mLoc = locations.find(l => l.user_id === m.user_id);
-                  let isInside = false;
-                  let distText = 'Stationed at Home';
-
-                  if (mLoc && placePt.latitude && placePt.longitude) {
-                    const dist = getDistanceInMeters(mLoc.latitude, mLoc.longitude, placePt.latitude, placePt.longitude);
-                    isInside = dist <= radiusNum;
-                    distText = isInside ? 'Inside Zone' : `${(dist / 1000).toFixed(1)}km away`;
-                  } else if (m.user_id === profile?.id && userLoc && placePt.latitude && placePt.longitude) {
-                    const dist = getDistanceInMeters(userLoc.latitude, userLoc.longitude, placePt.latitude, placePt.longitude);
-                    isInside = dist <= radiusNum;
-                    distText = isInside ? 'Inside Zone' : `${(dist / 1000).toFixed(1)}km away`;
-                  }
-
-                  const mName = m.profile?.full_name || 'Member';
-                  const initial = mName.charAt(0).toUpperCase();
-
-                  return (
-                    <View key={m.user_id} style={[styles.zoneMemberPill, { backgroundColor: colors.surfaceMuted, borderColor: isInside ? '#10B981' : colors.border, borderRadius: 12 }]}>
-                      <View style={[styles.miniAvatarWrap, { borderColor: isInside ? '#10B981' : colors.textMuted, backgroundColor: colors.surface }]}>
-                        <Text style={[styles.miniAvatarInitial, { color: colors.foreground }]}>{initial}</Text>
-                      </View>
-                      <View>
-                        <Text style={[styles.zoneMemberName, { color: colors.foreground }]}>{mName.split(' ')[0]}</Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: isInside ? '#10B981' : '#94A3B8' }} />
-                          <Text style={[styles.zoneMemberStatus, { color: isInside ? '#10B981' : colors.textMuted }]}>
-                            {isInside ? 'Inside Zone' : distText}
-                          </Text>
-                        </View>
-                      </View>
+            {/* Collapsible Details Body */}
+            {!isCardCollapsed && (
+              <>
+                {/* Assigned Members Allocation List with Live Geofence Status */}
+                <Text style={[styles.zoneAllocTitle, { color: colors.textMuted }]}>ZONE ALLOCATION & LIVE MEMBER PRESENCE</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.zoneAllocScroll}>
+                  {assignedMembersList.length === 0 ? (
+                    <View style={[styles.zoneMemberPill, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: 12 }]}>
+                      <Ionicons name="shield-checkmark-outline" size={14} color={colors.accentGold} />
+                      <Text style={[styles.zoneMemberPillText, { color: colors.accentGold }]}>Applied to entire circle</Text>
                     </View>
-                  );
-                })
-              )}
-            </ScrollView>
+                  ) : (
+                    assignedMembersList.map(m => {
+                      const mLoc = locations.find(l => l.user_id === m.user_id);
+                      let isInside = false;
+                      let distText = 'Stationed at Home';
 
-            <View style={[styles.cardActionRow, { marginTop: 16 }]}>
+                      if (mLoc && placePt.latitude && placePt.longitude) {
+                        const dist = getDistanceInMeters(mLoc.latitude, mLoc.longitude, placePt.latitude, placePt.longitude);
+                        isInside = dist <= radiusNum;
+                        distText = isInside ? 'Inside Zone' : `${(dist / 1000).toFixed(1)}km away`;
+                      } else if (m.user_id === profile?.id && userLoc && placePt.latitude && placePt.longitude) {
+                        const dist = getDistanceInMeters(userLoc.latitude, userLoc.longitude, placePt.latitude, placePt.longitude);
+                        isInside = dist <= radiusNum;
+                        distText = isInside ? 'Inside Zone' : `${(dist / 1000).toFixed(1)}km away`;
+                      }
+
+                      const mName = m.profile?.full_name || 'Member';
+                      const initial = mName.charAt(0).toUpperCase();
+
+                      return (
+                        <View key={m.user_id} style={[styles.zoneMemberPill, { backgroundColor: colors.surfaceMuted, borderColor: isInside ? '#10B981' : colors.border, borderRadius: 12 }]}>
+                          <View style={[styles.miniAvatarWrap, { borderColor: isInside ? '#10B981' : colors.textMuted, backgroundColor: colors.surface }]}>
+                            <Text style={[styles.miniAvatarInitial, { color: colors.foreground }]}>{initial}</Text>
+                          </View>
+                          <View>
+                            <Text style={[styles.zoneMemberName, { color: colors.foreground }]}>{mName.split(' ')[0]}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: isInside ? '#10B981' : '#94A3B8' }} />
+                              <Text style={[styles.zoneMemberStatus, { color: isInside ? '#10B981' : colors.textMuted }]}>
+                                {isInside ? 'Inside Zone' : distText}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </ScrollView>
+
+                <View style={[styles.cardActionRow, { marginTop: 16 }]}>
+                  <TouchableOpacity 
+                    style={[
+                      styles.cardBtnPrimary, 
+                      { 
+                        backgroundColor: primaryBtnStyles.backgroundColor,
+                        borderRadius: primaryBtnStyles.borderRadius,
+                        borderWidth: primaryBtnStyles.borderWidth,
+                        borderColor: primaryBtnStyles.borderColor,
+                        shadowColor: primaryBtnStyles.shadowColor,
+                        shadowOffset: primaryBtnStyles.shadowOffset,
+                        shadowOpacity: primaryBtnStyles.shadowOpacity,
+                        shadowRadius: primaryBtnStyles.shadowRadius,
+                        elevation: primaryBtnStyles.elevation,
+                      }
+                    ]} 
+                    onPress={() => {
+                      if (placePt.latitude && placePt.longitude) {
+                        openExternalRoadNavigation(placePt.latitude, placePt.longitude, userLoc, selectedPlace.name);
+                      }
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="compass" size={16} color={primaryBtnStyles.textColor} />
+                    <Text style={[styles.cardBtnPrimaryText, { color: primaryBtnStyles.textColor }]}>DIRECTIONS</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={[
+                      styles.cardBtnDanger, 
+                      { 
+                        backgroundColor: dangerBtnStyles.backgroundColor,
+                        borderRadius: dangerBtnStyles.borderRadius,
+                        borderWidth: dangerBtnStyles.borderWidth,
+                        borderColor: dangerBtnStyles.borderColor,
+                        shadowColor: dangerBtnStyles.shadowColor,
+                        shadowOffset: dangerBtnStyles.shadowOffset,
+                        shadowOpacity: dangerBtnStyles.shadowOpacity,
+                        shadowRadius: dangerBtnStyles.shadowRadius,
+                        elevation: dangerBtnStyles.elevation,
+                      }
+                    ]} 
+                    onPress={handleDeleteSelectedPlace} 
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="trash" size={16} color={dangerBtnStyles.textColor} />
+                    <Text style={[styles.cardBtnDangerText, { color: dangerBtnStyles.textColor }]}>DELETE ZONE</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={[
+                      styles.cardBtnSecondary, 
+                      { 
+                        backgroundColor: secondaryBtnStyles.backgroundColor,
+                        borderRadius: secondaryBtnStyles.borderRadius,
+                        borderWidth: secondaryBtnStyles.borderWidth,
+                        borderColor: secondaryBtnStyles.borderColor,
+                        shadowColor: secondaryBtnStyles.shadowColor,
+                        shadowOffset: secondaryBtnStyles.shadowOffset,
+                        shadowOpacity: secondaryBtnStyles.shadowOpacity,
+                        shadowRadius: secondaryBtnStyles.shadowRadius,
+                        elevation: secondaryBtnStyles.elevation,
+                      }
+                    ]} 
+                    onPress={handleClosePlace} 
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.cardBtnSecondaryText, { color: secondaryBtnStyles.textColor }]}>CLOSE</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        );
+      })() : null}
+
+      {/* Selected POI Bottom Card */}
+      {selectedPoi ? (
+        <View style={[styles.memberCardSheet, sheetStyles, floatingSheetStyle, { bottom: sheetBottom, paddingHorizontal: 16, paddingTop: 8, paddingBottom: isCardCollapsed ? 12 : 18 }]}>
+          {/* Top Sheet Drag Handle / Collapse Toggle */}
+          <TouchableOpacity 
+            style={styles.sheetHandleContainer}
+            onPress={handleToggleCollapse}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.sheetHandleBar, { backgroundColor: isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)' }]} />
+          </TouchableOpacity>
+
+          <View style={[styles.memberCardHeader, isCardCollapsed && { marginBottom: 0 }]}>
+            <View style={[styles.memberAvatar, { backgroundColor: `${colors.accentGold}25`, borderColor: colors.accentGold, borderRadius: 22 }]}>
+              <Ionicons name="location" size={20} color={colors.accentGold} />
+            </View>
+            <View style={styles.memberMainInfo}>
+              <Text style={[styles.memberCardName, { color: colors.foreground }]}>{selectedPoi.name}</Text>
+              <Text style={[styles.poiAddressText, { color: colors.textMuted }]} numberOfLines={isCardCollapsed ? 1 : 2}>{selectedPoi.subText}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <TouchableOpacity 
+                onPress={handleToggleCollapse}
+                style={[styles.modernCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}
+                activeOpacity={0.7}
+              >
+                <Ionicons name={isCardCollapsed ? "chevron-up" : "chevron-down"} size={18} color={colors.foreground} />
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                onPress={handleClosePoi} 
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                style={[styles.modernCloseBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={18} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {!isCardCollapsed && (
+            <View style={[styles.cardActionRow, { marginTop: 16, gap: 10 }]}>
               <TouchableOpacity 
                 style={[
                   styles.cardBtnPrimary, 
                   { 
+                    flex: 1.15,
+                    height: 46,
+                    paddingHorizontal: 12,
                     backgroundColor: primaryBtnStyles.backgroundColor,
-                    borderRadius: primaryBtnStyles.borderRadius,
+                    borderRadius: 14,
                     borderWidth: primaryBtnStyles.borderWidth,
                     borderColor: primaryBtnStyles.borderColor,
                     shadowColor: primaryBtnStyles.shadowColor,
@@ -2857,44 +3411,23 @@ export default function MapScreen() {
                   }
                 ]} 
                 onPress={() => {
-                  if (placePt.latitude && placePt.longitude) {
-                    openExternalRoadNavigation(placePt.latitude, placePt.longitude, userLoc, selectedPlace.name);
-                  }
+                  openExternalRoadNavigation(selectedPoi.lat, selectedPoi.lng, userLoc, selectedPoi.name);
                 }}
                 activeOpacity={0.8}
               >
-                <Ionicons name="compass" size={16} color={primaryBtnStyles.textColor} />
-                <Text style={[styles.cardBtnPrimaryText, { color: primaryBtnStyles.textColor }]}>DIRECTIONS</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[
-                  styles.cardBtnDanger, 
-                  { 
-                    backgroundColor: dangerBtnStyles.backgroundColor,
-                    borderRadius: dangerBtnStyles.borderRadius,
-                    borderWidth: dangerBtnStyles.borderWidth,
-                    borderColor: dangerBtnStyles.borderColor,
-                    shadowColor: dangerBtnStyles.shadowColor,
-                    shadowOffset: dangerBtnStyles.shadowOffset,
-                    shadowOpacity: dangerBtnStyles.shadowOpacity,
-                    shadowRadius: dangerBtnStyles.shadowRadius,
-                    elevation: dangerBtnStyles.elevation,
-                  }
-                ]} 
-                onPress={handleDeleteSelectedPlace} 
-                activeOpacity={0.8}
-              >
-                <Ionicons name="trash" size={16} color={dangerBtnStyles.textColor} />
-                <Text style={[styles.cardBtnDangerText, { color: dangerBtnStyles.textColor }]}>DELETE ZONE</Text>
+                <Ionicons name="compass" size={17} color={primaryBtnStyles.textColor} />
+                <Text style={[styles.cardBtnPrimaryText, { color: primaryBtnStyles.textColor, fontSize: 13 }]} numberOfLines={1}>NAVIGATE</Text>
               </TouchableOpacity>
 
               <TouchableOpacity 
                 style={[
                   styles.cardBtnSecondary, 
                   { 
+                    flex: 1,
+                    height: 46,
+                    paddingHorizontal: 10,
                     backgroundColor: secondaryBtnStyles.backgroundColor,
-                    borderRadius: secondaryBtnStyles.borderRadius,
+                    borderRadius: 14,
                     borderWidth: secondaryBtnStyles.borderWidth,
                     borderColor: secondaryBtnStyles.borderColor,
                     shadowColor: secondaryBtnStyles.shadowColor,
@@ -2904,103 +3437,17 @@ export default function MapScreen() {
                     elevation: secondaryBtnStyles.elevation,
                   }
                 ]} 
-                onPress={() => setSelectedPlace(null)} 
+                onPress={() => {
+                  setAddPlaceCoord({ latitude: selectedPoi.lat, longitude: selectedPoi.lng });
+                  setAddPlaceVisible(true);
+                }}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.cardBtnSecondaryText, { color: secondaryBtnStyles.textColor }]}>CLOSE</Text>
+                <Ionicons name="bookmark" size={16} color={secondaryBtnStyles.textColor} />
+                <Text style={[styles.cardBtnSecondaryText, { color: secondaryBtnStyles.textColor, fontSize: 12 }]} numberOfLines={1}>CREATE ZONE</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        );
-      })() : null}
-
-      {/* Selected POI Bottom Card */}
-      {selectedPoi ? (
-        <View style={[styles.memberCardSheet, sheetStyles]}>
-          <View style={styles.memberCardHeader}>
-            <View style={[styles.memberAvatar, { backgroundColor: `${colors.accentGold}25`, borderColor: colors.accentGold, borderRadius: 22 }]}>
-              <Ionicons name="location" size={20} color={colors.accentGold} />
-            </View>
-            <View style={styles.memberMainInfo}>
-              <Text style={[styles.memberCardName, { color: colors.foreground }]}>{selectedPoi.name}</Text>
-              <Text style={[styles.poiAddressText, { color: colors.textMuted }]} numberOfLines={2}>{selectedPoi.subText}</Text>
-            </View>
-            <TouchableOpacity onPress={handleClosePoi} style={{ padding: 4 }} activeOpacity={0.7}>
-              <Ionicons name="close" size={24} color={colors.foreground} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={[styles.cardActionRow, { marginTop: 16 }]}>
-            <TouchableOpacity 
-              style={[
-                styles.cardBtnPrimary, 
-                { 
-                  backgroundColor: primaryBtnStyles.backgroundColor,
-                  borderRadius: primaryBtnStyles.borderRadius,
-                  borderWidth: primaryBtnStyles.borderWidth,
-                  borderColor: primaryBtnStyles.borderColor,
-                  shadowColor: primaryBtnStyles.shadowColor,
-                  shadowOffset: primaryBtnStyles.shadowOffset,
-                  shadowOpacity: primaryBtnStyles.shadowOpacity,
-                  shadowRadius: primaryBtnStyles.shadowRadius,
-                  elevation: primaryBtnStyles.elevation,
-                }
-              ]} 
-              onPress={() => {
-                openExternalRoadNavigation(selectedPoi.lat, selectedPoi.lng, userLoc, selectedPoi.name);
-              }}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="compass" size={16} color={primaryBtnStyles.textColor} />
-              <Text style={[styles.cardBtnPrimaryText, { color: primaryBtnStyles.textColor }]}>NAVIGATE</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={[
-                styles.cardBtnSecondary, 
-                { 
-                  backgroundColor: secondaryBtnStyles.backgroundColor,
-                  borderRadius: secondaryBtnStyles.borderRadius,
-                  borderWidth: secondaryBtnStyles.borderWidth,
-                  borderColor: secondaryBtnStyles.borderColor,
-                  shadowColor: secondaryBtnStyles.shadowColor,
-                  shadowOffset: secondaryBtnStyles.shadowOffset,
-                  shadowOpacity: secondaryBtnStyles.shadowOpacity,
-                  shadowRadius: secondaryBtnStyles.shadowRadius,
-                  elevation: secondaryBtnStyles.elevation,
-                }
-              ]} 
-              onPress={() => {
-                setAddPlaceCoord({ latitude: selectedPoi.lat, longitude: selectedPoi.lng });
-                setAddPlaceVisible(true);
-              }}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="bookmark" size={16} color={secondaryBtnStyles.textColor} />
-              <Text style={[styles.cardBtnSecondaryText, { color: secondaryBtnStyles.textColor }]}>CREATE ZONE</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={[
-                styles.cardBtnSecondary, 
-                { 
-                  backgroundColor: secondaryBtnStyles.backgroundColor,
-                  borderRadius: secondaryBtnStyles.borderRadius,
-                  borderWidth: secondaryBtnStyles.borderWidth,
-                  borderColor: secondaryBtnStyles.borderColor,
-                  shadowColor: secondaryBtnStyles.shadowColor,
-                  shadowOffset: secondaryBtnStyles.shadowOffset,
-                  shadowOpacity: secondaryBtnStyles.shadowOpacity,
-                  shadowRadius: secondaryBtnStyles.shadowRadius,
-                  elevation: secondaryBtnStyles.elevation,
-                }
-              ]} 
-              onPress={handleClosePoi} 
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.cardBtnSecondaryText, { color: secondaryBtnStyles.textColor }]}>CLOSE</Text>
-            </TouchableOpacity>
-          </View>
+          )}
         </View>
       ) : null}
 
@@ -3073,7 +3520,27 @@ export default function MapScreen() {
       />
 
       {/* Floating Map Controls */}
-      <View style={[styles.floatingControls, selectedMember || selectedPlace || selectedPoi ? { bottom: 310 } : { bottom: 25 }]}>
+      <View style={[
+        styles.floatingControls, 
+        (selectedMember || selectedPlace || selectedPoi) 
+          ? (isCardCollapsed ? { bottom: sheetBottom + 85 } : { bottom: sheetBottom + 270 }) 
+          : { bottom: sheetBottom + 12 }
+      ]}>
+        {/* Recenter / Fit Route button when route is active */}
+        {availableRoutes.length > 0 && (
+          <SpringTouchable 
+            style={[
+              styles.controlBtn, 
+              floatingControlStyles,
+              { borderColor: '#2563EB', backgroundColor: isDark ? 'rgba(37, 99, 235, 0.25)' : 'rgba(37, 99, 235, 0.12)' }
+            ]} 
+            onPress={handleFitRoute} 
+            scaleTo={0.88}
+          >
+            <Ionicons name="git-network" size={20} color="#3B82F6" />
+          </SpringTouchable>
+        )}
+
         {/* Follow Mode Toggle */}
         <SpringTouchable 
           style={[
@@ -3254,21 +3721,22 @@ const styles = StyleSheet.create({
 
   memberCardSheet: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    left: 12,
+    right: 12,
     backgroundColor: '#16181F',
-    padding: 24,
-    borderTopWidth: 3,
-    borderTopColor: LUXURY_THEME.colors.accentGold,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    zIndex: 20,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(212, 175, 55, 0.45)',
+    borderRadius: 22,
+    zIndex: 25,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
     shadowRadius: 16,
-    elevation: 16,
+    elevation: 20,
+    maxHeight: Dimensions.get('window').height * 0.58,
   },
   memberCardHeader: {
     flexDirection: 'row',
@@ -3416,7 +3884,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   cardBtnSecondary: {
-    paddingHorizontal: 16,
+    flex: 1,
+    paddingHorizontal: 12,
     height: 44,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
@@ -3659,12 +4128,18 @@ const styles = StyleSheet.create({
 
   routeSelectorBlock: {
     marginBottom: 12,
+    marginTop: 2,
   },
   routeSelectorHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 8,
+  },
+  routeSelectorTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
   routeSelectorTitle: {
     fontSize: 10.5,
@@ -3675,45 +4150,57 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
+  routeCardsContainer: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+  },
   routeCardsScroll: {
     gap: 10,
     paddingRight: 6,
   },
-  routeCardOption: {
-    width: 185,
+  routeCardOptionGrid: {
+    flex: 1,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 14,
-    borderWidth: 1.5,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
     elevation: 2,
   },
-  routeCardHeaderRow: {
+  routeCardOption: {
+    width: 155,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  routeCardTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  routeCardTagGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  routeCardName: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    letterSpacing: -0.1,
-  },
-  routeCardBody: {
-    gap: 3,
+    marginBottom: 4,
   },
   routeCardDuration: {
-    fontSize: 14,
+    fontSize: 14.5,
     fontWeight: '800',
     letterSpacing: -0.2,
+  },
+  routeBadgePill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  routeBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   routeCardMetaRow: {
     flexDirection: 'row',
@@ -3724,14 +4211,27 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     fontWeight: '600',
   },
-  routeDeltaPill: {
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: 6,
+  routeActiveIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
   },
-  routeDeltaText: {
+  routeActiveText: {
     fontSize: 10,
     fontWeight: '700',
+  },
+  routeInactiveSubtext: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  liveTrafficAltPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(59, 130, 246, 0.14)',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
   },
 
   modernActionRow: {

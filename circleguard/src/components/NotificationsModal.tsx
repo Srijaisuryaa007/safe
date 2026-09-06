@@ -6,6 +6,12 @@ import { useThemeStore } from '../store/useThemeStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from '../lib/supabase';
 
+import { useCountryStore } from '../store/useCountryStore';
+import {
+  validateAndNormalizePhone,
+  checkDuplicatePhoneNumber,
+  detectCountryFromPhone,
+} from '../lib/phoneValidation';
 import { useLuxuryAlert } from './LuxuryAlertModal';
 
 interface NotificationsModalProps {
@@ -23,6 +29,7 @@ const KEYS = {
 export default function NotificationsModal({ visible, onClose }: NotificationsModalProps) {
   const { colors } = useThemeStore();
   const { profile, setProfile } = useAuthStore();
+  const { country, countryCode } = useCountryStore();
   const { showAlert } = useLuxuryAlert();
 
   const [phone, setPhone] = useState(profile?.phone || '');
@@ -70,7 +77,18 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
     if (!phone.trim()) {
       showAlert({
         title: 'INVALID PHONE NUMBER',
-        message: 'Please enter a valid emergency phone number.',
+        message: 'Please enter a valid emergency mobile number.',
+        type: 'warning',
+      });
+      return;
+    }
+
+    const detected = detectCountryFromPhone(phone, countryCode || 'IN');
+    const validation = validateAndNormalizePhone(phone, detected);
+    if (!validation.isValid) {
+      showAlert({
+        title: 'INVALID PHONE NUMBER',
+        message: validation.error || `Please enter a valid phone number for ${country.name}.`,
         type: 'warning',
       });
       return;
@@ -78,17 +96,40 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
 
     setSavingPhone(true);
     try {
+      // Proactive duplicate detection
+      const dupCheck = await checkDuplicatePhoneNumber(validation.e164, profile.id);
+      if (dupCheck.isDuplicate) {
+        showAlert({
+          title: 'PHONE ALREADY REGISTERED',
+          message: dupCheck.error || 'This phone number is already registered to another account. Every member must have a unique phone number.',
+          type: 'error',
+        });
+        setSavingPhone(false);
+        return;
+      }
+
       const { error } = await supabase
         .from('profiles')
-        .update({ phone: phone.trim() })
+        .update({ phone: validation.e164 })
         .eq('id', profile.id);
 
-      if (error) throw error;
+      if (error) {
+        if (error.message && (error.message.includes('unique constraint') || error.message.includes('profiles_phone_key'))) {
+          showAlert({
+            title: 'PHONE ALREADY REGISTERED',
+            message: `The phone number ${validation.formattedDisplay} is already registered to another account.`,
+            type: 'error',
+          });
+          return;
+        }
+        throw error;
+      }
 
-      setProfile({ ...profile, phone: phone.trim() });
+      setProfile({ ...profile, phone: validation.e164 });
+      setPhone(validation.formattedDisplay);
       showAlert({
         title: 'PHONE NUMBER UPDATED',
-        message: 'Your registered phone number has been updated for SMS & emergency calls.',
+        message: `Registered phone number verified and updated to ${validation.formattedDisplay} for emergency calls.`,
         type: 'success',
       });
     } catch (err: any) {

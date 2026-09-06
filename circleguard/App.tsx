@@ -6,7 +6,7 @@ import { supabase } from './src/lib/supabase';
 import { useAuthStore } from './src/store/useAuthStore';
 import { useCircleStore } from './src/store/useCircleStore';
 import AppNavigator from './src/navigation/AppNavigator';
-import { startBatteryOptimizedBackgroundLocation } from './src/services/LocationBackgroundService';
+import { startBatteryOptimizedBackgroundLocation, stopBatteryOptimizedBackgroundLocation } from './src/services/LocationBackgroundService';
 import { registerForPushNotificationsAsync } from './src/services/PushNotificationService';
 import { useThemeStore } from './src/store/useThemeStore';
 import { useCountryStore } from './src/store/useCountryStore';
@@ -31,6 +31,7 @@ function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session?.user) {
+        useThemeStore.getState().initTheme(session.user.id).catch(() => {});
         fetchProfile(session.user.id);
       } else {
         setLoading(false);
@@ -43,11 +44,13 @@ function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session?.user) {
+        useThemeStore.getState().initTheme(session.user.id).catch(() => {});
         fetchProfile(session.user.id);
       } else {
-        setProfile(null);
+        stopBatteryOptimizedBackgroundLocation().catch(() => {});
+        useAuthStore.getState().resetAuthStore();
         useCircleStore.getState().resetCircleStore();
-        setLoading(false);
+        useThemeStore.getState().resetThemeToDefault();
       }
     });
 
@@ -95,8 +98,11 @@ function App() {
 
       setProfile(data || null);
       if (data) {
-        useCircleStore.getState().fetchActiveCircle(userId);
-        startBatteryOptimizedBackgroundLocation();
+        useCircleStore.getState().fetchActiveCircle(userId).then((circle) => {
+          if (circle) {
+            startBatteryOptimizedBackgroundLocation();
+          }
+        }).catch(() => {});
         registerForPushNotificationsAsync(userId);
         RevenueCatService.initialize(userId);
       } else {

@@ -25,6 +25,25 @@ export default function BranchAssignmentModal({
   const { colors } = useThemeStore();
   const { members, assignMemberSupervisor } = useCircleStore();
 
+  // Prevent cycles: Find all descendants of targetMember (they cannot be chosen as supervisor)
+  const descendantIds = React.useMemo(() => {
+    const set = new Set<string>();
+    if (!targetMember) return set;
+    set.add(targetMember.user_id);
+
+    let added = true;
+    while (added) {
+      added = false;
+      for (const m of members) {
+        if (m.supervisor_id && set.has(m.supervisor_id) && !set.has(m.user_id)) {
+          set.add(m.user_id);
+          added = true;
+        }
+      }
+    }
+    return set;
+  }, [targetMember, members]);
+
   if (!visible || !targetMember) return null;
 
   const memberName = targetMember.profile?.full_name || 'Member';
@@ -34,9 +53,9 @@ export default function BranchAssignmentModal({
   const founder = members.find(m => m.role === 'owner') || members[0];
   const founderName = founder?.profile?.full_name || 'Circle Leader';
 
-  // All eligible supervisors: Co-Leaders, Guardians, and all other circle members (excluding Founder & target member)
+  // All eligible supervisors: Co-Leaders, Guardians, and all other circle members (excluding Founder & descendants)
   const eligibleGuardianBranches = members.filter(
-    m => m.user_id !== founder?.user_id && m.user_id !== targetMember.user_id
+    m => m.user_id !== founder?.user_id && !descendantIds.has(m.user_id)
   );
 
   const isUnderFounder = !currentSupervisorId || (founder && currentSupervisorId === founder.user_id);
@@ -57,6 +76,12 @@ export default function BranchAssignmentModal({
           .eq('circle_id', circleId)
           .eq('user_id', supervisor.user_id);
       } catch (e) {}
+
+      // Update in local store immediately
+      const curr = useCircleStore.getState().members;
+      useCircleStore.setState({
+        members: curr.map(m => m.user_id === supervisor.user_id ? { ...m, role: 'guardian' as const } : m)
+      });
     }
 
     // Instant optimistic update (0ms lag)

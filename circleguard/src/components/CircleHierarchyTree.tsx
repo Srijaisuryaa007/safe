@@ -1,5 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Dimensions, LayoutAnimation, Platform, UIManager } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  ScrollView,
+  LayoutAnimation,
+  Platform,
+  UIManager,
+  useWindowDimensions,
+} from 'react-native';
 import Svg, { Line, Circle as SvgCircle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
@@ -10,10 +21,9 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const NODE_WIDTH = 84;
-const SIBLING_GAP = 18;
-const CONNECTOR_HEIGHT = 28;
+const NODE_WIDTH = 116;
+const SIBLING_GAP = 20;
+const CONNECTOR_HEIGHT = 32;
 
 interface CircleHierarchyTreeProps {
   members: CircleMember[];
@@ -40,11 +50,13 @@ export default function CircleHierarchyTree({
   onMoveBranch,
 }: CircleHierarchyTreeProps) {
   const { colors, isDark } = useThemeStore();
+  const { width: windowWidth } = useWindowDimensions();
   const [collapsedNodes, setCollapsedNodes] = useState<Record<string, boolean>>({});
 
-  // 1. Resolve Founder / Apex
+  // 1. Resolve Founder / Apex Node
   const founder = useMemo(() => {
-    const owners = members.filter(m => m.role === 'owner');
+    if (!Array.isArray(members) || members.length === 0) return null;
+    const owners = members.filter((m) => m.role === 'owner');
     return owners.length > 0 ? owners[0] : members[0];
   }, [members]);
 
@@ -52,7 +64,7 @@ export default function CircleHierarchyTree({
     try {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     } catch (e) {}
-    setCollapsedNodes(prev => ({ ...prev, [userId]: !prev[userId] }));
+    setCollapsedNodes((prev) => ({ ...prev, [userId]: !prev[userId] }));
   };
 
   const expandAll = () => {
@@ -62,34 +74,62 @@ export default function CircleHierarchyTree({
     setCollapsedNodes({});
   };
 
-  // 2. Build N-Ary Tree Structure with 100% Guaranteed Member Inclusion
+  const collapseAll = () => {
+    try {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    } catch (e) {}
+    const newCollapsed: Record<string, boolean> = {};
+    members.forEach((m) => {
+      newCollapsed[m.user_id] = true;
+    });
+    setCollapsedNodes(newCollapsed);
+  };
+
+  // 2. Build Cycle-Proof, Mathematically Robust Tree Structure
   const treeRoot = useMemo<TreeNode | null>(() => {
     if (!founder || !Array.isArray(members) || members.length === 0) return null;
 
-    // Map parent -> direct children
-    const childrenMap = new Map<string, CircleMember[]>();
-    members.forEach(m => childrenMap.set(m.user_id, []));
+    const memberMap = new Map<string, CircleMember>();
+    members.forEach((m) => memberMap.set(m.user_id, m));
 
-    // Assign each member to their supervisor, or directly under Founder if unassigned/invalid
-    members.forEach(m => {
+    // Map parent user_id -> direct child CircleMembers
+    const childrenMap = new Map<string, CircleMember[]>();
+    members.forEach((m) => childrenMap.set(m.user_id, []));
+
+    // Assign each member to their assigned supervisor, preserving full multi-level branches
+    // (Leader -> Co-Leader -> Guardian -> Member)
+    members.forEach((m) => {
       if (m.user_id === founder.user_id) return;
 
       const supId = m.supervisor_id;
-      const hasValidSupervisor = supId && supId !== m.user_id && members.some(other => other.user_id === supId);
+      let hasCycle = false;
 
-      if (hasValidSupervisor && supId) {
-        const list = childrenMap.get(supId) || [];
-        list.push(m);
-        childrenMap.set(supId, list);
-      } else {
-        const list = childrenMap.get(founder.user_id) || [];
-        list.push(m);
-        childrenMap.set(founder.user_id, list);
+      if (supId && memberMap.has(supId) && supId !== m.user_id) {
+        // Detect if following the supervisor chain from supId loops back to m.user_id
+        let curr: string | null = supId;
+        const seen = new Set<string>([m.user_id]);
+        while (curr && memberMap.has(curr)) {
+          if (seen.has(curr)) {
+            hasCycle = true;
+            break;
+          }
+          seen.add(curr);
+          const parentMember = memberMap.get(curr);
+          curr = parentMember?.supervisor_id ?? null;
+        }
       }
+
+      // If valid supervisor without circular loop, nest under supervisor; otherwise, default to founder
+      const targetParentId = supId && memberMap.has(supId) && supId !== m.user_id && !hasCycle
+        ? supId
+        : founder.user_id;
+
+      const list = childrenMap.get(targetParentId) || [];
+      list.push(m);
+      childrenMap.set(targetParentId, list);
     });
 
-    const visited = new Set<string>();
-    visited.add(founder.user_id);
+    const visited = new Set<string>([founder.user_id]);
 
     const buildSubtree = (parentMember: CircleMember): TreeNode => {
       const isCollapsed = !!collapsedNodes[parentMember.user_id];
@@ -97,7 +137,7 @@ export default function CircleHierarchyTree({
 
       // Sort priority: Co-Leaders -> Guardians -> Members
       const sortedChildren = [...rawChildren]
-        .filter(c => !visited.has(c.user_id))
+        .filter((c) => !visited.has(c.user_id))
         .sort((a, b) => {
           const weights: Record<string, number> = { co_leader: 1, guardian: 2, member: 3, owner: 4 };
           return (weights[a.role] || 9) - (weights[b.role] || 9);
@@ -114,8 +154,9 @@ export default function CircleHierarchyTree({
         };
       }
 
-      sortedChildren.forEach(c => visited.add(c.user_id));
-      const builtChildren = sortedChildren.map(c => buildSubtree(c));
+      // Mark children visited as we descend to avoid re-entry
+      sortedChildren.forEach((c) => visited.add(c.user_id));
+      const builtChildren = sortedChildren.map((c) => buildSubtree(c));
 
       const totalChildWidth = builtChildren.reduce((sum, ch) => sum + ch.subtreeWidth, 0);
       const gapsWidth = Math.max(0, (builtChildren.length - 1) * SIBLING_GAP);
@@ -131,13 +172,13 @@ export default function CircleHierarchyTree({
 
     const root = buildSubtree(founder);
 
-    // Safety Catch: Guarantee that any member in the circle not yet visited is attached to the root
-    const missingMembers = members.filter(m => !visited.has(m.user_id));
-    if (missingMembers.length > 0) {
-      missingMembers.forEach(m => visited.add(m.user_id));
-      const extraChildren = missingMembers.map(m => buildSubtree(m));
-      root.children.push(...extraChildren);
-      root.totalDirectChildren += extraChildren.length;
+    // Guaranteed inclusion fallback: attach any orphan not yet visited directly under root
+    const missing = members.filter((m) => !visited.has(m.user_id));
+    if (missing.length > 0) {
+      missing.forEach((m) => visited.add(m.user_id));
+      const extra = missing.map((m) => buildSubtree(m));
+      root.children.push(...extra);
+      root.totalDirectChildren += extra.length;
 
       const totalChildWidth = root.children.reduce((sum, ch) => sum + ch.subtreeWidth, 0);
       const gapsWidth = Math.max(0, (root.children.length - 1) * SIBLING_GAP);
@@ -148,10 +189,8 @@ export default function CircleHierarchyTree({
   }, [members, founder, collapsedNodes]);
 
   const hasCollapsedBranches = useMemo(() => {
-    return Object.values(collapsedNodes).some(v => v);
+    return Object.values(collapsedNodes).some((v) => v);
   }, [collapsedNodes]);
-
-  if (!treeRoot) return null;
 
   // Role Tokens
   const getRoleInfo = (m: CircleMember) => {
@@ -168,14 +207,19 @@ export default function CircleHierarchyTree({
   };
 
   // Render Single Node Card
-  const renderCard = (m: CircleMember, isApex: boolean = false, childCount: number = 0, isCollapsed: boolean = false) => {
+  const renderCard = (
+    m: CircleMember,
+    isApex: boolean = false,
+    childCount: number = 0,
+    isCollapsed: boolean = false
+  ) => {
     const isSelf = m.user_id === currentUserId;
     const name = m.profile?.full_name || (isSelf ? 'You' : 'Member');
-    const initial = name.charAt(0).toUpperCase();
+    const initial = name.charAt(0).toUpperCase() || 'M';
     const avatarUrl = m.profile?.avatar_url;
     const isGhost = !!m.profile?.is_ghost_mode;
     const isHideOnline = !!m.profile?.hide_online_presence;
-    const isOnline = (isGhost || isHideOnline) ? false : (m.isOnline ?? true);
+    const isOnline = isGhost || isHideOnline ? false : (m.isOnline ?? true);
     const battery = m.batteryPct !== undefined && m.batteryPct !== null ? m.batteryPct : 95;
     const { color: roleColor, title: roleTitle, icon: roleIcon } = getRoleInfo(m);
 
@@ -185,20 +229,21 @@ export default function CircleHierarchyTree({
           style={[
             styles.nodeCard,
             {
-              backgroundColor: isDark ? 'rgba(21, 23, 30, 0.90)' : 'rgba(255, 255, 255, 0.95)',
-              borderColor: isCollapsed ? '#38BDF8' : `${roleColor}45`,
+              backgroundColor: isDark ? 'rgba(21, 23, 30, 0.94)' : 'rgba(255, 255, 255, 0.98)',
+              borderColor: isCollapsed ? '#38BDF8' : `${roleColor}50`,
             },
             isApex && {
-              borderColor: `${roleColor}90`,
+              borderColor: roleColor,
               shadowColor: roleColor,
               shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.35,
+              shadowOpacity: 0.4,
               shadowRadius: 10,
               elevation: 6,
             },
             isCollapsed && {
+              borderColor: '#38BDF8',
               shadowColor: '#38BDF8',
-              shadowOffset: { width: 0, height: 2 },
+              shadowOffset: { width: 0, height: 3 },
               shadowOpacity: 0.35,
               shadowRadius: 6,
               elevation: 4,
@@ -210,10 +255,10 @@ export default function CircleHierarchyTree({
               onMoveBranch(m);
             }
           }}
-          scaleTo={0.94}
+          scaleTo={0.95}
         >
-          {/* Avatar with Status */}
-          <View style={[styles.avatarOrbitRing, { borderColor: `${roleColor}30` }]}>
+          {/* Avatar with Status Dot */}
+          <View style={[styles.avatarOrbitRing, { borderColor: `${roleColor}40` }]}>
             <View style={[styles.avatarCircle, { borderColor: roleColor, backgroundColor: colors.background }]}>
               {avatarUrl ? (
                 <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
@@ -234,7 +279,7 @@ export default function CircleHierarchyTree({
 
           {/* Role Pill */}
           <View style={[styles.rolePill, { backgroundColor: `${roleColor}18` }]}>
-            <Ionicons name={roleIcon} size={7.5} color={roleColor} />
+            <Ionicons name={roleIcon} size={9} color={roleColor} />
             <Text style={[styles.rolePillText, { color: roleColor }]}>{roleTitle}</Text>
           </View>
 
@@ -243,28 +288,31 @@ export default function CircleHierarchyTree({
             {name}
           </Text>
 
-          {/* Battery */}
+          {/* Battery & Telemetry Row */}
           <View style={styles.batteryRow}>
             <Ionicons
               name={battery <= 20 ? 'battery-dead' : 'battery-charging-outline'}
-              size={7.5}
+              size={9}
               color={battery <= 20 ? '#EF4444' : colors.textMuted}
             />
             <Text style={[styles.batteryText, { color: battery <= 20 ? '#EF4444' : colors.textMuted }]}>
               {battery}%
             </Text>
+            {isGhost && (
+              <Ionicons name="eye-off" size={9} color="#C084FC" style={{ marginLeft: 2 }} />
+            )}
           </View>
         </SpringTouchable>
 
-        {/* Action Controls Row (Move Button & Collapse Toggle) */}
+        {/* Action Controls Row */}
         <View style={styles.actionsRow}>
           {canManageRanks && !isApex && (
             <TouchableOpacity
-              style={[styles.moveBtn, { backgroundColor: `${roleColor}12`, borderColor: `${roleColor}35` }]}
+              style={[styles.moveBtn, { backgroundColor: `${roleColor}14`, borderColor: `${roleColor}40` }]}
               onPress={() => onMoveBranch && onMoveBranch(m)}
               activeOpacity={0.7}
             >
-              <Ionicons name="swap-horizontal" size={8.5} color={roleColor} />
+              <Ionicons name="swap-horizontal" size={9} color={roleColor} />
               <Text style={[styles.moveBtnText, { color: roleColor }]}>MOVE</Text>
             </TouchableOpacity>
           )}
@@ -274,7 +322,7 @@ export default function CircleHierarchyTree({
               style={[
                 styles.collapseBtn,
                 {
-                  backgroundColor: isCollapsed ? 'rgba(56, 189, 248, 0.22)' : `${roleColor}15`,
+                  backgroundColor: isCollapsed ? 'rgba(56, 189, 248, 0.18)' : `${roleColor}15`,
                   borderColor: isCollapsed ? '#38BDF8' : `${roleColor}40`,
                 },
               ]}
@@ -282,8 +330,8 @@ export default function CircleHierarchyTree({
               activeOpacity={0.7}
             >
               <Ionicons
-                name={isCollapsed ? 'eye-outline' : 'chevron-up'}
-                size={8.5}
+                name={isCollapsed ? 'chevron-down' : 'chevron-up'}
+                size={9}
                 color={isCollapsed ? '#38BDF8' : roleColor}
               />
               <Text
@@ -295,7 +343,7 @@ export default function CircleHierarchyTree({
                   },
                 ]}
               >
-                {isCollapsed ? `SHOW ${childCount} HIDDEN` : `${childCount} ${childCount === 1 ? 'branch' : 'branches'}`}
+                {isCollapsed ? `+${childCount} HIDDEN` : `${childCount} ${childCount === 1 ? 'BRANCH' : 'BRANCHES'}`}
               </Text>
             </TouchableOpacity>
           )}
@@ -304,17 +352,16 @@ export default function CircleHierarchyTree({
     );
   };
 
-  // Mathematically Perfect Continuous SVG Connector
+  // Mathematically Accurate Continuous SVG Connector
   const renderConnector = (parentWidth: number, children: TreeNode[], strokeColor: string) => {
     const parentCenterX = parentWidth / 2;
     const midY = CONNECTOR_HEIGHT / 2;
 
-    // Calculate exact X center coordinate of each child inside the parent container
     let cumulativeLeft = 0;
     const childCenters: number[] = [];
 
-    // Calculate total children row width to center children under parent if row < parentWidth
-    const totalRowWidth = children.reduce((s, c) => s + c.subtreeWidth, 0) + (children.length - 1) * SIBLING_GAP;
+    const totalRowWidth =
+      children.reduce((s, c) => s + c.subtreeWidth, 0) + (children.length - 1) * SIBLING_GAP;
     const rowOffset = Math.max(0, (parentWidth - totalRowWidth) / 2);
 
     children.forEach((c) => {
@@ -328,9 +375,14 @@ export default function CircleHierarchyTree({
 
     return (
       <View style={[styles.connectorBox, { width: parentWidth, height: CONNECTOR_HEIGHT }]}>
-        <Svg width={parentWidth} height={CONNECTOR_HEIGHT}>
+        <Svg
+          width={parentWidth}
+          height={CONNECTOR_HEIGHT}
+          viewBox={`0 0 ${parentWidth} ${CONNECTOR_HEIGHT}`}
+          style={{ width: parentWidth, height: CONNECTOR_HEIGHT }}
+        >
           {children.length === 1 ? (
-            // Single straight continuous stem from parent to child
+            // Single straight continuous vertical connection
             <>
               <Line
                 x1={parentCenterX}
@@ -338,38 +390,40 @@ export default function CircleHierarchyTree({
                 x2={firstChildX}
                 y2={CONNECTOR_HEIGHT}
                 stroke={strokeColor}
-                strokeWidth={1.5}
-                strokeOpacity={0.65}
+                strokeWidth={1.8}
+                strokeOpacity={0.75}
               />
-              <SvgCircle cx={firstChildX} cy={CONNECTOR_HEIGHT} r={2.5} fill={strokeColor} />
+              <SvgCircle cx={parentCenterX} cy={2} r={2.2} fill={strokeColor} />
+              <SvgCircle cx={firstChildX} cy={CONNECTOR_HEIGHT - 2} r={2.2} fill={strokeColor} />
             </>
           ) : (
-            // Enterprise Orthogonal Tree Routing (Stem -> Bus Bar -> Drops)
+            // Orthogonal Tree Bus Bar: Stem -> Bus Bar -> Child Drops
             <>
-              {/* 1. Parent Center Drop to Horizontal Bus Bar */}
+              {/* Stem from Parent */}
               <Line
                 x1={parentCenterX}
                 y1={0}
                 x2={parentCenterX}
                 y2={midY}
                 stroke={strokeColor}
-                strokeWidth={1.5}
-                strokeOpacity={0.7}
+                strokeWidth={1.8}
+                strokeOpacity={0.75}
               />
-              <SvgCircle cx={parentCenterX} cy={midY} r={2} fill={strokeColor} />
+              <SvgCircle cx={parentCenterX} cy={2} r={2.2} fill={strokeColor} />
+              <SvgCircle cx={parentCenterX} cy={midY} r={2.2} fill={strokeColor} />
 
-              {/* 2. Seamless Continuous Horizontal Bus Bar */}
+              {/* Horizontal Bus Bar spanning across children */}
               <Line
                 x1={Math.min(firstChildX, parentCenterX)}
                 y1={midY}
                 x2={Math.max(lastChildX, parentCenterX)}
                 y2={midY}
                 stroke={strokeColor}
-                strokeWidth={1.5}
-                strokeOpacity={0.7}
+                strokeWidth={1.8}
+                strokeOpacity={0.75}
               />
 
-              {/* 3. Perpendicular Vertical Drop to Each Child with Terminal Micro-Star */}
+              {/* Drop down to each child node */}
               {childCenters.map((cx, idx) => (
                 <React.Fragment key={idx}>
                   <Line
@@ -378,10 +432,10 @@ export default function CircleHierarchyTree({
                     x2={cx}
                     y2={CONNECTOR_HEIGHT}
                     stroke={strokeColor}
-                    strokeWidth={1.5}
-                    strokeOpacity={0.7}
+                    strokeWidth={1.8}
+                    strokeOpacity={0.75}
                   />
-                  <SvgCircle cx={cx} cy={CONNECTOR_HEIGHT} r={2.4} fill={strokeColor} />
+                  <SvgCircle cx={cx} cy={CONNECTOR_HEIGHT - 2} r={2.2} fill={strokeColor} />
                 </React.Fragment>
               ))}
             </>
@@ -421,39 +475,96 @@ export default function CircleHierarchyTree({
     );
   };
 
+  // Empty state if no members
+  if (!members || members.length === 0 || !treeRoot) {
+    return (
+      <View style={[styles.emptyContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Ionicons name="git-network-outline" size={36} color={colors.accentGold} />
+        <Text style={[styles.emptyTitle, { color: colors.foreground }]}>FAMILY COMMAND TREE</Text>
+        <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+          No circle members to display in tree. Add members with your invite code to begin building your family protection hierarchy.
+        </Text>
+      </View>
+    );
+  }
+
+  // Calculate dynamic canvas minimum width
+  const canvasMinWidth = Math.max(windowWidth - 48, treeRoot.subtreeWidth + 48);
+
   return (
     <View style={styles.wrapper}>
-      {/* Enterprise Guide Toolbar with Show All Hidden Button */}
+      {/* Enterprise Guide Toolbar */}
       <View style={styles.toolbarRow}>
         <View style={styles.toolbarBadge}>
-          <Ionicons name="git-network-outline" size={11} color={colors.accentGold} />
-          <Text style={[styles.toolbarText, { color: colors.accentGold }]}>ENTERPRISE COMMAND TREE</Text>
+          <Ionicons name="git-network" size={12} color={colors.accentGold} />
+          <Text style={[styles.toolbarText, { color: colors.accentGold }]}>FAMILY COMMAND TREE</Text>
         </View>
 
-        <TouchableOpacity
-          style={[styles.expandAllBtn, hasCollapsedBranches && styles.expandAllBtnActive]}
-          onPress={expandAll}
-          activeOpacity={0.7}
-        >
-          <Ionicons
-            name={hasCollapsedBranches ? 'eye-outline' : 'git-branch-outline'}
-            size={11}
-            color={hasCollapsedBranches ? '#38BDF8' : colors.accentGold}
-          />
-          <Text style={[styles.expandAllText, { color: hasCollapsedBranches ? '#38BDF8' : colors.accentGold }]}>
-            {hasCollapsedBranches ? 'SHOW ALL HIDDEN' : 'ALL BRANCHES VISIBLE'}
-          </Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <TouchableOpacity
+            style={[styles.expandAllBtn, hasCollapsedBranches && styles.expandAllBtnActive]}
+            onPress={hasCollapsedBranches ? expandAll : collapseAll}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={hasCollapsedBranches ? 'eye-outline' : 'contract-outline'}
+              size={11}
+              color={hasCollapsedBranches ? '#38BDF8' : colors.accentGold}
+            />
+            <Text style={[styles.expandAllText, { color: hasCollapsedBranches ? '#38BDF8' : colors.accentGold }]}>
+              {hasCollapsedBranches ? 'EXPAND ALL' : 'COLLAPSE ALL'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Dual-Axis Scrollable Constellation Canvas */}
+      {/* Role Legend Bar */}
+      <View style={styles.legendRow}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: '#F5D061' }]} />
+          <Text style={[styles.legendText, { color: colors.textMuted }]}>FOUNDER</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: '#C084FC' }]} />
+          <Text style={[styles.legendText, { color: colors.textMuted }]}>CO-LEADER</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: '#38BDF8' }]} />
+          <Text style={[styles.legendText, { color: colors.textMuted }]}>GUARDIAN</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: '#34D399' }]} />
+          <Text style={[styles.legendText, { color: colors.textMuted }]}>MEMBER</Text>
+        </View>
+      </View>
+
+      {/* Dual-Axis Scrollable Canvas with Safe Centering */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.canvasContent}
+        contentContainerStyle={[styles.canvasContent, { minWidth: canvasMinWidth }]}
       >
-        <View style={[styles.graphCanvas, { minWidth: Math.max(SCREEN_WIDTH - 32, treeRoot.subtreeWidth + 32) }]}>
+        <View style={[styles.graphCanvas, { width: canvasMinWidth }]}>
           {renderSubtree(treeRoot, true)}
+
+          {/* If Circle has only 1 member, show helpful growth guidance node */}
+          {members.length === 1 && (
+            <View style={styles.singleMemberHelpBox}>
+              <View style={[styles.singleMemberHelpStem, { backgroundColor: `${colors.accentGold}50` }]} />
+              <View
+                style={[
+                  styles.singleMemberCard,
+                  { backgroundColor: isDark ? 'rgba(21, 23, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)', borderColor: `${colors.accentGold}40` },
+                ]}
+              >
+                <Ionicons name="person-add-outline" size={16} color={colors.accentGold} />
+                <Text style={[styles.singleMemberTitle, { color: colors.foreground }]}>GROW YOUR TREE</Text>
+                <Text style={[styles.singleMemberSubtitle, { color: colors.textMuted }]}>
+                  Share your circle invite code to add guardians and subordinates.
+                </Text>
+              </View>
+            </View>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -463,7 +574,7 @@ export default function CircleHierarchyTree({
 const styles = StyleSheet.create({
   wrapper: {
     width: '100%',
-    paddingTop: 2,
+    paddingTop: 4,
     marginBottom: 24,
   },
   toolbarRow: {
@@ -471,19 +582,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   toolbarBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 5,
     backgroundColor: 'rgba(212, 175, 55, 0.12)',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 7,
   },
   toolbarText: {
-    fontSize: 8.5,
+    fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.6,
   },
@@ -491,9 +602,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3.5,
-    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 7,
     borderWidth: 1,
     borderColor: 'rgba(212, 175, 55, 0.3)',
     backgroundColor: 'rgba(212, 175, 55, 0.08)',
@@ -507,10 +618,33 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.4,
   },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  legendDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  legendText: {
+    fontSize: 8,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
   canvasContent: {
     paddingHorizontal: 16,
     paddingBottom: 24,
-    alignItems: 'center',
+    justifyContent: 'center',
   },
   graphCanvas: {
     alignItems: 'center',
@@ -524,8 +658,8 @@ const styles = StyleSheet.create({
   },
   nodeCard: {
     width: NODE_WIDTH,
-    paddingVertical: 9,
-    paddingHorizontal: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
     borderRadius: 16,
     borderWidth: 1.2,
     alignItems: 'center',
@@ -533,14 +667,14 @@ const styles = StyleSheet.create({
   },
   avatarOrbitRing: {
     padding: 2,
-    borderRadius: 22,
-    borderWidth: 1,
-    marginBottom: 4,
+    borderRadius: 24,
+    borderWidth: 1.2,
+    marginBottom: 5,
   },
   avatarCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
@@ -548,83 +682,89 @@ const styles = StyleSheet.create({
   avatarImg: {
     width: '100%',
     height: '100%',
-    borderRadius: 16,
+    borderRadius: 18,
   },
   avatarInitial: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '800',
   },
   statusDot: {
     position: 'absolute',
     bottom: -1,
     right: -1,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
     borderWidth: 1.5,
   },
   rolePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2.5,
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: 5,
-    marginBottom: 3,
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginBottom: 4,
     maxWidth: '96%',
   },
   rolePillText: {
-    fontSize: 7,
+    fontSize: 8,
     fontWeight: '800',
     letterSpacing: 0.4,
   },
   nameText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 2,
-    maxWidth: 76,
+    marginBottom: 3,
+    maxWidth: NODE_WIDTH - 12,
   },
   batteryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2.5,
+    gap: 3,
   },
   batteryText: {
-    fontSize: 7.5,
+    fontSize: 8.5,
     fontWeight: '600',
   },
   actionsRow: {
     flexDirection: 'column',
     alignItems: 'center',
-    gap: 3,
-    marginTop: 4,
+    gap: 4,
+    marginTop: 5,
+    width: '100%',
   },
   moveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: 5,
+    justifyContent: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 6,
     borderWidth: 0.8,
+    width: '90%',
   },
   moveBtnText: {
-    fontSize: 7.5,
+    fontSize: 8,
     fontWeight: '800',
-    letterSpacing: 0.3,
+    letterSpacing: 0.4,
   },
   collapseBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: 5,
+    justifyContent: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2.5,
+    borderRadius: 6,
     borderWidth: 0.8,
+    width: '90%',
   },
   collapseBtnText: {
-    fontSize: 7,
+    fontSize: 7.5,
+    letterSpacing: 0.3,
   },
   connectorBox: {
     alignItems: 'center',
@@ -634,5 +774,53 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'center',
+  },
+  emptyContainer: {
+    marginHorizontal: 16,
+    padding: 24,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 20,
+  },
+  emptyTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  emptyText: {
+    fontSize: 11.5,
+    textAlign: 'center',
+    lineHeight: 17,
+  },
+  singleMemberHelpBox: {
+    alignItems: 'center',
+    marginTop: 0,
+  },
+  singleMemberHelpStem: {
+    width: 1.5,
+    height: 24,
+  },
+  singleMemberCard: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    maxWidth: 200,
+  },
+  singleMemberTitle: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  singleMemberSubtitle: {
+    fontSize: 9,
+    textAlign: 'center',
+    lineHeight: 12.5,
   },
 });

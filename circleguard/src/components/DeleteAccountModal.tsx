@@ -51,15 +51,86 @@ export default function DeleteAccountModal({
     if (!isConfirmed || !userId) return;
 
     setDeleting(true);
-    setStatusMessage('Purging cloud tracking and membership data...');
+    setStatusMessage('Broadcasting real-time marker purge to safety circles...');
 
     try {
-      // 1. Wipe location trails and live positions
+      // 0A. Broadcast real-time "REMOVE_USER_MARKER" event across all user's circles immediately
+      try {
+        const { data: memberCircles } = await supabase
+          .from('circle_members')
+          .select('circle_id')
+          .eq('user_id', userId);
+
+        if (memberCircles && memberCircles.length > 0) {
+          await Promise.all(
+            memberCircles.map(async (row) => {
+              try {
+                const bcChannel = supabase.channel(`map_locations_${row.circle_id}_broadcast`);
+                await bcChannel.subscribe();
+                await bcChannel.send({
+                  type: 'broadcast',
+                  event: 'REMOVE_USER_MARKER',
+                  payload: { user_id: userId, circle_id: row.circle_id }
+                });
+                supabase.removeChannel(bcChannel);
+              } catch (e) {}
+            })
+          );
+        }
+      } catch (e) {
+        console.warn('Realtime marker purge broadcast notice:', e);
+      }
+
+      // 0B. Instant local store purge for this client
+      try {
+        useCircleStore.getState().purgeUserFromStore(userId);
+      } catch (e) {}
+
+      // 0C. Database RPC function to atomically wipe everything with elevated privileges
+      setStatusMessage('Purging cloud tracking and membership data...');
+      try {
+        const res = await supabase.rpc('delete_user_account_data', { p_user_id: userId });
+        if (res.error) {
+          await supabase.rpc('delete_user_account_data', { target_user_id: userId });
+        }
+      } catch (e) {
+        try {
+          await supabase.rpc('delete_user_account_data', { target_user_id: userId });
+        } catch (err) {
+          console.warn('RPC delete_user_account_data notice:', err);
+        }
+      }
+
+      // 1. Wipe location trails and live positions (including historical past locations)
+      setStatusMessage('Purging live and past GPS location history...');
       try {
         await supabase.from('locations').delete().eq('user_id', userId);
       } catch (e) {
         console.warn('Locations purge notice:', e);
       }
+
+      try {
+        // Critical: Purge all past movement history points
+        await supabase.from('location_history').delete().eq('user_id', userId);
+      } catch (e) {
+        console.warn('Location history purge notice:', e);
+      }
+
+      try {
+        await supabase.from('location_shares').delete().or(`sender_id.eq.${userId},target_user_id.eq.${userId}`);
+      } catch (e) {}
+
+      try {
+        await supabase.from('place_events').delete().eq('user_id', userId);
+      } catch (e) {}
+
+      try {
+        await supabase.from('place_members').delete().eq('user_id', userId);
+      } catch (e) {}
+
+      try {
+        await supabase.from('sos_alerts').delete().eq('user_id', userId);
+      } catch (e) {}
 
       // 2. Remove circle memberships and affiliations
       setStatusMessage('Leaving all active safety circles...');
@@ -69,13 +140,20 @@ export default function DeleteAccountModal({
         console.warn('Circle members purge notice:', e);
       }
 
-      // 3. Remove chat messages sent by user if table exists
       try {
+        await supabase.from('circles').delete().eq('owner_id', userId);
+      } catch (e) {}
+
+      // 3. Remove chat messages and reactions sent by user
+      try {
+        await supabase.from('circle_messages').delete().eq('sender_id', userId);
+        await supabase.from('message_views').delete().eq('user_id', userId);
         await supabase.from('chat_messages').delete().eq('user_id', userId);
       } catch (e) {}
 
       // 4. Remove safe places created by user
       try {
+        await supabase.from('places').delete().or(`created_by.eq.${userId},target_user_id.eq.${userId}`);
         await supabase.from('safe_places').delete().eq('user_id', userId);
       } catch (e) {}
 
@@ -105,8 +183,8 @@ export default function DeleteAccountModal({
       setStatusMessage('Terminating GPS hardware background tasks...');
       await stopBackgroundLocation();
 
-      // 9. Wipe local device storage & caches
-      setStatusMessage('Purging encrypted local device keys...');
+      // 9. Wipe local device storage & caches (including offline breadcrumb buffers)
+      setStatusMessage('Purging encrypted local device keys and breadcrumbs...');
       try {
         const allKeys = await AsyncStorage.getAllKeys();
         const userSpecificKeys = allKeys.filter((k) =>
@@ -127,13 +205,21 @@ export default function DeleteAccountModal({
 
       // 11. Revoke and sign out of Supabase Auth Session
       try {
+        const { stopBatteryOptimizedBackgroundLocation } = require('../services/LocationBackgroundService');
+        await stopBatteryOptimizedBackgroundLocation().catch(() => {});
+      } catch (e) {}
+
+      try {
         await supabase.auth.signOut();
       } catch (e) {}
 
       // 12. Reset Global State Stores
       useCircleStore.getState().resetCircleStore();
-      useAuthStore.getState().setSession(null);
-      useAuthStore.getState().setProfile(null);
+      useAuthStore.getState().resetAuthStore();
+      try {
+        const { useThemeStore } = require('../store/useThemeStore');
+        useThemeStore.getState().resetThemeToDefault();
+      } catch (e) {}
 
       // Close modal
       onClose();

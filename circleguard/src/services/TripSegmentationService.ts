@@ -212,11 +212,14 @@ export function analyzeTripTelemetry<T>(
         continue; // ignore spurious multipath jump
       }
 
-      totalDistanceMeters += stepDistMeters;
+      // Stationary Drift Filter: Only accumulate distance if actual movement occurred (>= 5m and speed >= 2.5 km/h)
+      if (stepDistMeters >= 5 && (speedKmh >= 2.5 || impliedSpeedKmh >= 2.5)) {
+        totalDistanceMeters += stepDistMeters;
+      }
 
       if (!speedKmh || speedKmh <= 0) {
-        // Smooth infer speed with speed cap
-        speedKmh = Math.min(130, Math.round(impliedSpeedKmh));
+        // Smooth infer speed with speed cap (zero out stationary noise)
+        speedKmh = impliedSpeedKmh < 2.0 ? 0 : Math.min(130, Math.round(impliedSpeedKmh));
       }
     }
 
@@ -277,16 +280,23 @@ export function analyzeTripTelemetry<T>(
     if (i > 0) {
       const prev = rawProcessed[i - 1];
       const dtSec = Math.max(0.5, (cur.timeMs - prev.timeMs) / 1000);
-      const accelKmhPerSec = (cur.speed - prev.speed) / dtSec;
+      
+      // Enterprise Event Detection: Only evaluate acceleration within a realistic sampling interval (1s - 8s)
+      if (dtSec >= 1.0 && dtSec <= 8.0) {
+        const accelKmhPerSec = (cur.speed - prev.speed) / dtSec;
 
-      // Realistic vehicular thresholds
-      if (accelKmhPerSec <= -12) {
-        hardBrakes++;
-      } else if (accelKmhPerSec >= 11) {
-        rapidAccels++;
+        // Hard brake requires initial vehicular speed >= 20 km/h and deceleration <= -12.5 km/h/s (~ -0.35g)
+        if (prev.speed >= 20 && accelKmhPerSec <= -12.5) {
+          hardBrakes++;
+        } 
+        // Rapid acceleration requires acceleration >= +11.0 km/h/s (~ +0.31g)
+        else if (accelKmhPerSec >= 11.0 && cur.speed >= 15) {
+          rapidAccels++;
+        }
       }
     }
 
+    // Enterprise Speeding: sustained velocity > 80 km/h (episode-based detection)
     if (cur.speed > 80) {
       if (!isCurrentlySpeeding) {
         speedingEvents++;
@@ -303,15 +313,19 @@ export function analyzeTripTelemetry<T>(
   const durationMins = Math.max(1, rawDurationMins);
   const distanceKm = parseFloat((totalDistanceMeters / 1000).toFixed(1));
 
+  // Enterprise Moving Average Speed: computed over moving points to prevent red lights/parking from distorting speed
   let avgSpeedKmh = movingSpeedCount > 0 
     ? Math.round(movingSpeedSum / movingSpeedCount) 
     : (distanceKm > 0 && durationMins > 0 ? Math.round((distanceKm / (durationMins / 60))) : 0);
 
   if (isNaN(avgSpeedKmh)) avgSpeedKmh = 0;
 
-  // Cap safety deductions
-  const scoreDeductions = (hardBrakes * 4) + (rapidAccels * 2.5) + (speedingEvents * 3.5);
-  const driverScore = Math.max(50, Math.min(100, Math.round(100 - scoreDeductions)));
+  // Enterprise Rate-Weighted Driver Safety Score (0-100):
+  // Normalizes safety events per 10km driven rather than raw counts,
+  // preventing long safe highway journeys from being unfairly penalized.
+  const effectiveDistance = Math.max(1.0, distanceKm);
+  const eventRatePer10Km = ((hardBrakes * 10) + (rapidAccels * 6) + (speedingEvents * 8)) / (effectiveDistance / 10);
+  const driverScore = Math.max(50, Math.min(100, Math.round(100 - eventRatePer10Km)));
 
   return {
     distanceKm,
@@ -327,3 +341,16 @@ export function analyzeTripTelemetry<T>(
     processedPoints: rawProcessed,
   };
 }
+
+/**
+ * Enterprise classification: Checks if a trip segment is a genuine vehicular drive
+ * rather than a stationary jitter cluster or a pedestrian walk.
+ */
+export function isVehicularTrip(analysis: TelemetryAnalysisResult): boolean {
+  // A vehicular drive must have either:
+  // 1. A top speed of at least 22 km/h AND minimum distance of 0.3 km
+  // 2. OR a distance >= 0.6 km with avg moving speed >= 18 km/h
+  return (analysis.topSpeedKmh >= 22 && analysis.distanceKm >= 0.3) ||
+         (analysis.distanceKm >= 0.6 && analysis.avgSpeedKmh >= 18);
+}
+

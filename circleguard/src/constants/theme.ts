@@ -466,6 +466,8 @@ export const LUXURY_THEME = {
   typography: {
     fontFamilySerif: 'serif',
     fontFamilySans: 'sans-serif',
+    fontFamilyDisplay: 'sans-serif',
+    fontFamilyMono: 'monospace',
     letterSpacingWide: 2.5,
     letterSpacingNormal: 0,
     scale: TYPOGRAPHY_SCALE,

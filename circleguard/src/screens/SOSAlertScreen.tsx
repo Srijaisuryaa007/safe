@@ -62,11 +62,22 @@ export default function SOSAlertScreen() {
 
   const loadEmergencyContacts = async () => {
     try {
+      const cloudContacts = (profile as any)?.emergency_contacts;
+      if (Array.isArray(cloudContacts) && cloudContacts.length > 0) {
+        setEmergencyContacts(cloudContacts);
+        return;
+      }
+
       const saved = await AsyncStorage.getItem(getStorageKey());
       if (saved) {
         setEmergencyContacts(JSON.parse(saved));
       } else {
-        setEmergencyContacts([]);
+        const fallbackSaved = await AsyncStorage.getItem('@circleguard_emergency_contacts');
+        if (fallbackSaved) {
+          setEmergencyContacts(JSON.parse(fallbackSaved));
+        } else {
+          setEmergencyContacts([]);
+        }
       }
     } catch (e) {
       console.error('Error loading emergency contacts on SOS:', e);

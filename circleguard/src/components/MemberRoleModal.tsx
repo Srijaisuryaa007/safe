@@ -221,6 +221,16 @@ export default function MemberRoleModal({
                 {isTargetOwner ? `${name} (Founder)` : (canEdit ? `Promote ${name}` : `${name}'s Rank Info`)}
               </Text>
             </View>
+            {canEdit && !isTargetOwner && (
+              <TouchableOpacity
+                style={[styles.closeBtn, { marginRight: 8, backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: 'rgba(239, 68, 68, 0.3)' }]}
+                onPress={handleConfirmRemoveMember}
+                activeOpacity={0.7}
+                disabled={updating}
+              >
+                <Ionicons name="trash-outline" size={18} color="#EF4444" />
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7} disabled={updating}>
               <Ionicons name="close" size={22} color={colors.foreground} />
             </TouchableOpacity>

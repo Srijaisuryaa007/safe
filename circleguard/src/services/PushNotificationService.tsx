@@ -119,7 +119,10 @@ export async function registerForPushNotificationsAsync(userId: string): Promise
   const Notifications = getNotificationsModule();
   if (!Notifications) return null;
 
-  const isExpoGo = Constants.appOwnership === 'expo' || (Constants as any).executionEnvironment === 'storeClient';
+  const isExpoGo = 
+    Constants.appOwnership === 'expo' || 
+    (Constants as any).executionEnvironment === 'storeClient' ||
+    Boolean((Constants as any).expoVersion);
 
   try {
     // 1. Android Notification Channel setup with Apple-Minimalist colors (#1C1C1E / #0D0E12)
@@ -163,28 +166,33 @@ export async function registerForPushNotificationsAsync(userId: string): Promise
     }
 
     if (isExpoGo) {
-      console.log('[PushService] Remote push tokens skipped in Expo Go. Native mobile pop-up system notifications active.');
+      console.log('[PushService] Remote push tokens skipped in Expo Go (Expo SDK 53+ requirement). Push works in preview/development builds.');
       return null;
     }
 
-    // 3. Obtain Expo Push Token
-    const projectId = Constants?.expoConfig?.extra?.eas?.projectId || Constants?.easConfig?.projectId;
-    const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: projectId || undefined,
-    });
+    // 3. Obtain Expo Push Token (wrapped safely against SDK 53 Expo Go limitations)
+    try {
+      const projectId = Constants?.expoConfig?.extra?.eas?.projectId || Constants?.easConfig?.projectId;
+      const tokenData = await Notifications.getExpoPushTokenAsync({
+        projectId: projectId || undefined,
+      });
 
-    const token = tokenData?.data;
+      const token = tokenData?.data;
 
-    if (token && userId) {
-      await supabase
-        .from('profiles')
-        .update({ push_token: token })
-        .eq('id', userId);
+      if (token && userId) {
+        await supabase
+          .from('profiles')
+          .update({ push_token: token })
+          .eq('id', userId);
 
-      console.log('[PushService] System Push Token saved to Supabase profile:', token);
+        console.log('[PushService] System Push Token saved to Supabase profile:', token);
+      }
+
+      return token;
+    } catch (pushErr: any) {
+      console.log('[PushService] Remote push token note:', pushErr?.message);
+      return null;
     }
-
-    return token;
   } catch (err) {
     console.warn('[PushService] Push registration note:', err);
     return null;
@@ -194,19 +202,57 @@ export async function registerForPushNotificationsAsync(userId: string): Promise
 /**
  * Send real-time System Remote Push Notification via Expo Push API
  */
+/**
+ * Send real-time System Remote Push Notification via Expo Push API
+ * Supports raw Expo push tokens, user UUIDs, or an array of either.
+ */
 export async function sendExpoPushNotification(
-  targetTokens: string | string[],
+  targetTokensOrUserIds: string | string[],
   title: string,
   body: string,
   data: Record<string, any> = {}
 ): Promise<boolean> {
   try {
-    const tokens = Array.isArray(targetTokens) ? targetTokens : [targetTokens];
-    const validTokens = tokens.filter(t => t && t.startsWith('ExponentPushToken'));
+    const inputs = Array.isArray(targetTokensOrUserIds) ? targetTokensOrUserIds : [targetTokensOrUserIds];
+    const resolvedTokens: string[] = [];
 
-    if (validTokens.length === 0) return false;
+    // Separate tokens from user IDs that need resolution
+    const userIdsToLookup: string[] = [];
+    inputs.forEach(item => {
+      if (!item) return;
+      if (item.startsWith('ExponentPushToken')) {
+        resolvedTokens.push(item);
+      } else {
+        // Likely a user UUID
+        userIdsToLookup.push(item);
+      }
+    });
 
-    const messages = validTokens.map(token => ({
+    if (userIdsToLookup.length > 0) {
+      try {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('push_token')
+          .in('id', userIdsToLookup);
+
+        if (profs) {
+          profs.forEach(p => {
+            if (p?.push_token && p.push_token.startsWith('ExponentPushToken')) {
+              resolvedTokens.push(p.push_token);
+            }
+          });
+        }
+      } catch (err) {
+        console.warn('[PushService] Failed looking up push tokens for user IDs:', err);
+      }
+    }
+
+    if (resolvedTokens.length === 0) {
+      console.log('[PushService] No valid push tokens found for push targets');
+      return false;
+    }
+
+    const messages = resolvedTokens.map(token => ({
       to: token,
       sound: 'default',
       priority: 'high',
@@ -235,6 +281,18 @@ export async function sendExpoPushNotification(
     console.error('[PushService] Error sending push notification:', e);
     return false;
   }
+}
+
+/**
+ * Send push notification directly to a specific user by their User ID
+ */
+export async function sendPushNotificationToUser(
+  userId: string,
+  title: string,
+  body: string,
+  data: Record<string, any> = {}
+): Promise<boolean> {
+  return sendExpoPushNotification(userId, title, body, data);
 }
 
 /**

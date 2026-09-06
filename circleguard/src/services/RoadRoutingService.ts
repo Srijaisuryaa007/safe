@@ -344,6 +344,7 @@ export interface DrivingRouteOption {
   distText: string;
   timeText: string;
   diffKmText: string;
+  diffTimeText?: string;
   roadCoords: [number, number][];
 }
 
@@ -397,6 +398,7 @@ export async function fetchMultipleDrivingRoutes(
     // Sort routes by duration and distance
     const sorted = [...osrmRoutes].sort((a, b) => (a.duration || a.distance || 0) - (b.duration || b.distance || 0));
     const baseDistKm = sorted[0].distance / 1000;
+    const baseDurMins = Math.max(1, Math.round((sorted[0].duration || 0) / 60));
 
     sorted.forEach((r, idx) => {
       const distKm = parseFloat(((r.distance || 0) / 1000).toFixed(1));
@@ -404,6 +406,7 @@ export async function fetchMultipleDrivingRoutes(
       const coords: [number, number][] = (r.geometry?.coordinates || []).map((c: [number, number]) => [c[1], c[0]]);
       
       const diffKm = distKm - baseDistKm;
+      const diffMins = durMins - baseDurMins;
       const isShortest = idx === 0;
       const isLongest = idx === sorted.length - 1 && sorted.length > 1;
 
@@ -415,7 +418,8 @@ export async function fetchMultipleDrivingRoutes(
         durationMins: durMins,
         distText: distKm >= 1 ? `${distKm} km` : `${Math.round(r.distance)} m`,
         timeText: formatMinsToText(durMins),
-        diffKmText: isShortest ? 'Fastest' : `+${diffKm.toFixed(1)} km`,
+        diffKmText: isShortest ? 'Primary' : `+${diffKm.toFixed(1)} km`,
+        diffTimeText: isShortest ? 'FASTEST' : (diffMins > 0 ? `+${diffMins}m` : `+${diffKm.toFixed(1)} km`),
         roadCoords: coords
       });
     });
@@ -477,6 +481,7 @@ export async function fetchMultipleDrivingRoutes(
     }
 
     const diffKm = (altDistKm - primary.distanceKm).toFixed(1);
+    const altDiffMins = altDurMins - primary.durationMins;
 
     results.push({
       id: 'route_alt',
@@ -487,6 +492,7 @@ export async function fetchMultipleDrivingRoutes(
       distText: `${altDistKm} km`,
       timeText: formatMinsToText(altDurMins),
       diffKmText: `+${diffKm} km`,
+      diffTimeText: altDiffMins > 0 ? `+${altDiffMins}m` : `+${diffKm} km`,
       roadCoords: altCoords
     });
   }

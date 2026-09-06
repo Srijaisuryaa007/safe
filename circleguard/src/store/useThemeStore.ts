@@ -11,13 +11,15 @@ interface ThemeState {
   isDark: boolean;
   colors: ThemeColors;
   mapStyle: MapStyleType;
-  setThemeMode: (mode: ThemeMode) => Promise<void>;
-  setMapStyle: (style: MapStyleType) => Promise<void>;
-  initTheme: () => Promise<void>;
+  currentUserId?: string | null;
+  setThemeMode: (mode: ThemeMode, userId?: string) => Promise<void>;
+  setMapStyle: (style: MapStyleType, userId?: string) => Promise<void>;
+  initTheme: (userId?: string | null) => Promise<void>;
+  resetThemeToDefault: () => void;
 }
 
-const STORAGE_KEY = '@circleguard_theme_mode';
-const MAP_STYLE_KEY = '@circleguard_map_style';
+const getStorageKey = (userId?: string | null) => userId ? `@circleguard_theme_mode_${userId}` : '@circleguard_theme_mode_default';
+const getMapStyleKey = (userId?: string | null) => userId ? `@circleguard_map_style_${userId}` : '@circleguard_map_style_default';
 
 const getThemeConfig = (mode: ThemeMode, sysScheme: ColorSchemeName | null | undefined): { colors: ThemeColors; isDark: boolean } => {
   if (mode === 'brand_green') return { colors: BRAND_GREEN_THEME.colors, isDark: false };
@@ -32,15 +34,19 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   isDark: true,
   colors: DARK_THEME.colors,
   mapStyle: 'vector',
+  currentUserId: null,
 
-  initTheme: async () => {
+  initTheme: async (userId?: string | null) => {
     try {
-      const saved = await AsyncStorage.getItem(STORAGE_KEY);
-      const savedMapStyle = await AsyncStorage.getItem(MAP_STYLE_KEY);
+      const activeUser = userId ?? get().currentUserId;
+      const themeKey = getStorageKey(activeUser);
+      const mapKey = getMapStyleKey(activeUser);
+
+      const saved = await AsyncStorage.getItem(themeKey);
+      const savedMapStyle = await AsyncStorage.getItem(mapKey);
       let mode: ThemeMode = (saved as ThemeMode) || 'dark';
       if (mode !== 'dark' && mode !== 'light' && mode !== 'brand_green' && mode !== 'system') {
         mode = 'dark';
-        await AsyncStorage.setItem(STORAGE_KEY, 'dark');
       }
       const mapStyle: MapStyleType = (savedMapStyle as MapStyleType) || 'vector';
       const sysScheme = Appearance.getColorScheme();
@@ -53,6 +59,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
         isDark: config.isDark,
         colors: config.colors,
         mapStyle: mapStyle,
+        currentUserId: activeUser || null,
       });
 
       Appearance.addChangeListener(({ colorScheme }) => {
@@ -71,9 +78,11 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     }
   },
 
-  setThemeMode: async (mode: ThemeMode) => {
+  setThemeMode: async (mode: ThemeMode, userId?: string) => {
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, mode);
+      const activeUser = userId ?? get().currentUserId;
+      const themeKey = getStorageKey(activeUser);
+      await AsyncStorage.setItem(themeKey, mode);
       const sysScheme = Appearance.getColorScheme();
       const config = getThemeConfig(mode, sysScheme);
 
@@ -89,12 +98,30 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     }
   },
 
-  setMapStyle: async (style: MapStyleType) => {
+  setMapStyle: async (style: MapStyleType, userId?: string) => {
     try {
-      await AsyncStorage.setItem(MAP_STYLE_KEY, style);
+      const activeUser = userId ?? get().currentUserId;
+      const mapKey = getMapStyleKey(activeUser);
+      await AsyncStorage.setItem(mapKey, style);
       set({ mapStyle: style });
     } catch (e) {
       console.error('Error saving map style:', e);
     }
   },
+
+  resetThemeToDefault: () => {
+    const config = getThemeConfig('dark', 'dark');
+    Object.assign(LUXURY_THEME.colors, config.colors);
+    set({
+      themeMode: 'dark',
+      isDark: true,
+      colors: DARK_THEME.colors,
+      mapStyle: 'vector',
+      currentUserId: null,
+    });
+  },
 }));
+
+if (typeof window !== 'undefined') {
+  (window as any).__useThemeStore = useThemeStore;
+}

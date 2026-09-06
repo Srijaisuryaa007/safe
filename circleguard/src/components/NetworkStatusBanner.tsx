@@ -33,14 +33,22 @@ export default function NetworkStatusBanner() {
     setIsChecking(true);
     const startTime = Date.now();
 
+    // Check navigator.onLine on web first
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && !navigator.onLine) {
+      handleStateTransition('offline');
+      setIsChecking(false);
+      return;
+    }
+
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 7000); // 7s hard timeout
 
-      // Ping lightweight 204 or supabase health URL
+      // Ping lightweight 204 with no-cors on web to avoid browser CORS block
       const response = await fetch('https://www.google.com/generate_204', {
         method: 'GET',
         headers: { 'Cache-Control': 'no-cache' },
+        mode: Platform.OS === 'web' ? 'no-cors' : undefined,
         signal: controller.signal,
       });
 
@@ -48,7 +56,8 @@ export default function NetworkStatusBanner() {
       const duration = Date.now() - startTime;
       setLatencyMs(duration);
 
-      if (response.ok || response.status === 204) {
+      // In no-cors mode, status is 0 (opaque response) which indicates network success
+      if (response.ok || response.status === 204 || response.type === 'opaque') {
         if (duration > 2200) {
           // Slow Network (> 2.2 seconds latency)
           handleStateTransition('slow');
@@ -97,10 +106,10 @@ export default function NetworkStatusBanner() {
     }
   };
 
-  // Run periodic health checks
+  // Run periodic health checks (every 45 seconds to preserve CPU/battery)
   useEffect(() => {
     checkNetworkSpeed();
-    const interval = setInterval(checkNetworkSpeed, 10000); // Check every 10 seconds
+    const interval = setInterval(checkNetworkSpeed, 45000);
     return () => clearInterval(interval);
   }, []);
 

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore, ThemeMode } from '../store/useThemeStore';
+
 interface AppearanceModalProps {
   visible: boolean;
   onClose: () => void;
@@ -25,7 +26,8 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
       mode: 'dark' as ThemeMode,
       title: 'ONYX LUXURY DARK',
       designTag: 'SIGNATURE THEME',
-      subtitle: 'Deep Obsidian Black • Metallic Gold Highlights • High-contrast emergency safety visibility for night & low-light environments.',
+      subtitle:
+        'Deep Obsidian Black • Metallic Gold Highlights • High-contrast emergency safety visibility for night & low-light environments.',
       iconName: 'moon-outline' as const,
       cardStyle: {
         backgroundColor: '#1C1D24',
@@ -48,7 +50,8 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
       mode: 'light' as ThemeMode,
       title: 'EDITORIAL CLEAN LIGHT',
       designTag: 'DAYLIGHT CLARITY',
-      subtitle: 'Warm Alabaster Canvas • Crisp Charcoal Typography • Clean minimal borders optimized for bright sunlight & outdoor readability.',
+      subtitle:
+        'Warm Alabaster Canvas • Crisp Charcoal Typography • Clean minimal borders optimized for bright sunlight & outdoor readability.',
       iconName: 'sunny-outline' as const,
       cardStyle: {
         backgroundColor: '#FFFFFF',
@@ -71,7 +74,8 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
       mode: 'brand_green' as ThemeMode,
       title: 'BRAND EMERALD & AMBER',
       designTag: 'MODERN ACTIVE',
-      subtitle: 'Vibrant Emerald Green (#3DBE6C) • Warm Amber (#F5A623) • High-energy, crisp mobile interface designed for active tracking.',
+      subtitle:
+        'Vibrant Emerald Green (#3DBE6C) • Warm Amber (#F5A623) • High-energy, crisp mobile interface designed for active tracking.',
       iconName: 'sparkles-outline' as const,
       cardStyle: {
         backgroundColor: '#FFFFFF',
@@ -94,7 +98,8 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
       mode: 'system' as ThemeMode,
       title: 'SYSTEM DYNAMIC AUTO',
       designTag: 'AUTO SYNC',
-      subtitle: 'Automatically syncs dark and light appearances based on your device system settings and scheduled sunset schedule.',
+      subtitle:
+        'Automatically syncs dark and light appearances based on your device system settings and scheduled sunset schedule.',
       iconName: 'phone-portrait-outline' as const,
       cardStyle: {
         backgroundColor: colors.surface,
@@ -134,10 +139,7 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
         </View>
 
         {/* Scrollable Visual Theme Options */}
-        <ScrollView
-          showsVerticalScrollIndicator={true}
-          contentContainerStyle={styles.scrollContent}
-        >
+        <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={styles.scrollContent}>
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
             Select your preferred visual style to instantly transform the entire app's contrast, color palette, and safety controls.
           </Text>
@@ -183,9 +185,7 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
                     {isActive ? (
                       <View style={[styles.activePill, { backgroundColor: '#10B981' }]}>
                         <Ionicons name="checkmark-sharp" size={13} color="#FFFFFF" />
-                        <Text style={[styles.activePillText, { color: '#FFFFFF' }]}>
-                          APPLIED
-                        </Text>
+                        <Text style={[styles.activePillText, { color: '#FFFFFF' }]}>APPLIED</Text>
                       </View>
                     ) : (
                       <View style={[styles.radioCircle, { borderColor: cs.borderColor }]}>
@@ -195,9 +195,7 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
                   </View>
 
                   {/* Card Description */}
-                  <Text style={[styles.cardSubtitle, { color: cs.subtitleColor }]}>
-                    {t.subtitle}
-                  </Text>
+                  <Text style={[styles.cardSubtitle, { color: cs.subtitleColor }]}>{t.subtitle}</Text>
 
                   {/* Palette Color Swatches */}
                   {t.palette ? (
@@ -258,7 +256,7 @@ const styles = StyleSheet.create({
     paddingBottom: 100,
   },
   subtitle: {
-    fontSize: 13,
+    fontSize: 12.5,
     lineHeight: 18,
     marginBottom: 20,
   },
@@ -266,8 +264,7 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   themeCard: {
-    padding: 18,
-    position: 'relative',
+    padding: 16,
   },
   cardHeaderRow: {
     flexDirection: 'row',
@@ -278,70 +275,66 @@ const styles = StyleSheet.create({
   titleWithIcon: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    flex: 1,
+    gap: 10,
   },
   iconBox: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    alignItems: 'center',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
+    alignItems: 'center',
   },
   designTag: {
-    fontSize: 9,
+    fontSize: 8.5,
     fontWeight: '800',
-    letterSpacing: 1.5,
-    marginBottom: 2,
+    letterSpacing: 0.8,
   },
   cardTitle: {
     fontSize: 14,
-    fontWeight: '900',
-    letterSpacing: 0.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   activePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 100,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
   },
   activePillText: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.8,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
   radioCircle: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    borderWidth: 2,
-    alignItems: 'center',
+    borderWidth: 1.5,
     justifyContent: 'center',
-    opacity: 0.4,
+    alignItems: 'center',
   },
   radioInner: {
     width: 8,
     height: 8,
     borderRadius: 4,
+    backgroundColor: 'transparent',
   },
   cardSubtitle: {
-    fontSize: 12,
+    fontSize: 11.5,
     lineHeight: 16,
-    fontWeight: '500',
+    marginBottom: 12,
   },
   paletteRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: 6,
-    marginTop: 12,
   },
   paletteDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
 });

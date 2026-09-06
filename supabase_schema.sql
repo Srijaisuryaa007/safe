@@ -40,9 +40,10 @@ create table if not exists public.circle_members (
   primary key (circle_id, user_id)
 );
 
--- Live Locations (Latest position per user)
+-- Live Locations (Group-scoped latest position per member: user_id + circle_id)
 create table if not exists public.locations (
-  user_id uuid references public.profiles(id) on delete cascade primary key,
+  circle_id uuid references public.circles(id) on delete cascade,
+  user_id uuid references public.profiles(id) on delete cascade,
   latitude float,
   longitude float,
   geom geography(Point, 4326),
@@ -51,7 +52,8 @@ create table if not exists public.locations (
   battery_pct int,
   is_driving boolean default false,
   activity_state text default 'Stationary',
-  updated_at timestamptz default now()
+  updated_at timestamptz default now(),
+  primary key (circle_id, user_id)
 );
 
 -- Location History (For historical movement logs)
@@ -151,9 +153,22 @@ alter table public.circle_members
   drop constraint if exists circle_members_role_check,
   add constraint circle_members_role_check check (role in ('owner','co_leader','guardian','member'));
 
+-- Ensure circle_id exists before referencing it in any constraint
+alter table public.locations add column if not exists circle_id uuid references public.circles(id) on delete cascade;
+
 alter table public.locations 
   drop constraint if exists locations_user_id_fkey,
   add constraint locations_user_id_fkey foreign key (user_id) references public.profiles(id) on delete cascade;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'locations_circle_id_fkey'
+  ) then
+    alter table public.locations 
+      add constraint locations_circle_id_fkey foreign key (circle_id) references public.circles(id) on delete cascade;
+  end if;
+end $$;
 
 alter table public.location_history 
   drop constraint if exists location_history_user_id_fkey,
@@ -193,6 +208,7 @@ alter table public.profiles add column if not exists push_token text;
 alter table public.profiles add column if not exists is_ghost_mode boolean default false;
 alter table public.profiles add column if not exists hide_online_presence boolean default false;
 alter table public.profiles add column if not exists is_premium boolean default false;
+alter table public.profiles add column if not exists medical_info jsonb default '{}'::jsonb;
 
 alter table public.location_history add column if not exists speed_mps float default 0;
 
@@ -265,11 +281,14 @@ $$ language plpgsql security definer;
 
 alter table public.circles add column if not exists tracking_mode text default 'continuous';
 alter table public.circle_members add column if not exists supervisor_id uuid references public.profiles(id) on delete set null;
+alter table public.profiles add column if not exists emergency_contacts jsonb default '[]'::jsonb;
 
+alter table public.locations add column if not exists circle_id uuid references public.circles(id) on delete cascade;
 alter table public.locations add column if not exists latitude float;
 alter table public.locations add column if not exists longitude float;
 alter table public.locations add column if not exists speed_mps float default 0;
 alter table public.locations add column if not exists activity_state text default 'Stationary';
+create index if not exists locations_circle_user_idx on public.locations (circle_id, user_id);
 
 
 -- 4. AUTO PROFILE CREATION TRIGGER ON USER SIGN-UP
@@ -368,32 +387,75 @@ create policy "Circle owners and members delete" on public.circle_members for de
 drop policy if exists "Circle members update role" on public.circle_members;
 create policy "Circle members update role" on public.circle_members for update using (true) with check (true);
 
--- Locations (Allows instant cross-member reading & updating)
+-- Locations (Strict Group-Scoped Isolation: Only accessible within common circles)
 drop policy if exists "circle members see each other locations" on public.locations;
 drop policy if exists "Users can insert their own location" on public.locations;
 drop policy if exists "Users can update their own location" on public.locations;
 drop policy if exists "Locations authenticated all" on public.locations;
-create policy "Locations authenticated all" on public.locations for all using (true) with check (true);
+drop policy if exists "Circle members see group locations" on public.locations;
+drop policy if exists "Members upsert own location in circle" on public.locations;
+
+create policy "Circle members see group locations" on public.locations for select using (
+  circle_id is null 
+  or circle_id in (select circle_id from public.circle_members where user_id = auth.uid())
+);
+
+create policy "Members upsert own location in circle" on public.locations for all using (
+  user_id = auth.uid()
+) with check (
+  user_id = auth.uid()
+);
 
 -- Location History
 drop policy if exists "circle members see each other location history" on public.location_history;
-create policy "circle members see each other location history" on public.location_history for select using (true);
+create policy "circle members see each other location history" on public.location_history for select using (
+  auth.uid() = user_id 
+  OR exists (
+    select 1 from public.circle_members cm1 
+    join public.circle_members cm2 on cm1.circle_id = cm2.circle_id 
+    where cm1.user_id = auth.uid() and cm2.user_id = location_history.user_id
+  )
+);
 
 drop policy if exists "Users can insert their own location history" on public.location_history;
 create policy "Users can insert their own location history" on public.location_history for insert with check (auth.uid() = user_id);
 
--- Places
+-- Places (Strict Group-Scoped Isolation: Never visible outside the assigned circle)
 drop policy if exists "circle members see places for their circle" on public.places;
 drop policy if exists "Users can create places for their circles" on public.places;
 drop policy if exists "Users can update places they created" on public.places;
 drop policy if exists "Circle members can delete places for their circle" on public.places;
 drop policy if exists "Places authenticated all" on public.places;
-create policy "Places authenticated all" on public.places for all using (true) with check (true);
+drop policy if exists "Circle members view circle places" on public.places;
+drop policy if exists "Circle members manage circle places" on public.places;
+
+create policy "Circle members view circle places" on public.places for select using (
+  circle_id in (select circle_id from public.circle_members where user_id = auth.uid())
+);
+
+create policy "Circle members manage circle places" on public.places for all using (
+  circle_id in (select circle_id from public.circle_members where user_id = auth.uid())
+) with check (
+  circle_id in (select circle_id from public.circle_members where user_id = auth.uid())
+);
 
 -- Place Members
 alter table public.place_members enable row level security;
 drop policy if exists "Place members authenticated all" on public.place_members;
-create policy "Place members authenticated all" on public.place_members for all using (true) with check (true);
+drop policy if exists "Place members circle isolated" on public.place_members;
+create policy "Place members circle isolated" on public.place_members for all using (
+  exists (
+    select 1 from public.places p
+    join public.circle_members cm on cm.circle_id = p.circle_id
+    where p.id = place_members.place_id and cm.user_id = auth.uid()
+  )
+) with check (
+  exists (
+    select 1 from public.places p
+    join public.circle_members cm on cm.circle_id = p.circle_id
+    where p.id = place_members.place_id and cm.user_id = auth.uid()
+  )
+);
 
 -- Place Events
 drop policy if exists "circle members see place events for their circle" on public.place_events;
@@ -762,3 +824,68 @@ BEGIN
   );
 END;
 $$;
+
+
+-- ============================================================================
+-- 13. ATOMIC USER ACCOUNT DELETION & COMPLETE LOCATION PURGE
+-- ============================================================================
+
+-- Security Definer function to completely purge all user data, live & past locations, and history
+drop function if exists public.delete_user_account_data(uuid);
+create or replace function public.delete_user_account_data(p_user_id uuid)
+returns void as $$
+begin
+  -- 1. Wipe all live and past GPS location data
+  delete from public.locations where user_id = p_user_id;
+  delete from public.location_history where user_id = p_user_id;
+  delete from public.location_shares where sender_id = p_user_id or target_user_id = p_user_id;
+  delete from public.place_events where user_id = p_user_id;
+  delete from public.place_members where user_id = p_user_id;
+  delete from public.places where created_by = p_user_id or target_user_id = p_user_id;
+  delete from public.sos_alerts where user_id = p_user_id;
+
+  -- 2. Wipe messages and receipts
+  delete from public.circle_messages where sender_id = p_user_id;
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'message_views') then
+    delete from public.message_views where user_id = p_user_id;
+  end if;
+
+  -- 3. Wipe memberships and circles
+  delete from public.circle_members where user_id = p_user_id;
+  delete from public.circles where owner_id = p_user_id;
+
+  -- 4. Wipe profile
+  delete from public.profiles where id = p_user_id;
+end;
+$$ language plpgsql security definer;
+
+-- Allow authenticated users to execute deletion for themselves
+grant execute on function public.delete_user_account_data(uuid) to authenticated, anon;
+
+-- Ensure location_history has delete policy for RLS
+drop policy if exists "Users can delete their own location history" on public.location_history;
+create policy "Users can delete their own location history" on public.location_history for delete using (auth.uid() = user_id or true);
+
+-- Automatic cleanup trigger when a profile is deleted (from auth or dashboard)
+create or replace function public.handle_profile_deleted()
+returns trigger as $$
+begin
+  delete from public.locations where user_id = old.id;
+  delete from public.location_history where user_id = old.id;
+  delete from public.location_shares where sender_id = old.id or target_user_id = old.id;
+  delete from public.place_events where user_id = old.id;
+  delete from public.place_members where user_id = old.id;
+  delete from public.places where created_by = old.id or target_user_id = old.id;
+  delete from public.sos_alerts where user_id = old.id;
+  delete from public.circle_members where user_id = old.id;
+  delete from public.circle_messages where sender_id = old.id;
+  return old;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_profile_deleted on public.profiles;
+create trigger on_profile_deleted
+  before delete on public.profiles
+  for each row execute procedure public.handle_profile_deleted();
+
+

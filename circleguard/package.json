@@ -32,6 +32,7 @@
     "expo-location": "~57.0.7",
     "expo-notifications": "~57.0.11",
     "expo-sensors": "~57.0.2",
+    "expo-speech": "~57.0.2",
     "expo-status-bar": "~57.0.1",
     "expo-task-manager": "~57.0.7",
     "expo-web-browser": "~57.0.2",
@@ -58,13 +59,15 @@
   "devDependencies": {
     "@types/jest": "29.5.14",
     "@types/react": "~19.2.4",
+    "playwright": "^1.62.1",
     "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "test:e2e": "node tests/playwright_full_audit.js"
   },
   "private": true
 }

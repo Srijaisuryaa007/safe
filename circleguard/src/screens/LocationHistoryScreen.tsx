@@ -5,15 +5,41 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { useCircleStore } from '../store/useCircleStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
+import { isValidUuid } from '../lib/utils';
+import { flushOfflineBreadcrumbs } from '../services/OfflineLocationQueueService';
 import { fetchRoadSnappedRoute, getCardinalDirection, calculateBearing } from '../services/RoadRoutingService';
 import { smoothTrajectoryPoints, calculateHaversineDistanceMeters } from '../services/LocationSmoothingService';
 import { segmentTripsByStops } from '../services/TripSegmentationService';
 import AnimatedListDropdown from '../components/AnimatedListDropdown';
 import CircleGuardGlobeLoader from '../components/CircleGuardGlobeLoader';
+
+const geocodeCache: { [key: string]: string } = {};
+
+async function reverseGeocodeFast(lat: number, lng: number): Promise<string> {
+  const cacheKey = `${lat.toFixed(3)},${lng.toFixed(3)}`;
+  if (geocodeCache[cacheKey]) return geocodeCache[cacheKey];
+
+  let addr = `Location • ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  try {
+    const geoPromise = Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1800));
+    const geoRes: any = await Promise.race([geoPromise, timeoutPromise]).catch(() => null);
+
+    if (geoRes && geoRes.length > 0) {
+      const place = geoRes[0];
+      const nameParts = [place.name, place.street, place.district || place.subregion || place.city].filter(Boolean);
+      if (nameParts.length > 0) addr = nameParts.join(', ');
+    }
+  } catch (e) {}
+
+  geocodeCache[cacheKey] = addr;
+  return addr;
+}
 
 interface HistoryPoint {
   id: string;
@@ -123,12 +149,20 @@ export default function LocationHistoryScreen() {
   const [totalDistanceKm, setTotalDistanceKm] = useState(0);
   const [travelDurationMinutes, setTravelDurationMinutes] = useState(0);
   const [topSpeedKmh, setTopSpeedKmh] = useState(0);
+  const [isScrollEnabled, setIsScrollEnabled] = useState(true);
 
   useEffect(() => {
-    if (profile?.id && !selectedMemberId) {
-      setSelectedMemberId(profile.id);
+    if (profile?.id) {
+      // If no selection or selected member is not in current circle (and not self), reset strictly to self
+      const isMemberInCircle = (members || []).some(m => m.user_id === selectedMemberId);
+      if (!selectedMemberId || (!isMemberInCircle && selectedMemberId !== profile.id)) {
+        setSelectedMemberId(profile.id);
+      }
+    } else {
+      setSelectedMemberId('');
+      setHistoryPoints([]);
     }
-  }, [profile?.id]);
+  }, [profile?.id, members]);
 
   useEffect(() => {
     fetchLocationHistory();
@@ -256,16 +290,45 @@ export default function LocationHistoryScreen() {
 
     try {
       const { start, end } = getDateRange();
-      const targetUserId = selectedMemberId || profile?.id;
+      let targetUserId = selectedMemberId || profile?.id;
 
-      if (!targetUserId) {
+      // Strict Enterprise Privacy Boundary:
+      // Verify that targetUserId is either self OR an active member in current circle
+      const isSelf = targetUserId === profile?.id;
+      const isCircleMember = (members || []).some(m => m.user_id === targetUserId);
+
+      if (!isSelf && !isCircleMember) {
+        // Alien or previous user ID: enforce boundary to self only
+        targetUserId = profile?.id || '';
+        if (targetUserId && targetUserId !== selectedMemberId) {
+          setSelectedMemberId(targetUserId);
+        }
+      }
+
+      if (!targetUserId || !isValidUuid(targetUserId)) {
+        setHistoryPoints([]);
+        setTripLegs([]);
+        setRoadCoords([]);
+        setRoadBearings([]);
+        setStationaryStops([]);
+        setTotalDistanceKm(0);
+        setTravelDurationMinutes(0);
+        setTopSpeedKmh(0);
         setLoading(false);
         return;
       }
 
-      let fetchedPoints: HistoryPoint[] = [];
+      // 1. Gather all raw points from Supabase database
+      const rawPoints: {
+        id: string;
+        lat: number;
+        lng: number;
+        timeMs: number;
+        speed_mps: number | null;
+        accuracy?: number;
+        recorded_at: string;
+      }[] = [];
 
-      // 1. Query Supabase location_history table
       const { data, error } = await supabase
         .from('location_history')
         .select('*')
@@ -275,64 +338,109 @@ export default function LocationHistoryScreen() {
         .order('recorded_at', { ascending: true });
 
       if (!error && data && data.length > 0) {
-        let prevPoint: { lat: number; lng: number; timeMs: number } | null = null;
-        for (let idx = 0; idx < data.length; idx++) {
-          const item = data[idx];
-          const coords = parsePointGeom(item.geom);
-          if (coords) {
-            const timeMs = new Date(item.recorded_at).getTime();
-
-            if (prevPoint) {
-              const distMeters = calculateHaversineDistanceMeters(prevPoint.lat, prevPoint.lng, coords.latitude, coords.longitude);
-              const timeDiffSec = Math.abs(timeMs - prevPoint.timeMs) / 1000;
-
-              // Filter out stationary GPS noise points (< 15 meters AND < 5 minutes gap)
-              if (distMeters < 15 && timeDiffSec < 300 && idx < data.length - 1) {
-                continue;
-              }
-            }
-
-            let speed = 0;
-            if (item.speed_mps != null) {
-              speed = Math.round(item.speed_mps * 3.6);
-            } else if (prevPoint) {
-              const distMeters = calculateHaversineDistanceMeters(prevPoint.lat, prevPoint.lng, coords.latitude, coords.longitude);
-              const timeDiffSec = Math.abs(timeMs - prevPoint.timeMs) / 1000;
-              if (timeDiffSec > 0) {
-                speed = Math.round((distMeters / timeDiffSec) * 3.6);
-              }
-            }
-            prevPoint = { lat: coords.latitude, lng: coords.longitude, timeMs };
-
-            let streetAddr = `Location • ${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`;
-            try {
-              const geoRes = await Location.reverseGeocodeAsync({ latitude: coords.latitude, longitude: coords.longitude });
-              if (geoRes && geoRes.length > 0) {
-                const place = geoRes[0];
-                const nameParts = [place.name, place.street, place.district || place.subregion || place.city].filter(Boolean);
-                if (nameParts.length > 0) streetAddr = nameParts.join(', ');
-              } else {
-                const nomRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.latitude}&lon=${coords.longitude}&zoom=18&addressdetails=1`, { headers: { 'User-Agent': 'CircleGuard/1.0' } });
-                const nomData = await nomRes.json();
-                if (nomData?.address) {
-                  const a = nomData.address;
-                  const parts = [a.road || a.suburb, a.neighbourhood || a.city_district || a.county, a.city || a.town].filter(Boolean);
-                  if (parts.length > 0) streetAddr = parts.join(', ');
-                }
-              }
-            } catch (e) {}
-
-            fetchedPoints.push({
-              id: item.id?.toString() || idx.toString(),
-              latitude: coords.latitude,
-              longitude: coords.longitude,
-              timestamp: new Date(item.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              rawTimeMs: timeMs,
-              speedKmh: speed,
-              activity: speed > 15 ? 'Driving / Traveling' : speed > 3 ? 'Walking' : 'Stationary',
-              address: streetAddr,
+        data.forEach((item: any, idx: number) => {
+          const coords = parsePointGeom(item.geom) || (item.latitude && item.longitude ? { latitude: item.latitude, longitude: item.longitude } : null);
+          if (coords && coords.latitude !== 0 && coords.longitude !== 0 && !isNaN(coords.latitude) && !isNaN(coords.longitude)) {
+            rawPoints.push({
+              id: item.id?.toString() || `db_${idx}`,
+              lat: coords.latitude,
+              lng: coords.longitude,
+              timeMs: new Date(item.recorded_at).getTime(),
+              speed_mps: item.speed_mps,
+              accuracy: item.accuracy,
+              recorded_at: item.recorded_at,
             });
           }
+        });
+      }
+
+      // 2. Slow Network / Offline Resilience: Read pending local offline buffer from AsyncStorage
+      if (selectedDate === 'today') {
+        try {
+          const offlineRaw = await AsyncStorage.getItem(`@circleguard_offline_breadcrumbs_${targetUserId}`);
+          if (offlineRaw) {
+            const offlineQueue = JSON.parse(offlineRaw);
+            if (Array.isArray(offlineQueue)) {
+              for (let i = 0; i < offlineQueue.length; i++) {
+                const offItem = offlineQueue[i];
+                const coords = offItem.latitude && offItem.longitude 
+                  ? { latitude: offItem.latitude, longitude: offItem.longitude }
+                  : parsePointGeom(offItem.geom);
+                if (coords && coords.latitude !== 0 && coords.longitude !== 0 && !isNaN(coords.latitude) && !isNaN(coords.longitude)) {
+                  const timeMs = new Date(offItem.recorded_at).getTime();
+                  // Avoid duplicate timestamps (< 1.5s)
+                  if (!rawPoints.some(p => Math.abs(p.timeMs - timeMs) < 1500)) {
+                    rawPoints.push({
+                      id: `offline_${i}`,
+                      lat: coords.latitude,
+                      lng: coords.longitude,
+                      timeMs,
+                      speed_mps: offItem.speed_mps,
+                      accuracy: offItem.accuracy,
+                      recorded_at: offItem.recorded_at,
+                    });
+                  }
+                }
+              }
+            }
+          }
+          // Asynchronously flush offline queue in background
+          flushOfflineBreadcrumbs(targetUserId).catch(() => {});
+        } catch (e) {}
+      }
+
+      // Sort all points chronologically to guarantee accurate travel direction
+      rawPoints.sort((a, b) => a.timeMs - b.timeMs);
+
+      let fetchedPoints: HistoryPoint[] = [];
+
+      if (rawPoints.length > 0) {
+        let prevPoint: { lat: number; lng: number; timeMs: number } | null = null;
+
+        for (let idx = 0; idx < rawPoints.length; idx++) {
+          const item = rawPoints[idx];
+          const timeMs = item.timeMs;
+
+          if (prevPoint) {
+            const distMeters = calculateHaversineDistanceMeters(prevPoint.lat, prevPoint.lng, item.lat, item.lng);
+            const timeDiffSec = Math.max(0.5, Math.abs(timeMs - prevPoint.timeMs) / 1000);
+
+            // Filter out stationary GPS noise points (< 10 meters AND < 3 minutes gap)
+            if (distMeters < 10 && timeDiffSec < 180 && idx < rawPoints.length - 1) {
+              continue;
+            }
+
+            // Discard impossible teleport speed jumps (> 150 km/h) caused by multipath cell tower jumps
+            const impliedKmh = (distMeters / timeDiffSec) * 3.6;
+            if (timeDiffSec < 3 && impliedKmh > 150) {
+              continue;
+            }
+          }
+
+          let speed = 0;
+          if (item.speed_mps != null && !isNaN(item.speed_mps)) {
+            speed = Math.round(item.speed_mps * 3.6);
+          } else if (prevPoint) {
+            const distMeters = calculateHaversineDistanceMeters(prevPoint.lat, prevPoint.lng, item.lat, item.lng);
+            const timeDiffSec = Math.max(0.5, Math.abs(timeMs - prevPoint.timeMs) / 1000);
+            if (timeDiffSec > 0) {
+              const impliedKmh = (distMeters / timeDiffSec) * 3.6;
+              speed = impliedKmh < 2.0 ? 0 : Math.min(130, Math.round(impliedKmh));
+            }
+          }
+
+          prevPoint = { lat: item.lat, lng: item.lng, timeMs };
+
+          fetchedPoints.push({
+            id: item.id,
+            latitude: item.lat,
+            longitude: item.lng,
+            timestamp: new Date(item.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            rawTimeMs: timeMs,
+            speedKmh: speed,
+            activity: speed > 18 ? 'Driving / Transit' : speed > 3 ? 'Walking' : 'Stationary',
+            address: `Point • ${item.lat.toFixed(4)}, ${item.lng.toFixed(4)}`,
+          });
         }
       }
 
@@ -349,31 +457,38 @@ export default function LocationHistoryScreen() {
         return;
       }
 
-      // Apply 3-point moving average smoothing to the raw GPS trajectory
-      fetchedPoints = smoothTrajectoryPoints(fetchedPoints);
+      // Fast async reverse geocode for First (Departure) and Last (Arrival) points only
+      try {
+        const [firstAddr, lastAddr] = await Promise.all([
+          reverseGeocodeFast(fetchedPoints[0].latitude, fetchedPoints[0].longitude),
+          reverseGeocodeFast(fetchedPoints[fetchedPoints.length - 1].latitude, fetchedPoints[fetchedPoints.length - 1].longitude),
+        ]);
+        fetchedPoints[0].address = firstAddr;
+        fetchedPoints[fetchedPoints.length - 1].address = lastAddr;
+      } catch (e) {}
 
+      // Apply 3-point moving average smoothing to eliminate GPS jitter while keeping the path exact
+      fetchedPoints = smoothTrajectoryPoints(fetchedPoints);
       setHistoryPoints(fetchedPoints);
 
-      // Segment trips by stops (> 5 mins)
+      // Segment trips by stops (> 4 mins)
       const legs = segmentTripsByStops(
         fetchedPoints,
         (p) => p.rawTimeMs,
         (p) => p.latitude,
         (p) => p.longitude,
-        5, // 5 mins
+        4, // 4 mins
         50 // 50 meters
       );
 
-      // 3. Direct Authentic Real GPS Path Rendering (No OSRM calculated routes)
+      // Render accurate trajectory coordinates
       let allRoadCoords: [number, number][] = [];
       let allBearings: number[] = [];
-
       const processedLegs = [];
 
       for (const leg of legs) {
         const directCoords: [number, number][] = leg.points.map(p => [p.latitude, p.longitude]);
         allRoadCoords = allRoadCoords.concat(directCoords);
-
         processedLegs.push({
           ...leg,
           roadCoords: directCoords,
@@ -384,7 +499,7 @@ export default function LocationHistoryScreen() {
       setRoadCoords(allRoadCoords);
       setRoadBearings(allBearings);
 
-      // 4. Compute max speed, travel duration, and cluster authentic stationary stay locations (>= 5 mins)
+      // Compute top speed, travel duration, and cluster stationary stays (>= 5 mins)
       let maxSpd = 0;
       const stops: StationaryStop[] = [];
 
@@ -393,10 +508,11 @@ export default function LocationHistoryScreen() {
           if (pt.speedKmh > maxSpd) maxSpd = pt.speedKmh;
         });
 
-        // Cluster consecutive stationary points (speed === 0) into authentic stays >= 5 mins
+        // Cluster consecutive stationary points
         let currentGroup: HistoryPoint[] = [];
 
-        fetchedPoints.forEach((pt) => {
+        for (let i = 0; i < fetchedPoints.length; i++) {
+          const pt = fetchedPoints[i];
           if (pt.speedKmh === 0 || pt.activity.includes('Stationary')) {
             currentGroup.push(pt);
           } else {
@@ -404,9 +520,14 @@ export default function LocationHistoryScreen() {
               const first = currentGroup[0];
               const last = currentGroup[currentGroup.length - 1];
               const dwellMins = Math.max(5, Math.round((last.rawTimeMs - first.rawTimeMs) / 60000));
+              let stopAddr = first.address;
+              try {
+                stopAddr = await reverseGeocodeFast(first.latitude, first.longitude);
+              } catch (e) {}
+
               stops.push({
                 id: `stop_${first.id}`,
-                name: first.address || 'Recorded Stay Location',
+                name: stopAddr || 'Recorded Stay Location',
                 latitude: first.latitude,
                 longitude: first.longitude,
                 arrivalTime: first.timestamp,
@@ -416,15 +537,20 @@ export default function LocationHistoryScreen() {
             }
             currentGroup = [];
           }
-        });
+        }
 
         if (currentGroup.length >= 2) {
           const first = currentGroup[0];
           const last = currentGroup[currentGroup.length - 1];
           const dwellMins = Math.max(5, Math.round((last.rawTimeMs - first.rawTimeMs) / 60000));
+          let stopAddr = first.address;
+          try {
+            stopAddr = await reverseGeocodeFast(first.latitude, first.longitude);
+          } catch (e) {}
+
           stops.push({
             id: `stop_${first.id}`,
-            name: first.address || 'Recorded Stay Location',
+            name: stopAddr || 'Recorded Stay Location',
             latitude: first.latitude,
             longitude: first.longitude,
             arrivalTime: first.timestamp,
@@ -432,10 +558,15 @@ export default function LocationHistoryScreen() {
             durationMinutes: dwellMins,
           });
         }
-        // Calculate total authentic trip distance and duration
+
+        // Calculate total authentic trip distance (with stationary drift freeze)
         let totalDist = 0;
         for (let i = 1; i < allRoadCoords.length; i++) {
-          totalDist += getHaversineDistKm(allRoadCoords[i - 1][0], allRoadCoords[i - 1][1], allRoadCoords[i][0], allRoadCoords[i][1]);
+          const segDist = getHaversineDistKm(allRoadCoords[i - 1][0], allRoadCoords[i - 1][1], allRoadCoords[i][0], allRoadCoords[i][1]);
+          // Only accumulate if moved >= 8 meters to eliminate odometer creep
+          if (segDist >= 0.008) {
+            totalDist += segDist;
+          }
         }
 
         let totalDur = 0;
@@ -449,7 +580,7 @@ export default function LocationHistoryScreen() {
         setStationaryStops(stops);
       }
     } catch (err) {
-      console.error('Error fetching history:', err);
+      console.error('Error fetching location history:', err);
     } finally {
       setLoading(false);
     }
@@ -467,7 +598,7 @@ export default function LocationHistoryScreen() {
   }
 
   const updateMapPlaybackPin = () => {
-    if (!webViewRef.current || historyPoints.length === 0) return;
+    if (historyPoints.length === 0) return;
 
     const activePt = historyPoints[playbackIndex] || historyPoints[0];
     const totalRoad = roadCoords.length;
@@ -495,13 +626,27 @@ export default function LocationHistoryScreen() {
       isDark,
     };
 
-    const jsCode = `
-      if (window.renderHistoryMap) {
-        window.renderHistoryMap(${JSON.stringify(data)});
-      }
-      true;
-    `;
-    webViewRef.current.injectJavaScript(jsCode);
+    if (Platform.OS === 'web') {
+      try {
+        const iframe = document.getElementById('historyMapIframe') as HTMLIFrameElement | null;
+        if (iframe && iframe.contentWindow) {
+          const win: any = iframe.contentWindow;
+          if (win.renderHistoryMap) {
+            win.renderHistoryMap(data);
+          } else {
+            win.postMessage({ type: 'RENDER_MAP', data }, '*');
+          }
+        }
+      } catch (e) {}
+    } else if (webViewRef.current) {
+      const jsCode = `
+        if (window.renderHistoryMap) {
+          window.renderHistoryMap(${JSON.stringify(data)});
+        }
+        true;
+      `;
+      webViewRef.current.injectJavaScript(jsCode);
+    }
   };
 
   const htmlContent = `
@@ -514,8 +659,18 @@ export default function LocationHistoryScreen() {
         <script src="https://unpkg.com/leaflet-polylineoffset@1.1.1/leaflet.polylineoffset.js"></script>
         <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
         <style>
-          body { margin: 0; padding: 0; background-color: #F4F5FB; }
-          #map { width: 100vw; height: 100vh; }
+          body, html, #map {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: ${isDark ? '#0D0E12' : '#F4F5FB'};
+            touch-action: none !important;
+            -webkit-user-select: none;
+            user-select: none;
+            overscroll-behavior: none;
+          }
+          .leaflet-control-attribution { display: none !important; }
           .stop-badge { background: #FF536A; color: #FFFFFF; font-weight: bold; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 11px; border: 2.5px solid #FFFFFF; box-shadow: 0 4px 10px rgba(255,83,106,0.4); }
           .nav-arrow-container {
             width: 40px;
@@ -536,13 +691,34 @@ export default function LocationHistoryScreen() {
           function initMap() {
             var tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
             var fallbackTileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
-            map = L.map('map', { zoomControl: false, attributionControl: false, preferCanvas: true, zoomAnimation: true, fadeAnimation: true, markerZoomAnimation: true }).setView([13.0827, 80.2707], 14);
+            map = L.map('map', { 
+              zoomControl: false, 
+              attributionControl: false, 
+              preferCanvas: true, 
+              dragging: true,
+              touchZoom: true,
+              scrollWheelZoom: true,
+              tap: false,
+              zoomAnimation: true, 
+              fadeAnimation: true, 
+              markerZoomAnimation: true 
+            }).setView([13.0827, 80.2707], 14);
+
             var terrainLayer = L.tileLayer(tileUrl, { maxZoom: 19, keepBuffer: 8, updateWhenIdle: false, updateWhenZooming: false, crossOrigin: true }).addTo(map);
             terrainLayer.on('tileerror', function(e) {
               e.tile.src = fallbackTileUrl.replace('{z}', e.coords.z).replace('{x}', e.coords.x).replace('{y}', e.coords.y);
             });
           }
           initMap();
+
+          window.addEventListener('message', function(event) {
+            try {
+              var payload = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+              if (payload && payload.type === 'RENDER_MAP' && payload.data) {
+                window.renderHistoryMap(payload.data);
+              }
+            } catch(e) {}
+          });
 
           window.renderHistoryMap = function(data) {
             if (!map) return;
@@ -782,15 +958,38 @@ export default function LocationHistoryScreen() {
       ) : (
         <>
           {/* Main Map Viewport */}
-          <View style={styles.mapViewportWrapper}>
+          <View 
+            style={styles.mapViewportWrapper}
+            onTouchStart={() => setIsScrollEnabled(false)}
+            onTouchEnd={() => setIsScrollEnabled(true)}
+            onTouchCancel={() => setIsScrollEnabled(true)}
+            onResponderGrant={() => setIsScrollEnabled(false)}
+            onResponderRelease={() => setIsScrollEnabled(true)}
+            onResponderTerminate={() => setIsScrollEnabled(true)}
+            {...(Platform.OS === 'web' ? {
+              onMouseEnter: () => setIsScrollEnabled(false),
+              onMouseLeave: () => setIsScrollEnabled(true),
+            } : {})}
+          >
             <View style={[styles.mapContainer, { borderColor: 'rgba(212, 175, 55, 0.15)' }]}>
-              <WebView
-                ref={webViewRef}
-                originWhitelist={['*']}
-                source={{ html: htmlContent }}
-                style={styles.webView}
-                onLoadEnd={updateMapPlaybackPin}
-              />
+              {Platform.OS === 'web' ? (
+                <iframe
+                  id="historyMapIframe"
+                  srcDoc={htmlContent}
+                  style={{ width: '100%', height: '100%', border: 'none', borderRadius: 20 }}
+                  onLoad={updateMapPlaybackPin}
+                />
+              ) : (
+                <WebView
+                  ref={webViewRef}
+                  originWhitelist={['*']}
+                  source={{ html: htmlContent }}
+                  style={styles.webView}
+                  nestedScrollEnabled={false}
+                  scrollEnabled={false}
+                  onLoadEnd={updateMapPlaybackPin}
+                />
+              )}
             </View>
 
             {/* Docked Playback Control Panel Below Map */}
@@ -840,7 +1039,13 @@ export default function LocationHistoryScreen() {
           </View>
 
           {/* Daily Metrics & Movement Timeline */}
-          <ScrollView style={styles.metricsScroll} contentContainerStyle={styles.metricsContent} showsVerticalScrollIndicator={false}>
+          <ScrollView 
+            style={styles.metricsScroll} 
+            contentContainerStyle={styles.metricsContent} 
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={isScrollEnabled}
+            nestedScrollEnabled={true}
+          >
             {/* Metric Cards Grid */}
         <View style={styles.metricsRow}>
           <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>

@@ -65,39 +65,21 @@ export default function AnimatedCircleGuardLogo({
     if (isRevolving) {
       cancelAnimation(outerRingRotation);
       cancelAnimation(ringScale);
+      cancelAnimation(shieldScale);
       
       outerRingRotation.value = 0;
       outerRingRotation.value = withRepeat(
         withTiming(360, {
-          duration: isLoading ? 320 : 5000,
+          duration: isLoading ? 650 : 5000,
           easing: Easing.linear,
         }),
         -1,
         false
       );
 
-      if (isLoading) {
-        ringScale.value = withRepeat(
-          withSequence(
-            withTiming(1.08, { duration: 250, easing: Easing.inOut(Easing.ease) }),
-            withTiming(0.96, { duration: 250, easing: Easing.inOut(Easing.ease) })
-          ),
-          -1,
-          true
-        );
-
-        shieldScale.value = withRepeat(
-          withSequence(
-            withTiming(1.12, { duration: 200, easing: Easing.inOut(Easing.quad) }),
-            withTiming(0.98, { duration: 200, easing: Easing.inOut(Easing.quad) })
-          ),
-          -1,
-          true
-        );
-      } else {
-        ringScale.value = withTiming(1, { duration: 300 });
-        shieldScale.value = withTiming(1, { duration: 300 });
-      }
+      // Keep logo firmly locked at 1.0 in place without jumping or pulsing scale
+      ringScale.value = withTiming(1, { duration: 150 });
+      shieldScale.value = withTiming(1, { duration: 150 });
     }
   }, [isLoading, isRevolving]);
 

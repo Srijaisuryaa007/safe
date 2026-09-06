@@ -47,6 +47,11 @@ export default function ProfileScreen() {
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
   const [userDob, setUserDob] = useState('07/08/2004');
+  const [imageError, setImageError] = useState(false);
+
+  React.useEffect(() => {
+    setImageError(false);
+  }, [profile?.avatar_url]);
 
   const [emergencyContact, setEmergencyContact] = useState<PrimaryContact | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -78,10 +83,23 @@ export default function ProfileScreen() {
 
   React.useEffect(() => {
     const loadPrimaryEmergencyContact = async () => {
-      if (!profile?.id) {
-        setEmergencyContact(null);
+      // 1. Check cloud profile
+      const cloudContacts = (profile as any)?.emergency_contacts;
+      if (Array.isArray(cloudContacts) && cloudContacts.length > 0) {
+        setEmergencyContact({ name: cloudContacts[0].name, phone: cloudContacts[0].phone });
         return;
       }
+
+      if (!profile?.id) {
+        const globalSaved = await AsyncStorage.getItem('@circleguard_primary_emergency_contact');
+        if (globalSaved) {
+          try {
+            setEmergencyContact(JSON.parse(globalSaved));
+          } catch (e) {}
+        }
+        return;
+      }
+
       try {
         const saved = await AsyncStorage.getItem(getPrimaryContactKey(profile.id));
         if (saved) {
@@ -96,13 +114,18 @@ export default function ProfileScreen() {
               setEmergencyContact(null);
             }
           } else {
-            setEmergencyContact(null);
+            const globalSaved = await AsyncStorage.getItem('@circleguard_primary_emergency_contact');
+            if (globalSaved) {
+              setEmergencyContact(JSON.parse(globalSaved));
+            } else {
+              setEmergencyContact(null);
+            }
           }
         }
       } catch (e) {}
     };
     loadPrimaryEmergencyContact();
-  }, [profile?.id]);
+  }, [profile?.id, profile]);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -151,10 +174,11 @@ export default function ProfileScreen() {
         };
 
         setEmergencyContact(item);
+        await AsyncStorage.setItem('@circleguard_primary_emergency_contact', JSON.stringify(item));
         if (profile?.id) {
           await AsyncStorage.setItem(getPrimaryContactKey(profile.id), JSON.stringify(item));
 
-          // Synchronize with the emergency contacts list
+          // Synchronize with the emergency contacts list and cloud profile
           try {
             const savedList = await AsyncStorage.getItem(getContactsListKey(profile.id));
             let currentList: any[] = savedList ? JSON.parse(savedList) : [];
@@ -166,6 +190,9 @@ export default function ProfileScreen() {
                 relationship: 'Emergency Contact',
               });
               await AsyncStorage.setItem(getContactsListKey(profile.id), JSON.stringify(currentList));
+              await AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(currentList));
+              useAuthStore.getState().setProfile({ ...profile, emergency_contacts: currentList });
+              await supabase.from('profiles').update({ emergency_contacts: currentList }).eq('id', profile.id);
             }
           } catch (e) {}
         }
@@ -190,9 +217,22 @@ export default function ProfileScreen() {
       cancelText: 'CANCEL',
       isDestructive: true,
       onConfirm: async () => {
+        const removedPhone = emergencyContact?.phone;
         setEmergencyContact(null);
+        await AsyncStorage.removeItem('@circleguard_primary_emergency_contact');
         if (profile?.id) {
           await AsyncStorage.removeItem(getPrimaryContactKey(profile.id));
+          try {
+            const savedList = await AsyncStorage.getItem(getContactsListKey(profile.id));
+            if (savedList) {
+              let currentList: any[] = JSON.parse(savedList);
+              currentList = currentList.filter((c: any) => c.phone !== removedPhone);
+              await AsyncStorage.setItem(getContactsListKey(profile.id), JSON.stringify(currentList));
+              await AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(currentList));
+              useAuthStore.getState().setProfile({ ...profile, emergency_contacts: currentList });
+              await supabase.from('profiles').update({ emergency_contacts: currentList }).eq('id', profile.id);
+            }
+          } catch (e) {}
         }
         triggerToast('Emergency contact removed successfully');
       },
@@ -388,9 +428,19 @@ export default function ProfileScreen() {
         <View style={[styles.headerCard, getThemeCardStyles(themeMode), { backgroundColor: colors.surface, padding: 20 }]}>
           {/* Avatar and Edit Icon */}
           <View style={styles.avatarRow}>
-            <TouchableOpacity style={styles.avatarWrapper} onPress={() => setEditProfileModalVisible(true)} disabled={uploading}>
-              {profile?.avatar_url ? (
-                <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} />
+            <TouchableOpacity 
+              style={styles.avatarWrapper} 
+              onPress={handlePickAvatar} 
+              disabled={uploading}
+              activeOpacity={0.8}
+            >
+              {profile?.avatar_url && !imageError ? (
+                <Image 
+                  key={profile.avatar_url}
+                  source={{ uri: profile.avatar_url }} 
+                  style={styles.avatarImage} 
+                  onError={() => setImageError(true)}
+                />
               ) : (
                 <View style={[styles.avatar, { backgroundColor: themeMode === 'brand_green' ? '#3DBE6C' : colors.foreground }]}>
                   <Text style={[styles.avatarText, { color: '#FFFFFF' }]}>{initial}</Text>
@@ -407,6 +457,7 @@ export default function ProfileScreen() {
 
             <TouchableOpacity 
               style={styles.topRightEditBtn}
+              testID="edit-profile-pencil-btn"
               onPress={() => setEditProfileModalVisible(true)}
               activeOpacity={0.7}
             >
@@ -680,7 +731,7 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     paddingTop: 46,
-    paddingBottom: 28,
+    paddingBottom: 110,
   },
   topNavRow: {
     marginBottom: 16,

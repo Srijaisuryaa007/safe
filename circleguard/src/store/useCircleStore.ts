@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from './useAuthStore';
+import { isValidUuid } from '../lib/utils';
 
 export interface Circle {
   id: string;
@@ -145,6 +146,8 @@ interface CircleState {
   deletePlace: (placeId: string) => Promise<boolean>;
   removeMember: (circleId: string, userId: string) => Promise<boolean>;
   assignMemberSupervisor: (circleId: string, memberId: string, supervisorId: string | null) => Promise<boolean>;
+  purgeUserFromStore: (userId: string) => void;
+  clearCircleMarkersAndPlaces: () => void;
   resetCircleStore: () => void;
 }
 
@@ -160,16 +163,37 @@ export const useCircleStore = create<CircleState>((set, get) => ({
   isSwitchingCircle: false,
   switchingTargetName: null,
   switchingStepText: null,
-  resetCircleStore: () => set({ activeCircle: null, circles: [], members: [], places: [], membersByCircle: {}, placesByCircle: {}, circleFetched: false, isLoading: false, isSwitchingCircle: false, switchingTargetName: null, switchingStepText: null }),
+  resetCircleStore: () => {
+    AsyncStorage.removeItem('@circleguard_active_circle_id').catch(() => {});
+    set({
+      activeCircle: null,
+      circles: [],
+      members: [],
+      places: [],
+      membersByCircle: {},
+      placesByCircle: {},
+      circleFetched: false,
+      isLoading: false,
+      isSwitchingCircle: false,
+      switchingTargetName: null,
+      switchingStepText: null,
+    });
+  },
   switchActiveCircle: async (targetCircle: Circle) => {
     if (!targetCircle) return;
     const startTime = Date.now();
 
     // 1. Show the rotating globe loading animation immediately with initial status
+    // Strict privacy isolation: immediately clear/decouple previous circle's places and members
+    const initialTargetMembers = get().membersByCircle[targetCircle.id] || [];
+    const initialTargetPlaces = get().placesByCircle[targetCircle.id] || [];
+
     set({
       isSwitchingCircle: true,
       switchingTargetName: targetCircle.name,
       switchingStepText: 'Connecting satellite telemetry...',
+      members: initialTargetMembers,
+      places: initialTargetPlaces,
     });
 
     // 2. Persist target selection in storage
@@ -315,6 +339,11 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       circleFetched: true,
     });
 
+    try {
+      const { startBatteryOptimizedBackgroundLocation } = require('../services/LocationBackgroundService');
+      startBatteryOptimizedBackgroundLocation();
+    } catch (e) {}
+
     await Promise.all([
       get().fetchMembers(newCircle.id),
       get().fetchPlaces(newCircle.id),
@@ -323,11 +352,70 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       get().fetchUserCircles(userId).catch(() => {});
     }
   },
-  setMembers: (members) => set({ members }),
-  setPlaces: (places) => set({ places }),
+  setMembers: (members) => {
+    const activeCircleId = get().activeCircle?.id;
+    if (activeCircleId) {
+      set({
+        members,
+        membersByCircle: { ...get().membersByCircle, [activeCircleId]: members }
+      });
+    } else {
+      set({ members });
+    }
+  },
+  setPlaces: (places) => {
+    const activeCircleId = get().activeCircle?.id;
+    // Strict isolation: only retain places that belong to this circle
+    const filteredPlaces = activeCircleId ? places.filter(p => !p.circle_id || p.circle_id === activeCircleId) : places;
+    if (activeCircleId) {
+      set({
+        places: filteredPlaces,
+        placesByCircle: { ...get().placesByCircle, [activeCircleId]: filteredPlaces }
+      });
+    } else {
+      set({ places: filteredPlaces });
+    }
+  },
+  purgeUserFromStore: (userId: string) => {
+    if (!userId) return;
+    const state = get();
+    // Strip from active members
+    const filteredMembers = (state.members || []).filter(m => m.user_id !== userId);
+    // Strip from active places
+    const filteredPlaces = (state.places || []).filter(
+      p => p.target_user_id !== userId && !(p.assigned_user_ids && p.assigned_user_ids.includes(userId))
+    );
+
+    // Strip from membersByCircle
+    const newMembersByCircle: Record<string, CircleMember[]> = {};
+    Object.keys(state.membersByCircle || {}).forEach(cId => {
+      newMembersByCircle[cId] = (state.membersByCircle[cId] || []).filter(m => m.user_id !== userId);
+    });
+
+    // Strip from placesByCircle
+    const newPlacesByCircle: Record<string, Place[]> = {};
+    Object.keys(state.placesByCircle || {}).forEach(cId => {
+      newPlacesByCircle[cId] = (state.placesByCircle[cId] || []).filter(
+        p => p.target_user_id !== userId && !(p.assigned_user_ids && p.assigned_user_ids.includes(userId))
+      );
+    });
+
+    set({
+      members: filteredMembers,
+      places: filteredPlaces,
+      membersByCircle: newMembersByCircle,
+      placesByCircle: newPlacesByCircle
+    });
+  },
+  clearCircleMarkersAndPlaces: () => {
+    set({
+      members: [],
+      places: []
+    });
+  },
   setLoading: (isLoading) => set({ isLoading }),
   fetchMembers: async (circleId: string) => {
-    if (!circleId) return [];
+    if (!circleId || !isValidUuid(circleId)) return [];
     try {
       let membersData: any[] | null = null;
 
@@ -358,72 +446,93 @@ export const useCircleStore = create<CircleState>((set, get) => ({
           if (cmErr) throw cmErr;
           
           if (rawCmRows && rawCmRows.length > 0) {
-            const memberIds = rawCmRows.map(cm => cm.user_id);
-            const { data: profRows } = await supabase
+            const memberIds = rawCmRows.map(cm => cm.user_id).filter(isValidUuid);
+            const { data: profRows } = memberIds.length > 0 ? await supabase
               .from('profiles')
               .select('id, full_name, avatar_url, phone, is_ghost_mode, hide_online_presence')
-              .in('id', memberIds);
+              .in('id', memberIds) : { data: [] };
 
             const profMap = new Map<string, any>();
             (profRows || []).forEach(p => profMap.set(p.id, p));
 
-            membersData = rawCmRows.map(cm => ({
-              ...cm,
-              profiles: profMap.get(cm.user_id) || { full_name: 'Circle Member', avatar_url: null }
-            }));
+            membersData = rawCmRows
+              .filter(cm => profMap.has(cm.user_id) && profMap.get(cm.user_id)?.full_name)
+              .map(cm => ({
+                ...cm,
+                profiles: profMap.get(cm.user_id)
+              }));
           } else {
             membersData = [];
           }
         }
       }
 
+      // Filter out any deleted user accounts whose profile no longer exists
+      membersData = (membersData || []).filter((m: any) => {
+        if (!m || !m.user_id) return false;
+        let prof = m.profiles;
+        if (Array.isArray(prof)) prof = prof[0];
+        return prof !== null && prof !== undefined && typeof prof === 'object' && prof.full_name;
+      });
+
       const userIds = (membersData || []).map(m => m.user_id);
       let locationsMap: Record<string, { updated_at: string; battery_pct?: number; is_driving?: boolean; latitude?: number; longitude?: number }> = {};
 
-      if (userIds.length > 0) {
-        const { data: locData } = await supabase
-          .from('locations')
-          .select('user_id, geom, latitude, longitude, updated_at, battery_pct, is_driving')
-          .in('user_id', userIds);
-
-        if (locData) {
-          locData.forEach(l => {
-            const pt = parsePoint(l);
-            locationsMap[l.user_id] = {
-              updated_at: l.updated_at,
-              battery_pct: l.battery_pct,
-              is_driving: l.is_driving,
-              latitude: pt.latitude !== 0 ? pt.latitude : undefined,
-              longitude: pt.longitude !== 0 ? pt.longitude : undefined,
-            };
-          });
-        }
-
-        // Query location_history fallback for any members without active locations row
-        const missingUserIds = userIds.filter(uid => !locationsMap[uid]?.latitude || !locationsMap[uid]?.longitude);
-        if (missingUserIds.length > 0) {
-          for (const mId of missingUserIds) {
-            try {
-              const { data: histData } = await supabase
-                .from('location_history')
-                .select('user_id, geom, speed_mps, recorded_at')
-                .eq('user_id', mId)
-                .order('recorded_at', { ascending: false })
-                .limit(1);
-
-              if (histData && histData.length > 0) {
-                const pt = parsePoint(histData[0]);
-                if (pt.latitude !== 0 && pt.longitude !== 0) {
-                  locationsMap[mId] = {
-                    updated_at: histData[0].recorded_at,
-                    latitude: pt.latitude,
-                    longitude: pt.longitude,
-                  };
-                }
-              }
-            } catch(e) {}
+      const validUserIds = userIds.filter(isValidUuid);
+      if (validUserIds.length > 0) {
+        console.log('[GPS_PIPELINE:LAYER_4_QUERY_FILTER] Querying locations for circle:', circleId, 'members:', validUserIds);
+        let locData: any[] = [];
+        try {
+          // 1. Group-scoped query for locations in active circle
+          const circleLocRes = await supabase
+            .from('locations')
+            .select('user_id, geom, latitude, longitude, updated_at, battery_pct, is_driving, circle_id')
+            .eq('circle_id', circleId)
+            .in('user_id', validUserIds);
+          
+          if (circleLocRes.data) {
+            locData = [...circleLocRes.data];
           }
+
+          // 2. Identify any members missing a location in this specific circle, and fetch their latest global location
+          const foundUserIds = new Set(locData.map(r => r.user_id));
+          const missingUserIds = validUserIds.filter(uid => !foundUserIds.has(uid));
+
+          if (missingUserIds.length > 0) {
+            console.log('[GPS_PIPELINE:LAYER_4_QUERY_FILTER] Fallback query for members without circle-scoped location:', missingUserIds);
+            const fallbackLocRes = await supabase
+              .from('locations')
+              .select('user_id, geom, latitude, longitude, updated_at, battery_pct, is_driving, circle_id')
+              .in('user_id', missingUserIds)
+              .order('updated_at', { ascending: false });
+
+            if (fallbackLocRes.data && fallbackLocRes.data.length > 0) {
+              // Only take the latest record per member
+              const seenFallback = new Set<string>();
+              fallbackLocRes.data.forEach(item => {
+                if (!seenFallback.has(item.user_id)) {
+                  seenFallback.add(item.user_id);
+                  locData.push(item);
+                }
+              });
+            }
+          }
+        } catch (e: any) {
+          console.error('[GPS_PIPELINE:LAYER_4_QUERY_FILTER] Query error:', e?.message);
         }
+
+        console.log('[GPS_PIPELINE:LAYER_4_QUERY_FILTER] Total locations retrieved:', locData.length, 'for', validUserIds.length, 'members');
+
+        locData.forEach(l => {
+          const pt = parsePoint(l);
+          locationsMap[l.user_id] = {
+            updated_at: l.updated_at,
+            battery_pct: l.battery_pct,
+            is_driving: l.is_driving,
+            latitude: pt.latitude !== 0 ? pt.latitude : undefined,
+            longitude: pt.longitude !== 0 ? pt.longitude : undefined,
+          };
+        });
       }
 
       const now = Date.now();
@@ -485,6 +594,8 @@ export const useCircleStore = create<CircleState>((set, get) => ({
           lastSeenText = 'Offline • No location data';
         }
 
+        console.log(`[GPS_PIPELINE:LAYER_3_STALE_RECORD] Member ${m.user_id} (${prof?.full_name || 'Member'}): coords=(${loc?.latitude}, ${loc?.longitude}), updated_at=${loc?.updated_at}, isOnline=${isOnline}, lastSeen=${lastSeenText}`);
+
         const effectiveSupervisorId = m.supervisor_id !== undefined && m.supervisor_id !== null
           ? m.supervisor_id
           : (localHierarchyMap[m.user_id] ?? null);
@@ -509,27 +620,93 @@ export const useCircleStore = create<CircleState>((set, get) => ({
         };
       });
 
+      // Auto-Deduplication: Remove duplicate accounts sharing the same phone number or name as current user
+      const currentUserProfile = useAuthStore.getState().profile;
+      const cleanPhone = (p?: string | null) => (p || '').replace(/[^\d]/g, '');
+      const selfPhone = cleanPhone(currentUserProfile?.phone);
+      const selfFullName = currentUserProfile?.full_name?.trim().toLowerCase();
+
+      const deduplicatedMembers: CircleMember[] = [];
+      const seenUserIds = new Set<string>();
+      const seenPhones = new Set<string>();
+      const duplicateUserIdsToDelete: string[] = [];
+
+      // 1. Add current user first if present in the circle
+      const selfMember = formattedMembers.find(m => m.user_id === currentUserId);
+      if (selfMember) {
+        deduplicatedMembers.push(selfMember);
+        seenUserIds.add(selfMember.user_id);
+        if (selfPhone) seenPhones.add(selfPhone);
+      }
+
+      // 2. Add other members, filtering out duplicate ghost accounts of the current user or duplicate phones
+      for (const m of formattedMembers) {
+        if (m.user_id === currentUserId) continue;
+
+        const mPhone = cleanPhone(m.profile?.phone);
+        const mName = m.profile?.full_name?.trim().toLowerCase();
+
+        const isSelfPhoneDup = !!selfPhone && !!mPhone && mPhone === selfPhone;
+        const isSelfNameDup = !!selfFullName && !!mName && mName === selfFullName && (!mPhone || mPhone === selfPhone);
+
+        if (isSelfPhoneDup || isSelfNameDup) {
+          duplicateUserIdsToDelete.push(m.user_id);
+          continue;
+        }
+
+        if (seenUserIds.has(m.user_id)) continue;
+        if (mPhone && seenPhones.has(mPhone)) {
+          duplicateUserIdsToDelete.push(m.user_id);
+          continue;
+        }
+
+        seenUserIds.add(m.user_id);
+        if (mPhone) seenPhones.add(mPhone);
+        deduplicatedMembers.push(m);
+      }
+
+      // 3. Proactively clean up duplicate ghost rows from Supabase circle_members if owner or co-leader
+      if (duplicateUserIdsToDelete.length > 0 && (selfMember?.role === 'owner' || selfMember?.role === 'co_leader')) {
+        for (const dupId of duplicateUserIdsToDelete) {
+          if (isValidUuid(dupId)) {
+            Promise.resolve(
+              supabase
+                .from('circle_members')
+                .delete()
+                .eq('circle_id', circleId)
+                .eq('user_id', dupId)
+            )
+              .then(({ error }: any) => {
+                if (!error) console.log(`[AutoDeduplicate] Cleaned up duplicate member ${dupId} from circle ${circleId}`);
+              })
+              .catch(() => {});
+          }
+        }
+      }
+
+      const finalMembers = deduplicatedMembers;
+
       const updatedMembersByCircle = {
         ...get().membersByCircle,
-        [circleId]: formattedMembers,
+        [circleId]: finalMembers,
       };
 
       // RACE CONDITION DEFENSE:
       // Only set active members if this circle is still the active circle!
       if (get().activeCircle?.id === circleId) {
-        set({ members: formattedMembers, membersByCircle: updatedMembersByCircle });
+        set({ members: finalMembers, membersByCircle: updatedMembersByCircle });
       } else {
         set({ membersByCircle: updatedMembersByCircle });
       }
 
-      return formattedMembers;
+      return finalMembers;
     } catch (err) {
       console.error('Error fetching members:', err);
       return [];
     }
   },
   fetchUserCircles: async (userId: string) => {
-    if (!userId) return [];
+    if (!userId || !isValidUuid(userId)) return [];
     try {
       let allCircles: Circle[] = [];
       const { data: memberData, error: memberError } = await supabase
@@ -594,7 +771,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     }
   },
   fetchActiveCircle: async (userId: string) => {
-    if (!userId) return null;
+    if (!userId || !isValidUuid(userId)) return null;
     
     // If active circle is ALREADY active, refresh its members and DO NOT switch!
     const existingActive = get().activeCircle;
@@ -646,6 +823,13 @@ export const useCircleStore = create<CircleState>((set, get) => ({
         await AsyncStorage.setItem(`@circleguard_tree_hierarchy_${circleId}`, JSON.stringify(hierarchyMap));
       } catch (e) {}
 
+      if (!circleId || !isValidUuid(circleId) || !memberId || !isValidUuid(memberId)) {
+        return false;
+      }
+      if (supervisorId && !isValidUuid(supervisorId)) {
+        return false;
+      }
+
       // 3. Persist to Supabase
       const { error } = await supabase
         .from('circle_members')
@@ -663,7 +847,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     }
   },
   fetchPlaces: async (circleId: string) => {
-    if (!circleId) return [];
+    if (!circleId || !isValidUuid(circleId)) return [];
     try {
       const { data, error } = await supabase
         .from('places')
@@ -672,7 +856,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
 
       if (error) throw error;
 
-      const placeIds = (data || []).map(p => p.id);
+      const placeIds = (data || []).map(p => p.id).filter(isValidUuid);
       let memberMap: Record<string, string[]> = {};
 
       if (placeIds.length > 0) {
@@ -772,20 +956,24 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       } catch (e) {}
 
       // 3. Delete from Supabase circle_members
-      const { error } = await supabase
-        .from('circle_members')
-        .delete()
-        .eq('circle_id', circleId)
-        .eq('user_id', userId);
+      if (circleId && isValidUuid(circleId) && userId && isValidUuid(userId)) {
+        const { error } = await supabase
+          .from('circle_members')
+          .delete()
+          .eq('circle_id', circleId)
+          .eq('user_id', userId);
 
-      if (error) {
-        console.warn('Remove member notice:', error.message);
+        if (error) {
+          console.warn('Remove member notice:', error.message);
+        }
       }
 
       // 4. Also clean up any place memberships and targeted location shares
       try {
-        await supabase.from('place_members').delete().eq('user_id', userId);
-        await supabase.from('location_shares').delete().eq('target_user_id', userId);
+        if (userId && isValidUuid(userId)) {
+          await supabase.from('place_members').delete().eq('user_id', userId);
+          await supabase.from('location_shares').delete().eq('target_user_id', userId);
+        }
       } catch (e) {}
 
       return true;
@@ -795,3 +983,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     }
   },
 }));
+
+if (typeof window !== 'undefined') {
+  (window as any).__useCircleStore = useCircleStore;
+}

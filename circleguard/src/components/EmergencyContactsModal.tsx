@@ -3,9 +3,15 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, ScrollView,
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Contacts from 'expo-contacts/legacy';
+import { supabase } from '../lib/supabase';
 import { LUXURY_THEME } from '../constants/theme';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCountryStore } from '../store/useCountryStore';
+import {
+  validateAndNormalizePhone,
+  COUNTRY_PHONE_RULES,
+  DEFAULT_PHONE_RULE,
+} from '../lib/phoneValidation';
 import { useLuxuryAlert } from './LuxuryAlertModal';
 
 export interface EmergencyContact {
@@ -34,6 +40,16 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
 
   const relationships = ['Father', 'Mother', 'Brother', 'Sister', 'Spouse', 'Guardian', 'Doctor', 'Other'];
 
+  const phoneRule = COUNTRY_PHONE_RULES[country.code] || {
+    ...DEFAULT_PHONE_RULE,
+    dialCode: country.dialCode || '+1',
+  };
+  const cleanDigits = phone.replace(/\D/g, '');
+  const isLengthMatched = phoneRule.minLen === phoneRule.maxLen
+    ? cleanDigits.length === phoneRule.minLen
+    : cleanDigits.length >= phoneRule.minLen && cleanDigits.length <= phoneRule.maxLen;
+  const isOverflow = cleanDigits.length > phoneRule.maxLen;
+
   const getStorageKey = () => profile?.id ? `@circleguard_emergency_contacts_${profile.id}` : '@circleguard_emergency_contacts';
   const getPrimaryStorageKey = () => profile?.id ? `@circleguard_primary_emergency_contact_${profile.id}` : '@circleguard_primary_emergency_contact';
 
@@ -45,11 +61,43 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
 
   const loadContacts = async () => {
     try {
+      // 1. Check if profile already has cloud-persisted emergency contacts
+      const cloudContacts = (profile as any)?.emergency_contacts;
+      if (Array.isArray(cloudContacts) && cloudContacts.length > 0) {
+        setContacts(cloudContacts);
+        await AsyncStorage.setItem(getStorageKey(), JSON.stringify(cloudContacts));
+        await AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(cloudContacts));
+        return;
+      }
+
+      // 2. Check user-scoped AsyncStorage
       const saved = await AsyncStorage.getItem(getStorageKey());
       if (saved) {
-        setContacts(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        setContacts(parsed);
+        // Sync to cloud if user is logged in
+        if (profile?.id && Array.isArray(parsed) && parsed.length > 0) {
+          useAuthStore.getState().setProfile({ ...profile, emergency_contacts: parsed });
+          try {
+            await supabase.from('profiles').update({ emergency_contacts: parsed }).eq('id', profile.id);
+          } catch (e) {}
+        }
       } else {
-        setContacts([]);
+        // 3. Fallback to resilient global AsyncStorage key (persists across logouts)
+        const fallbackSaved = await AsyncStorage.getItem('@circleguard_emergency_contacts');
+        if (fallbackSaved) {
+          const parsedFallback = JSON.parse(fallbackSaved);
+          setContacts(parsedFallback);
+          if (profile?.id && Array.isArray(parsedFallback) && parsedFallback.length > 0) {
+            await AsyncStorage.setItem(getStorageKey(), fallbackSaved);
+            useAuthStore.getState().setProfile({ ...profile, emergency_contacts: parsedFallback });
+            try {
+              await supabase.from('profiles').update({ emergency_contacts: parsedFallback }).eq('id', profile.id);
+            } catch (e) {}
+          }
+        } else {
+          setContacts([]);
+        }
       }
     } catch (e) {
       console.error('Error loading emergency contacts:', e);
@@ -57,10 +105,46 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
   };
 
   const handleSaveContact = async () => {
-    if (!name.trim() || !phone.trim()) {
+    if (!name.trim()) {
       showAlert({
-        title: 'Required Fields',
-        message: 'Please enter both a contact name and valid phone number.',
+        title: 'Required Field',
+        message: 'Please enter a contact name.',
+        type: 'warning',
+      });
+      return;
+    }
+
+    if (!phone.trim()) {
+      showAlert({
+        title: 'Required Field',
+        message: `Please enter a valid mobile number for ${country.name}.`,
+        type: 'warning',
+      });
+      return;
+    }
+
+    // 1. Strict country-specific validation
+    const validation = validateAndNormalizePhone(phone, country.code);
+    if (!validation.isValid) {
+      showAlert({
+        title: 'Invalid Contact Number',
+        message: validation.error || `Please enter a valid phone number for ${country.name}.`,
+        type: 'warning',
+      });
+      return;
+    }
+
+    // 2. Proactive deduplication: prevent duplicate contact phone numbers
+    const alreadyExists = contacts.some(
+      (c) =>
+        c.phone.replace(/\D/g, '') === validation.nationalDigits ||
+        c.phone === validation.e164 ||
+        c.phone === validation.formattedDisplay
+    );
+    if (alreadyExists) {
+      showAlert({
+        title: 'Duplicate Contact',
+        message: `A contact with phone number ${validation.formattedDisplay} is already in your emergency contacts list.`,
         type: 'warning',
       });
       return;
@@ -70,13 +154,27 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
       id: Date.now().toString(),
       name: name.trim(),
       relationship,
-      phone: phone.trim(),
+      phone: validation.formattedDisplay,
     };
 
     const updated = [...contacts, newContact];
     setContacts(updated);
+    
+    // Save to dual-tier AsyncStorage (user-scoped + global resilient)
     await AsyncStorage.setItem(getStorageKey(), JSON.stringify(updated));
-    await AsyncStorage.setItem(getPrimaryStorageKey(), JSON.stringify({ name: name.trim(), phone: phone.trim() }));
+    await AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(updated));
+    await AsyncStorage.setItem(getPrimaryStorageKey(), JSON.stringify({ name: name.trim(), phone: validation.formattedDisplay }));
+    await AsyncStorage.setItem('@circleguard_primary_emergency_contact', JSON.stringify({ name: name.trim(), phone: validation.formattedDisplay }));
+
+    // Persist to Supabase cloud profile so it survives device changes and logouts
+    if (profile?.id) {
+      useAuthStore.getState().setProfile({ ...profile, emergency_contacts: updated });
+      try {
+        await supabase.from('profiles').update({ emergency_contacts: updated }).eq('id', profile.id);
+      } catch (err) {
+        console.warn('Failed saving emergency contacts to cloud profile:', err);
+      }
+    }
 
     setName('');
     setPhone('');
@@ -95,6 +193,14 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
         const updated = contacts.filter((c) => c.id !== id);
         setContacts(updated);
         await AsyncStorage.setItem(getStorageKey(), JSON.stringify(updated));
+        await AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(updated));
+
+        if (profile?.id) {
+          useAuthStore.getState().setProfile({ ...profile, emergency_contacts: updated });
+          try {
+            await supabase.from('profiles').update({ emergency_contacts: updated }).eq('id', profile.id);
+          } catch (err) {}
+        }
       },
     });
   };
@@ -212,14 +318,82 @@ export default function EmergencyContactsModal({ visible, onClose }: EmergencyCo
                 ))}
               </ScrollView>
 
-              <Text style={styles.label}>PHONE NUMBER</Text>
-              <TextInput 
-                style={styles.input} 
-                placeholder="+1 (555) 000-0000" 
-                value={phone} 
-                onChangeText={setPhone}
-                keyboardType="phone-pad"
-              />
+              <Text style={styles.label}>MOBILE PHONE NUMBER</Text>
+              <View
+                style={[
+                  styles.phoneInputBox,
+                  {
+                    borderColor: isOverflow
+                      ? '#EF4444'
+                      : isLengthMatched
+                      ? '#10B981'
+                      : LUXURY_THEME.colors.border,
+                  },
+                ]}
+              >
+                <View style={styles.countryCodeBadge}>
+                  <Text style={{ fontSize: 13 }}>{country.flag}</Text>
+                  <Text style={styles.countryCodeText}>{phoneRule.dialCode}</Text>
+                </View>
+                <TextInput 
+                  style={styles.phoneInputField} 
+                  placeholder={phoneRule.placeholder} 
+                  placeholderTextColor={LUXURY_THEME.colors.textMuted}
+                  value={phone} 
+                  onChangeText={setPhone}
+                  keyboardType="phone-pad"
+                />
+                {isLengthMatched ? (
+                  <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+                ) : isOverflow ? (
+                  <Ionicons name="alert-circle" size={16} color="#EF4444" />
+                ) : null}
+              </View>
+
+              {/* Country Requirement & Digit Counter */}
+              <View style={styles.phoneHintRow}>
+                <Text style={styles.phoneRuleHint}>
+                  {country.flag} {country.name}: {phoneRule.hint}
+                </Text>
+                <View
+                  style={[
+                    styles.lengthBadge,
+                    {
+                      backgroundColor: isLengthMatched
+                        ? 'rgba(16, 185, 129, 0.15)'
+                        : isOverflow
+                        ? 'rgba(239, 68, 68, 0.15)'
+                        : cleanDigits.length > 0
+                        ? 'rgba(212, 175, 55, 0.15)'
+                        : 'rgba(255, 255, 255, 0.05)',
+                      borderColor: isLengthMatched
+                        ? '#10B981'
+                        : isOverflow
+                        ? '#EF4444'
+                        : cleanDigits.length > 0
+                        ? LUXURY_THEME.colors.accentGold
+                        : 'transparent',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.lengthBadgeText,
+                      {
+                        color: isLengthMatched
+                          ? '#10B981'
+                          : isOverflow
+                          ? '#EF4444'
+                          : cleanDigits.length > 0
+                          ? LUXURY_THEME.colors.accentGold
+                          : LUXURY_THEME.colors.textMuted,
+                      },
+                    ]}
+                  >
+                    {cleanDigits.length} / {phoneRule.minLen === phoneRule.maxLen ? phoneRule.minLen : `${phoneRule.minLen}-${phoneRule.maxLen}`}
+                  </Text>
+                </View>
+              </View>
 
               <View style={styles.formActionRow}>
                 <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsAdding(false)}>
@@ -403,6 +577,63 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     fontSize: 14,
     color: LUXURY_THEME.colors.foreground,
+  },
+  phoneInputBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    height: 42,
+    marginTop: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  countryCodeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingRight: 8,
+    borderRightWidth: 1,
+    borderRightColor: LUXURY_THEME.colors.border,
+    marginRight: 8,
+  },
+  countryCodeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: LUXURY_THEME.colors.foreground,
+  },
+  phoneInputField: {
+    flex: 1,
+    fontSize: 13,
+    color: LUXURY_THEME.colors.foreground,
+    fontWeight: '600',
+  },
+  phoneHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 2,
+    marginTop: 3,
+    gap: 6,
+  },
+  phoneRuleHint: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: LUXURY_THEME.colors.textMuted,
+    flex: 1,
+  },
+  lengthBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lengthBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   relRow: {
     gap: 8,

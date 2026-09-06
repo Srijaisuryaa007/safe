@@ -131,18 +131,43 @@ export default function ChatScreen() {
     try {
       // 1. Fetch active (non-deleted) messages within active window
       const cutoffTime = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-      const { data, error } = await supabase
+      let rawData: any[] | null = null;
+
+      const res = await supabase
         .from('circle_messages')
-        .select('*, profiles!circle_messages_sender_id_fkey(full_name, avatar_url)')
+        .select('*, profiles:sender_id(full_name, avatar_url)')
         .eq('circle_id', circleId)
         .gte('created_at', cutoffTime)
         .is('deleted_at', null)
         .order('created_at', { ascending: true });
 
-      if (error) throw error;
+      if (res.error) {
+        const fallbackRes = await supabase
+          .from('circle_messages')
+          .select('*, profiles!circle_messages_sender_id_fkey(full_name, avatar_url)')
+          .eq('circle_id', circleId)
+          .gte('created_at', cutoffTime)
+          .is('deleted_at', null)
+          .order('created_at', { ascending: true });
+
+        if (fallbackRes.error) {
+          const basicRes = await supabase
+            .from('circle_messages')
+            .select('*')
+            .eq('circle_id', circleId)
+            .gte('created_at', cutoffTime)
+            .is('deleted_at', null)
+            .order('created_at', { ascending: true });
+          rawData = basicRes.data || [];
+        } else {
+          rawData = fallbackRes.data || [];
+        }
+      } else {
+        rawData = res.data || [];
+      }
 
       // 2. Fetch my view receipts
-      const msgIds = (data || []).map((m: any) => m.id);
+      const msgIds = (rawData || []).map((m: any) => m.id);
       let myViewsSet = new Set<string>();
 
       if (msgIds.length > 0 && profile?.id) {
@@ -157,14 +182,18 @@ export default function ChatScreen() {
         }
       }
 
-      const formatted: ChatMessage[] = (data || [])
+      const formatted: ChatMessage[] = (rawData || [])
         .filter((msg: any) => !isPermissionOrSystemMsg(msg.content))
-        .map((msg: any) => ({
-          ...msg,
-          sender_name: msg.profiles?.full_name || 'Member',
-          sender_avatar: msg.profiles?.avatar_url,
-          is_viewed_by_me: myViewsSet.has(msg.id) || msg.sender_id === profile?.id,
-        }));
+        .map((msg: any) => {
+          let prof = msg.profiles;
+          if (Array.isArray(prof)) prof = prof[0];
+          return {
+            ...msg,
+            sender_name: prof?.full_name || (msg.sender_id === profile?.id ? profile?.full_name : 'Member'),
+            sender_avatar: prof?.avatar_url || (msg.sender_id === profile?.id ? profile?.avatar_url : undefined),
+            is_viewed_by_me: myViewsSet.has(msg.id) || msg.sender_id === profile?.id,
+          };
+        });
 
       setMessages(formatted);
     } catch (err) {
@@ -427,7 +456,7 @@ export default function ChatScreen() {
       const now = new Date();
       const maxTtl = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
 
-      const { data, error } = await supabase
+      let insertRes = await supabase
         .from('circle_messages')
         .insert({
           circle_id: activeCircle.id,
@@ -438,14 +467,28 @@ export default function ChatScreen() {
           max_ttl_expires_at: maxTtl.toISOString(),
           grace_period_days: 1,
         })
-        .select('*, profiles!circle_messages_sender_id_fkey(full_name, avatar_url)')
+        .select('*')
         .single();
 
-      if (error) throw error;
+      if (insertRes.error) {
+        insertRes = await supabase
+          .from('circle_messages')
+          .insert({
+            circle_id: activeCircle.id,
+            sender_id: profile.id,
+            content: textToSend,
+            message_type: messageType,
+            created_at: now.toISOString(),
+          })
+          .select('*')
+          .single();
+      }
 
-      if (data) {
+      if (insertRes.error) throw insertRes.error;
+
+      if (insertRes.data) {
         const formattedMsg: ChatMessage = {
-          ...data,
+          ...insertRes.data,
           sender_name: profile.full_name,
           sender_avatar: profile.avatar_url,
           is_viewed_by_me: true,
@@ -731,7 +774,16 @@ export default function ChatScreen() {
     >
       {/* Header */}
       <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border, paddingTop: topInset + 12, paddingBottom: 12 }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <TouchableOpacity 
+          onPress={() => {
+            if (navigation.canGoBack()) {
+              navigation.goBack();
+            } else {
+              (navigation as any).navigate('MainTabs', { screen: 'Circle' });
+            }
+          }} 
+          style={styles.backBtn}
+        >
           <Ionicons name="arrow-back" size={22} color={colors.foreground} />
         </TouchableOpacity>
 
@@ -785,7 +837,29 @@ export default function ChatScreen() {
       </View>
 
       {/* Messages Feed */}
-      {loading ? (
+      {!activeCircle ? (
+        <View style={styles.centerContainer}>
+          <Ionicons name="people-outline" size={48} color={colors.textMuted} style={{ marginBottom: 12 }} />
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>NO ACTIVE CIRCLE</Text>
+          <Text style={[styles.emptySub, { color: colors.textMuted, maxWidth: 280, textAlign: 'center' }]}>
+            You need to be in an active circle to chat with members. Create or join a circle to get started.
+          </Text>
+          <TouchableOpacity
+            style={{
+              marginTop: 18,
+              backgroundColor: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold,
+              paddingHorizontal: 20,
+              paddingVertical: 10,
+              borderRadius: 12,
+            }}
+            onPress={() => (navigation as any).navigate('MainTabs', { screen: 'Circle' })}
+          >
+            <Text style={{ color: themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A', fontWeight: 'bold', fontSize: 12 }}>
+              GO TO CIRCLE TAB
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : loading ? (
         <View style={styles.centerContainer}>
           <CircleGuardGlobeLoader size={180} loadingLabel="Connecting Encrypted Channel…" />
         </View>

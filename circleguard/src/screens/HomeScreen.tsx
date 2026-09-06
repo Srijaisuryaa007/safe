@@ -68,7 +68,6 @@ import MemberStatusPillsCarousel from '../components/MemberStatusPillsCarousel';
 import ZomatoLiveJourneyCard from '../components/ZomatoLiveJourneyCard';
 import MagnificationDock, { DockItemData } from '../components/MagnificationDock';
 import JellySqueezeButton from '../components/JellySqueezeButton';
-import AnimatedList from '../components/AnimatedList';
 import HomeMiniMapCard from '../components/HomeMiniMapCard';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import CircleQRCodeModal from '../components/CircleQRCodeModal';
@@ -182,7 +181,9 @@ export default function HomeScreen() {
   // Strictly filter members for the active circle to guarantee no cross-circle data leaks
   const circleMembers: CircleMember[] = useMemo(() => {
     if (!activeCircle?.id || !Array.isArray(members)) return [];
-    return members.filter(m => !m.circle_id || m.circle_id === activeCircle.id);
+    const list = members.filter(m => !m.circle_id || m.circle_id === activeCircle.id);
+    console.log(`[GPS_PIPELINE:LAYER_6_UI_RENDER] HomeScreen rendered ${list.length} circle members. Online: ${list.filter(m => m.isOnline).length}, Offline: ${list.filter(m => !m.isOnline).length}`);
+    return list;
   }, [members, activeCircle?.id]);
 
   const safeMembers: CircleMember[] = activeCircle ? circleMembers : [];
@@ -212,6 +213,27 @@ export default function HomeScreen() {
       setRefreshing(false);
     }
   };
+
+  // Realtime subscription for location changes in HomeScreen
+  useEffect(() => {
+    if (!activeCircle?.id) return;
+    const channelUid = Math.random().toString(36).substring(2, 9);
+    const channel = supabase
+      .channel(`home_locations_${activeCircle.id}_${channelUid}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'locations' },
+        (payload: any) => {
+          console.log(`[GPS_PIPELINE:LAYER_5_REALTIME_SYNC] HomeScreen received Realtime postgres_changes event=${payload?.eventType} for user_id=${payload?.new?.user_id || payload?.old?.user_id}`);
+          useCircleStore.getState().fetchMembers(activeCircle.id);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeCircle?.id]);
 
   useEffect(() => {
     sendInstantLocationPing();
@@ -253,7 +275,7 @@ export default function HomeScreen() {
     }
     setLoadingActivity(true);
     try {
-      const [sosRes, msgRes] = await Promise.all([
+      const [sosRes, msgRes, placesRes] = await Promise.all([
         supabase
           .from('sos_alerts')
           .select('id, created_at, status, user_id, profiles(full_name)')
@@ -266,8 +288,26 @@ export default function HomeScreen() {
           .eq('circle_id', circleId)
           .or('content.ilike.%PERMISSION REQUEST%,content.ilike.%PERMISSION GRANTED%,content.ilike.%PERMISSION DENIED%')
           .order('created_at', { ascending: false })
-          .limit(5)
+          .limit(5),
+        supabase
+          .from('places')
+          .select('id, name')
+          .eq('circle_id', circleId)
       ]);
+
+      const placeIds = (placesRes.data || []).map((p: any) => p.id).filter(Boolean);
+      let placeEventsData: any[] = [];
+      if (placeIds.length > 0) {
+        try {
+          const { data: peData } = await supabase
+            .from('place_events')
+            .select('id, occurred_at, event_type, place_id, user_id, places(name), profiles(full_name)')
+            .in('place_id', placeIds)
+            .order('occurred_at', { ascending: false })
+            .limit(5);
+          if (peData) placeEventsData = peData;
+        } catch (e) {}
+      }
 
       const sosActivities = (sosRes.data || []).map((item) => {
         let name = 'A member';
@@ -325,7 +365,28 @@ export default function HomeScreen() {
         };
       });
 
-      const combined = [...sosActivities, ...msgActivities]
+      const placeActivities = placeEventsData.map((item: any) => {
+        let name = 'Member';
+        if (item.profiles) {
+          name = Array.isArray(item.profiles) ? item.profiles[0]?.full_name : item.profiles?.full_name;
+        }
+        let placeName = 'Safe Zone';
+        if (item.places) {
+          placeName = Array.isArray(item.places) ? item.places[0]?.name : item.places?.name;
+        }
+        const isArrival = item.event_type === 'arrival';
+        return {
+          id: String(item.id),
+          title: isArrival ? `${name || 'Member'} arrived at ${placeName}` : `${name || 'Member'} departed ${placeName}`,
+          badgeText: isArrival ? 'ZONE ARRIVAL' : 'ZONE DEPARTURE',
+          icon: isArrival ? 'location' : 'exit-outline',
+          time: new Date(item.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          color: isArrival ? '#10B981' : '#F5A623',
+          timestamp: new Date(item.occurred_at).getTime(),
+        };
+      });
+
+      const combined = [...sosActivities, ...msgActivities, ...placeActivities]
         .sort((a, b) => b.timestamp - a.timestamp)
         .slice(0, 5);
 
@@ -389,14 +450,6 @@ export default function HomeScreen() {
       badgeColor: 'rgba(255, 69, 58, 0.12)',
       iconColor: '#FF453A',
       onClick: () => navigation.navigate('DrivingReports'),
-    },
-    {
-      id: 'chat',
-      iconName: 'chatbubble-ellipses',
-      label: 'Messages',
-      badgeColor: 'rgba(94, 92, 230, 0.12)',
-      iconColor: '#5E5CE6',
-      onClick: () => navigation.navigate('Chat'),
     },
   ];
 
@@ -902,6 +955,7 @@ export default function HomeScreen() {
                 backgroundColor: colors.surface,
               },
             ]}
+            onPress={() => navigation.navigate('Activity')}
             activeOpacity={0.8}
           >
             <Text 
@@ -1009,8 +1063,8 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Horizontal Fast-Pills Row for Driving, Chat & Activity */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bentoFastRow}>
+            {/* Horizontal Fast-Pills Row for Driving */}
+            <View style={styles.bentoFastRow}>
               <TouchableOpacity
                 style={styles.fastPill}
                 onPress={() => navigation.navigate('DrivingReports')}
@@ -1019,58 +1073,143 @@ export default function HomeScreen() {
                 <Ionicons name="speedometer-outline" size={15} color="#EF4444" />
                 <Text style={styles.fastPillText}>Driving Report</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.fastPill}
-                onPress={() => navigation.navigate('Chat')}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="chatbubbles-outline" size={15} color="#8B5CF6" />
-                <Text style={styles.fastPillText}>Circle Chat</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.fastPill}
-                onPress={() => navigation.navigate('Activity')}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="notifications-outline" size={15} color="#F5A623" />
-                <Text style={styles.fastPillText}>Activity Feed</Text>
-              </TouchableOpacity>
-            </ScrollView>
+            </View>
           </View>
         ) : (
           /* STANDARD / BAUHAUS / PLAYFUL DOCK */
           <MagnificationDock items={dockItems} />
         )}
 
-        {/* Activity Log Box Container */}
-        <View style={[styles.activityContainerBox, { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF', borderColor: isDark ? 'transparent' : '#E4E4E7' }]}>
+        {/* RECENT ACTIVITY CARD */}
+        <View
+          style={[
+            styles.activityContainerBox,
+            {
+              backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E4E4E7',
+            },
+          ]}
+        >
           {/* Inner Header Row */}
           <View style={styles.activityBoxHeader}>
             <View style={styles.activityBoxTitleRow}>
               <View style={styles.pulseLiveDot} />
-              <Text style={[styles.sectionTitle, { color: isDark ? colors.foreground : '#18181B', fontSize: 13 }]}>RECENT ACTIVITY</Text>
+              <Text
+                style={[
+                  styles.sectionTitle,
+                  { color: isDark ? colors.foreground : '#18181B', fontSize: 11 },
+                ]}
+              >
+                RECENT ACTIVITY
+              </Text>
             </View>
-            <TouchableOpacity onPress={() => navigation.navigate('Activity')} activeOpacity={0.7}>
-              <Text style={[styles.seeAllText, { color: '#0A84FF' }]}>See All →</Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Activity')}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.seeAllText,
+                  { color: themeMode === 'brand_green' ? '#3DBE6C' : '#0A84FF' },
+                ]}
+              >
+                See All →
+              </Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.activityBoxInnerContent}>
             {loadingActivity ? (
-              <ActivityIndicator size="small" color={colors.accentGold} style={{ paddingVertical: 20 }} />
-            ) : recentActivities.length > 0 ? (
-              <AnimatedList
-                items={recentActivities}
-                maxHeight={200}
-                showGradients={true}
-                displayScrollbar={false}
-                onItemSelect={(item) => navigation.navigate('Activity')}
+              <ActivityIndicator
+                size="small"
+                color={themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold}
+                style={{ paddingVertical: 18 }}
               />
+            ) : recentActivities.length > 0 ? (
+              <View style={{ gap: 8, marginTop: 4 }}>
+                {recentActivities.slice(0, 3).map((item, index) => (
+                  <AnimatedActivityItem key={item.id || index} index={index}>
+                    <TouchableOpacity
+                      style={[
+                        styles.activityCard,
+                        {
+                          backgroundColor: isDark ? '#12141C' : '#F9FAFB',
+                          borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : '#E5E7EB',
+                          borderLeftColor: item.color,
+                        },
+                      ]}
+                      onPress={() => navigation.navigate('Activity')}
+                      activeOpacity={0.8}
+                    >
+                      <View style={styles.activityCardHeader}>
+                        <View style={styles.activityBadgeRow}>
+                          <View
+                            style={[
+                              styles.activityIconBox,
+                              {
+                                backgroundColor: `${item.color}18`,
+                                borderColor: `${item.color}40`,
+                              },
+                            ]}
+                          >
+                            <Ionicons
+                              name={item.icon as any}
+                              size={13}
+                              color={item.color}
+                            />
+                          </View>
+                          <Text
+                            style={[
+                              styles.activityBadgeText,
+                              { color: item.color },
+                            ]}
+                          >
+                            {item.badgeText}
+                          </Text>
+                        </View>
+                        <View style={styles.activityTimePill}>
+                          <Ionicons
+                            name="time-outline"
+                            size={11}
+                            color={colors.textMuted}
+                          />
+                          <Text
+                            style={[
+                              styles.activityTimeText,
+                              { color: colors.textMuted },
+                            ]}
+                          >
+                            {item.time}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text
+                        style={[
+                          styles.activityTitleText,
+                          { color: colors.foreground },
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {item.title}
+                      </Text>
+                    </TouchableOpacity>
+                  </AnimatedActivityItem>
+                ))}
+              </View>
             ) : (
               <View style={styles.emptyActivityBox}>
-                <Ionicons name="shield-checkmark-outline" size={24} color={colors.textMuted} />
-                <Text style={[styles.emptyActivityText, { color: isDark ? colors.textMuted : '#71717A' }]}>
-                  No activity recorded in your circle yet.
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={24}
+                  color={colors.textMuted}
+                />
+                <Text
+                  style={[
+                    styles.emptyActivityText,
+                    { color: isDark ? colors.textMuted : '#71717A' },
+                  ]}
+                >
+                  All clear. No safety breaches or alerts recorded yet.
                 </Text>
               </View>
             )}
@@ -1606,37 +1745,41 @@ const styles = StyleSheet.create({
   },
   bentoCard: {
     flex: 1,
-    backgroundColor: '#12141C',
+    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.06,
     shadowRadius: 10,
-    elevation: 3,
+    elevation: 2,
     justifyContent: 'space-between',
   },
   bentoCardBlue: {
-    borderColor: 'rgba(56, 189, 248, 0.25)',
+    borderColor: '#BFDBFE',
+    backgroundColor: '#FFFFFF',
   },
   bentoCardGreen: {
-    borderColor: 'rgba(52, 211, 153, 0.25)',
+    borderColor: '#A7F3D0',
+    backgroundColor: '#FFFFFF',
   },
   bentoCardPurple: {
-    borderColor: 'rgba(192, 132, 252, 0.25)',
+    borderColor: '#DDD6FE',
+    backgroundColor: '#FFFFFF',
   },
   bentoCardAmber: {
-    borderColor: 'rgba(245, 208, 97, 0.25)',
+    borderColor: '#FDE68A',
+    backgroundColor: '#FFFFFF',
   },
   bentoIconCircleBlue: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    backgroundColor: '#EFF6FF',
     borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.3)',
+    borderColor: '#BFDBFE',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
@@ -1645,9 +1788,9 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(52, 211, 153, 0.12)',
+    backgroundColor: '#ECFDF5',
     borderWidth: 1,
-    borderColor: 'rgba(52, 211, 153, 0.3)',
+    borderColor: '#A7F3D0',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
@@ -1656,9 +1799,9 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(192, 132, 252, 0.12)',
+    backgroundColor: '#F5F3FF',
     borderWidth: 1,
-    borderColor: 'rgba(192, 132, 252, 0.3)',
+    borderColor: '#DDD6FE',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
@@ -1667,9 +1810,9 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(245, 208, 97, 0.12)',
+    backgroundColor: '#FFFBEB',
     borderWidth: 1,
-    borderColor: 'rgba(245, 208, 97, 0.3)',
+    borderColor: '#FDE68A',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
@@ -1677,13 +1820,13 @@ const styles = StyleSheet.create({
   bentoTitle: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#0F172A',
     letterSpacing: 0.4,
     marginBottom: 3,
   },
   bentoSubtitle: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: '#64748B',
     lineHeight: 15,
     marginBottom: 12,
   },

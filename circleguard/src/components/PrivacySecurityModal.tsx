@@ -215,7 +215,7 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
         setPurging(true);
         try {
           const { error } = await supabase
-            .from('locations')
+            .from('location_history')
             .delete()
             .eq('user_id', profile.id);
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, RefreshControl, ActivityIndicator, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, RefreshControl, ActivityIndicator, Linking, Platform } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../store/useAuthStore';
@@ -20,6 +20,8 @@ import CircleHierarchyTree from '../components/CircleHierarchyTree';
 import BranchAssignmentModal from '../components/BranchAssignmentModal';
 import CircleQRCodeModal from '../components/CircleQRCodeModal';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { isValidUuid } from '../lib/utils';
 
 type DashboardNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Circle'>,
@@ -27,6 +29,7 @@ type DashboardNavigationProp = CompositeNavigationProp<
 >;
 
 export default function DashboardScreen() {
+  const insets = useSafeAreaInsets();
   const { colors, themeMode, isDark } = useThemeStore();
   const { showAlert, showConfirm } = useLuxuryAlert();
   const navigation = useNavigation<DashboardNavigationProp>();
@@ -35,8 +38,43 @@ export default function DashboardScreen() {
 
   const circleMembers = React.useMemo(() => {
     if (!activeCircle?.id || !Array.isArray(members)) return [];
-    return members.filter(m => !m.circle_id || m.circle_id === activeCircle.id);
-  }, [members, activeCircle?.id]);
+    const filtered = members.filter(m => !m.circle_id || m.circle_id === activeCircle.id);
+
+    const cleanPhone = (p?: string | null) => (p || '').replace(/[^\d]/g, '');
+    const selfPhone = cleanPhone(profile?.phone);
+    const selfFullName = profile?.full_name?.trim().toLowerCase();
+
+    const deduped: typeof members = [];
+    const seenUids = new Set<string>();
+    const seenPhones = new Set<string>();
+
+    const selfMember = filtered.find(m => m.user_id === profile?.id);
+    if (selfMember) {
+      deduped.push(selfMember);
+      seenUids.add(selfMember.user_id);
+      if (selfPhone) seenPhones.add(selfPhone);
+    }
+
+    for (const m of filtered) {
+      if (m.user_id === profile?.id) continue;
+      if (seenUids.has(m.user_id)) continue;
+
+      const mPhone = cleanPhone(m.profile?.phone);
+      const mName = m.profile?.full_name?.trim().toLowerCase();
+
+      const isSelfPhoneDup = !!selfPhone && !!mPhone && mPhone === selfPhone;
+      const isSelfNameDup = !!selfFullName && !!mName && mName === selfFullName && (!mPhone || mPhone === selfPhone);
+
+      if (isSelfPhoneDup || isSelfNameDup) continue;
+      if (mPhone && seenPhones.has(mPhone)) continue;
+
+      seenUids.add(m.user_id);
+      if (mPhone) seenPhones.add(mPhone);
+      deduped.push(m);
+    }
+
+    return deduped;
+  }, [members, activeCircle?.id, profile?.id, profile?.phone, profile?.full_name]);
 
   const myMemberRecord = circleMembers.find(m => m.user_id === profile?.id);
   const myRole = myMemberRecord?.role || 'member';
@@ -48,6 +86,15 @@ export default function DashboardScreen() {
   const [qrModalVisible, setQrModalVisible] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'tree'>('tree');
   const [refreshing, setRefreshing] = useState(false);
+  const [latestMessage, setLatestMessage] = useState<{
+    id: string;
+    sender_id: string;
+    sender_name: string;
+    sender_avatar?: string | null;
+    content: string;
+    created_at: string;
+    message_type?: string;
+  } | null>(null);
   const [pendingRequests, setPendingRequests] = useState<Array<{
     id: string;
     user_id: string;
@@ -59,6 +106,9 @@ export default function DashboardScreen() {
   React.useEffect(() => {
     if (profile?.id && !activeCircle) {
       fetchActiveCircle(profile.id);
+    }
+    if (activeCircle?.id) {
+      fetchLatestMessage(activeCircle.id);
     }
     if (activeCircle?.id && canManageRanks) {
       fetchPendingRequests();
@@ -79,8 +129,9 @@ export default function DashboardScreen() {
       )
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'circle_messages', filter: `circle_id=eq.${activeCircle.id}` },
+        { event: '*', schema: 'public', table: 'circle_messages', filter: `circle_id=eq.${activeCircle.id}` },
         () => {
+          fetchLatestMessage(activeCircle.id);
           if (canManageRanks) {
             fetchPendingRequests();
           }
@@ -92,6 +143,55 @@ export default function DashboardScreen() {
       supabase.removeChannel(channel);
     };
   }, [activeCircle?.id, canManageRanks]);
+
+  const fetchLatestMessage = async (circleId: string) => {
+    if (!circleId || !isValidUuid(circleId)) return;
+    try {
+      const cutoffTime = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+      const { data } = await supabase
+        .from('circle_messages')
+        .select('id, sender_id, content, message_type, created_at, profiles:sender_id(full_name, avatar_url)')
+        .eq('circle_id', circleId)
+        .is('deleted_at', null)
+        .gte('created_at', cutoffTime)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (data && data.length > 0) {
+        const msg = data[0] as any;
+        let prof = msg.profiles;
+        if (Array.isArray(prof)) prof = prof[0];
+        setLatestMessage({
+          id: msg.id,
+          sender_id: msg.sender_id,
+          sender_name: prof?.full_name || 'Member',
+          sender_avatar: prof?.avatar_url || null,
+          content: msg.content,
+          created_at: msg.created_at,
+          message_type: msg.message_type,
+        });
+      } else {
+        setLatestMessage(null);
+      }
+    } catch (e) {
+      console.warn('Error fetching latest circle message:', e);
+    }
+  };
+
+  const formatMessageTime = (dateStr?: string) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHrs = Math.floor(diffMin / 60);
+
+    if (diffMin < 1) return 'Just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHrs < 24) return `${diffHrs}h ago`;
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
 
   const fetchPendingRequests = async () => {
     if (!activeCircle?.id) return;
@@ -193,7 +293,11 @@ export default function DashboardScreen() {
     try {
       const currentCircle = activeCircle || useCircleStore.getState().activeCircle;
       if (currentCircle?.id) {
-        await useCircleStore.getState().fetchMembers(currentCircle.id);
+        await Promise.all([
+          useCircleStore.getState().fetchMembers(currentCircle.id),
+          fetchLatestMessage(currentCircle.id),
+          canManageRanks ? fetchPendingRequests() : Promise.resolve(),
+        ]);
         useCircleStore.getState().fetchUserCircles(profile.id).catch(() => {});
       } else {
         await useCircleStore.getState().fetchActiveCircle(profile.id);
@@ -215,6 +319,37 @@ export default function DashboardScreen() {
         buttonText: 'DONE',
       });
     }
+  };
+
+  const handleQuickRemoveMember = (member: any) => {
+    if (!activeCircle?.id || !member?.user_id) return;
+    const memberName = member?.profile?.full_name || 'this member';
+
+    showConfirm({
+      title: 'Remove Member',
+      message: `Are you sure you want to remove ${memberName} from ${activeCircle?.name || 'this circle'}?`,
+      confirmText: 'REMOVE',
+      cancelText: 'CANCEL',
+      isDestructive: true,
+      onConfirm: async () => {
+        try {
+          const success = await useCircleStore.getState().removeMember(activeCircle.id, member.user_id);
+          if (success) {
+            showAlert({
+              title: 'Member Removed',
+              message: `${memberName} has been removed from the circle.`,
+              type: 'info',
+            });
+          }
+        } catch (e: any) {
+          showAlert({
+            title: 'Error',
+            message: e.message || 'Failed to remove member.',
+            type: 'error',
+          });
+        }
+      },
+    });
   };
 
   const handleLeaveOrDelete = async () => {
@@ -334,15 +469,34 @@ export default function DashboardScreen() {
   return (
     <ScrollView 
       style={[styles.container, { backgroundColor: colors.background }]} 
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[
+        styles.content,
+        { paddingTop: Math.max(insets.top + 16, Platform.OS === 'web' ? 36 : 56) }
+      ]}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.accentGold]} tintColor={colors.accentGold} />
       }
     >
-      {/* Header */}
+      {/* Header with Quick Chat Button */}
       <View style={styles.header}>
-        <Text style={[styles.overline, { color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}>FAMILY ARCHITECTURE & SAFETY</Text>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>{activeCircle.name}</Text>
+        <View style={{ flex: 1, marginRight: 12 }}>
+          <Text style={[styles.overline, { color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}>FAMILY ARCHITECTURE & SAFETY</Text>
+          <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>{activeCircle.name}</Text>
+        </View>
+        <TouchableOpacity
+          style={[
+            styles.headerChatBtn,
+            {
+              backgroundColor: themeMode === 'brand_green' ? 'rgba(61, 190, 108, 0.12)' : 'rgba(212, 175, 55, 0.12)',
+              borderColor: themeMode === 'brand_green' ? 'rgba(61, 190, 108, 0.35)' : 'rgba(212, 175, 55, 0.35)',
+            },
+          ]}
+          onPress={() => navigation.navigate('Chat')}
+          activeOpacity={0.75}
+        >
+          <Ionicons name="chatbubbles" size={17} color={themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold} />
+          <Text style={[styles.headerChatBtnText, { color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}>CHAT</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Circle Overview Statistics Grid */}
@@ -367,6 +521,94 @@ export default function DashboardScreen() {
           <Text style={[styles.statLabel, { color: colors.textMuted }]}>ENCRYPTED</Text>
         </View>
       </View>
+
+      {/* Dedicated Circle Chat Hub Card */}
+      <TouchableOpacity
+        style={[
+          styles.chatHubCard,
+          getThemeCardStyles(themeMode),
+          {
+            backgroundColor: colors.surface,
+            borderColor: themeMode === 'brand_green' ? 'rgba(61, 190, 108, 0.3)' : 'rgba(212, 175, 55, 0.3)',
+          },
+        ]}
+        onPress={() => navigation.navigate('Chat')}
+        activeOpacity={0.85}
+      >
+        <View style={styles.chatHubHeader}>
+          <View style={styles.chatHubHeaderLeft}>
+            <View style={[
+              styles.chatIconBadge,
+              { backgroundColor: themeMode === 'brand_green' ? 'rgba(61, 190, 108, 0.14)' : 'rgba(212, 175, 55, 0.14)' }
+            ]}>
+              <Ionicons
+                name="chatbubble-ellipses"
+                size={18}
+                color={themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[styles.chatHubTitle, { color: colors.foreground }]}>CIRCLE CHAT</Text>
+                <View style={[styles.chatLiveIndicator, { backgroundColor: themeMode === 'brand_green' ? 'rgba(61, 190, 108, 0.12)' : 'rgba(212, 175, 55, 0.12)' }]}>
+                  <View style={[styles.chatLiveDot, { backgroundColor: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]} />
+                  <Text style={[styles.chatLiveText, { color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}>LIVE ROOM</Text>
+                </View>
+              </View>
+              <Text style={[styles.chatHubSub, { color: colors.textMuted }]}>
+                Disappearing messages • Auto-purges in 1-2 days
+              </Text>
+            </View>
+          </View>
+
+          <View style={[
+            styles.openChatPill,
+            { backgroundColor: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }
+          ]}>
+            <Text style={[styles.openChatPillText, { color: themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A' }]}>OPEN</Text>
+            <Ionicons name="arrow-forward" size={12} color={themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A'} />
+          </View>
+        </View>
+
+        {/* Latest message preview or invitation */}
+        <View style={[styles.chatPreviewBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
+          {latestMessage ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={[styles.chatPreviewAvatar, { borderColor: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}>
+                {latestMessage.sender_avatar ? (
+                  <Image source={{ uri: latestMessage.sender_avatar }} style={styles.chatPreviewAvatarImg} />
+                ) : (
+                  <Text style={[styles.chatPreviewAvatarInitial, { color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}>
+                    {latestMessage.sender_name.charAt(0).toUpperCase()}
+                  </Text>
+                )}
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <Text style={[styles.chatPreviewSender, { color: colors.foreground }]} numberOfLines={1}>
+                    {latestMessage.sender_id === profile?.id ? 'You' : latestMessage.sender_name}
+                  </Text>
+                  <Text style={[styles.chatPreviewTime, { color: colors.textMuted }]}>
+                    {formatMessageTime(latestMessage.created_at)}
+                  </Text>
+                </View>
+                <Text style={[styles.chatPreviewText, { color: colors.textMuted }]} numberOfLines={1} ellipsizeMode="tail">
+                  {latestMessage.message_type === 'location'
+                    ? '📍 Shared Live Location'
+                    : latestMessage.content}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Ionicons name="chatbubbles-outline" size={16} color={colors.textMuted} />
+              <Text style={[styles.chatEmptyText, { color: colors.textMuted }]}>
+                No messages yet. Tap to start chatting with your circle.
+              </Text>
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
 
       {/* Tracking Mode Protocol Badge Card */}
       <View style={[styles.trackingModeCard, getThemeCardStyles(themeMode), { backgroundColor: colors.surface }]}>
@@ -442,7 +684,7 @@ export default function DashboardScreen() {
         <View style={styles.inviteHeader}>
           <View style={{ flex: 1, marginRight: 12 }}>
             <Text style={[styles.inviteOverline, { color: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold }]}>CIRCLE ACCESS CODE</Text>
-            <Text style={[styles.circleName, { color: colors.foreground }]} numberOfLines={1}>{activeCircle.name}</Text>
+            <Text style={[styles.circleName, { color: colors.foreground }]} numberOfLines={2}>{activeCircle.name}</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 6 }}>
             <TouchableOpacity 
@@ -609,29 +851,29 @@ export default function DashboardScreen() {
                         <Text style={[styles.celestialRoleText, { color: roleColor }]}>{roleTitle}</Text>
                       </View>
 
-                      {supervisor ? (
-                        <View style={[styles.celestialGuardianPill, { backgroundColor: 'rgba(56, 189, 248, 0.12)', borderColor: 'rgba(56, 189, 248, 0.3)' }]}>
-                          <Ionicons name="shield-checkmark" size={8} color="#38BDF8" />
-                          <Text style={[styles.celestialGuardianText, { color: '#38BDF8' }]} numberOfLines={1}>
-                            Guardian: {supervisor.profile?.full_name || 'Assigned'}
-                          </Text>
-                        </View>
-                      ) : null}
-
                       {isGhost && (
                         <View style={[styles.celestialRolePill, { backgroundColor: 'rgba(168, 85, 247, 0.15)', flexDirection: 'row', alignItems: 'center', gap: 3 }]}>
                           <Ionicons name="eye-off-outline" size={8.5} color="#C084FC" />
-                          <Text style={[styles.celestialRoleText, { color: '#C084FC' }]}>PRIVACY MODE</Text>
+                          <Text style={[styles.celestialRoleText, { color: '#C084FC' }]}>PRIVACY</Text>
                         </View>
                       )}
                     </View>
+
+                    {supervisor ? (
+                      <View style={[styles.celestialGuardianPill, { backgroundColor: 'rgba(56, 189, 248, 0.12)', borderColor: 'rgba(56, 189, 248, 0.3)' }]}>
+                        <Ionicons name="shield-checkmark" size={8.5} color="#38BDF8" />
+                        <Text style={[styles.celestialGuardianText, { color: '#38BDF8' }]} numberOfLines={1} ellipsizeMode="tail">
+                          Guardian: {supervisor.profile?.full_name || 'Assigned'}
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
 
-                  {/* Right Telemetry & Chevron */}
+                  {/* Right Telemetry & Actions */}
                   <View style={styles.celestialRightCol}>
                     <View style={[styles.celestialStatusBadge, { backgroundColor: isOnline ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)' }]}>
                       <View style={[styles.celestialMicroDot, { backgroundColor: isOnline ? '#10B981' : '#6B7280' }]} />
-                      <Text style={[styles.celestialStatusText, { color: isOnline ? '#10B981' : colors.textMuted }]}>
+                      <Text style={[styles.celestialStatusText, { color: isOnline ? '#10B981' : colors.textMuted }]} numberOfLines={1} ellipsizeMode="tail">
                         {isOnline ? 'Active' : (item.lastSeenText || 'Offline')}
                       </Text>
                     </View>
@@ -643,7 +885,20 @@ export default function DashboardScreen() {
                         color={battery <= 20 ? '#EF4444' : colors.textMuted}
                       />
                       <Text style={[styles.celestialBatteryText, { color: colors.textMuted }]}>{battery}%</Text>
-                      <Ionicons name="chevron-forward" size={12} color={colors.textMuted} style={{ marginLeft: 2 }} />
+                      {canManageRanks && !isSelf && !isTargetOwner ? (
+                        <TouchableOpacity
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            handleQuickRemoveMember(item);
+                          }}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          style={{ marginLeft: 6, padding: 3 }}
+                        >
+                          <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                        </TouchableOpacity>
+                      ) : (
+                        <Ionicons name="chevron-forward" size={12} color={colors.textMuted} style={{ marginLeft: 2 }} />
+                      )}
                     </View>
                   </View>
                 </SpringTouchable>
@@ -693,8 +948,8 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 24,
-    paddingTop: 60,
-    paddingBottom: 28,
+    paddingTop: Platform.OS === 'web' ? 36 : (Platform.OS === 'ios' ? 68 : 56),
+    paddingBottom: 120,
   },
   centerContent: {
     justifyContent: 'center',
@@ -703,6 +958,133 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerChatBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 18,
+    borderWidth: 1,
+  },
+  headerChatBtnText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  chatHubCard: {
+    padding: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: 16,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  chatHubHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  chatHubHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    marginRight: 10,
+  },
+  chatIconBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatHubTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  chatLiveIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  chatLiveDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  chatLiveText: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  chatHubSub: {
+    fontSize: 10.5,
+    marginTop: 1,
+  },
+  openChatPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  openChatPillText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  chatPreviewBox: {
+    padding: 11,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  chatPreviewAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  chatPreviewAvatarImg: {
+    width: '100%',
+    height: '100%',
+  },
+  chatPreviewAvatarInitial: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  chatPreviewSender: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  chatPreviewTime: {
+    fontSize: 9.5,
+    fontWeight: '500',
+  },
+  chatPreviewText: {
+    fontSize: 11.5,
+    lineHeight: 15,
+  },
+  chatEmptyText: {
+    fontSize: 11,
+    fontStyle: 'italic',
+    flex: 1,
   },
   statsGridRow: {
     flexDirection: 'row',
@@ -904,6 +1286,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     gap: 3,
+    minWidth: 0,
+    marginRight: 8,
   },
   celestialName: {
     fontSize: 14.5,
@@ -942,21 +1326,27 @@ const styles = StyleSheet.create({
   celestialGuardianPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     gap: 3,
     paddingHorizontal: 6,
     paddingVertical: 1.5,
     borderRadius: 6,
     borderWidth: 1,
+    maxWidth: '100%',
+    marginTop: 2,
   },
   celestialGuardianText: {
     fontSize: 8,
     fontWeight: '800',
     letterSpacing: 0.3,
+    flexShrink: 1,
   },
   celestialRightCol: {
     alignItems: 'flex-end',
     justifyContent: 'center',
     gap: 4,
+    flexShrink: 0,
+    minWidth: 72,
   },
   celestialStatusBadge: {
     flexDirection: 'row',
@@ -965,6 +1355,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
+    maxWidth: 115,
   },
   celestialMicroDot: {
     width: 5,
@@ -974,10 +1365,12 @@ const styles = StyleSheet.create({
   celestialStatusText: {
     fontSize: 8.5,
     fontWeight: '700',
+    flexShrink: 1,
   },
   celestialBatteryRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 3,
   },
   celestialBatteryText: {

@@ -21,7 +21,8 @@ import GlobalSOSModal from '../components/GlobalSOSModal';
 import GlobalLocationShareModal from '../components/GlobalLocationShareModal';
 import GlobalCircleSwitchLoader from '../components/GlobalCircleSwitchLoader';
 import NetworkStatusBanner from '../components/NetworkStatusBanner';
-import { scheduleLocalNotification } from '../services/PushNotificationService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { scheduleLocalNotification, sendPushNotificationToUser } from '../services/PushNotificationService';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -50,13 +51,15 @@ import { useCircleStore } from '../store/useCircleStore';
 
 function PrivacyPermissionListener() {
   const { profile } = useAuthStore();
+  const { activeCircle } = useCircleStore();
   const { showPrivacyRequest, showAlert } = useLuxuryAlert();
 
   React.useEffect(() => {
     if (!profile?.id) return;
 
-    const channel = supabase
-      .channel('public:circle_messages_privacy')
+    // 1. Leader listener: incoming requests to approve or decline
+    const msgChannel = supabase
+      .channel(`public:circle_messages_privacy_${profile.id}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'circle_messages' },
@@ -89,6 +92,14 @@ function PrivacyPermissionListener() {
                   content: `PERMISSION AUTHORIZED: Approved ${featureName} for ${senderName}.`,
                 });
 
+                // Dispatch push notification outside the app to requested member
+                await sendPushNotificationToUser(
+                  senderId,
+                  '🎉 Privacy Request Approved!',
+                  `Your Circle Leader approved your request to activate ${featureName}!`,
+                  { type: 'privacy_approved', feature: featureName }
+                );
+
                 showAlert({
                   title: 'PERMISSION AUTHORIZED',
                   message: `You authorized ${senderName}'s ${featureName} privacy request.`,
@@ -102,6 +113,14 @@ function PrivacyPermissionListener() {
                   content: `PERMISSION DECLINED: Circle Leader declined ${featureName} request for ${senderName}.`,
                 });
 
+                // Dispatch push notification to requested member
+                await sendPushNotificationToUser(
+                  senderId,
+                  'Privacy Request Maintained',
+                  `Circle Leader maintained 24/7 Safety Mode for ${featureName}.`,
+                  { type: 'privacy_declined', feature: featureName }
+                );
+
                 showAlert({
                   title: 'REQUEST DECLINED',
                   message: `You declined ${senderName}'s request to maintain 24/7 Safety Mode.`,
@@ -114,10 +133,66 @@ function PrivacyPermissionListener() {
       )
       .subscribe();
 
+    // 2. Member listener: real-time in-app notification when Leader approves requests
+    const profileChannel = supabase
+      .channel(`public:profile_privacy_approved_${profile.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${profile.id}` },
+        async (payload) => {
+          const newRec = payload.new as any;
+          const oldRec = payload.old as any;
+
+          // Check if Ghost Mode was approved and activated
+          if (newRec?.is_ghost_mode && !oldRec?.is_ghost_mode) {
+            await AsyncStorage.setItem('@circleguard_ghost_mode', 'true');
+            useAuthStore.getState().setProfile({ ...useAuthStore.getState().profile!, is_ghost_mode: true });
+            if (activeCircle?.id) {
+              useCircleStore.getState().fetchMembers(activeCircle.id).catch(() => {});
+            }
+
+            showAlert({
+              title: '🎉 Ghost Mode Approved!',
+              message: 'Your Circle Leader has approved your request. Ghost Mode is now activated and your location is hidden.',
+              type: 'success',
+            });
+
+            scheduleLocalNotification(
+              '🎉 Ghost Mode Approved!',
+              'Circle Leader has approved your request to activate Ghost Mode.',
+              { type: 'privacy_approved' }
+            );
+          }
+
+          // Check if Hide Online Presence was approved and activated
+          if (newRec?.hide_online_presence && !oldRec?.hide_online_presence) {
+            await AsyncStorage.setItem('@circleguard_hide_online', 'true');
+            useAuthStore.getState().setProfile({ ...useAuthStore.getState().profile!, hide_online_presence: true });
+            if (activeCircle?.id) {
+              useCircleStore.getState().fetchMembers(activeCircle.id).catch(() => {});
+            }
+
+            showAlert({
+              title: '🎉 Privacy Request Approved!',
+              message: 'Your Circle Leader has approved your request. Your online presence is now hidden.',
+              type: 'success',
+            });
+
+            scheduleLocalNotification(
+              '🎉 Privacy Request Approved!',
+              'Circle Leader has approved your request to hide online presence.',
+              { type: 'privacy_approved' }
+            );
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(msgChannel);
+      supabase.removeChannel(profileChannel);
     };
-  }, [profile?.id]);
+  }, [profile?.id, activeCircle?.id]);
 
   return null;
 }
@@ -164,6 +239,9 @@ function GlobalChatNotificationListener() {
   return null;
 }
 
+import { View } from 'react-native';
+import CircleGuardGlobeLoader from '../components/CircleGuardGlobeLoader';
+
 export default function AppNavigator() {
   const { session, profile, isLoading, isProfileFetching } = useAuthStore();
   const [showSplash, setShowSplash] = React.useState(true);
@@ -174,14 +252,27 @@ export default function AppNavigator() {
     }
   }, [profile?.id]);
 
-  if (isLoading || showSplash) {
+  if (showSplash) {
     return <SplashScreen onFinish={() => setShowSplash(false)} />;
+  }
+
+  // Enterprise Universal Loading Experience:
+  // Render high-end animated radar globe during connection or profile hydration
+  if (isLoading || (session && isProfileFetching)) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#090A0C', justifyContent: 'center', alignItems: 'center' }}>
+        <CircleGuardGlobeLoader 
+          size={180} 
+          loadingLabel={session ? "Securing CircleGuard Session…" : "Connecting to CircleGuard Network…"} 
+        />
+      </View>
+    );
   }
 
   return (
     <LuxuryAlertProvider>
       <BiometricLockGate>
-        <NavigationContainer>
+        <NavigationContainer ref={(r) => { if (typeof window !== 'undefined') (window as any).__navigationRef = r; }}>
           <NetworkStatusBanner />
           <GlobalCircleSwitchLoader />
           {session && profile ? (
@@ -194,8 +285,8 @@ export default function AppNavigator() {
             </>
           ) : null}
           <Stack.Navigator screenOptions={{ headerShown: false }}>
-            {!session || isProfileFetching ? (
-              // Unauthenticated / In-Flight Auth Flow (Direct to Login/SignUp)
+            {!session ? (
+              // Unauthenticated Flow (Direct to Login/SignUp)
               <>
                 <Stack.Screen name="Login" component={LoginScreen} />
                 <Stack.Screen name="SignUp" component={SignUpScreen} />

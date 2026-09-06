@@ -4,6 +4,7 @@ import * as Battery from 'expo-battery';
 import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { queueAndSyncLocationHistory } from './OfflineLocationQueueService';
+import { useCircleStore } from '../store/useCircleStore';
 
 export const LOCATION_BACKGROUND_TASK = 'CIRCLEGUARD_BACKGROUND_LOCATION_TASK';
 
@@ -81,16 +82,19 @@ try {
           .eq('user_id', userId)
           .limit(1);
 
-        if (memberCircle && memberCircle.length > 0) {
-          let circleObj = memberCircle[0].circles as any;
-          if (Array.isArray(circleObj)) circleObj = circleObj[0];
+        if (!memberCircle || memberCircle.length === 0) {
+          // Logical Enterprise Rule: If user has not joined or created a circle, do NOT track or record location history
+          return;
+        }
 
-          const trackingMode = circleObj?.tracking_mode || 'continuous';
-          if (trackingMode === 'privacy') {
-            // Option A: Privacy-First Mode - Disconnect location updates when app is closed in background
-            console.log('[LocationService] Privacy-First Circle Mode active. Location disconnected while app is closed.');
-            return;
-          }
+        let circleObj = memberCircle[0].circles as any;
+        if (Array.isArray(circleObj)) circleObj = circleObj[0];
+
+        const trackingMode = circleObj?.tracking_mode || 'continuous';
+        if (trackingMode === 'privacy') {
+          // Option A: Privacy-First Mode - Disconnect location updates when app is closed in background
+          console.log('[LocationService] Privacy-First Circle Mode active. Location disconnected while app is closed.');
+          return;
         }
 
         let batteryPct = 100;
@@ -115,9 +119,20 @@ try {
         }
 
         const point = `POINT(${finalLng} ${finalLat})`;
+        let activeCircleId = useCircleStore.getState().activeCircle?.id;
+
+        console.log('[GPS_PIPELINE:LAYER_1_TRIGGER] Background GPS event fired:', {
+          userId,
+          lat: finalLat,
+          lng: finalLng,
+          speed: rawSpeed,
+          battery: batteryPct,
+          activeCircleId,
+          timestamp: new Date(now).toISOString(),
+        });
 
         // 1. Live location upsert to keep user ONLINE continuously in background
-        await supabase.from('locations').upsert({
+        const locPayload: any = {
           user_id: userId,
           latitude: finalLat,
           longitude: finalLng,
@@ -127,7 +142,39 @@ try {
           activity_state: activityState,
           geom: point,
           updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id' });
+        };
+
+        // Resolve target circle IDs: if activeCircleId is not in store, query circle_members
+        let targetCircleIds: (string | null)[] = activeCircleId ? [activeCircleId] : [];
+        if (targetCircleIds.length === 0) {
+          try {
+            const { data: cmRows } = await supabase.from('circle_members').select('circle_id').eq('user_id', userId);
+            if (cmRows && cmRows.length > 0) {
+              targetCircleIds = cmRows.map(r => r.circle_id).filter(Boolean);
+            }
+          } catch (e) {}
+        }
+        if (targetCircleIds.length === 0) {
+          targetCircleIds = [null];
+        }
+
+        for (const cId of targetCircleIds) {
+          const payload = { ...locPayload };
+          if (cId) payload.circle_id = cId;
+
+          try {
+            const { error: upsertErr } = await supabase.from('locations').upsert(payload, {
+              onConflict: 'user_id'
+            });
+            if (upsertErr) {
+              console.error('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] Upsert error for circle', cId, ':', upsertErr.message);
+            } else {
+              console.log('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] DB updated successfully for user:', userId, 'circle_id:', cId);
+            }
+          } catch (err: any) {
+            console.error('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] Exception writing location to DB:', err?.message);
+          }
+        }
 
         // 2. Insert authentic GPS coordinate into location_history for 2-day historical logging (with 15m noise filter)
         const lastSaved = lastBgHistorySavedPoint[userId];
@@ -203,7 +250,14 @@ try {
               });
 
               await evaluateGeofenceBreaches(
-                { user_id: userId, latitude: finalLat, longitude: finalLng },
+                {
+                  user_id: userId,
+                  latitude: finalLat,
+                  longitude: finalLng,
+                  accuracy_m: latest.coords.accuracy ?? undefined,
+                  speed_mps: rawSpeed,
+                  activity_state: activityState,
+                },
                 userProf?.full_name || 'Member',
                 formattedPlaces
               );
@@ -362,6 +416,8 @@ export const sendInstantLocationPing = async () => {
     const userId = sessionData?.session?.user?.id;
     if (!userId) return;
 
+    const activeCircleId = useCircleStore.getState().activeCircle?.id;
+
     const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
     if (!loc) return;
 
@@ -378,8 +434,17 @@ export const sendInstantLocationPing = async () => {
 
     const isDriving = (speed || 0) > 4.5;
     const point = `POINT(${finalLng} ${finalLat})`;
+    console.log('[GPS_PIPELINE:LAYER_1_TRIGGER] Instant location ping fired:', {
+      userId,
+      lat: finalLat,
+      lng: finalLng,
+      speed,
+      battery: batteryPct,
+      activeCircleId,
+      timestamp: new Date().toISOString(),
+    });
 
-    await supabase.from('locations').upsert({
+    const locPayload: any = {
       user_id: userId,
       latitude: finalLat,
       longitude: finalLng,
@@ -389,13 +454,49 @@ export const sendInstantLocationPing = async () => {
       activity_state: isDriving ? 'Driving' : ((speed || 0) >= 0.8 ? 'Walking' : 'Stationary'),
       geom: point,
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id' });
+    };
+
+    let targetCircleIds: (string | null)[] = activeCircleId ? [activeCircleId] : [];
+    if (targetCircleIds.length === 0) {
+      try {
+        const { data: cmRows } = await supabase.from('circle_members').select('circle_id').eq('user_id', userId);
+        if (cmRows && cmRows.length > 0) {
+          targetCircleIds = cmRows.map(r => r.circle_id).filter(Boolean);
+        }
+      } catch (e) {}
+    }
+    if (targetCircleIds.length === 0) {
+      targetCircleIds = [null];
+    }
+
+    for (const cId of targetCircleIds) {
+      const payload = { ...locPayload };
+      if (cId) payload.circle_id = cId;
+
+      try {
+        const { error: upsertErr } = await supabase.from('locations').upsert(payload, {
+          onConflict: 'user_id'
+        });
+        if (upsertErr) {
+          console.error('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] Instant ping upsert error for circle', cId, ':', upsertErr.message);
+        } else {
+          console.log('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] Instant ping wrote location to DB for user:', userId, 'circle_id:', cId);
+        }
+      } catch (err: any) {
+        console.error('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] Instant ping exception writing location:', err?.message);
+      }
+    }
   } catch (e) {
     console.warn('Instant location ping error:', e);
   }
 };
 
 export const stopBackgroundLocation = async () => {
+  lastProcessedLat = 0;
+  lastProcessedLng = 0;
+  lastProcessedTimestamp = 0;
+  lastBgHistorySavedPoint = {};
+
   if (Platform.OS === 'web') return;
   try {
     const isRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_BACKGROUND_TASK);
@@ -406,8 +507,10 @@ export const stopBackgroundLocation = async () => {
     if (isGeofenceRegistered) {
       await Location.stopGeofencingAsync(LOCATION_GEOFENCE_TASK);
     }
-    console.log('[LocationService] Background location and geofence tracking fully stopped by user.');
+    console.log('[LocationService] Background location and geofence tracking fully stopped and module state cleansed.');
   } catch (err) {
     console.error('Error stopping background location service:', err);
   }
 };
+
+export const stopBatteryOptimizedBackgroundLocation = stopBackgroundLocation;

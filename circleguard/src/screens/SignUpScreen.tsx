@@ -235,6 +235,8 @@ export default function SignUpScreen() {
         {/* Country / Region Selector */}
         <Text style={[styles.inputLabel, { color: colors.foreground }]}>REGION & EMERGENCY DIAL</Text>
         <TouchableOpacity
+          accessibilityRole="button"
+          aria-label="Select Region and Country"
           style={[
             styles.countrySelectCard,
             {
@@ -281,7 +283,13 @@ export default function SignUpScreen() {
           placeholderTextColor={colors.textMuted}
         />
 
-        <TouchableOpacity style={[styles.button, { backgroundColor: colors.accentGold }]} onPress={handleSignUp} disabled={loading}>
+        <TouchableOpacity 
+          accessibilityRole="button"
+          aria-label="Create Account"
+          style={[styles.button, { backgroundColor: colors.accentGold }]} 
+          onPress={handleSignUp} 
+          disabled={loading}
+        >
           {loading ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
@@ -297,6 +305,8 @@ export default function SignUpScreen() {
 
         {/* High-Visibility Google Sign-Up Button */}
         <TouchableOpacity
+          accessibilityRole="button"
+          aria-label="Continue with Google"
           style={[
             styles.googleButton,
             {
@@ -319,6 +329,8 @@ export default function SignUpScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
+          accessibilityRole="button"
+          aria-label="I already have an account"
           style={styles.linkButton}
           onPress={() => navigation.navigate('Login' as never)}
           disabled={loading}
@@ -339,7 +351,9 @@ export default function SignUpScreen() {
 const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
-    padding: 28,
+    paddingHorizontal: 28,
+    paddingTop: 16,
+    paddingBottom: 24,
     justifyContent: 'center',
   },
   countrySelectCard: {
@@ -353,7 +367,7 @@ const styles = StyleSheet.create({
   },
   brandContainer: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 20,
   },
   form: {
     gap: 16,

@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
   Modal,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
+  FlatList,
   TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,14 +31,20 @@ export default function CountrySelectorModal({
   const cardStyles = getThemeCardStyles(themeMode);
   const borderStyles = getThemeBorderStyles(themeMode);
 
-  const countriesList = Object.values(SUPPORTED_COUNTRIES);
+  const countriesList = useMemo(() => {
+    return Object.values(SUPPORTED_COUNTRIES).sort((a, b) => a.name.localeCompare(b.name));
+  }, []);
 
-  const filteredCountries = countriesList.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.code.toLowerCase().includes(search.toLowerCase()) ||
-      c.dialCode.includes(search)
-  );
+  const filteredCountries = useMemo(() => {
+    if (!search.trim()) return countriesList;
+    const q = search.toLowerCase().trim();
+    return countriesList.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.code.toLowerCase().includes(q) ||
+        c.dialCode.includes(q)
+    );
+  }, [countriesList, search]);
 
   const handleSelect = (country: CountryInfo) => {
     setCountryCode(country.code);
@@ -60,7 +66,7 @@ export default function CountrySelectorModal({
               </View>
               <View>
                 <Text style={[styles.modalTitle, { color: colors.foreground }]}>SELECT REGION / COUNTRY</Text>
-                <Text style={[styles.modalSub, { color: colors.textMuted }]}>Configures emergency hotlines & dialing</Text>
+                <Text style={[styles.modalSub, { color: colors.textMuted }]}>Configures emergency hotlines & dialing ({countriesList.length} countries)</Text>
               </View>
             </View>
             <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7}>
@@ -74,7 +80,7 @@ export default function CountrySelectorModal({
               <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
               <TextInput
                 style={[styles.searchInput, { color: colors.foreground }]}
-                placeholder="Search country or code (e.g. India, +91)..."
+                placeholder="Search country, ISO code or dial code (e.g. India, +91, US)..."
                 placeholderTextColor={colors.textMuted}
                 value={search}
                 onChangeText={setSearch}
@@ -89,12 +95,19 @@ export default function CountrySelectorModal({
           </View>
 
           {/* List of Countries */}
-          <ScrollView contentContainerStyle={styles.listBody} showsVerticalScrollIndicator={false}>
-            {filteredCountries.map((c) => {
+          <FlatList
+            data={filteredCountries}
+            keyExtractor={(item) => item.code}
+            contentContainerStyle={styles.listBody}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            initialNumToRender={15}
+            maxToRenderPerBatch={20}
+            windowSize={5}
+            renderItem={({ item: c }) => {
               const isSelected = c.code === countryCode;
               return (
                 <TouchableOpacity
-                  key={c.code}
                   style={[
                     styles.countryItem,
                     {
@@ -109,12 +122,12 @@ export default function CountrySelectorModal({
                 >
                   <View style={styles.countryLeft}>
                     <Text style={styles.flagText}>{c.flag}</Text>
-                    <View style={{ gap: 2 }}>
+                    <View style={{ gap: 2, flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Text style={[styles.countryName, { color: colors.foreground }]}>{c.name}</Text>
                         <Text style={[styles.dialCode, { color: colors.accentGold }]}>({c.dialCode})</Text>
                       </View>
-                      <Text style={[styles.emergencySummary, { color: colors.textMuted }]}>
+                      <Text style={[styles.emergencySummary, { color: colors.textMuted }]} numberOfLines={1}>
                         {c.code === 'IN'
                           ? 'Police (100) • Ambulance (108) • Fire (101) • ERSS (112)'
                           : `Emergency Hotline: ${c.primaryEmergency}`}
@@ -131,8 +144,8 @@ export default function CountrySelectorModal({
                   </View>
                 </TouchableOpacity>
               );
-            })}
-          </ScrollView>
+            }}
+          />
         </View>
       </View>
     </Modal>

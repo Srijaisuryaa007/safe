@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,32 +29,31 @@ export default function HomeMiniMapCard({
   const pushMapData = () => {
     if (!webViewRef.current) return;
 
-    const memberPins = members.map((m, idx) => {
-      let lat = m.latitude || 0;
-      let lng = m.longitude || 0;
+    const memberPins = members
+      .map((m) => {
+        let lat = m.latitude || 0;
+        let lng = m.longitude || 0;
 
-      if (!lat || !lng || lat === 0 || lng === 0) {
-        const baseLat = userLoc?.latitude || 20.5937;
-        const baseLng = userLoc?.longitude || 78.9629;
-        const angle = (idx * (360 / Math.max(1, members.length))) * (Math.PI / 180);
-        lat = baseLat + 0.0015 * Math.cos(angle);
-        lng = baseLng + 0.0015 * Math.sin(angle);
-      }
+        // ONLY REAL LOCATIONS: Never plot mock/fallback coordinates on map
+        if (!lat || !lng || lat === 0 || lng === 0 || isNaN(lat) || isNaN(lng)) {
+          return null;
+        }
 
-      const roleColor = m.role === 'owner' ? '#D4AF37' : (m.role === 'co_leader' ? '#A855F7' : (m.role === 'guardian' ? '#3B82F6' : '#10B981'));
-      const name = m.profile?.full_name || 'Member';
+        const roleColor = m.role === 'owner' ? '#D4AF37' : (m.role === 'co_leader' ? '#A855F7' : (m.role === 'guardian' ? '#3B82F6' : '#10B981'));
+        const name = m.profile?.full_name || 'Member';
 
-      return {
-        id: m.user_id,
-        lat,
-        lng,
-        name,
-        initial: name.charAt(0).toUpperCase(),
-        avatarUrl: m.profile?.avatar_url || null,
-        roleColor,
-        isOnline: m.isOnline ?? true,
-      };
-    });
+        return {
+          id: m.user_id,
+          lat,
+          lng,
+          name,
+          initial: name.charAt(0).toUpperCase(),
+          avatarUrl: m.profile?.avatar_url || null,
+          roleColor,
+          isOnline: m.isOnline ?? true,
+        };
+      })
+      .filter((m): m is NonNullable<typeof m> => m !== null);
 
     const data = {
       isDark,
@@ -75,7 +74,7 @@ export default function HomeMiniMapCard({
     pushMapData();
   }, [members, userLoc, isDark]);
 
-  const miniMapHtml = `
+  const miniMapHtml = useMemo(() => `
     <!DOCTYPE html>
     <html>
     <head>
@@ -100,7 +99,7 @@ export default function HomeMiniMapCard({
           scrollWheelZoom: false,
           doubleClickZoom: false,
           boxZoom: false
-        }).setView([${centerLat}, ${centerLng}], 15);
+        }).setView([20.5937, 78.9629], 15);
 
         var tileUrl = '${isDark ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'}';
         L.tileLayer(tileUrl, { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(map);
@@ -146,15 +145,11 @@ export default function HomeMiniMapCard({
 
         // Initial trigger
         setTimeout(function() {
-          window.updateHomeMiniMap(${JSON.stringify({ isDark, center: [centerLat, centerLng], members: members.map((m, idx) => {
+          window.updateHomeMiniMap(${JSON.stringify({ isDark, center: [centerLat, centerLng], members: members.map((m) => {
             let lat = m.latitude || 0;
             let lng = m.longitude || 0;
-            if (!lat || !lng || lat === 0 || lng === 0) {
-              const baseLat = userLoc?.latitude || 20.5937;
-              const baseLng = userLoc?.longitude || 78.9629;
-              const angle = (idx * (360 / Math.max(1, members.length))) * (Math.PI / 180);
-              lat = baseLat + 0.0015 * Math.cos(angle);
-              lng = baseLng + 0.0015 * Math.sin(angle);
+            if (!lat || !lng || lat === 0 || lng === 0 || isNaN(lat) || isNaN(lng)) {
+              return null;
             }
             return {
               id: m.user_id,
@@ -166,12 +161,12 @@ export default function HomeMiniMapCard({
               roleColor: m.role === 'owner' ? '#D4AF37' : (m.role === 'co_leader' ? '#A855F7' : (m.role === 'guardian' ? '#3B82F6' : '#10B981')),
               isOnline: m.isOnline ?? true,
             };
-          }) })});
+          }).filter(Boolean) })});
         }, 200);
       </script>
     </body>
     </html>
-  `;
+  `, [isDark, centerLat, centerLng, members]);
 
   return (
     <View style={[styles.cardWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>

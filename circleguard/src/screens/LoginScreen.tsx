@@ -231,6 +231,8 @@ export default function LoginScreen() {
         {/* Region / Country Selector */}
         <Text style={[styles.inputLabel, { color: colors.foreground }]}>REGION & EMERGENCY DIAL</Text>
         <TouchableOpacity
+          accessibilityRole="button"
+          aria-label="Select Region and Country"
           style={[
             styles.countrySelectCard,
             {
@@ -277,12 +279,23 @@ export default function LoginScreen() {
             secureTextEntry={!showPassword}
             placeholderTextColor={colors.textMuted}
           />
-          <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(!showPassword)}>
+          <TouchableOpacity 
+            accessibilityRole="button"
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            style={styles.eyeBtn} 
+            onPress={() => setShowPassword(!showPassword)}
+          >
             <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.accentGold} />
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={[styles.button, { backgroundColor: colors.accentGold }]} onPress={handleLogin} disabled={loading}>
+        <TouchableOpacity 
+          accessibilityRole="button"
+          aria-label="Sign In"
+          style={[styles.button, { backgroundColor: colors.accentGold }]} 
+          onPress={handleLogin} 
+          disabled={loading}
+        >
           {loading ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
@@ -298,6 +311,8 @@ export default function LoginScreen() {
 
         {/* High-Visibility Google Login Button */}
         <TouchableOpacity
+          accessibilityRole="button"
+          aria-label="Continue with Google"
           style={[
             styles.googleButton,
             {
@@ -320,6 +335,8 @@ export default function LoginScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
+          accessibilityRole="button"
+          aria-label="Create an account"
           style={styles.linkButton}
           onPress={() => navigation.navigate('SignUp' as never)}
           disabled={loading}
@@ -334,13 +351,15 @@ export default function LoginScreen() {
       onClose={() => setCountryModalVisible(false)}
     />
   </View>
-);
+  );
 }
 
 const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
-    padding: 28,
+    paddingHorizontal: 28,
+    paddingTop: 16,
+    paddingBottom: 24,
     justifyContent: 'center',
   },
   countrySelectCard: {
@@ -354,7 +373,7 @@ const styles = StyleSheet.create({
   },
   brandContainer: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 20,
   },
   form: {
     gap: 16,
