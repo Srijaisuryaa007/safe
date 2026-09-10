@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, ScrollView, Platform, NativeModules, TurboModuleRegistry } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, ScrollView, Platform, NativeModules, TurboModuleRegistry, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { supabase } from '../lib/supabase';
 import { useThemeStore } from '../store/useThemeStore';
+import { useRateLimitCountdown } from '../hooks/useRateLimitCountdown';
+import { ValidationSchema } from '../lib/validationSchema';
+import { ENV } from '../constants/env';
+import { handleServiceError } from '../lib/errorHandler';
 
 import AnimatedCircleGuardLogo from '../components/AnimatedCircleGuardLogo';
 import ConstellationBackground from '../components/ConstellationBackground';
@@ -25,31 +29,123 @@ export default function LoginScreen() {
   const [errorMsg, setErrorMsg] = useState('');
   const navigation = useNavigation();
 
+  // Rate Limiting with Exponential Backoff (Per-Account & Per-Device)
+  const loginLimiter = useRateLimitCountdown('AUTH_LOGIN', email.trim());
+
+  // Password Reset State & Rate Limiter
+  const [resetModalVisible, setResetModalVisible] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetStatusMsg, setResetStatusMsg] = useState('');
+  const [resetIsError, setResetIsError] = useState(false);
+  const pwResetLimiter = useRateLimitCountdown('AUTH_PASSWORD_RESET', resetEmail.trim() || email.trim());
+
   const handleLogin = async () => {
     setErrorMsg('');
 
-    if (!email || !password) {
-      setErrorMsg('Please enter both email and password.');
+    // 1. Strict Input Schema Validation
+    const emailValidation = ValidationSchema.validateEmail(email);
+    if (!emailValidation.valid) {
+      setErrorMsg(emailValidation.error || 'Invalid email address format.');
+      return;
+    }
+
+    if (!password || typeof password !== 'string' || password.length === 0) {
+      setErrorMsg('Please enter your password.');
+      return;
+    }
+
+    // 2. Enforce Client/Account Rate Limit & Exponential Backoff
+    const limitCheck = await loginLimiter.checkStatus();
+    if (!limitCheck.allowed) {
+      setErrorMsg(
+        limitCheck.reason ||
+          `Rate limit backoff active. Please wait ${limitCheck.retryAfterSec}s before retrying.`
+      );
       return;
     }
 
     setLoading(true);
     try {
-      const [signInResult] = await Promise.all([
-        supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        }),
-        new Promise((resolve) => setTimeout(resolve, 950)),
-      ]);
+      const signInResult = await supabase.auth.signInWithPassword({
+        email: emailValidation.value!,
+        password,
+      });
 
       if (signInResult.error) {
-        setErrorMsg(signInResult.error.message);
+        // Only penalize rate limit for bad credentials (not for network or service outages)
+        const isBadCredential = /Invalid login credentials/i.test(signInResult.error.message || '');
+        if (isBadCredential) {
+          const record = await loginLimiter.recordAttempt(false);
+          if (!record.allowed) {
+            setErrorMsg(
+              record.reason ||
+                `Too many failed sign-in attempts. Exponential backoff active: please wait ${record.retryAfterSec}s.`
+            );
+            return;
+          }
+        }
+        setErrorMsg(handleServiceError('Login:signIn', signInResult.error, 'Invalid email or password. Please try again.'));
+      } else {
+        // Success - clear failures and backoff, then immediately sync session to store
+        await loginLimiter.recordAttempt(true);
+        if (signInResult.data?.session) {
+          const { useAuthStore } = require('../store/useAuthStore');
+          useAuthStore.getState().setSession(signInResult.data.session);
+        }
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Something went wrong during sign in.');
+      setErrorMsg(handleServiceError('Login:catch', err, 'Something went wrong during sign in. Please try again.'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    const targetEmail = (resetEmail || email).trim();
+    
+    // Strict schema validation for password reset email
+    const emailValidation = ValidationSchema.validateEmail(targetEmail);
+    if (!emailValidation.valid) {
+      setResetStatusMsg(emailValidation.error || 'Please enter a valid email address.');
+      setResetIsError(true);
+      return;
+    }
+
+    const check = await pwResetLimiter.checkStatus();
+    if (!check.allowed) {
+      setResetStatusMsg(
+        check.reason || `Rate limit active. Please wait ${check.retryAfterSec}s before requesting again.`
+      );
+      setResetIsError(true);
+      return;
+    }
+
+    setResetLoading(true);
+    setResetStatusMsg('');
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(emailValidation.value!, {
+        redirectTo:
+          Platform.OS === 'web'
+            ? window.location.origin
+            : Linking.createURL('auth/reset-callback', { scheme: 'circleguard' }),
+      });
+
+      if (error) {
+        await pwResetLimiter.recordAttempt(false);
+        setResetStatusMsg(handleServiceError('Login:resetPassword', error, 'Failed to send password reset email.'));
+        setResetIsError(true);
+      } else {
+        await pwResetLimiter.recordAttempt(true);
+        setResetStatusMsg('Password reset link sent! Check your inbox.');
+        setResetIsError(false);
+      }
+    } catch (err: any) {
+      await pwResetLimiter.recordAttempt(false);
+      setResetStatusMsg(handleServiceError('Login:resetPasswordCatch', err, 'Failed to send password reset email.'));
+      setResetIsError(true);
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -63,7 +159,7 @@ export default function LoginScreen() {
         try {
           const { GoogleSignin } = require('@react-native-google-signin/google-signin');
           GoogleSignin.configure({
-            webClientId: '648921591929-dspid5vmlhk9hm9213vcln5v5tftr079.apps.googleusercontent.com',
+            webClientId: ENV.GOOGLE_WEB_CLIENT_ID,
             offlineAccess: true,
           });
           await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
@@ -142,7 +238,7 @@ export default function LoginScreen() {
       });
 
       if (error) {
-        Alert.alert('Google Sign-In Error', error.message);
+        Alert.alert('Google Sign-In Error', handleServiceError('Login:googleOAuth', error, 'Google sign-in could not be completed. Please try again.'));
         return;
       }
 
@@ -205,7 +301,7 @@ export default function LoginScreen() {
         }
       }
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to initialize Google sign in');
+      Alert.alert('Error', handleServiceError('Login:googleCatch', err, 'Failed to initialize Google sign-in.'));
     } finally {
       setLoading(false);
     }
@@ -289,15 +385,50 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Forgot Password Link */}
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: -6, marginBottom: 4 }}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            aria-label="Forgot Password"
+            onPress={() => {
+              setResetEmail(email);
+              setResetStatusMsg('');
+              setResetModalVisible(true);
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: '700', color: colors.accentGold, letterSpacing: 0.8 }}>
+              FORGOT PASSWORD?
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Live Exponential Backoff Warning Banner */}
+        {loginLimiter.isBlocked && (
+          <View style={[styles.backoffBadge, { borderColor: colors.sosRed, backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
+            <Ionicons name="timer-outline" size={16} color={colors.sosRed} />
+            <Text style={[styles.backoffText, { color: colors.sosRed }]}>
+              Exponential backoff active. Retry in {loginLimiter.secondsRemaining}s
+            </Text>
+          </View>
+        )}
+
         <TouchableOpacity 
           accessibilityRole="button"
           aria-label="Sign In"
-          style={[styles.button, { backgroundColor: colors.accentGold }]} 
+          style={[
+            styles.button, 
+            { 
+              backgroundColor: (loginLimiter.isBlocked || loading) ? '#6B7280' : colors.accentGold,
+              opacity: (loginLimiter.isBlocked || loading) ? 0.75 : 1
+            }
+          ]} 
           onPress={handleLogin} 
-          disabled={loading}
+          disabled={loading || loginLimiter.isBlocked}
         >
           {loading ? (
             <ActivityIndicator color="#FFFFFF" />
+          ) : loginLimiter.isBlocked ? (
+            <Text style={styles.buttonText}>PLEASE WAIT ({loginLimiter.secondsRemaining}S)</Text>
           ) : (
             <Text style={styles.buttonText}>SIGN IN</Text>
           )}
@@ -346,10 +477,83 @@ export default function LoginScreen() {
       </View>
     </ScrollView>
 
+    {/* Country Selector Modal */}
     <CountrySelectorModal
       visible={countryModalVisible}
       onClose={() => setCountryModalVisible(false)}
     />
+
+    {/* Password Reset Modal with Exponential Backoff Rate Limiting */}
+    <Modal
+      visible={resetModalVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setResetModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalCard, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: colors.border }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>RESET PASSWORD</Text>
+            <TouchableOpacity onPress={() => setResetModalVisible(false)} style={{ padding: 4 }}>
+              <Ionicons name="close" size={22} color={colors.foreground} />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.modalSubtitle, { color: colors.textMuted }]}>
+            Enter the email address associated with your CircleGuard account to receive secure recovery instructions.
+          </Text>
+
+          {resetStatusMsg ? (
+            <View style={[styles.resetStatusBox, { borderColor: resetIsError ? colors.sosRed : '#10B981', backgroundColor: resetIsError ? 'rgba(239, 68, 68, 0.08)' : 'rgba(16, 185, 129, 0.08)' }]}>
+              <Text style={{ fontSize: 12, color: resetIsError ? colors.sosRed : '#10B981', textAlign: 'center', fontWeight: '600' }}>
+                {resetStatusMsg}
+              </Text>
+            </View>
+          ) : null}
+
+          {pwResetLimiter.isBlocked && (
+            <View style={[styles.backoffBadge, { borderColor: colors.sosRed, backgroundColor: 'rgba(239, 68, 68, 0.1)', marginVertical: 8 }]}>
+              <Ionicons name="timer-outline" size={14} color={colors.sosRed} />
+              <Text style={[styles.backoffText, { color: colors.sosRed }]}>
+                Exponential backoff active: retry in {pwResetLimiter.secondsRemaining}s
+              </Text>
+            </View>
+          )}
+
+          <Text style={[styles.inputLabel, { color: colors.foreground, marginTop: 12 }]}>ACCOUNT EMAIL</Text>
+          <TextInput
+            style={[styles.underlineInput, { borderBottomColor: colors.foreground, color: colors.foreground, marginBottom: 16 }]}
+            placeholder="name@domain.com"
+            value={resetEmail}
+            onChangeText={setResetEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            placeholderTextColor={colors.textMuted}
+          />
+
+          <TouchableOpacity
+            style={[
+              styles.button,
+              {
+                backgroundColor: (pwResetLimiter.isBlocked || resetLoading) ? '#6B7280' : colors.accentGold,
+                marginTop: 8,
+                opacity: (pwResetLimiter.isBlocked || resetLoading) ? 0.75 : 1,
+              },
+            ]}
+            onPress={handleResetPassword}
+            disabled={resetLoading || pwResetLimiter.isBlocked}
+          >
+            {resetLoading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : pwResetLimiter.isBlocked ? (
+              <Text style={styles.buttonText}>PLEASE WAIT ({pwResetLimiter.secondsRemaining}S)</Text>
+            ) : (
+              <Text style={styles.buttonText}>SEND RESET LINK</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   </View>
   );
 }
@@ -384,6 +588,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 12,
     backgroundColor: 'rgba(220, 38, 38, 0.05)',
+  },
+  backoffBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  backoffText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   inputLabel: {
     fontSize: 10,
@@ -454,5 +672,40 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 2,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  modalTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  resetStatusBox: {
+    borderWidth: 1,
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 8,
   },
 });

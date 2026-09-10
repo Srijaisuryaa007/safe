@@ -16,7 +16,7 @@ import { fetchRoadSnappedRoute, getCardinalDirection, calculateBearing } from '.
 import { smoothTrajectoryPoints, calculateHaversineDistanceMeters } from '../services/LocationSmoothingService';
 import { segmentTripsByStops } from '../services/TripSegmentationService';
 import AnimatedListDropdown from '../components/AnimatedListDropdown';
-import CircleGuardGlobeLoader from '../components/CircleGuardGlobeLoader';
+import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 
 const geocodeCache: { [key: string]: string } = {};
 
@@ -735,7 +735,7 @@ export default function LocationHistoryScreen() {
 
               data.tripLegs.forEach(function(leg) {
                 var isOutbound = leg.isOutbound;
-                var color = isOutbound ? '#10B981' : '#FF536A'; // Teal for outbound, Coral for return
+                var color = isOutbound ? '#2E7D5B' : '#E07A5F'; // Sage green for outbound, Warm Peach for return
                 var offsetVal = isOutbound ? 4 : -4;
 
                 var coords = leg.roadCoords;
@@ -745,8 +745,8 @@ export default function LocationHistoryScreen() {
 
                 var glow = L.polyline(coords, {
                   color: color,
-                  weight: 10,
-                  opacity: 0.25,
+                  weight: 8,
+                  opacity: 0.2,
                   lineCap: 'round',
                   lineJoin: 'round',
                   offset: offsetVal
@@ -755,7 +755,7 @@ export default function LocationHistoryScreen() {
 
                 var mainLine = L.polyline(coords, {
                   color: color,
-                  weight: 5,
+                  weight: 4.5,
                   opacity: 0.95,
                   lineCap: 'round',
                   lineJoin: 'round',
@@ -766,7 +766,7 @@ export default function LocationHistoryScreen() {
                 // Add arrows
                 var decorator = L.polylineDecorator(mainLine, {
                   patterns: [
-                    { offset: 50, repeat: 100, symbol: L.Symbol.arrowHead({ pixelSize: 12, pathOptions: { color: color, fillOpacity: 1, weight: 0 } }) }
+                    { offset: 50, repeat: 100, symbol: L.Symbol.arrowHead({ pixelSize: 11, pathOptions: { color: color, fillOpacity: 1, weight: 0 } }) }
                   ]
                 }).addTo(map);
                 legDecorators.push(decorator);
@@ -774,20 +774,20 @@ export default function LocationHistoryScreen() {
 
               map.fitBounds(allBounds, { padding: [40, 40] });
 
-              // Start 3D Coral Red Teardrop Marker
-              var startPinSvg = '<div style="filter: drop-shadow(0 6px 10px rgba(255,83,106,0.5));">' +
+              // Start Sage Green Teardrop Marker
+              var startPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(46,125,91,0.4));">' +
                 '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                  '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#FF536A"/>' +
+                  '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#2E7D5B"/>' +
                   '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
                 '</svg>' +
               '</div>';
               var startIcon = L.divIcon({ className: 'custom-3d-pin', html: startPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
               L.marker(data.roadCoords[0], { icon: startIcon }).addTo(map).bindPopup('Start Location');
 
-              // End 3D Royal Blue Teardrop Marker
-              var endPinSvg = '<div style="filter: drop-shadow(0 6px 10px rgba(212, 175, 55,0.5));">' +
+              // End Warm Peach Teardrop Marker
+              var endPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(224,122,95,0.4));">' +
                 '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                  '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#D4AF37"/>' +
+                  '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#E07A5F"/>' +
                   '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
                 '</svg>' +
               '</div>';
@@ -805,11 +805,11 @@ export default function LocationHistoryScreen() {
 
             if (data.currentPt) {
               var bearing = data.bearing || 0;
-              var svgHtml = '<div class="nav-arrow-container" style="transform: rotate(' + bearing + 'deg);">' +
+              var svgHtml = '<div class="nav-arrow-container" style="transform: rotate(' + bearing + 'deg); filter: drop-shadow(0 4px 8px rgba(46,125,91,0.35));">' +
                 '<svg width="38" height="48" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                  '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#FF536A"/>' +
+                  '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#2E7D5B"/>' +
                   '<ellipse cx="19" cy="19" rx="8" ry="8" fill="#FFFFFF"/>' +
-                  '<polygon points="19,13 23,23 19,20 15,23" fill="#D4AF37"/>' +
+                  '<polygon points="19,13 23,23 19,20 15,23" fill="#E07A5F"/>' +
                 '</svg>' +
               '</div>';
 
@@ -852,14 +852,14 @@ export default function LocationHistoryScreen() {
       {/* Date & Member Dropdown Control Row */}
       <View style={styles.controlsRow}>
         {/* Date Selector Pills */}
-        <View style={[styles.dateSelectorContainer, { backgroundColor: 'rgba(212, 175, 55, 0.08)', borderColor: 'rgba(212, 175, 55, 0.15)', flex: 1 }]}>
+        <View style={[styles.dateSelectorContainer, { backgroundColor: '#E8F5EE', borderColor: '#C6E7D5', flex: 1 }]}>
           <TouchableOpacity
-            style={[styles.datePill, selectedDate === 'today' && [styles.datePillActive, { backgroundColor: '#D4AF37' }]]}
+            style={[styles.datePill, selectedDate === 'today' && [styles.datePillActive, { backgroundColor: '#2E7D5B' }]]}
             onPress={() => setSelectedDate('today')}
             activeOpacity={0.8}
           >
             <Text 
-              style={[styles.datePillText, { color: selectedDate === 'today' ? '#FFFFFF' : '#D4AF37' }]}
+              style={[styles.datePillText, { color: selectedDate === 'today' ? '#FFFFFF' : '#2E7D5B' }]}
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.75}
@@ -869,12 +869,12 @@ export default function LocationHistoryScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.datePill, selectedDate === 'yesterday' && [styles.datePillActive, { backgroundColor: '#D4AF37' }]]}
+            style={[styles.datePill, selectedDate === 'yesterday' && [styles.datePillActive, { backgroundColor: '#2E7D5B' }]]}
             onPress={() => setSelectedDate('yesterday')}
             activeOpacity={0.8}
           >
             <Text 
-              style={[styles.datePillText, { color: selectedDate === 'yesterday' ? '#FFFFFF' : '#D4AF37' }]}
+              style={[styles.datePillText, { color: selectedDate === 'yesterday' ? '#FFFFFF' : '#2E7D5B' }]}
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.75}
@@ -884,12 +884,12 @@ export default function LocationHistoryScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.datePill, selectedDate === '2daysAgo' && [styles.datePillActive, { backgroundColor: '#D4AF37' }]]}
+            style={[styles.datePill, selectedDate === '2daysAgo' && [styles.datePillActive, { backgroundColor: '#2E7D5B' }]]}
             onPress={() => setSelectedDate('2daysAgo')}
             activeOpacity={0.8}
           >
             <Text 
-              style={[styles.datePillText, { color: selectedDate === '2daysAgo' ? '#FFFFFF' : '#D4AF37' }]}
+              style={[styles.datePillText, { color: selectedDate === '2daysAgo' ? '#FFFFFF' : '#2E7D5B' }]}
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.75}
@@ -902,17 +902,17 @@ export default function LocationHistoryScreen() {
         {/* Member Selector Dropdown Button */}
         {members && members.length > 0 ? (
           <TouchableOpacity
-            style={[styles.memberDropdownBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            style={[styles.memberDropdownBtn, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}
             onPress={() => setMemberPickerVisible(true)}
             activeOpacity={0.8}
           >
-            <View style={[styles.avatarCircleMini, { backgroundColor: colors.accentGold }]}>
-              <Text style={styles.avatarInitialMini}>{selectedMemberInitial}</Text>
+            <View style={[styles.avatarCircleMini, { backgroundColor: '#2E7D5B' }]}>
+              <Text style={[styles.avatarInitialMini, { color: '#FFFFFF' }]}>{selectedMemberInitial}</Text>
             </View>
             <Text style={[styles.memberDropdownText, { color: colors.foreground }]} numberOfLines={1}>
               {selectedMemberName.split(' ')[0]}
             </Text>
-            <Ionicons name="chevron-down" size={14} color={colors.accentGold} />
+            <Ionicons name="chevron-down" size={14} color="#2E7D5B" />
           </TouchableOpacity>
         ) : null}
       </View>
@@ -920,7 +920,7 @@ export default function LocationHistoryScreen() {
       {/* Member Picker Modal */}
       <Modal visible={memberPickerVisible} animationType="fade" transparent onRequestClose={() => setMemberPickerVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setMemberPickerVisible(false)}>
-          <View style={[styles.modalPickerCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={[styles.modalPickerCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
             <View style={styles.modalPickerHeader}>
               <Text style={[styles.modalPickerTitle, { color: colors.foreground }]}>Select Circle Member</Text>
               <TouchableOpacity onPress={() => setMemberPickerVisible(false)}>
@@ -953,7 +953,7 @@ export default function LocationHistoryScreen() {
 
       {loading ? (
         <View style={styles.centeredLoadingScreen}>
-          <CircleGuardGlobeLoader size={200} loadingLabel="Retrieving Location History…" />
+          <LuxuryRadarLoading size={140} message="RETRIEVING LOCATION HISTORY…" />
         </View>
       ) : (
         <>
@@ -971,7 +971,7 @@ export default function LocationHistoryScreen() {
               onMouseLeave: () => setIsScrollEnabled(true),
             } : {})}
           >
-            <View style={[styles.mapContainer, { borderColor: 'rgba(212, 175, 55, 0.15)' }]}>
+            <View style={[styles.mapContainer, { borderColor: '#EDEBE6' }]}>
               {Platform.OS === 'web' ? (
                 <iframe
                   id="historyMapIframe"
@@ -994,10 +994,10 @@ export default function LocationHistoryScreen() {
 
             {/* Docked Playback Control Panel Below Map */}
             {historyPoints.length > 0 ? (
-              <View style={[styles.playbackCardDocked, { backgroundColor: colors.surface, borderColor: colors.border, marginTop: 10, borderRadius: 16, padding: 14, borderWidth: 1 }]}>
+              <View style={[styles.playbackCardDocked, { backgroundColor: colors.surface, borderColor: '#EDEBE6', marginTop: 10, borderRadius: 16, padding: 14, borderWidth: 1 }]}>
                 <View style={styles.playbackHeader}>
                   <TouchableOpacity
-                    style={[styles.playBtn, { backgroundColor: isPlaying ? '#D4AF37' : '#FF5266', borderRadius: 20 }]}
+                    style={[styles.playBtn, { backgroundColor: isPlaying ? '#2E7D5B' : '#E07A5F', borderRadius: 20 }]}
                     onPress={() => setIsPlaying(!isPlaying)}
                     activeOpacity={0.8}
                   >
@@ -1014,21 +1014,21 @@ export default function LocationHistoryScreen() {
                   </View>
 
                   <TouchableOpacity
-                    style={[styles.speedBtn, { borderColor: colors.accentGold, backgroundColor: 'rgba(217, 184, 76, 0.1)', borderRadius: 12 }]}
+                    style={[styles.speedBtn, { borderColor: '#2E7D5B', backgroundColor: '#E8F5EE', borderRadius: 12 }]}
                     onPress={() => setPlaybackSpeed(prev => (prev === 1 ? 2 : prev === 2 ? 5 : 1))}
                     activeOpacity={0.8}
                   >
-                    <Text style={[styles.speedBtnText, { color: colors.accentGold, fontWeight: '800' }]}>{playbackSpeed}x</Text>
+                    <Text style={[styles.speedBtnText, { color: '#2E7D5B', fontWeight: '800' }]}>{playbackSpeed}x</Text>
                   </TouchableOpacity>
                 </View>
 
                 {/* Scrubber Progress Bar */}
-                <View style={[styles.scrubberTrack, { marginTop: 10 }]}>
+                <View style={[styles.scrubberTrack, { marginTop: 10, backgroundColor: '#EDEBE6' }]}>
                   <View
                     style={[
                       styles.scrubberFill,
                       {
-                        backgroundColor: colors.accentGold,
+                        backgroundColor: '#2E7D5B',
                         width: `${((playbackIndex + 1) / historyPoints.length) * 100}%`,
                       },
                     ]}
@@ -1047,112 +1047,112 @@ export default function LocationHistoryScreen() {
             nestedScrollEnabled={true}
           >
             {/* Metric Cards Grid */}
-        <View style={styles.metricsRow}>
-          <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
-              <Ionicons name="navigate-outline" size={18} color={colors.accentGold} />
-            </View>
-            <Text style={[styles.metricVal, { color: colors.foreground }]}>{typeof totalDistanceKm === 'number' ? totalDistanceKm.toFixed(1) : totalDistanceKm} km</Text>
-            <Text style={[styles.metricLbl, { color: colors.textMuted }]}>TOTAL DISTANCE</Text>
-          </View>
-
-          <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
-              <Ionicons name="stopwatch-outline" size={18} color="#10B981" />
-            </View>
-            <Text style={[styles.metricVal, { color: colors.foreground }]}>{Math.floor(travelDurationMinutes / 60)}h {travelDurationMinutes % 60}m</Text>
-            <Text style={[styles.metricLbl, { color: colors.textMuted }]}>TRAVEL TIME</Text>
-          </View>
-
-          <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
-              <Ionicons name="speedometer-outline" size={18} color="#EF4444" />
-            </View>
-            <Text style={[styles.metricVal, { color: colors.foreground }]}>{topSpeedKmh} km/h</Text>
-            <Text style={[styles.metricLbl, { color: colors.textMuted }]}>TOP SPEED</Text>
-          </View>
-        </View>
-
-        {/* Stationary Stops */}
-        {stationaryStops.length > 0 ? (
-          <>
-            <View style={styles.sectionTitleRow}>
-              <Text style={[styles.sectionTitle, { color: colors.foreground }]}>STATIONARY STOPS ({stationaryStops.length})</Text>
-              <View style={[styles.accentLine, { backgroundColor: colors.border }]} />
-            </View>
-
-            {stationaryStops.map((stop, idx) => (
-              <View key={stop.id} style={[styles.stopItemCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <View style={styles.stopNumberBadge}>
-                  <Text style={styles.stopNumberText}>{idx + 1}</Text>
+            <View style={styles.metricsRow}>
+              <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
+                <View style={[styles.metricIconWrap, { backgroundColor: '#E8F5EE' }]}>
+                  <Ionicons name="navigate-outline" size={18} color="#2E7D5B" />
                 </View>
-                <View style={styles.stopInfo}>
-                  <Text style={[styles.stopName, { color: colors.foreground }]}>{stop.name}</Text>
-                  <Text style={[styles.stopMeta, { color: colors.textMuted }]}>
-                    Dwell Time: {stop.durationMinutes} mins • Arrived at {stop.arrivalTime}
-                  </Text>
-                </View>
+                <Text style={[styles.metricVal, { color: colors.foreground }]}>{typeof totalDistanceKm === 'number' ? totalDistanceKm.toFixed(1) : totalDistanceKm} km</Text>
+                <Text style={[styles.metricLbl, { color: colors.textMuted }]}>TOTAL DISTANCE</Text>
               </View>
-            ))}
-          </>
-        ) : null}
 
-        {/* Travel & Movement Timeline (Collapsed Stays & Active Trips) */}
-        <View style={styles.sectionTitleRow}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>TRAVEL & MOVEMENT TIMELINE ({movementEvents.length})</Text>
-          <View style={[styles.accentLine, { backgroundColor: colors.border }]} />
-        </View>
-
-        {movementEvents.length === 0 ? (
-          <View style={{
-            padding: 24,
-            borderRadius: 16,
-            backgroundColor: colors.surface,
-            borderWidth: 1,
-            borderColor: colors.border,
-            alignItems: 'center',
-            justifyContent: 'center',
-            marginTop: 12,
-          }}>
-            <Ionicons name="map-outline" size={32} color={colors.accentGold} />
-            <Text style={{ fontSize: 13, fontWeight: '800', color: colors.foreground, letterSpacing: 1, marginTop: 10 }}>NO TRAVEL LOGGED FOR THIS DATE</Text>
-            <Text style={{ fontSize: 11, fontWeight: '500', color: colors.textMuted, textAlign: 'center', marginTop: 4, lineHeight: 16 }}>
-              No authentic travel or movement recorded for the selected date. Authentic GPS tracking is active.
-            </Text>
-          </View>
-        ) : (
-          movementEvents.map(({ point: pt, origIndex }, idx) => {
-            const isSelected = origIndex === playbackIndex;
-            const isStationary = pt.speedKmh <= 1.5 && !pt.activity.toLowerCase().includes('walking') && !pt.activity.toLowerCase().includes('driving');
-
-            return (
-              <TouchableOpacity
-                key={`${pt.id}_${idx}`}
-                style={[
-                  styles.historyRow,
-                  {
-                    backgroundColor: isSelected ? 'rgba(212, 175, 55, 0.12)' : colors.surface,
-                    borderColor: isSelected ? colors.accentGold : colors.border,
-                  },
-                ]}
-                onPress={() => {
-                  setPlaybackIndex(origIndex);
-                  setIsPlaying(false);
-                }}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.historyDot, { backgroundColor: pt.speedKmh > 50 ? '#EF4444' : pt.speedKmh > 1.5 ? colors.accentGold : (isStationary ? '#3B82F6' : '#10B981') }]} />
-                <View style={styles.historyDetails}>
-                  <Text style={[styles.historyTime, { color: colors.foreground }]}>{pt.timestamp}</Text>
-                  <Text style={[styles.historyDesc, { color: colors.textMuted }]}>
-                    {pt.activity} {pt.speedKmh > 0 ? `• ${pt.speedKmh} km/h` : ''} • {pt.address || 'Location Area'}
-                  </Text>
+              <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
+                <View style={[styles.metricIconWrap, { backgroundColor: '#FFF3EB' }]}>
+                  <Ionicons name="stopwatch-outline" size={18} color="#E07A5F" />
                 </View>
-                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-              </TouchableOpacity>
-            );
-          })
-        )}
+                <Text style={[styles.metricVal, { color: colors.foreground }]}>{Math.floor(travelDurationMinutes / 60)}h {travelDurationMinutes % 60}m</Text>
+                <Text style={[styles.metricLbl, { color: colors.textMuted }]}>TRAVEL TIME</Text>
+              </View>
+
+              <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
+                <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                  <Ionicons name="speedometer-outline" size={18} color="#EF4444" />
+                </View>
+                <Text style={[styles.metricVal, { color: colors.foreground }]}>{topSpeedKmh} km/h</Text>
+                <Text style={[styles.metricLbl, { color: colors.textMuted }]}>TOP SPEED</Text>
+              </View>
+            </View>
+
+            {/* Stationary Stops */}
+            {stationaryStops.length > 0 ? (
+              <>
+                <View style={styles.sectionTitleRow}>
+                  <Text style={[styles.sectionTitle, { color: colors.foreground }]}>STATIONARY STOPS ({stationaryStops.length})</Text>
+                  <View style={[styles.accentLine, { backgroundColor: '#EDEBE6' }]} />
+                </View>
+
+                {stationaryStops.map((stop, idx) => (
+                  <View key={stop.id} style={[styles.stopItemCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
+                    <View style={[styles.stopNumberBadge, { backgroundColor: '#E07A5F' }]}>
+                      <Text style={[styles.stopNumberText, { color: '#FFFFFF' }]}>{idx + 1}</Text>
+                    </View>
+                    <View style={styles.stopInfo}>
+                      <Text style={[styles.stopName, { color: colors.foreground }]}>{stop.name}</Text>
+                      <Text style={[styles.stopMeta, { color: colors.textMuted }]}>
+                        Dwell Time: {stop.durationMinutes} mins • Arrived at {stop.arrivalTime}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </>
+            ) : null}
+
+            {/* Travel & Movement Timeline */}
+            <View style={styles.sectionTitleRow}>
+              <Text style={[styles.sectionTitle, { color: colors.foreground }]}>TRAVEL & MOVEMENT TIMELINE ({movementEvents.length})</Text>
+              <View style={[styles.accentLine, { backgroundColor: '#EDEBE6' }]} />
+            </View>
+
+            {movementEvents.length === 0 ? (
+              <View style={{
+                padding: 24,
+                borderRadius: 16,
+                backgroundColor: colors.surface,
+                borderWidth: 1,
+                borderColor: '#EDEBE6',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: 12,
+              }}>
+                <Ionicons name="map-outline" size={32} color="#2E7D5B" />
+                <Text style={{ fontSize: 13, fontWeight: '800', color: colors.foreground, letterSpacing: 1, marginTop: 10 }}>NO TRAVEL LOGGED FOR THIS DATE</Text>
+                <Text style={{ fontSize: 11, fontWeight: '500', color: colors.textMuted, textAlign: 'center', marginTop: 4, lineHeight: 16 }}>
+                  No authentic travel or movement recorded for the selected date. Authentic GPS tracking is active.
+                </Text>
+              </View>
+            ) : (
+              movementEvents.map(({ point: pt, origIndex }, idx) => {
+                const isSelected = origIndex === playbackIndex;
+                const isStationary = pt.speedKmh <= 1.5 && !pt.activity.toLowerCase().includes('walking') && !pt.activity.toLowerCase().includes('driving');
+
+                return (
+                  <TouchableOpacity
+                    key={`${pt.id}_${idx}`}
+                    style={[
+                      styles.historyRow,
+                      {
+                        backgroundColor: isSelected ? '#E8F5EE' : colors.surface,
+                        borderColor: isSelected ? '#2E7D5B' : '#EDEBE6',
+                      },
+                    ]}
+                    onPress={() => {
+                      setPlaybackIndex(origIndex);
+                      setIsPlaying(false);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.historyDot, { backgroundColor: pt.speedKmh > 50 ? '#EF4444' : pt.speedKmh > 1.5 ? '#2E7D5B' : (isStationary ? '#E07A5F' : '#2E7D5B') }]} />
+                    <View style={styles.historyDetails}>
+                      <Text style={[styles.historyTime, { color: colors.foreground }]}>{pt.timestamp}</Text>
+                      <Text style={[styles.historyDesc, { color: colors.textMuted }]}>
+                        {pt.activity} {pt.speedKmh > 0 ? `• ${pt.speedKmh} km/h` : ''} • {pt.address || 'Location Area'}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                  </TouchableOpacity>
+                );
+              })
+            )}
           </ScrollView>
         </>
       )}

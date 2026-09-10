@@ -12,6 +12,7 @@ import SpringTouchable from '../components/SpringTouchable';
 import JellySqueezeButton from '../components/JellySqueezeButton';
 import { useCountryStore } from '../store/useCountryStore';
 import CountrySelectorModal from '../components/CountrySelectorModal';
+import BillionDollarSOSView from '../components/BillionDollarSOSView';
 
 interface EmergencyContact {
   id: string;
@@ -133,6 +134,10 @@ export default function SOSAlertScreen() {
     }
     Linking.openURL(`tel:${phone}`);
   };
+
+  if (themeMode === 'billion_dollar') {
+    return <BillionDollarSOSView />;
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>

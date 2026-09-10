@@ -19,6 +19,7 @@ import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import CircleHierarchyTree from '../components/CircleHierarchyTree';
 import BranchAssignmentModal from '../components/BranchAssignmentModal';
 import CircleQRCodeModal from '../components/CircleQRCodeModal';
+import BillionDollarCircleView from '../components/BillionDollarCircleView';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { isValidUuid } from '../lib/utils';
@@ -464,6 +465,10 @@ export default function DashboardScreen() {
         </View>
       </View>
     );
+  }
+
+  if (themeMode === 'billion_dollar') {
+    return <BillionDollarCircleView />;
   }
 
   return (

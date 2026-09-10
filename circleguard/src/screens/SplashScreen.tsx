@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Dimensions, Platform } from 'react-native';
+﻿import React, { useEffect } from 'react';
+import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -57,13 +57,6 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
   const logoSize = 220;
 
   useEffect(() => {
-    if (Platform.OS === 'web') {
-      const webTimer = setTimeout(() => {
-        if (onFinish) onFinish();
-      }, 750);
-      return () => clearTimeout(webTimer);
-    }
-
     // Scene 1: Simultaneous Outer Circle & Gold Shield Logo Landing (0ms Together!)
     initialParticleOpacity.value = withTiming(1, { duration: 350 });
     initialParticleScale.value = withTiming(1, { duration: 350 });

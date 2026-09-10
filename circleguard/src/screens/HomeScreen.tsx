@@ -71,6 +71,7 @@ import JellySqueezeButton from '../components/JellySqueezeButton';
 import HomeMiniMapCard from '../components/HomeMiniMapCard';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import CircleQRCodeModal from '../components/CircleQRCodeModal';
+import BillionDollarHomeView from '../components/BillionDollarHomeView';
 import * as Location from 'expo-location';
 import { getHaversineDistanceInMeters } from '../services/GeofenceEngine';
 
@@ -88,10 +89,12 @@ export default function HomeScreen() {
   const [circlePlaces, setCirclePlaces] = useState<any[]>([]);
 
   useEffect(() => {
-    if (Array.isArray(places) && places.length > 0) {
-      setCirclePlaces(places);
+    if (Array.isArray(places) && activeCircle?.id) {
+      setCirclePlaces(places.filter(p => p && p.circle_id === activeCircle.id));
+    } else {
+      setCirclePlaces([]);
     }
-  }, [places]);
+  }, [places, activeCircle?.id]);
   const [fakeCallVisible, setFakeCallVisible] = useState(false);
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [qrModalVisible, setQrModalVisible] = useState(false);
@@ -104,8 +107,8 @@ export default function HomeScreen() {
         .from('places')
         .select('*')
         .eq('circle_id', circleId);
-      if (data) {
-        setCirclePlaces(data);
+      if (useCircleStore.getState().activeCircle?.id === circleId) {
+        setCirclePlaces(data || []);
       }
     } catch (e) {}
   };
@@ -537,7 +540,12 @@ export default function HomeScreen() {
     return !isInsideAny;
   }) || null : null;
 
-  // When opening the Home tab, fetching initial circle, or actively switching circle
+  // Billion Dollar Flagship view (Primary UI mode)
+  if (themeMode === 'billion_dollar') {
+    return <BillionDollarHomeView />;
+  }
+
+  // When opening the Home tab in legacy view, fetching initial circle, or actively switching circle
   if ((!circleFetched && !activeCircle) || isSwitchingCircle) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>

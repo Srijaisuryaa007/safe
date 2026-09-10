@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Platform, Animated } from 'react-native';
+import { View, StyleSheet, Platform, Animated, useWindowDimensions } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,6 +8,7 @@ import HomeScreen from '../screens/HomeScreen';
 import MapScreen from '../screens/MapScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import ActivityScreen from '../screens/ActivityScreen';
 import { useThemeStore } from '../store/useThemeStore';
 
 export type MainTabParamList = {
@@ -15,6 +16,7 @@ export type MainTabParamList = {
   Map: undefined;
   SOS: undefined;
   Circle: undefined;
+  Activity: undefined;
   Profile: undefined;
 };
 
@@ -182,11 +184,16 @@ const ThreeDTabIcon: React.FC<ThreeDTabIconProps> = ({
     outputRange: ['0deg', '360deg'],
   });
 
+  const isBillion = activeTintColor === '#2E7D5B' || activeTintColor === '#183CE6';
   const isGreen = activeTintColor === '#3DBE6C';
-  const pillBg = isGreen
+  const pillBg = isBillion
+    ? 'rgba(46, 125, 91, 0.14)'
+    : isGreen
     ? (isDark ? 'rgba(61, 190, 108, 0.16)' : 'rgba(61, 190, 108, 0.12)')
     : (isDark ? 'rgba(212, 175, 55, 0.16)' : 'rgba(212, 175, 55, 0.12)');
-  const pillBorder = isGreen
+  const pillBorder = isBillion
+    ? 'rgba(46, 125, 91, 0.25)'
+    : isGreen
     ? (isDark ? 'rgba(61, 190, 108, 0.32)' : 'rgba(61, 190, 108, 0.22)')
     : (isDark ? 'rgba(212, 175, 55, 0.32)' : 'rgba(212, 175, 55, 0.22)');
 
@@ -378,13 +385,32 @@ const ThreeDSosIcon: React.FC<{ focused: boolean }> = ({ focused }) => {
 
 export default function MainTabNavigator() {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const { colors, themeMode, isDark } = useThemeStore();
 
-  const activeTintColor = themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold;
-  const inactiveTintColor = isDark ? '#7E8B9B' : '#8C96A5';
+  const activeTintColor =
+    themeMode === 'billion_dollar'
+      ? '#2E7D5B'
+      : themeMode === 'brand_green'
+      ? '#3DBE6C'
+      : colors.accentGold;
+  const inactiveTintColor =
+    themeMode === 'billion_dollar'
+      ? '#717871'
+      : isDark
+      ? '#7E8B9B'
+      : '#8C96A5';
 
-  const bottomInset = Platform.OS === 'web' ? 4 : (insets.bottom > 0 ? Math.min(insets.bottom, Platform.OS === 'ios' ? 20 : 12) : 4);
-  const barHeight = 44 + bottomInset;
+  // Floating pill dock geometry:
+  // Guarantee identical gaps on both left and right sides so the 'C' curves float
+  // with the exact same margin from the phone edges, overriding React Navigation's default start/end styles.
+  const isWide = windowWidth > 480;
+  const sideGap = isWide
+    ? Math.max(32, Math.round((windowWidth - 380) / 2))
+    : (windowWidth <= 375 ? 24 : 32);
+  const pillWidth = isWide ? 380 : undefined;
+  const bottomOffset = Platform.OS === 'web' ? 14 : Math.max(insets.bottom, 8) + 8;
+  const barHeight = 58;
 
   return (
     <Tab.Navigator
@@ -396,10 +422,19 @@ export default function MainTabNavigator() {
         tabBarStyle: [
           styles.tabBar,
           {
-            backgroundColor: isDark ? colors.surface : '#FFFFFF',
-            borderTopColor: isDark ? 'rgba(233, 195, 73, 0.16)' : 'rgba(0, 0, 0, 0.08)',
+            backgroundColor: themeMode === 'billion_dollar'
+              ? (isDark ? 'rgba(23, 26, 24, 0.97)' : 'rgba(255, 255, 255, 0.97)')
+              : (isDark ? 'rgba(26, 29, 36, 0.97)' : 'rgba(255, 255, 255, 0.97)'),
+            borderColor: themeMode === 'billion_dollar'
+              ? '#E2E8E2'
+              : (isDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(0, 0, 0, 0.08)'),
+            bottom: bottomOffset,
             height: barHeight,
-            paddingBottom: Platform.OS === 'web' ? 8 : bottomInset,
+            left: sideGap,
+            right: sideGap,
+            start: sideGap,
+            end: sideGap,
+            width: pillWidth,
           },
         ],
         tabBarLabelStyle: styles.tabBarLabel,
@@ -445,20 +480,20 @@ export default function MainTabNavigator() {
       />
 
       <Tab.Screen
-        name="SOS"
-        component={DummySOS}
-        listeners={({ navigation }) => ({
-          tabPress: (e) => {
-            e.preventDefault();
-            (navigation as any).navigate('SOSAlert');
-          },
-        })}
+        name="Activity"
+        component={ActivityScreen}
         options={{
-          tabBarLabel: 'SOS',
-          tabBarActiveTintColor: '#EF4444',
-          tabBarInactiveTintColor: '#EF4444',
-          tabBarIcon: ({ focused }) => (
-            <ThreeDSosIcon focused={focused} />
+          tabBarLabel: 'Activity',
+          tabBarIcon: ({ color, focused }) => (
+            <ThreeDTabIcon
+              focused={focused}
+              color={color}
+              activeTintColor={activeTintColor}
+              activeIcon="time"
+              inactiveIcon="time-outline"
+              isDark={isDark}
+              type="profile"
+            />
           ),
         }}
       />
@@ -507,37 +542,32 @@ export default function MainTabNavigator() {
 const styles = StyleSheet.create({
   tabBar: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    width: '100%',
-    borderRadius: 0,
-    borderTopWidth: 1,
-    borderLeftWidth: 0,
-    borderRightWidth: 0,
-    borderBottomWidth: 0,
+    borderRadius: 29,
+    borderWidth: 1.2,
     elevation: 16,
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.10,
-    shadowRadius: 6,
-    paddingTop: 3,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    paddingHorizontal: 6,
+    paddingTop: 0,
+    paddingBottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tabBarItem: {
-    height: 42,
+    height: 50,
     paddingVertical: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tabBarLabel: {
-    fontSize: 9,
+    fontSize: 9.5,
     fontWeight: '700',
     letterSpacing: 0.2,
     marginTop: 1,
     marginBottom: 0,
-    lineHeight: 11,
+    lineHeight: 12,
   },
   iconWrapper: {
     alignItems: 'center',

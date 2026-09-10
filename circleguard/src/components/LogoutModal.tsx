@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useThemeStore } from '../store/useThemeStore';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
+import { useThemeStore } from '../store/useThemeStore';
 import { stopBatteryOptimizedBackgroundLocation } from '../services/LocationBackgroundService';
 
 interface LogoutModalProps {
@@ -13,7 +13,6 @@ interface LogoutModalProps {
 }
 
 export default function LogoutModal({ visible, onClose }: LogoutModalProps) {
-  const { colors, isDark } = useThemeStore();
   const { profile, session } = useAuthStore();
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -22,19 +21,15 @@ export default function LogoutModal({ visible, onClose }: LogoutModalProps) {
   const handleConfirmLogout = async () => {
     setLoggingOut(true);
     try {
-      // 1. Stop background tracking and cleanse in-memory coordinates
       await stopBatteryOptimizedBackgroundLocation().catch(() => {});
 
-      // 2. Google OAuth signout
       try {
         const { GoogleSignin } = require('@react-native-google-signin/google-signin');
         await GoogleSignin.signOut();
       } catch (e) {}
 
-      // 3. Supabase Auth signout
       await supabase.auth.signOut();
 
-      // 4. Cleanse stores and user state
       useAuthStore.getState().resetAuthStore();
       useCircleStore.getState().resetCircleStore();
       useThemeStore.getState().resetThemeToDefault();
@@ -53,37 +48,27 @@ export default function LogoutModal({ visible, onClose }: LogoutModalProps) {
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View
-          style={[
-            styles.modalCard,
-            {
-              backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E5E7EB',
-            },
-          ]}
-        >
-          {/* Minimalist Icon Badge */}
-          <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEE2E2' }]}>
-            <Ionicons name="log-out-outline" size={26} color="#EF4444" />
+        <View style={styles.modalCard}>
+          {/* Icon Badge */}
+          <View style={styles.iconCircle}>
+            <Ionicons name="log-out-outline" size={26} color="#E07A5F" />
           </View>
 
-          {/* Clean Typography */}
-          <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#111827' }]}>
-            Log Out
-          </Text>
-          <Text style={[styles.subtitle, { color: isDark ? '#9CA3AF' : '#6B7280' }]}>
-            Are you sure you want to log out? You'll need to sign back in to access your circle and live safety features.
+          {/* Typography */}
+          <Text style={styles.title}>Log Out</Text>
+          <Text style={styles.subtitle}>
+            Are you sure you want to log out? You will need to sign back in to access your circle and live safety radar.
           </Text>
 
           {/* User Capsule */}
-          <View style={[styles.userCapsule, { backgroundColor: isDark ? '#2C2C2E' : '#F3F4F6' }]}>
-            <Ionicons name="person-circle" size={22} color={isDark ? '#D4AF37' : '#D97706'} />
+          <View style={styles.userCapsule}>
+            <Ionicons name="person-circle" size={24} color="#2E7D5B" />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.userName, { color: isDark ? '#FFFFFF' : '#111827' }]} numberOfLines={1}>
+              <Text style={styles.userName} numberOfLines={1}>
                 {displayName}
               </Text>
               {displayEmail ? (
-                <Text style={[styles.userEmail, { color: isDark ? '#9CA3AF' : '#6B7280' }]} numberOfLines={1}>
+                <Text style={styles.userEmail} numberOfLines={1}>
                   {displayEmail}
                 </Text>
               ) : null}
@@ -101,24 +86,17 @@ export default function LogoutModal({ visible, onClose }: LogoutModalProps) {
               {loggingOut ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text style={styles.logoutBtnText}>Log Out</Text>
+                <Text style={styles.logoutBtnText}>LOG OUT</Text>
               )}
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[
-                styles.cancelBtn,
-                {
-                  backgroundColor: isDark ? '#2C2C2E' : '#F3F4F6',
-                },
-              ]}
+              style={styles.cancelBtn}
               onPress={onClose}
               disabled={loggingOut}
-              activeOpacity={0.7}
+              activeOpacity={0.8}
             >
-              <Text style={[styles.cancelBtnText, { color: isDark ? '#FFFFFF' : '#374151' }]}>
-                Cancel
-              </Text>
+              <Text style={styles.cancelBtnText}>CANCEL</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -130,64 +108,74 @@ export default function LogoutModal({ visible, onClose }: LogoutModalProps) {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
   modalCard: {
     width: '100%',
-    maxWidth: 320,
-    borderRadius: 22,
+    maxWidth: 330,
+    borderRadius: 24,
     borderWidth: 1,
+    borderColor: '#ECEAE4',
+    backgroundColor: '#FFFFFF',
     padding: 22,
     alignItems: 'center',
-    shadowColor: '#000000',
+    shadowColor: '#1F2A24',
     shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.15,
     shadowRadius: 24,
     elevation: 10,
   },
   iconCircle: {
     width: 52,
     height: 52,
-    borderRadius: 26,
-    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: '#FFF3EB',
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 14,
   },
   title: {
     fontSize: 18,
-    fontWeight: '700',
-    textAlign: 'center',
+    fontWeight: '800',
+    color: '#1F2A24',
     marginBottom: 6,
     letterSpacing: -0.3,
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   subtitle: {
-    fontSize: 13,
-    fontWeight: '400',
+    fontSize: 12.5,
+    color: '#5C665F',
     textAlign: 'center',
     lineHeight: 18,
     marginBottom: 16,
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   userCapsule: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     width: '100%',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    padding: 10,
     borderRadius: 14,
+    backgroundColor: '#FAF9F6',
+    borderWidth: 1,
+    borderColor: '#ECEAE4',
     marginBottom: 18,
   },
   userName: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
+    color: '#1F2A24',
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   userEmail: {
     fontSize: 11,
-    fontWeight: '400',
+    color: '#5C665F',
     marginTop: 1,
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   buttonCol: {
     width: '100%',
@@ -195,26 +183,31 @@ const styles = StyleSheet.create({
   },
   logoutBtn: {
     width: '100%',
-    height: 44,
-    backgroundColor: '#EF4444',
-    borderRadius: 12,
-    justifyContent: 'center',
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: '#E07A5F',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   logoutBtnText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   cancelBtn: {
     width: '100%',
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: '#F0EFEA',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   cancelBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F2A24',
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
 });

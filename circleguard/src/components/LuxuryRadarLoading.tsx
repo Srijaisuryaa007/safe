@@ -17,22 +17,14 @@ export default function LuxuryRadarLoading({
 }: LuxuryRadarLoadingProps) {
   const { networkState } = useNetworkStore();
 
-  const computedSubLabel = React.useMemo(() => {
+  const computedSub = React.useMemo(() => {
     if (subMessage) {
-      if (networkState === 'slow') {
-        return `${subMessage} • Slow network`;
-      }
+      if (networkState === 'slow') return `${subMessage} • Slow network`;
+      if (networkState === 'offline') return `${subMessage} • Offline mode`;
       return subMessage;
     }
-
-    if (networkState === 'slow') {
-      return 'Slow network • Using cache';
-    }
-
-    if (networkState === 'offline') {
-      return 'Offline mode • Using cache';
-    }
-
+    if (networkState === 'slow') return 'Slow network • Connecting satellite';
+    if (networkState === 'offline') return 'Offline mode • Using cached telemetry';
     return undefined;
   }, [subMessage, networkState]);
 
@@ -40,7 +32,7 @@ export default function LuxuryRadarLoading({
     <CircleGuardGlobeLoader
       size={size}
       loadingLabel={message}
-      subLabel={computedSubLabel}
+      subLabel={computedSub}
       fullscreen={fullscreen}
     />
   );

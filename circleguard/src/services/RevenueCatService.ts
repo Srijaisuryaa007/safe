@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import type { SubscriptionPackage } from '../store/useSubscriptionStore';
+import { ENV } from '../constants/env';
 
 function getSubscriptionStore() {
   return require('../store/useSubscriptionStore').useSubscriptionStore;
@@ -7,9 +8,9 @@ function getSubscriptionStore() {
 
 export class RevenueCatService {
   private static apiKey = Platform.select({
-    ios: 'appl_circleguard_ios_public_key',
-    android: 'goog_circleguard_android_public_key',
-    default: 'goog_circleguard_android_public_key',
+    ios: ENV.REVENUECAT_IOS_KEY,
+    android: ENV.REVENUECAT_ANDROID_KEY,
+    default: ENV.REVENUECAT_ANDROID_KEY,
   });
 
   static getApiKey(): string {

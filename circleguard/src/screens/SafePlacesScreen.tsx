@@ -14,6 +14,8 @@ import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import { useSubscriptionStore } from '../store/useSubscriptionStore';
 import PaywallModal from '../components/PaywallModal';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
+import { ValidationSchema } from '../lib/validationSchema';
+import { handleServiceError } from '../lib/errorHandler';
 
 function parseEWKBPoint(hexStr: string): { latitude: number; longitude: number } | null {
   try {
@@ -280,6 +282,9 @@ export default function SafePlacesScreen() {
   }, []);
 
   useEffect(() => {
+    // Clear old circle's saved places immediately on active circle switch!
+    setSavedPlaces([]);
+
     if (activeCircle?.id) {
       fetchSavedPlaces(activeCircle.id);
       fetchMembers(activeCircle.id);
@@ -479,7 +484,9 @@ export default function SafePlacesScreen() {
     setLoadingPlaces(true);
     try {
       const placesWithMembers = await fetchCirclePlacesWithMembers(circleId);
-      setSavedPlaces(placesWithMembers || []);
+      if (useCircleStore.getState().activeCircle?.id === circleId) {
+        setSavedPlaces((placesWithMembers || []).filter(p => p && p.circle_id === circleId));
+      }
     } catch (err) {
       console.error('Error fetching places:', err);
     } finally {
@@ -499,10 +506,19 @@ export default function SafePlacesScreen() {
       return;
     }
 
-    if (!placeName.trim()) {
+    // Strict schema validation for geofence parameters
+    const geofenceValidation = ValidationSchema.validateGeofence({
+      name: placeName,
+      radius_m: radius,
+      category: selectedCategory,
+      latitude: startPoint?.latitude || userLoc?.latitude || 20.5937,
+      longitude: startPoint?.longitude || userLoc?.longitude || 78.9629,
+    });
+
+    if (!geofenceValidation.valid) {
       showAlert({
-        title: 'Required Field',
-        message: 'Please enter a name for your geofence boundary.',
+        title: 'Validation Error',
+        message: geofenceValidation.error || 'Please correct the geofence parameters.',
         type: 'warning',
       });
       return;
@@ -610,10 +626,10 @@ export default function SafePlacesScreen() {
       fetchSavedPlaces(activeCircle.id);
       fetchPlaces(activeCircle.id);
     } catch (err: any) {
-      console.error('Error saving/updating place:', err);
+      const cleanMessage = handleServiceError('SafePlaces:savePlace', err, 'Failed to save geofence. Please check coordinates and try again.');
       showAlert({
         title: 'Error Saving Geofence',
-        message: err.message || 'Failed to save geofence.',
+        message: cleanMessage,
         type: 'error',
       });
     } finally {
@@ -686,9 +702,10 @@ export default function SafePlacesScreen() {
           });
         } catch (err: any) {
           if (activeCircle) fetchSavedPlaces(activeCircle.id);
+          const cleanMessage = handleServiceError('SafePlaces:deletePlace', err, 'Failed to delete safe place. Please try again.');
           showAlert({
             title: 'Error Deleting Geofence',
-            message: err.message || 'Permission denied or network error.',
+            message: cleanMessage,
             type: 'error',
           });
         }
@@ -807,9 +824,75 @@ export default function SafePlacesScreen() {
           0%, 100% { transform: scale(1); box-shadow: 0 0 14px rgba(239,68,68,0.9); }
           50% { transform: scale(1.08); box-shadow: 0 0 22px rgba(239,68,68,1); }
         }
+
+        /* 3D Geofence Dome Animations & Styles */
+        @keyframes domePulseGlow {
+          0% {
+            filter: drop-shadow(0 0 5px rgba(16, 185, 129, 0.45));
+          }
+          50% {
+            filter: drop-shadow(0 0 16px rgba(52, 211, 153, 0.85));
+          }
+          100% {
+            filter: drop-shadow(0 0 5px rgba(16, 185, 129, 0.45));
+          }
+        }
+        @keyframes domeContourRotate {
+          from { stroke-dashoffset: 0; }
+          to { stroke-dashoffset: 60; }
+        }
+        @keyframes domeContourRotateRev {
+          from { stroke-dashoffset: 0; }
+          to { stroke-dashoffset: -60; }
+        }
+
+        .geofence-3d-dome {
+          animation: domePulseGlow 3.6s ease-in-out infinite;
+          stroke-linecap: round;
+        }
+        .geofence-dome-contour-mid {
+          animation: domeContourRotate 18s linear infinite;
+          pointer-events: none;
+        }
+        .geofence-dome-contour-top {
+          animation: domeContourRotateRev 12s linear infinite;
+          pointer-events: none;
+        }
+        .geofence-dome-meridian {
+          pointer-events: none;
+        }
+        .geofence-dome-beacon {
+          pointer-events: none;
+          animation: domePulseGlow 2.2s ease-in-out infinite;
+        }
       </style>
     </head>
     <body>
+      <svg id="dome-defs-svg" style="position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;" aria-hidden="true">
+        <defs>
+          <radialGradient id="dome-grad-green" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
+            <stop offset="0%" stop-color="#A7F3D0" stop-opacity="0.80" />
+            <stop offset="20%" stop-color="#34D399" stop-opacity="0.50" />
+            <stop offset="55%" stop-color="#10B981" stop-opacity="0.24" />
+            <stop offset="85%" stop-color="#059669" stop-opacity="0.45" />
+            <stop offset="100%" stop-color="#047857" stop-opacity="0.90" />
+          </radialGradient>
+          <radialGradient id="dome-grad-blue" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
+            <stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.80" />
+            <stop offset="20%" stop-color="#60A5FA" stop-opacity="0.50" />
+            <stop offset="55%" stop-color="#3B82F6" stop-opacity="0.24" />
+            <stop offset="85%" stop-color="#2563EB" stop-opacity="0.45" />
+            <stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.90" />
+          </radialGradient>
+          <radialGradient id="dome-grad-gold" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
+            <stop offset="0%" stop-color="#FEF9C3" stop-opacity="0.80" />
+            <stop offset="20%" stop-color="#FACC15" stop-opacity="0.50" />
+            <stop offset="55%" stop-color="#D4AF37" stop-opacity="0.24" />
+            <stop offset="85%" stop-color="#CA8A04" stop-opacity="0.45" />
+            <stop offset="100%" stop-color="#854D0E" stop-opacity="0.90" />
+          </radialGradient>
+        </defs>
+      </svg>
       <div id="map"></div>
       <script>
         var map = L.map('map', { 
@@ -952,6 +1035,196 @@ export default function SafePlacesScreen() {
           tryFetch(0);
         }
 
+        // 3D DOME GEOFENCE SYSTEM
+        function ensureDomeSvgDefs() {
+          try {
+            var overlayPane = map && map.getPanes ? map.getPanes().overlayPane : null;
+            if (!overlayPane) return;
+            var overlaySvg = overlayPane.querySelector('svg');
+            if (!overlaySvg) return;
+            if (overlaySvg.querySelector('#dome-defs-injected')) return;
+            
+            var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+            defs.id = 'dome-defs-injected';
+            defs.innerHTML = '<radialGradient id="dome-grad-green" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#A7F3D0" stop-opacity="0.80" /><stop offset="22%" stop-color="#34D399" stop-opacity="0.50" /><stop offset="55%" stop-color="#10B981" stop-opacity="0.24" /><stop offset="85%" stop-color="#059669" stop-opacity="0.45" /><stop offset="100%" stop-color="#047857" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-blue" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.80" /><stop offset="22%" stop-color="#60A5FA" stop-opacity="0.50" /><stop offset="55%" stop-color="#3B82F6" stop-opacity="0.24" /><stop offset="85%" stop-color="#2563EB" stop-opacity="0.45" /><stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-gold" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#FEF9C3" stop-opacity="0.80" /><stop offset="20%" stop-color="#FACC15" stop-opacity="0.50" /><stop offset="55%" stop-color="#D4AF37" stop-opacity="0.24" /><stop offset="85%" stop-color="#CA8A04" stop-opacity="0.45" /><stop offset="100%" stop-color="#854D0E" stop-opacity="0.90" /></radialGradient>';
+            overlaySvg.insertBefore(defs, overlaySvg.firstChild);
+          } catch(e) {}
+        }
+
+        function getDomeTheme(cat) {
+          if (cat === 'home') {
+            return { main: '#10B981', highlight: '#6EE7B7', dark: '#047857', gradKey: 'green' };
+          } else if (cat === 'work') {
+            return { main: '#3B82F6', highlight: '#93C5FD', dark: '#1D4ED8', gradKey: 'blue' };
+          }
+          return { main: '#D4AF37', highlight: '#FEF08A', dark: '#854D0E', gradKey: 'gold' };
+        }
+
+        function getMeridianCoords(lat, lng, r) {
+          var dLat = r / 111320;
+          var dLng = r / (111320 * Math.max(0.1, Math.cos(lat * Math.PI / 180)));
+          return {
+            ns: [[lat - dLat * 0.98, lng], [lat + dLat * 0.98, lng]],
+            we: [[lat, lng - dLng * 0.98], [lat, lng + dLng * 0.98]]
+          };
+        }
+
+        function createDomeGeofence(placeId, circleKey, latLng, radius, theme) {
+          ensureDomeSvgDefs();
+          var group = L.layerGroup();
+          var lat = latLng[0];
+          var lng = latLng[1];
+          var coords = getMeridianCoords(lat, lng, radius);
+
+          var baseAura = L.circle(latLng, {
+            radius: radius * 1.025,
+            color: theme.main,
+            weight: 4,
+            opacity: 0.16,
+            fill: false,
+            dashArray: '6, 8',
+            interactive: false
+          });
+
+          var mainDome = L.circle(latLng, {
+            radius: radius,
+            color: theme.main,
+            fillColor: 'url(#dome-grad-' + theme.gradKey + ')',
+            fillOpacity: 1.0,
+            weight: 2.6,
+            opacity: 0.95,
+            className: 'geofence-3d-dome',
+            interactive: false
+          });
+
+          var midRing = L.circle(latLng, {
+            radius: radius * 0.68,
+            color: theme.highlight,
+            weight: 1.4,
+            opacity: 0.65,
+            dashArray: '5, 6',
+            fill: false,
+            interactive: false,
+            className: 'geofence-dome-contour-mid'
+          });
+
+          var topRing = L.circle(latLng, {
+            radius: radius * 0.38,
+            color: theme.highlight,
+            weight: 1.6,
+            opacity: 0.85,
+            fillColor: theme.highlight,
+            fillOpacity: 0.12,
+            dashArray: '3, 5',
+            interactive: false,
+            className: 'geofence-dome-contour-top'
+          });
+
+          var nsArc = L.polyline(coords.ns, {
+            color: theme.highlight,
+            weight: 1.1,
+            opacity: 0.38,
+            dashArray: '4, 7',
+            interactive: false,
+            className: 'geofence-dome-meridian'
+          });
+
+          var weArc = L.polyline(coords.we, {
+            color: theme.highlight,
+            weight: 1.1,
+            opacity: 0.38,
+            dashArray: '4, 7',
+            interactive: false,
+            className: 'geofence-dome-meridian'
+          });
+
+          var apexBeacon = L.circleMarker(latLng, {
+            radius: 3.5,
+            color: '#FFFFFF',
+            fillColor: theme.highlight,
+            fillOpacity: 0.95,
+            weight: 1.6,
+            interactive: false,
+            className: 'geofence-dome-beacon'
+          });
+
+          group.addLayer(baseAura);
+          group.addLayer(mainDome);
+          group.addLayer(midRing);
+          group.addLayer(topRing);
+          group.addLayer(nsArc);
+          group.addLayer(weArc);
+          group.addLayer(apexBeacon);
+
+          group._baseAura = baseAura;
+          group._mainDome = mainDome;
+          group._midRing = midRing;
+          group._topRing = topRing;
+          group._nsArc = nsArc;
+          group._weArc = weArc;
+          group._apexBeacon = apexBeacon;
+          group._placeId = placeId;
+          group._placeKey = circleKey;
+          group._theme = theme;
+
+          group.addTo(map);
+
+          setTimeout(function() {
+            if (mainDome._path) {
+              mainDome._path.setAttribute('fill', 'url(#dome-grad-' + theme.gradKey + ')');
+            }
+          }, 15);
+
+          return group;
+        }
+
+        function updateDomeGeofence(group, latLng, radius, theme) {
+          ensureDomeSvgDefs();
+          var lat = latLng[0];
+          var lng = latLng[1];
+          var coords = getMeridianCoords(lat, lng, radius);
+
+          if (group._baseAura) {
+            group._baseAura.setLatLng(latLng);
+            group._baseAura.setRadius(radius * 1.025);
+            group._baseAura.setStyle({ color: theme.main });
+          }
+          if (group._mainDome) {
+            group._mainDome.setLatLng(latLng);
+            group._mainDome.setRadius(radius);
+            group._mainDome.setStyle({
+              color: theme.main,
+              fillColor: 'url(#dome-grad-' + theme.gradKey + ')'
+            });
+            if (group._mainDome._path) {
+              group._mainDome._path.setAttribute('fill', 'url(#dome-grad-' + theme.gradKey + ')');
+            }
+          }
+          if (group._midRing) {
+            group._midRing.setLatLng(latLng);
+            group._midRing.setRadius(radius * 0.68);
+            group._midRing.setStyle({ color: theme.highlight });
+          }
+          if (group._topRing) {
+            group._topRing.setLatLng(latLng);
+            group._topRing.setRadius(radius * 0.38);
+            group._topRing.setStyle({ color: theme.highlight, fillColor: theme.highlight });
+          }
+          if (group._nsArc) {
+            group._nsArc.setLatLngs(coords.ns);
+            group._nsArc.setStyle({ color: theme.highlight });
+          }
+          if (group._weArc) {
+            group._weArc.setLatLngs(coords.we);
+            group._weArc.setStyle({ color: theme.highlight });
+          }
+          if (group._apexBeacon) {
+            group._apexBeacon.setLatLng(latLng);
+            group._apexBeacon.setStyle({ fillColor: theme.highlight });
+          }
+          group._theme = theme;
+        }
+
         window.updateMiniMap = function(data) {
           if (!data) return;
           if (map) map.invalidateSize();
@@ -964,7 +1237,10 @@ export default function SafePlacesScreen() {
 
           if (startMarker) map.removeLayer(startMarker);
           if (endMarker) map.removeLayer(endMarker);
-          if (geofenceCircle) map.removeLayer(geofenceCircle);
+          if (geofenceCircle) {
+            try { map.removeLayer(geofenceCircle); } catch(e) {}
+            geofenceCircle = null;
+          }
           if (routePolyline) map.removeLayer(routePolyline);
 
           // Clear provisional markers when authoritative ones are supplied
@@ -977,7 +1253,7 @@ export default function SafePlacesScreen() {
             provisionalEndMarker = null;
           }
 
-          // Render existing saved circle safe zones
+          // Render existing saved circle safe zones (3D DOME)
           if (data.savedPlaces) {
             var currentPlaceIds = {};
             data.savedPlaces.forEach(function(p) {
@@ -985,24 +1261,21 @@ export default function SafePlacesScreen() {
               currentPlaceIds[p.id] = true;
               var pLatLng = [p.lat, p.lng];
               bounds.push(pLatLng);
+              var domeTheme = getDomeTheme(p.category || 'gold');
 
-              if (savedPlaceMarkers[p.id]) {
-                savedPlaceMarkers[p.id].setLatLng(pLatLng);
-                savedPlaceMarkers[p.id].setRadius(p.radius);
+              if (savedPlaceMarkers[p.id] && savedPlaceMarkers[p.id]._mainDome) {
+                updateDomeGeofence(savedPlaceMarkers[p.id], pLatLng, p.radius, domeTheme);
               } else {
-                savedPlaceMarkers[p.id] = L.circle(pLatLng, {
-                  radius: p.radius,
-                  color: '#D4AF37',
-                  fillColor: '#D4AF37',
-                  fillOpacity: 0.22,
-                  weight: 2
-                }).addTo(map).bindPopup("Safe Zone: " + p.name);
+                if (savedPlaceMarkers[p.id]) {
+                  try { map.removeLayer(savedPlaceMarkers[p.id]); } catch(e) {}
+                }
+                savedPlaceMarkers[p.id] = createDomeGeofence(p.id, 'saved_' + p.id, pLatLng, p.radius, domeTheme);
               }
             });
 
             Object.keys(savedPlaceMarkers).forEach(function(id) {
               if (!currentPlaceIds[id]) {
-                map.removeLayer(savedPlaceMarkers[id]);
+                try { map.removeLayer(savedPlaceMarkers[id]); } catch(e) {}
                 delete savedPlaceMarkers[id];
               }
             });
@@ -1031,27 +1304,28 @@ export default function SafePlacesScreen() {
                 ? '<img src="' + m.avatarUrl + '" style="width:100%;height:100%;object-fit:cover;' + (hasLoc ? '' : 'filter:grayscale(100%);opacity:0.6;') + '" />' 
                 : '<span style="color:' + (hasLoc ? '#FFF' : '#9CA3AF') + ';font-size:11px;font-weight:bold;">' + m.initial + '</span>';
 
-              var labelText = hasLoc 
-                ? (isCurrentSelf ? 'You (Tap to Pin)' : m.name.split(' ')[0] + ' (Tap to Pin)')
-                : m.name.split(' ')[0] + ' (Location Unavailable)';
+              var statusDotColor = (m.battery && m.battery <= 20) ? '#EF4444' : (hasLoc ? '#10B981' : '#6B7280');
 
-              var labelBg = hasLoc ? 'rgba(26,26,26,0.92)' : 'rgba(50,50,50,0.85)';
-              var labelHtml = '<div style="position:absolute;bottom:36px;left:50%;transform:translateX(-50%);white-space:nowrap;background:' + labelBg + ';color:' + (hasLoc ? '#FFFFFF' : '#D1D5DB') + ';font-size:9px;font-weight:bold;font-family:sans-serif;padding:3px 7px;border-radius:10px;border:1px solid ' + roleColor + ';box-shadow:0 2px 6px rgba(0,0,0,0.5);pointer-events:none;">' + labelText + '</div>';
+              var markerHtml = '<div class="member-pin" style="border-color:' + roleColor + ';box-shadow:0 4px 14px ' + roleColor + '66;">' +
+                avatarHtml +
+                '<div class="status-dot" style="background:' + statusDotColor + ';"></div>' +
+                '</div>' +
+                '<div class="member-name-tag">' + (m.name || 'Member') + (isCurrentSelf ? ' (You)' : '') + '</div>';
 
-              var iconHtml = '<div style="position:relative;width:34px;height:34px;">' + labelHtml + '<div style="width:34px;height:34px;border-radius:50%;overflow:hidden;background:#1A1A1A;border:2px solid ' + roleColor + ';box-shadow:0 0 8px ' + roleColor + '99;display:flex;align-items:center;justify-content:center;' + (hasLoc ? '' : 'opacity:0.75;') + '">' + avatarHtml + '</div></div>';
+              var mMarker = L.marker([lat, lng], {
+                icon: L.divIcon({
+                  className: 'leaflet-div-icon',
+                  html: markerHtml,
+                  iconSize: [44, 44],
+                  iconAnchor: [22, 22]
+                }),
+                zIndexOffset: isCurrentSelf ? 1200 : 1000
+              }).addTo(map);
 
-              var mIcon = L.divIcon({
-                className: 'member-pin-icon',
-                html: iconHtml,
-                iconSize: [34, 34],
-                iconAnchor: [17, 17]
-              });
-
-              var mMarker = L.marker([lat, lng], { icon: mIcon }).addTo(map);
-              if (hasLoc) {
+              if (m.userId) {
                 mMarker.on('click', function() {
                   sendAppMessage({
-                    type: 'MEMBER_TAP',
+                    type: 'MEMBER_PIN_CLICK',
                     userId: m.userId,
                     lat: m.latitude,
                     lng: m.longitude,
@@ -1064,7 +1338,7 @@ export default function SafePlacesScreen() {
             });
           }
 
-          // 1. Authoritative Start Point (A) Marker & Safe Zone Boundary
+          // 1. Authoritative Start Point (A) Marker & Safe Zone Boundary (3D DOME)
           if (data.startPoint && data.startPoint.latitude && data.startPoint.longitude) {
             bounds.push([data.startPoint.latitude, data.startPoint.longitude]);
 
@@ -1079,13 +1353,7 @@ export default function SafePlacesScreen() {
               zIndexOffset: 1500
             }).addTo(map).bindPopup("<b>📍 START POINT (A)</b><br/>Lat: " + data.startPoint.latitude.toFixed(5) + "<br/>Lng: " + data.startPoint.longitude.toFixed(5));
 
-            geofenceCircle = L.circle([data.startPoint.latitude, data.startPoint.longitude], {
-              radius: data.radius || 150,
-              color: '#10B981',
-              fillColor: '#10B981',
-              fillOpacity: 0.18,
-              weight: 2.5
-            }).addTo(map);
+            geofenceCircle = createDomeGeofence('active_start', 'active_start', [data.startPoint.latitude, data.startPoint.longitude], data.radius || 150, getDomeTheme('home'));
           }
 
           // 2. Authoritative End Point (B) Marker & Destination Boundary
@@ -1685,50 +1953,110 @@ export default function SafePlacesScreen() {
               const assignedIds: string[] = p.assigned_user_ids || (p.target_user_id ? [p.target_user_id] : []);
               const assignedMembers = members.filter(m => assignedIds.includes(m.user_id));
 
+              const placeCoords = parseLocationPoint(p);
+              const placeRadius = parseFloat(p.radius_m || p.radius || 150);
+
+              // Calculate members currently inside this safe zone
+              const insideMembers = memberLocations.filter(m => {
+                const hasValidLoc = m.latitude && m.longitude && m.latitude !== 0 && m.longitude !== 0;
+                if (!hasValidLoc || placeCoords.latitude === 0 || placeCoords.longitude === 0) return false;
+                const dist = getHaversineDistanceInMeters(m.latitude, m.longitude, placeCoords.latitude, placeCoords.longitude);
+                return dist <= placeRadius;
+              });
+
               return (
                 <View key={p.id} style={[styles.placeCard, cardStyles]}>
                   <View style={styles.placeLeft}>
-                    <View style={[styles.placeIconBox, { backgroundColor: `${colors.accentGold}20`, borderColor: colors.accentGold, borderRadius: 10 }]}>
-                      <Ionicons name={p.end_lat ? "navigate" : "bookmark"} size={18} color={colors.accentGold} />
+                    <View style={[styles.placeIconBox, { backgroundColor: insideMembers.length > 0 ? 'rgba(16, 185, 129, 0.2)' : `${colors.accentGold}20`, borderColor: insideMembers.length > 0 ? '#10B981' : colors.accentGold, borderRadius: 10 }]}>
+                      <Ionicons name={insideMembers.length > 0 ? "shield-checkmark" : (p.end_lat ? "navigate" : "bookmark")} size={18} color={insideMembers.length > 0 ? '#10B981' : colors.accentGold} />
                     </View>
                     <View style={{ flex: 1, paddingRight: 8 }}>
-                      <Text style={[styles.placeName, { color: colors.foreground }]} numberOfLines={1}>{p.name}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <Text style={[styles.placeName, { color: colors.foreground, flex: 1 }]} numberOfLines={1}>{p.name}</Text>
+                        {insideMembers.length > 0 ? (
+                          <View style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)', borderWidth: 1, borderColor: '#10B981', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 }}>
+                            <Text style={{ fontSize: 9, fontWeight: '900', color: '#10B981' }}>
+                              {insideMembers.length} INSIDE
+                            </Text>
+                          </View>
+                        ) : (
+                          <View style={{ backgroundColor: 'rgba(107, 114, 128, 0.12)', borderWidth: 1, borderColor: '#6B7280', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
+                            <Text style={{ fontSize: 8.5, fontWeight: '800', color: '#9CA3AF' }}>0 INSIDE</Text>
+                          </View>
+                        )}
+                      </View>
+                      
                       <View style={styles.tagRow}>
-                        <Text style={[styles.placeRadius, { color: colors.accentGold }]}>RADIUS: {p.radius_m || 150}M</Text>
+                        <Text style={[styles.placeRadius, { color: colors.accentGold }]}>RADIUS: {placeRadius}M</Text>
                         <Text style={[styles.tagDot, { color: colors.textMuted }]}>•</Text>
                         <Text style={[styles.targetTag, { color: colors.textMuted }]} numberOfLines={1} ellipsizeMode="tail">
                           {assignedMembers.length > 0
-                            ? `APPLIES TO: ${assignedMembers.map(m => String(m.profile?.full_name || 'Member').split(' ')[0]).join(', ').toUpperCase()}`
-                            : 'APPLIES TO: ALL MEMBERS'}
+                            ? `TARGET: ${assignedMembers.map(m => String(m.profile?.full_name || 'Member').split(' ')[0]).join(', ').toUpperCase()}`
+                            : 'MONITORING: ALL MEMBERS'}
                         </Text>
                       </View>
 
-                      {assignedMembers.length > 0 ? (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                          {assignedMembers.map((m, idx) => {
-                            const initial = String(m.profile?.full_name || 'M').charAt(0).toUpperCase();
-                            return (
-                              <View key={m.user_id || idx} style={{
-                                width: 22,
-                                height: 22,
-                                borderRadius: 11,
+                      {/* Display Members Inside Zone or Assigned to Zone */}
+                      <View style={{ marginTop: 8 }}>
+                        <Text style={{ fontSize: 8.5, fontWeight: '800', color: insideMembers.length > 0 ? '#10B981' : colors.textMuted, letterSpacing: 0.5, marginBottom: 4 }}>
+                          {insideMembers.length > 0 ? `🟢 CURRENTLY INSIDE (${insideMembers.length}):` : 'CIRCLE MEMBERS IN ZONE:'}
+                        </Text>
+                        
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          {insideMembers.length > 0 ? (
+                            insideMembers.map((m) => (
+                              <View key={m.userId} style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                                backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                                borderWidth: 1,
+                                borderColor: '#10B981',
+                                paddingHorizontal: 6,
+                                paddingVertical: 3,
+                                borderRadius: 12,
+                              }}>
+                                <View style={{ width: 16, height: 16, borderRadius: 8, overflow: 'hidden', backgroundColor: '#10B981', alignItems: 'center', justifyContent: 'center' }}>
+                                  {m.avatarUrl ? (
+                                    <Image source={{ uri: m.avatarUrl }} style={{ width: '100%', height: '100%' }} />
+                                  ) : (
+                                    <Text style={{ fontSize: 8, fontWeight: '900', color: '#FFFFFF' }}>{m.initial}</Text>
+                                  )}
+                                </View>
+                                <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.foreground }}>
+                                  {m.name.split(' ')[0]} {m.isSelf ? '(You)' : ''}
+                                </Text>
+                              </View>
+                            ))
+                          ) : (
+                            memberLocations.slice(0, 4).map((m) => (
+                              <View key={m.userId} style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
                                 backgroundColor: colors.surfaceMuted,
                                 borderWidth: 1,
-                                borderColor: colors.accentGold,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                overflow: 'hidden',
+                                borderColor: colors.border,
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                borderRadius: 12,
+                                opacity: 0.7,
                               }}>
-                                {m.profile?.avatar_url ? (
-                                  <Image source={{ uri: m.profile.avatar_url }} style={{ width: '100%', height: '100%' }} />
-                                ) : (
-                                  <Text style={{ fontSize: 9, fontWeight: '800', color: colors.foreground }}>{initial}</Text>
-                                )}
+                                <View style={{ width: 14, height: 14, borderRadius: 7, overflow: 'hidden', backgroundColor: colors.border, alignItems: 'center', justifyContent: 'center' }}>
+                                  {m.avatarUrl ? (
+                                    <Image source={{ uri: m.avatarUrl }} style={{ width: '100%', height: '100%' }} />
+                                  ) : (
+                                    <Text style={{ fontSize: 7.5, fontWeight: '800', color: colors.foreground }}>{m.initial}</Text>
+                                  )}
+                                </View>
+                                <Text style={{ fontSize: 9, color: colors.textMuted }}>
+                                  {m.name.split(' ')[0]}
+                                </Text>
                               </View>
-                            );
-                          })}
+                            ))
+                          )}
                         </View>
-                      ) : null}
+                      </View>
                     </View>
                   </View>
 

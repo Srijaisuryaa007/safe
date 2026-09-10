@@ -27,7 +27,10 @@ import { sendExpoPushNotification } from '../services/PushNotificationService';
 import TypingIndicator from '../components/TypingIndicator';
 import ReadReceiptCheckmarks from '../components/ReadReceiptCheckmarks';
 import EmojiGifPickerModal from '../components/EmojiGifPickerModal';
-import CircleGuardGlobeLoader from '../components/CircleGuardGlobeLoader';
+import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
+import { RateLimiter } from '../services/RateLimiter';
+import { ValidationSchema } from '../lib/validationSchema';
+import { handleServiceError } from '../lib/errorHandler';
 
 export interface ChatMessage {
   id: string;
@@ -391,7 +394,8 @@ export default function ChatScreen() {
 
               if (error) throw error;
             } catch (err: any) {
-              Alert.alert('Error', err.message || 'Failed to delete message.');
+              const cleanMsg = handleServiceError('Chat:deleteMessage', err, 'Failed to delete message. Please try again.');
+              Alert.alert('Error', cleanMsg);
               if (activeCircle?.id) fetchMessages(activeCircle.id);
             }
           },
@@ -437,7 +441,21 @@ export default function ChatScreen() {
 
   const handleSendText = async (customContent?: string, messageType: 'text' | 'location' | 'safety_pill' = 'text') => {
     const textToSend = customContent || inputText.trim();
-    if (!textToSend || !profile?.id || !activeCircle?.id) return;
+    if (!profile?.id || !activeCircle?.id) return;
+
+    // Strict Input Schema Validation (reject empty, >2000 chars, control characters)
+    const msgValidation = ValidationSchema.validateChatMessage(textToSend);
+    if (!msgValidation.valid) {
+      Alert.alert('Invalid Message', msgValidation.error || 'Message cannot be sent.');
+      return;
+    }
+
+    // Rate limit authenticated chat messages to prevent spam or client flooding
+    const rateCheck = await RateLimiter.checkLimit('AUTHED_CHAT_MESSAGE', profile.id);
+    if (!rateCheck.allowed) {
+      Alert.alert('Please Slow Down', `You are sending messages too quickly. Please wait ${rateCheck.retryAfterSec}s before sending another message.`);
+      return;
+    }
 
     if (!customContent) setInputText('');
     setSending(true);
@@ -500,9 +518,12 @@ export default function ChatScreen() {
         }, 100);
 
         dispatchChatPushNotification(textToSend);
+        await RateLimiter.recordAttempt('AUTHED_CHAT_MESSAGE', true, profile.id);
       }
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to send message.');
+      await RateLimiter.recordAttempt('AUTHED_CHAT_MESSAGE', false, profile?.id);
+      const cleanMsg = handleServiceError('Chat:sendMessage', err, 'Failed to send message. Please try again.');
+      Alert.alert('Error', cleanMsg);
     } finally {
       setSending(false);
     }
@@ -861,7 +882,7 @@ export default function ChatScreen() {
         </View>
       ) : loading ? (
         <View style={styles.centerContainer}>
-          <CircleGuardGlobeLoader size={180} loadingLabel="Connecting Encrypted Channel…" />
+          <LuxuryRadarLoading size={140} message="CONNECTING ENCRYPTED CHANNEL…" />
         </View>
       ) : messages.length === 0 ? (
         <View style={styles.centerContainer}>

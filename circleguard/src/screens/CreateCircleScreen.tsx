@@ -7,6 +7,8 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { generateInviteCode } from '../lib/utils';
+import { ValidationSchema } from '../lib/validationSchema';
+import { handleServiceError } from '../lib/errorHandler';
 
 export default function CreateCircleScreen() {
   const { colors } = useThemeStore();
@@ -22,8 +24,11 @@ export default function CreateCircleScreen() {
 
   const handleCreate = async () => {
     setErrorMsg('');
-    if (!name.trim()) {
-      setErrorMsg('Please enter a circle name.');
+
+    // Strict schema validation
+    const nameValidation = ValidationSchema.validateCircleName(name);
+    if (!nameValidation.valid) {
+      setErrorMsg(nameValidation.error || 'Invalid circle name.');
       return;
     }
 
@@ -73,7 +78,7 @@ export default function CreateCircleScreen() {
         [{ text: 'CONTINUE', onPress: () => navigation.goBack() }]
       );
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to create circle.');
+      setErrorMsg(handleServiceError('CreateCircle:handleCreate', err, 'Failed to create circle. Please try again.'));
     } finally {
       setLoading(false);
     }

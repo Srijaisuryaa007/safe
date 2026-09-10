@@ -1,11 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Modal,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  Platform,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useThemeStore } from '../store/useThemeStore';
 import { startBatteryOptimizedBackgroundLocation } from '../services/LocationBackgroundService';
 import { useLuxuryAlert } from './LuxuryAlertModal';
-
 import BatteryOptimizationGuideModal from './BatteryOptimizationGuideModal';
 
 interface SettingsModalProps {
@@ -20,7 +27,6 @@ const KEYS = {
 };
 
 export default function SettingsModal({ visible, onClose }: SettingsModalProps) {
-  const { colors } = useThemeStore();
   const { showAlert, showConfirm } = useLuxuryAlert();
 
   const [unit, setUnit] = useState<'km' | 'mi'>('km');
@@ -60,28 +66,25 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
     await startBatteryOptimizedBackgroundLocation();
   };
 
-  const handleSelectMapStyle = async (newStyle: 'vector' | 'satellite') => {
-    setMapStyle(newStyle);
-    await AsyncStorage.setItem(KEYS.MAP_STYLE, newStyle);
-  };
-
   const handleClearCache = async () => {
     showConfirm({
       title: 'Clear Local Cache',
-      message: 'This will purge temporary tile buffers and optimize memory performance. Saved account keys and circle memberships remain safe.',
+      message:
+        'This will purge temporary tile buffers and optimize memory performance. Saved account keys and circle memberships remain safe.',
       confirmText: 'PURGE CACHE',
       cancelText: 'CANCEL',
       isDestructive: true,
       onConfirm: async () => {
         setClearing(true);
         try {
-          // Preserve main auth & theme keys, remove temporary items
           const keys = await AsyncStorage.getAllKeys();
           const itemsToRemove = keys.filter((k) => k.startsWith('@circleguard_cache_'));
-          await AsyncStorage.multiRemove(itemsToRemove);
+          if (itemsToRemove.length > 0) {
+            await AsyncStorage.multiRemove(itemsToRemove);
+          }
           showAlert({
-            title: 'Cache Purged',
-            message: 'Local memory buffers and map cache have been successfully cleared.',
+            title: 'Cache Optimized',
+            message: 'Local tile and telemetry buffers have been successfully cleared.',
             type: 'success',
             buttonText: 'DONE',
           });
@@ -102,126 +105,143 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false}>
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.container}>
         {/* Header */}
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { borderColor: colors.border }]}>
-            <Ionicons name="close" size={24} color={colors.foreground} />
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.8}>
+            <Ionicons name="close" size={20} color="#1F2A24" />
           </TouchableOpacity>
           <View style={styles.headerTitleBox}>
-            <Text style={[styles.overline, { color: colors.accentGold }]}>SYSTEM ENGINE</Text>
-            <Text style={[styles.title, { color: colors.foreground }]}>App Settings</Text>
+            <Text style={styles.overline}>SYSTEM PREFERENCES</Text>
+            <Text style={styles.title}>App Settings</Text>
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content}>
-          <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            Customize map rendering preferences, distance metrics & background GPS sync rates.
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <Text style={styles.subtitle}>
+            Customize map distance metrics, background telemetry sync rates, and local memory caches.
           </Text>
 
           {/* Section: Distance Metric Units */}
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>DISTANCE METRICS</Text>
-          <View style={[styles.optionRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={styles.sectionTitle}>DISTANCE METRICS</Text>
+          <View style={styles.segmentedContainer}>
             <TouchableOpacity
-              style={[
-                styles.optionBtn,
-                unit === 'km' && { backgroundColor: colors.accentGold }
-              ]}
+              style={[styles.segmentBtn, unit === 'km' && styles.segmentBtnActive]}
               onPress={() => handleSelectUnit('km')}
+              activeOpacity={0.8}
             >
-              <Text style={[styles.optionText, { color: unit === 'km' ? '#1A1A1A' : colors.foreground }]}>
-                KILOMETERS (KM)
+              <Text style={[styles.segmentBtnText, unit === 'km' && styles.segmentBtnTextActive]}>
+                Kilometers (km)
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[
-                styles.optionBtn,
-                unit === 'mi' && { backgroundColor: colors.accentGold }
-              ]}
+              style={[styles.segmentBtn, unit === 'mi' && styles.segmentBtnActive]}
               onPress={() => handleSelectUnit('mi')}
+              activeOpacity={0.8}
             >
-              <Text style={[styles.optionText, { color: unit === 'mi' ? '#1A1A1A' : colors.foreground }]}>
-                MILES (MI)
+              <Text style={[styles.segmentBtnText, unit === 'mi' && styles.segmentBtnTextActive]}>
+                Miles (mi)
               </Text>
             </TouchableOpacity>
           </View>
 
           {/* Section: GPS Sync Rate */}
-          <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>GPS SYNC FREQUENCY</Text>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { marginTop: 22 }]}>GPS SYNC FREQUENCY</Text>
+          <View style={styles.cardGroup}>
             <TouchableOpacity
-              style={[styles.syncRow, syncRate === 'high' && { borderColor: colors.accentGold, borderWidth: 2 }]}
+              style={[styles.syncRow, syncRate === 'high' && styles.syncRowActive]}
               onPress={() => handleSelectSyncRate('high')}
+              activeOpacity={0.8}
             >
               <View style={styles.syncLeft}>
-                <Ionicons name="flash-outline" size={20} color={colors.accentGold} />
-                <View>
-                  <Text style={[styles.syncTitle, { color: colors.foreground }]}>Realtime GPS (5s)</Text>
-                  <Text style={[styles.syncDesc, { color: colors.textMuted }]}>Maximum tracking accuracy during navigation</Text>
+                <View style={[styles.iconSquircle, { backgroundColor: '#FFF3EB' }]}>
+                  <Ionicons name="flash-outline" size={18} color="#E07A5F" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.syncTitle}>Realtime GPS (5s)</Text>
+                  <Text style={styles.syncDesc}>Maximum tracking accuracy during movement</Text>
                 </View>
               </View>
-              {syncRate === 'high' && <Ionicons name="checkmark-circle" size={20} color={colors.accentGold} />}
+              {syncRate === 'high' && <Ionicons name="checkmark-circle" size={20} color="#2E7D5B" />}
             </TouchableOpacity>
 
+            <View style={styles.divider} />
+
             <TouchableOpacity
-              style={[styles.syncRow, syncRate === 'balanced' && { borderColor: colors.accentGold, borderWidth: 2 }]}
+              style={[styles.syncRow, syncRate === 'balanced' && styles.syncRowActive]}
               onPress={() => handleSelectSyncRate('balanced')}
+              activeOpacity={0.8}
             >
               <View style={styles.syncLeft}>
-                <Ionicons name="leaf-outline" size={20} color="#10B981" />
-                <View>
-                  <Text style={[styles.syncTitle, { color: colors.foreground }]}>Balanced Efficiency (15s)</Text>
-                  <Text style={[styles.syncDesc, { color: colors.textMuted }]}>Optimal battery & continuous tracking balance</Text>
+                <View style={[styles.iconSquircle, { backgroundColor: '#E8F5EE' }]}>
+                  <Ionicons name="leaf-outline" size={18} color="#2E7D5B" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.syncTitle}>Balanced Efficiency (15s)</Text>
+                  <Text style={styles.syncDesc}>Optimal battery and reliable location tracking</Text>
                 </View>
               </View>
-              {syncRate === 'balanced' && <Ionicons name="checkmark-circle" size={20} color={colors.accentGold} />}
+              {syncRate === 'balanced' && <Ionicons name="checkmark-circle" size={20} color="#2E7D5B" />}
             </TouchableOpacity>
 
+            <View style={styles.divider} />
+
             <TouchableOpacity
-              style={[styles.syncRow, syncRate === 'saver' && { borderColor: colors.accentGold, borderWidth: 2 }]}
+              style={[styles.syncRow, syncRate === 'saver' && styles.syncRowActive]}
               onPress={() => handleSelectSyncRate('saver')}
+              activeOpacity={0.8}
             >
               <View style={styles.syncLeft}>
-                <Ionicons name="battery-charging-outline" size={20} color="#F59E0B" />
-                <View>
-                  <Text style={[styles.syncTitle, { color: colors.foreground }]}>Battery Saver (60s)</Text>
-                  <Text style={[styles.syncDesc, { color: colors.textMuted }]}>Ultra low battery mode for long trips</Text>
+                <View style={[styles.iconSquircle, { backgroundColor: '#F0EFEA' }]}>
+                  <Ionicons name="battery-charging-outline" size={18} color="#1F2A24" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.syncTitle}>Battery Saver (60s)</Text>
+                  <Text style={styles.syncDesc}>Conserves battery on long trips</Text>
                 </View>
               </View>
-              {syncRate === 'saver' && <Ionicons name="checkmark-circle" size={20} color={colors.accentGold} />}
+              {syncRate === 'saver' && <Ionicons name="checkmark-circle" size={20} color="#2E7D5B" />}
             </TouchableOpacity>
           </View>
 
-          {/* Section: Android Background GPS Optimization */}
-          <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 24 }]}>BACKGROUND RELIABILITY</Text>
-
+          {/* Section: Background Reliability */}
+          <Text style={[styles.sectionTitle, { marginTop: 22 }]}>BACKGROUND RELIABILITY</Text>
           <TouchableOpacity
-            style={[styles.clearBtn, { backgroundColor: 'rgba(245, 158, 11, 0.12)', borderColor: '#F59E0B', marginBottom: 12 }]}
+            style={styles.actionCardBtn}
             onPress={() => setBatteryGuideVisible(true)}
             activeOpacity={0.8}
           >
-            <Ionicons name="battery-dead-outline" size={20} color="#F59E0B" />
-            <Text style={[styles.clearBtnText, { color: '#F59E0B' }]}>UNRESTRICTED BACKGROUND GPS GUIDE</Text>
+            <View style={[styles.iconSquircle, { backgroundColor: '#FFF3EB' }]}>
+              <Ionicons name="battery-dead-outline" size={18} color="#E07A5F" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.actionCardTitle}>Unrestricted Background GPS</Text>
+              <Text style={styles.actionCardDesc}>Step-by-step setup to bypass OS power limits</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#8E9992" />
           </TouchableOpacity>
 
-          {/* Section: Storage & Maintenance */}
-          <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 12 }]}>STORAGE MAINTENANCE</Text>
-
+          {/* Section: Storage Maintenance */}
+          <Text style={[styles.sectionTitle, { marginTop: 22 }]}>STORAGE & CACHE</Text>
           <TouchableOpacity
-            style={[styles.clearBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            style={styles.actionCardBtn}
             onPress={handleClearCache}
             disabled={clearing}
             activeOpacity={0.8}
           >
-            {clearing ? (
-              <ActivityIndicator size="small" color={colors.foreground} />
-            ) : (
-              <>
-                <Ionicons name="refresh-outline" size={20} color={colors.foreground} />
-                <Text style={[styles.clearBtnText, { color: colors.foreground }]}>OPTIMIZE LOCAL CACHE</Text>
-              </>
-            )}
+            <View style={[styles.iconSquircle, { backgroundColor: '#F0EFEA' }]}>
+              {clearing ? (
+                <ActivityIndicator size="small" color="#1F2A24" />
+              ) : (
+                <Ionicons name="refresh-outline" size={18} color="#1F2A24" />
+              )}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.actionCardTitle}>Optimize Local Cache</Text>
+              <Text style={styles.actionCardDesc}>Flush cached map tiles and telemetry memory</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#8E9992" />
           </TouchableOpacity>
         </ScrollView>
 
@@ -237,104 +257,167 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#FAF9F6',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 60,
-    paddingBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 56 : 42,
+    paddingBottom: 16,
     borderBottomWidth: 1,
+    borderBottomColor: '#ECEAE4',
+    backgroundColor: '#FFFFFF',
   },
   closeBtn: {
-    width: 40,
-    height: 40,
-    borderWidth: 1,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#F0EFEA',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 14,
   },
   headerTitleBox: {
     flex: 1,
   },
   overline: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 2,
-    marginBottom: 2,
+    color: '#2E7D5B',
+    letterSpacing: 0.8,
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   title: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1F2A24',
+    letterSpacing: -0.3,
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   content: {
-    padding: 24,
-    paddingBottom: 40,
+    padding: 20,
+    paddingBottom: 50,
   },
   subtitle: {
     fontSize: 13,
-    marginBottom: 20,
-    lineHeight: 18,
+    color: '#5C665F',
+    lineHeight: 19,
+    marginBottom: 16,
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   sectionTitle: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 1.5,
-    marginBottom: 10,
+    color: '#5C665F',
+    letterSpacing: 0.6,
+    marginBottom: 8,
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
-  optionRow: {
+  segmentedContainer: {
     flexDirection: 'row',
-    borderWidth: 1,
+    backgroundColor: '#F0EFEA',
+    borderRadius: 14,
     padding: 4,
     gap: 4,
   },
-  optionBtn: {
+  segmentBtn: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 11,
   },
-  optionText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    letterSpacing: 1.2,
+  segmentBtnActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#1F2A24',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  card: {
+  segmentBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#5C665F',
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  },
+  segmentBtnTextActive: {
+    color: '#1F2A24',
+  },
+  cardGroup: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
     borderWidth: 1,
+    borderColor: '#ECEAE4',
+    overflow: 'hidden',
+    shadowColor: '#1F2A24',
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 2,
   },
   syncRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
+    padding: 14,
+  },
+  syncRowActive: {
+    backgroundColor: '#F7FBF8',
   },
   syncLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
     flex: 1,
+  },
+  iconSquircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   syncTitle: {
     fontSize: 13,
     fontWeight: '700',
-    marginBottom: 2,
+    color: '#1F2A24',
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   syncDesc: {
     fontSize: 11,
+    color: '#5C665F',
+    marginTop: 2,
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
-  clearBtn: {
+  divider: {
+    height: 1,
+    backgroundColor: '#F0EFEA',
+    marginLeft: 62,
+  },
+  actionCardBtn: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#ECEAE4',
+    padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    padding: 16,
-    gap: 10,
+    gap: 12,
+    shadowColor: '#1F2A24',
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  clearBtnText: {
+  actionCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1F2A24',
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  },
+  actionCardDesc: {
     fontSize: 11,
-    fontWeight: 'bold',
-    letterSpacing: 1.5,
+    color: '#5C665F',
+    marginTop: 2,
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
 });

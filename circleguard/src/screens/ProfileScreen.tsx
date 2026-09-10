@@ -10,6 +10,8 @@ import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from '../lib/supabase';
 import { useThemeStore } from '../store/useThemeStore';
 import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBorderStyles } from '../constants/theme';
+import { validateImageUpload } from '../lib/fileUploadSecurity';
+import { handleServiceError } from '../lib/errorHandler';
 
 // Modals
 import EmergencyContactsModal from '../components/EmergencyContactsModal';
@@ -23,6 +25,7 @@ import LogoutModal from '../components/LogoutModal';
 import DeleteAccountModal from '../components/DeleteAccountModal';
 import EditProfileModal from '../components/EditProfileModal';
 import CountrySelectorModal from '../components/CountrySelectorModal';
+import BillionDollarProfileView from '../components/BillionDollarProfileView';
 import { useCountryStore } from '../store/useCountryStore';
 
 import SpringTouchable from '../components/SpringTouchable';
@@ -81,51 +84,52 @@ export default function ProfileScreen() {
     loadUserDob();
   }, [profile?.id, profile]);
 
-  React.useEffect(() => {
-    const loadPrimaryEmergencyContact = async () => {
-      // 1. Check cloud profile
-      const cloudContacts = (profile as any)?.emergency_contacts;
-      if (Array.isArray(cloudContacts) && cloudContacts.length > 0) {
-        setEmergencyContact({ name: cloudContacts[0].name, phone: cloudContacts[0].phone });
-        return;
-      }
+  const loadPrimaryEmergencyContact = React.useCallback(async () => {
+    // 1. Check cloud profile
+    const cloudContacts = (profile as any)?.emergency_contacts;
+    if (Array.isArray(cloudContacts) && cloudContacts.length > 0) {
+      setEmergencyContact({ name: cloudContacts[0].name, phone: cloudContacts[0].phone });
+      return;
+    }
 
-      if (!profile?.id) {
-        const globalSaved = await AsyncStorage.getItem('@circleguard_primary_emergency_contact');
-        if (globalSaved) {
-          try {
-            setEmergencyContact(JSON.parse(globalSaved));
-          } catch (e) {}
-        }
-        return;
+    if (!profile?.id) {
+      const globalSaved = await AsyncStorage.getItem('@circleguard_primary_emergency_contact');
+      if (globalSaved) {
+        try {
+          setEmergencyContact(JSON.parse(globalSaved));
+        } catch (e) {}
       }
+      return;
+    }
 
-      try {
-        const saved = await AsyncStorage.getItem(getPrimaryContactKey(profile.id));
-        if (saved) {
-          setEmergencyContact(JSON.parse(saved));
-        } else {
-          const savedList = await AsyncStorage.getItem(getContactsListKey(profile.id));
-          if (savedList) {
-            const list = JSON.parse(savedList);
-            if (list && list.length > 0) {
-              setEmergencyContact({ name: list[0].name, phone: list[0].phone });
-            } else {
-              setEmergencyContact(null);
-            }
+    try {
+      const saved = await AsyncStorage.getItem(getPrimaryContactKey(profile.id));
+      if (saved) {
+        setEmergencyContact(JSON.parse(saved));
+      } else {
+        const savedList = await AsyncStorage.getItem(getContactsListKey(profile.id));
+        if (savedList) {
+          const list = JSON.parse(savedList);
+          if (list && list.length > 0) {
+            setEmergencyContact({ name: list[0].name, phone: list[0].phone });
           } else {
-            const globalSaved = await AsyncStorage.getItem('@circleguard_primary_emergency_contact');
-            if (globalSaved) {
-              setEmergencyContact(JSON.parse(globalSaved));
-            } else {
-              setEmergencyContact(null);
-            }
+            setEmergencyContact(null);
+          }
+        } else {
+          const globalSaved = await AsyncStorage.getItem('@circleguard_primary_emergency_contact');
+          if (globalSaved) {
+            setEmergencyContact(JSON.parse(globalSaved));
+          } else {
+            setEmergencyContact(null);
           }
         }
-      } catch (e) {}
-    };
-    loadPrimaryEmergencyContact();
+      }
+    } catch (e) {}
   }, [profile?.id, profile]);
+
+  React.useEffect(() => {
+    loadPrimaryEmergencyContact();
+  }, [loadPrimaryEmergencyContact]);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -286,17 +290,35 @@ export default function ProfileScreen() {
       if (result.canceled || !result.assets || result.assets.length === 0) return;
 
       setUploading(true);
-      const uri = result.assets[0].uri;
+      const asset = result.assets[0];
+      const uri = asset.uri;
       
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
 
-      const fileName = `${profile.id}/${Date.now()}.jpg`;
+      // Strict validation: File size, magic bytes, script/SVG rejection, path isolation
+      const validation = validateImageUpload({
+        base64Content: base64,
+        fileSizeBytes: asset.fileSize,
+        userId: profile.id,
+      });
+
+      if (!validation.valid || !validation.sanitizedPath) {
+        showAlert({
+          title: 'Invalid Image',
+          message: validation.error || 'Please select a valid JPEG, PNG, or WebP image under 5MB.',
+          type: 'warning',
+        });
+        setUploading(false);
+        return;
+      }
+
+      const fileName = validation.sanitizedPath;
       const { data, error } = await supabase.storage
         .from('avatars')
         .upload(fileName, decode(base64), {
-          contentType: 'image/jpeg',
+          contentType: validation.detectedMimeType || 'image/jpeg',
           upsert: true,
         });
 
@@ -322,10 +344,10 @@ export default function ProfileScreen() {
         type: 'success',
       });
     } catch (err: any) {
-      console.error('Avatar upload error:', err);
+      const cleanMessage = handleServiceError('ProfileScreen:uploadAvatar', err, 'Failed to update profile picture. Please try again.');
       showAlert({
         title: 'Upload Failed',
-        message: err.message || 'Failed to update profile picture.',
+        message: cleanMessage,
         type: 'error',
       });
     } finally {
@@ -405,6 +427,106 @@ export default function ProfileScreen() {
           message="LOADING PROFILE..."
           subMessage="Decrypting settings"
           size={130}
+        />
+      </View>
+    );
+  }
+
+  if (themeMode === 'billion_dollar') {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FAF9F6' }}>
+        <BillionDollarProfileView
+          profile={profile}
+          userPhone={userPhone}
+          userEmail={userEmail}
+          userDob={userDob}
+          uploading={uploading}
+          imageError={imageError}
+          setImageError={setImageError}
+          emergencyContact={emergencyContact}
+          country={country}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          onPickAvatar={handlePickAvatar}
+          onEditProfile={() => setEditProfileModalVisible(true)}
+          onOpenContacts={() => setContactsModalVisible(true)}
+          onPickContactFromPhone={handlePickEmergencyContactFromPhone}
+          onDeleteContact={handleDeletePrimaryContact}
+          onOpenMedical={() => setMedicalModalVisible(true)}
+          onOpenCountry={() => setCountryModalVisible(true)}
+          onOpenAppearance={() => setAppearanceModalVisible(true)}
+          onOpenNotifications={() => setNotifModalVisible(true)}
+          onOpenPrivacy={() => setPrivacyModalVisible(true)}
+          onOpenSettings={() => setSettingsModalVisible(true)}
+          onOpenAbout={() => setAboutModalVisible(true)}
+          onOpenLogout={() => setLogoutModalVisible(true)}
+          onOpenDeleteAccount={() => setDeleteAccountModalVisible(true)}
+          showToast={(msg) => triggerToast(msg)}
+        />
+
+        {/* Floating Success/Status Toast Banner */}
+        {toastMessage && (
+          <View style={styles.toastContainer} pointerEvents="none">
+            <View style={[styles.toastCard, { backgroundColor: '#1F2A24' }]}>
+              <View style={[styles.toastIconCircle, { backgroundColor: '#2E7D5B' }]}>
+                <Ionicons name="shield-checkmark" size={13} color="#FFFFFF" />
+              </View>
+              <Text style={[styles.toastText, { color: '#FAF9F6' }]}>{toastMessage}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Interactive Modals */}
+        <EmergencyContactsModal 
+          visible={contactsModalVisible} 
+          onClose={() => setContactsModalVisible(false)} 
+          onContactsUpdated={loadPrimaryEmergencyContact}
+        />
+        <MedicalInfoModal 
+          visible={medicalModalVisible} 
+          onClose={() => setMedicalModalVisible(false)} 
+        />
+        <AppearanceModal 
+          visible={appearanceModalVisible} 
+          onClose={() => setAppearanceModalVisible(false)} 
+        />
+        <PrivacySecurityModal
+          visible={privacyModalVisible}
+          onClose={() => setPrivacyModalVisible(false)}
+        />
+        <NotificationsModal
+          visible={notifModalVisible}
+          onClose={() => setNotifModalVisible(false)}
+        />
+        <SettingsModal
+          visible={settingsModalVisible}
+          onClose={() => setSettingsModalVisible(false)}
+        />
+        <AboutCircleGuardModal
+          visible={aboutModalVisible}
+          onClose={() => setAboutModalVisible(false)}
+        />
+        <LogoutModal
+          visible={logoutModalVisible}
+          onClose={() => setLogoutModalVisible(false)}
+        />
+        <DeleteAccountModal
+          visible={deleteAccountModalVisible}
+          onClose={() => setDeleteAccountModalVisible(false)}
+        />
+        <PaywallModal
+          visible={paywallVisible}
+          onClose={() => setPaywallVisible(false)}
+          gatedFeatureName="CircleGuard Plus Executive Features"
+        />
+        <EditProfileModal
+          visible={editProfileModalVisible}
+          onClose={() => setEditProfileModalVisible(false)}
+          onProfileUpdated={onRefresh}
+        />
+        <CountrySelectorModal
+          visible={countryModalVisible}
+          onClose={() => setCountryModalVisible(false)}
         />
       </View>
     );
@@ -648,6 +770,7 @@ export default function ProfileScreen() {
       <EmergencyContactsModal 
         visible={contactsModalVisible} 
         onClose={() => setContactsModalVisible(false)} 
+        onContactsUpdated={loadPrimaryEmergencyContact}
       />
 
       <MedicalInfoModal 

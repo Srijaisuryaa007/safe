@@ -19,6 +19,9 @@ import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
+import { RateLimiter } from '../services/RateLimiter';
+import { ValidationSchema } from '../lib/validationSchema';
+import { handleServiceError } from '../lib/errorHandler';
 
 export default function JoinCircleScreen() {
   const { colors, isDark } = useThemeStore();
@@ -66,12 +69,13 @@ export default function JoinCircleScreen() {
     try {
       const text = await Clipboard.getStringAsync();
       if (text) {
-        const clean = text.replace(/[^A-Za-z0-9-]/g, '').trim().toUpperCase();
-        if (clean.length >= 6) {
-          setCode(clean.slice(0, clean.length > 8 ? 36 : 6));
+        const validation = ValidationSchema.validateInviteCode(text);
+        if (validation.valid && validation.value) {
+          setCode(validation.value);
           setErrorMsg('');
-        } else if (clean.length > 0) {
-          setCode(clean);
+        } else {
+          setCode(text.trim());
+          setErrorMsg(validation.error || 'Clipboard content is not a valid invite code.');
         }
       }
     } catch (e) {
@@ -81,15 +85,24 @@ export default function JoinCircleScreen() {
 
   const executeJoin = async (targetCode: string) => {
     setErrorMsg('');
-    const cleanCode = targetCode.replace(/[^A-Za-z0-9-]/g, '').trim().toUpperCase();
 
-    if (!cleanCode || cleanCode.length < 6) {
-      setErrorMsg('Please enter a valid 6-character private invite code.');
+    // Strict schema validation (reject rather than sanitize)
+    const codeValidation = ValidationSchema.validateInviteCode(targetCode);
+    if (!codeValidation.valid) {
+      setErrorMsg(codeValidation.error || 'Please enter a valid 6-character private invite code.');
       return;
     }
+    const cleanCode = codeValidation.value!;
 
     if (!userId) {
       setErrorMsg('User session expired. Please sign in again.');
+      return;
+    }
+
+    // Rate limit public invite code lookups to prevent brute force enumeration
+    const limitCheck = await RateLimiter.checkLimit('PUBLIC_INVITE_CODE');
+    if (!limitCheck.allowed) {
+      setErrorMsg(`Too many verification attempts. Please wait ${limitCheck.retryAfterSec}s before retrying.`);
       return;
     }
 
@@ -106,12 +119,17 @@ export default function JoinCircleScreen() {
       const { data: circleData, error: circleError } = await query.maybeSingle();
 
       if (circleError) {
-        throw new Error(circleError.message || 'Database error looking up invite code.');
+        await RateLimiter.recordAttempt('PUBLIC_INVITE_CODE', false);
+        throw circleError;
       }
 
       if (!circleData) {
-        throw new Error(`No active circle found matching "${cleanCode}". Please verify with circle owner.`);
+        await RateLimiter.recordAttempt('PUBLIC_INVITE_CODE', false);
+        setErrorMsg(`No active circle found matching "${cleanCode}". Please verify with the circle owner.`);
+        return;
       }
+
+      await RateLimiter.recordAttempt('PUBLIC_INVITE_CODE', true);
 
       // 2. Check if user is already a member
       const { data: existingMember } = await supabase
@@ -144,7 +162,7 @@ export default function JoinCircleScreen() {
         ]);
 
       if (joinError) {
-        throw new Error(joinError.message || 'Failed to join circle.');
+        throw joinError;
       }
 
       // 4. Save circle to store with persistence & fetch members
@@ -155,7 +173,7 @@ export default function JoinCircleScreen() {
         [{ text: 'CONTINUE', onPress: () => navigation.goBack() }]
       );
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to join circle.');
+      setErrorMsg(handleServiceError('JoinCircle:executeJoin', err, 'Unable to join circle. Please check the code and try again.'));
       setScanned(false);
     } finally {
       setLoading(false);

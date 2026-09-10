@@ -277,9 +277,139 @@ const LEAFLET_HTML = `
         border-right: 5px solid transparent;
         margin: -1px auto 0 auto;
       }
+
+      /* 3D Geofence Dome Animations & Styles */
+      @keyframes domePulseGlow {
+        0% {
+          filter: drop-shadow(0 0 5px rgba(16, 185, 129, 0.45));
+        }
+        50% {
+          filter: drop-shadow(0 0 16px rgba(52, 211, 153, 0.85));
+        }
+        100% {
+          filter: drop-shadow(0 0 5px rgba(16, 185, 129, 0.45));
+        }
+      }
+      @keyframes domeContourRotate {
+        from { stroke-dashoffset: 0; }
+        to { stroke-dashoffset: 60; }
+      }
+      @keyframes domeContourRotateRev {
+        from { stroke-dashoffset: 0; }
+        to { stroke-dashoffset: -60; }
+      }
+
+      .geofence-3d-dome {
+        animation: domePulseGlow 3.6s ease-in-out infinite;
+        stroke-linecap: round;
+        cursor: pointer;
+      }
+      .geofence-dome-contour-mid {
+        animation: domeContourRotate 18s linear infinite;
+        pointer-events: none;
+      }
+      .geofence-dome-contour-top {
+        animation: domeContourRotateRev 12s linear infinite;
+        pointer-events: none;
+      }
+      .geofence-dome-meridian {
+        pointer-events: none;
+      }
+      .geofence-dome-beacon {
+        pointer-events: none;
+        animation: domePulseGlow 2.2s ease-in-out infinite;
+      }
+
+      .geofence-dome-badge {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        transform: translate(-50%, -50%);
+        background: rgba(15, 23, 42, 0.90);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        color: #FFFFFF;
+        border: 1.5px solid #10B981;
+        padding: 4px 10px;
+        border-radius: 16px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 11px;
+        font-weight: 800;
+        white-space: nowrap;
+        cursor: pointer;
+        pointer-events: auto;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.65);
+        transition: transform 0.18s ease;
+      }
+      .geofence-dome-badge:active {
+        transform: translate(-50%, -50%) scale(0.95);
+      }
+      .geofence-dome-badge .badge-icon {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .geofence-dome-badge .badge-text {
+        letter-spacing: 0.2px;
+      }
+      .geofence-dome-badge .badge-tag {
+        font-size: 9.5px;
+        opacity: 0.85;
+        font-weight: 600;
+        margin-left: 2px;
+      }
     </style>
   </head>
   <body>
+    <svg id="dome-defs-svg" style="position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;" aria-hidden="true">
+      <defs>
+        <radialGradient id="dome-grad-green" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
+          <stop offset="0%" stop-color="#A7F3D0" stop-opacity="0.80" />
+          <stop offset="20%" stop-color="#34D399" stop-opacity="0.50" />
+          <stop offset="55%" stop-color="#10B981" stop-opacity="0.24" />
+          <stop offset="85%" stop-color="#059669" stop-opacity="0.45" />
+          <stop offset="100%" stop-color="#047857" stop-opacity="0.90" />
+        </radialGradient>
+        <radialGradient id="dome-grad-blue" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
+          <stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.80" />
+          <stop offset="20%" stop-color="#60A5FA" stop-opacity="0.50" />
+          <stop offset="55%" stop-color="#3B82F6" stop-opacity="0.24" />
+          <stop offset="85%" stop-color="#2563EB" stop-opacity="0.45" />
+          <stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.90" />
+        </radialGradient>
+        <radialGradient id="dome-grad-amber" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
+          <stop offset="0%" stop-color="#FEF08A" stop-opacity="0.80" />
+          <stop offset="20%" stop-color="#FBBF24" stop-opacity="0.50" />
+          <stop offset="55%" stop-color="#F59E0B" stop-opacity="0.24" />
+          <stop offset="85%" stop-color="#D97706" stop-opacity="0.45" />
+          <stop offset="100%" stop-color="#B45309" stop-opacity="0.90" />
+        </radialGradient>
+        <radialGradient id="dome-grad-purple" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
+          <stop offset="0%" stop-color="#DDD6FE" stop-opacity="0.80" />
+          <stop offset="20%" stop-color="#A78BFA" stop-opacity="0.50" />
+          <stop offset="55%" stop-color="#8B5CF6" stop-opacity="0.24" />
+          <stop offset="85%" stop-color="#7C3AED" stop-opacity="0.45" />
+          <stop offset="100%" stop-color="#5B21B6" stop-opacity="0.90" />
+        </radialGradient>
+        <radialGradient id="dome-grad-red" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
+          <stop offset="0%" stop-color="#FECACA" stop-opacity="0.80" />
+          <stop offset="20%" stop-color="#F87171" stop-opacity="0.50" />
+          <stop offset="55%" stop-color="#EF4444" stop-opacity="0.24" />
+          <stop offset="85%" stop-color="#DC2626" stop-opacity="0.45" />
+          <stop offset="100%" stop-color="#991B1B" stop-opacity="0.90" />
+        </radialGradient>
+        <radialGradient id="dome-grad-gold" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
+          <stop offset="0%" stop-color="#FEF9C3" stop-opacity="0.80" />
+          <stop offset="20%" stop-color="#FACC15" stop-opacity="0.50" />
+          <stop offset="55%" stop-color="#D4AF37" stop-opacity="0.24" />
+          <stop offset="85%" stop-color="#CA8A04" stop-opacity="0.45" />
+          <stop offset="100%" stop-color="#854D0E" stop-opacity="0.90" />
+        </radialGradient>
+      </defs>
+    </svg>
     <div id="map"></div>
     <script>
       window.map = L.map('map', { zoomControl: false }).setView([20.5937, 78.9629], 15);
@@ -836,7 +966,215 @@ const LEAFLET_HTML = `
           });
         }
 
-        // 2. UPDATE GEOFENCE PLACES & ZONES
+      // 3D DOME GEOFENCE SYSTEM
+      function ensureDomeSvgDefs() {
+        try {
+          var overlayPane = map && map.getPanes ? map.getPanes().overlayPane : null;
+          if (!overlayPane) return;
+          var overlaySvg = overlayPane.querySelector('svg');
+          if (!overlaySvg) return;
+          if (overlaySvg.querySelector('#dome-defs-injected')) return;
+          
+          var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+          defs.id = 'dome-defs-injected';
+          defs.innerHTML = '<radialGradient id="dome-grad-green" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#A7F3D0" stop-opacity="0.80" /><stop offset="22%" stop-color="#34D399" stop-opacity="0.50" /><stop offset="55%" stop-color="#10B981" stop-opacity="0.24" /><stop offset="85%" stop-color="#059669" stop-opacity="0.45" /><stop offset="100%" stop-color="#047857" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-blue" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.80" /><stop offset="22%" stop-color="#60A5FA" stop-opacity="0.50" /><stop offset="55%" stop-color="#3B82F6" stop-opacity="0.24" /><stop offset="85%" stop-color="#2563EB" stop-opacity="0.45" /><stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-amber" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#FEF08A" stop-opacity="0.80" /><stop offset="22%" stop-color="#FBBF24" stop-opacity="0.50" /><stop offset="55%" stop-color="#F59E0B" stop-opacity="0.24" /><stop offset="85%" stop-color="#D97706" stop-opacity="0.45" /><stop offset="100%" stop-color="#B45309" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-purple" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#DDD6FE" stop-opacity="0.80" /><stop offset="22%" stop-color="#A78BFA" stop-opacity="0.50" /><stop offset="55%" stop-color="#8B5CF6" stop-opacity="0.24" /><stop offset="85%" stop-color="#7C3AED" stop-opacity="0.45" /><stop offset="100%" stop-color="#5B21B6" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-red" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#FECACA" stop-opacity="0.80" /><stop offset="20%" stop-color="#F87171" stop-opacity="0.50" /><stop offset="55%" stop-color="#EF4444" stop-opacity="0.24" /><stop offset="85%" stop-color="#DC2626" stop-opacity="0.45" /><stop offset="100%" stop-color="#991B1B" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-gold" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#FEF9C3" stop-opacity="0.80" /><stop offset="20%" stop-color="#FACC15" stop-opacity="0.50" /><stop offset="55%" stop-color="#D4AF37" stop-opacity="0.24" /><stop offset="85%" stop-color="#CA8A04" stop-opacity="0.45" /><stop offset="100%" stop-color="#854D0E" stop-opacity="0.90" /></radialGradient>';
+          overlaySvg.insertBefore(defs, overlaySvg.firstChild);
+        } catch(e) {}
+      }
+
+      function getDomeTheme(cat) {
+        if (cat === 'home') {
+          return { main: '#10B981', highlight: '#6EE7B7', dark: '#047857', gradKey: 'green', icon: '🛡️', label: 'Safe Haven' };
+        } else if (cat === 'work') {
+          return { main: '#3B82F6', highlight: '#93C5FD', dark: '#1D4ED8', gradKey: 'blue', icon: '💼', label: 'Work Zone' };
+        } else if (cat === 'school') {
+          return { main: '#F59E0B', highlight: '#FDE68A', dark: '#B45309', gradKey: 'amber', icon: '🎓', label: 'School Zone' };
+        } else if (cat === 'fitness' || cat === 'gym') {
+          return { main: '#8B5CF6', highlight: '#C4B5FD', dark: '#5B21B6', gradKey: 'purple', icon: '⚡', label: 'Fitness Zone' };
+        } else if (cat === 'danger') {
+          return { main: '#EF4444', highlight: '#FCA5A5', dark: '#991B1B', gradKey: 'red', icon: '⚠️', label: 'Caution Zone' };
+        }
+        return { main: '#D4AF37', highlight: '#FEF08A', dark: '#854D0E', gradKey: 'gold', icon: '✨', label: 'Safe Zone' };
+      }
+
+      function getMeridianCoords(lat, lng, r) {
+        var dLat = r / 111320;
+        var dLng = r / (111320 * Math.max(0.1, Math.cos(lat * Math.PI / 180)));
+        return {
+          ns: [[lat - dLat * 0.98, lng], [lat + dLat * 0.98, lng]],
+          we: [[lat, lng - dLng * 0.98], [lat, lng + dLng * 0.98]]
+        };
+      }
+
+      function createDomeGeofence(placeId, circleKey, latLng, radius, theme, onPlaceClick) {
+        ensureDomeSvgDefs();
+        var group = L.layerGroup();
+        var lat = latLng[0];
+        var lng = latLng[1];
+        var coords = getMeridianCoords(lat, lng, radius);
+
+        // 1. Ambient Base Halo (Soft Ground Dispersion)
+        var baseAura = L.circle(latLng, {
+          radius: radius * 1.025,
+          color: theme.main,
+          weight: 4,
+          opacity: 0.16,
+          fill: false,
+          dashArray: '6, 8',
+          interactive: false
+        });
+
+        // 2. Primary 3D Dome Hemispherical Shell
+        var mainDome = L.circle(latLng, {
+          radius: radius,
+          color: theme.main,
+          fillColor: 'url(#dome-grad-' + theme.gradKey + ')',
+          fillOpacity: 1.0,
+          weight: 2.6,
+          opacity: 0.95,
+          className: 'geofence-3d-dome',
+          interactive: true
+        });
+
+        // 3. Mid-Latitude 3D Elevation Ring
+        var midRing = L.circle(latLng, {
+          radius: radius * 0.68,
+          color: theme.highlight,
+          weight: 1.4,
+          opacity: 0.65,
+          dashArray: '5, 6',
+          fill: false,
+          interactive: false,
+          className: 'geofence-dome-contour-mid'
+        });
+
+        // 4. Crown 3D Plateau Ring (Specular Apex Reflection)
+        var topRing = L.circle(latLng, {
+          radius: radius * 0.38,
+          color: theme.highlight,
+          weight: 1.6,
+          opacity: 0.85,
+          fillColor: theme.highlight,
+          fillOpacity: 0.12,
+          dashArray: '3, 5',
+          interactive: false,
+          className: 'geofence-dome-contour-top'
+        });
+
+        // 5. Geodesic Meridian Arcs (North-South & West-East)
+        var nsArc = L.polyline(coords.ns, {
+          color: theme.highlight,
+          weight: 1.1,
+          opacity: 0.38,
+          dashArray: '4, 7',
+          interactive: false,
+          className: 'geofence-dome-meridian'
+        });
+
+        var weArc = L.polyline(coords.we, {
+          color: theme.highlight,
+          weight: 1.1,
+          opacity: 0.38,
+          dashArray: '4, 7',
+          interactive: false,
+          className: 'geofence-dome-meridian'
+        });
+
+        // 6. Apex Specular Beacon
+        var apexBeacon = L.circleMarker(latLng, {
+          radius: 3.5,
+          color: '#FFFFFF',
+          fillColor: theme.highlight,
+          fillOpacity: 0.95,
+          weight: 1.6,
+          interactive: false,
+          className: 'geofence-dome-beacon'
+        });
+
+        if (onPlaceClick) {
+          mainDome.on('click', function() {
+            onPlaceClick(placeId);
+          });
+        }
+
+        group.addLayer(baseAura);
+        group.addLayer(mainDome);
+        group.addLayer(midRing);
+        group.addLayer(topRing);
+        group.addLayer(nsArc);
+        group.addLayer(weArc);
+        group.addLayer(apexBeacon);
+
+        group._baseAura = baseAura;
+        group._mainDome = mainDome;
+        group._midRing = midRing;
+        group._topRing = topRing;
+        group._nsArc = nsArc;
+        group._weArc = weArc;
+        group._apexBeacon = apexBeacon;
+        group._placeId = placeId;
+        group._placeKey = circleKey;
+        group._theme = theme;
+
+        group.addTo(map);
+
+        setTimeout(function() {
+          if (mainDome._path) {
+            mainDome._path.setAttribute('fill', 'url(#dome-grad-' + theme.gradKey + ')');
+          }
+        }, 15);
+
+        return group;
+      }
+
+      function updateDomeGeofence(group, latLng, radius, theme) {
+        ensureDomeSvgDefs();
+        var lat = latLng[0];
+        var lng = latLng[1];
+        var coords = getMeridianCoords(lat, lng, radius);
+
+        if (group._baseAura) {
+          group._baseAura.setLatLng(latLng);
+          group._baseAura.setRadius(radius * 1.025);
+          group._baseAura.setStyle({ color: theme.main });
+        }
+        if (group._mainDome) {
+          group._mainDome.setLatLng(latLng);
+          group._mainDome.setRadius(radius);
+          group._mainDome.setStyle({
+            color: theme.main,
+            fillColor: 'url(#dome-grad-' + theme.gradKey + ')'
+          });
+          if (group._mainDome._path) {
+            group._mainDome._path.setAttribute('fill', 'url(#dome-grad-' + theme.gradKey + ')');
+          }
+        }
+        if (group._midRing) {
+          group._midRing.setLatLng(latLng);
+          group._midRing.setRadius(radius * 0.68);
+          group._midRing.setStyle({ color: theme.highlight });
+        }
+        if (group._topRing) {
+          group._topRing.setLatLng(latLng);
+          group._topRing.setRadius(radius * 0.38);
+          group._topRing.setStyle({ color: theme.highlight, fillColor: theme.highlight });
+        }
+        if (group._nsArc) {
+          group._nsArc.setLatLngs(coords.ns);
+          group._nsArc.setStyle({ color: theme.highlight });
+        }
+        if (group._weArc) {
+          group._weArc.setLatLngs(coords.we);
+          group._weArc.setStyle({ color: theme.highlight });
+        }
+        if (group._apexBeacon) {
+          group._apexBeacon.setLatLng(latLng);
+          group._apexBeacon.setStyle({ fillColor: theme.highlight });
+        }
+        group._theme = theme;
+      }
+
+        // 2. UPDATE GEOFENCE PLACES & ZONES (3D DOME SHAPE)
         if (data.places) {
           var currentPlaceIds = {};
           data.places.forEach(function(p) {
@@ -847,56 +1185,29 @@ const LEAFLET_HTML = `
             currentPlaceIds[markerKey] = true;
 
             var pLatLng = [p.lat, p.lng];
-
-            // Resolve Category Theme Colors
             var cat = p.category || 'home';
-            var zoneColor = '#D4AF37';
-            
-            if (cat === 'home') {
-              zoneColor = '#10B981';
-            } else if (cat === 'work') {
-              zoneColor = '#3B82F6';
-            } else if (cat === 'school') {
-              zoneColor = '#F59E0B';
-            } else if (cat === 'fitness' || cat === 'gym') {
-              zoneColor = '#8B5CF6';
-            } else if (cat === 'danger') {
-              zoneColor = '#EF4444';
-            }
+            var domeTheme = getDomeTheme(cat);
 
-            // A. Geofence Boundary Circle
-            if (placeCircles[circleKey]) {
-              placeCircles[circleKey].setLatLng(pLatLng);
-              placeCircles[circleKey].setRadius(p.radius);
-              placeCircles[circleKey].setStyle({
-                color: zoneColor,
-                fillColor: zoneColor,
-                fillOpacity: 0.22,
-                weight: 2.5
-              });
+            // A. 3D Geofence Dome
+            if (placeCircles[circleKey] && placeCircles[circleKey]._mainDome) {
+              updateDomeGeofence(placeCircles[circleKey], pLatLng, p.radius, domeTheme);
             } else {
-              var pCircle = L.circle(pLatLng, {
-                radius: p.radius,
-                color: zoneColor,
-                fillColor: zoneColor,
-                fillOpacity: 0.22,
-                weight: 2.5
-              }).addTo(map);
-
-              pCircle._placeId = p.id;
-              pCircle._placeKey = circleKey;
-              placeCircles[circleKey] = pCircle;
-
-              placeCircles[circleKey].on('click', function() {
-                sendAppMessage({ type: 'PLACE_CLICK', placeId: p.id });
+              if (placeCircles[circleKey]) {
+                try { map.removeLayer(placeCircles[circleKey]); } catch(e) {}
+              }
+              placeCircles[circleKey] = createDomeGeofence(p.id, circleKey, pLatLng, p.radius, domeTheme, function(pid) {
+                sendAppMessage({ type: 'PLACE_CLICK', placeId: pid });
               });
             }
 
-            // B. Center Badge
+            // B. Center Badge with Floating Glassmorphic 3D Aesthetics
             var memberCountTag = p.assignedCount ? ' • ' + p.assignedCount + ' assigned' : '';
             var radiusTag = p.radius >= 1000 ? ((p.radius/1000).toFixed(1) + 'km') : (p.radius + 'm');
-            var badgeHtml = '<div style="position:relative;display:flex;align-items:center;justify-content:center;transform:translate(-50%, -50%);background:rgba(22,24,31,0.92);color:#FFFFFF;border:1.5px solid ' + zoneColor + ';padding:4px 10px;border-radius:14px;box-shadow:0 4px 12px rgba(0,0,0,0.6);font-size:10.5px;font-weight:800;white-space:nowrap;font-family:sans-serif;cursor:pointer;">' +
-              '<span style="display:inline-block;width:6px;height:6px;border-radius:3px;background:' + zoneColor + ';margin-right:6px;"></span>' + p.name + ' (' + radiusTag + memberCountTag + ')' +
+            var badgeHtml = '<div class="geofence-dome-badge" style="border-color:' + domeTheme.main + ';box-shadow:0 4px 14px rgba(0,0,0,0.65), 0 0 10px ' + domeTheme.main + '55;">' +
+              '<span class="badge-icon" style="background:' + domeTheme.main + ';box-shadow:0 0 8px ' + domeTheme.main + ';"></span>' +
+              '<span style="font-size:10px;margin-right:2px;">' + domeTheme.icon + '</span>' +
+              '<span class="badge-text">' + p.name + '</span>' +
+              '<span class="badge-tag" style="color:' + domeTheme.highlight + ';">(' + radiusTag + memberCountTag + ')</span>' +
               '</div>';
 
             var badgeIcon = L.divIcon({
@@ -2120,11 +2431,12 @@ export default function MapScreen() {
     // Clear previous circle markers and zones immediately from Leaflet
     webViewRef.current?.injectJavaScript(`if (window.clearAllMapLayers) { window.clearAllMapLayers(); } true;`);
 
-    Promise.all([
-      fetchMembers(activeCircle.id),
-      fetchPlaces(activeCircle.id),
-      fetchLocations()
-    ]);
+    fetchMembers(activeCircle.id).then(freshMembers => {
+      const uids = (freshMembers || []).map(m => m.user_id);
+      fetchLocations(uids);
+      fetchPlaces(activeCircle.id);
+      schedulePushMapData();
+    });
     
     const channelUid = Math.random().toString(36).substring(2, 9);
     const channel = supabase
@@ -2140,9 +2452,10 @@ export default function MapScreen() {
             useCircleStore.getState().purgeUserFromStore(delUid);
             setLocations(prev => prev.filter(l => l.user_id !== delUid));
           }
-          fetchMembers(activeCircle.id);
-          fetchLocations();
-          schedulePushMapData();
+          fetchMembers(activeCircle.id).then(mems => {
+            fetchLocations((mems || []).map(m => m.user_id));
+            schedulePushMapData();
+          });
         }
       )
       .on(
@@ -2173,7 +2486,10 @@ export default function MapScreen() {
             useCircleStore.getState().purgeUserFromStore(delUid);
             setLocations(prev => prev.filter(l => l.user_id !== delUid));
           }
-          fetchMembers(activeCircle.id);
+          fetchMembers(activeCircle.id).then(mems => {
+            fetchLocations((mems || []).map(m => m.user_id));
+            schedulePushMapData();
+          });
         }
       )
       .subscribe();
@@ -2187,7 +2503,7 @@ export default function MapScreen() {
       )
       .subscribe();
       
-    // Fallback polling only if Supabase Realtime connection drops (every 30s instead of aggressive 3s)
+    // Fallback polling only if Supabase Realtime connection drops
     const fallbackInterval = setInterval(() => {
       fetchLocations();
     }, 30000);
@@ -2213,10 +2529,11 @@ export default function MapScreen() {
         } catch (e) {}
 
         if (activeCircle?.id && isMounted) {
+          const freshMembers = await fetchMembers(activeCircle.id);
+          const uids = (freshMembers || []).map(m => m.user_id);
           await Promise.all([
-            fetchMembers(activeCircle.id),
             fetchPlaces(activeCircle.id),
-            fetchLocations(),
+            fetchLocations(uids),
           ]);
         }
         if (isMounted) {
@@ -2230,11 +2547,28 @@ export default function MapScreen() {
     }, [activeCircle?.id, profile?.id])
   );
 
-  const fetchLocations = async () => {
+  const fetchLocations = async (overrideMemberIds?: string[]) => {
     try {
-      const memberUserIds = members.map(m => m.user_id).filter(Boolean);
+      let memberUserIds = (overrideMemberIds && overrideMemberIds.length > 0)
+        ? overrideMemberIds
+        : useCircleStore.getState().members.map(m => m.user_id).filter(Boolean);
+
       if (profile?.id && !memberUserIds.includes(profile.id)) {
         memberUserIds.push(profile.id);
+      }
+
+      if (activeCircle?.id && memberUserIds.length <= 1) {
+        const { data: cmList } = await supabase
+          .from('circle_members')
+          .select('user_id')
+          .eq('circle_id', activeCircle.id);
+        if (cmList) {
+          cmList.forEach(cm => {
+            if (cm.user_id && !memberUserIds.includes(cm.user_id)) {
+              memberUserIds.push(cm.user_id);
+            }
+          });
+        }
       }
 
       const validUids = memberUserIds.filter(isValidUuid);
@@ -2243,38 +2577,27 @@ export default function MapScreen() {
         return;
       }
 
-      // Group-scoped location query: query valid circle member IDs
-      let allLocs: any[] = [];
-      try {
-        console.log(`[GPS_PIPELINE:LAYER_4_QUERY_FILTER] fetchLocations in MapScreen for ${validUids.length} members`);
-        let query = supabase
-          .from('locations')
-          .select('user_id, latitude, longitude, geom, battery_pct, is_driving, speed_mps, activity_state, updated_at, circle_id')
-          .in('user_id', validUids)
-          .order('updated_at', { ascending: false });
+      console.log(`[GPS_PIPELINE:LAYER_4_QUERY_FILTER] fetchLocations in MapScreen for ${validUids.length} members`);
+      const { data, error } = await supabase
+        .from('locations')
+        .select('user_id, latitude, longitude, geom, battery_pct, is_driving, speed_mps, activity_state, updated_at, circle_id')
+        .in('user_id', validUids)
+        .order('updated_at', { ascending: false });
 
-        const { data, error } = await query;
-        if (!error && data) {
-          // Deduplicate by user_id: keep freshest updated_at row for each user, preferring matching activeCircle
-          const latestByUser: { [userId: string]: any } = {};
-          data.forEach(item => {
-            const uid = item.user_id;
-            if (!latestByUser[uid]) {
-              latestByUser[uid] = item;
-            } else if (item.circle_id === activeCircle?.id && latestByUser[uid].circle_id !== activeCircle?.id) {
-              latestByUser[uid] = item;
-            }
-          });
-          allLocs = Object.values(latestByUser);
-          console.log(`[GPS_PIPELINE:LAYER_4_QUERY_FILTER] fetchLocations resolved ${allLocs.length} locations for ${validUids.length} members`);
-        } else if (error) {
-          console.error('[GPS_PIPELINE:LAYER_4_QUERY_FILTER] Error fetching locations:', error);
-        }
-      } catch (err) {
-        console.error('[GPS_PIPELINE:LAYER_4_QUERY_FILTER] Error in fetchLocations query:', err);
-      }
+      if (!error && data) {
+        // Deduplicate by user_id: keep freshest updated_at row for each user, preferring matching activeCircle
+        const latestByUser: { [userId: string]: any } = {};
+        data.forEach(item => {
+          const uid = item.user_id;
+          if (!latestByUser[uid]) {
+            latestByUser[uid] = item;
+          } else if (item.circle_id === activeCircle?.id && latestByUser[uid].circle_id !== activeCircle?.id) {
+            latestByUser[uid] = item;
+          }
+        });
+        const allLocs = Object.values(latestByUser);
+        console.log(`[GPS_PIPELINE:LAYER_4_QUERY_FILTER] fetchLocations resolved ${allLocs.length} locations for ${validUids.length} members`);
 
-      if (allLocs.length > 0) {
         const formatted = allLocs.map(item => {
           const pt = parseLocationPoint(item);
           return {
@@ -2375,15 +2698,24 @@ export default function MapScreen() {
             let lng = 0;
             let isRealLocation = false;
 
-            if (isSelf && userLoc && userLoc.latitude !== 0 && userLoc.longitude !== 0) {
-              lat = userLoc.latitude;
-              lng = userLoc.longitude;
+            if (isSelf) {
+              if (userLoc && userLoc.latitude !== 0 && userLoc.longitude !== 0) {
+                lat = userLoc.latitude;
+                lng = userLoc.longitude;
+                isRealLocation = true;
+              } else if (loc && loc.latitude && loc.longitude) {
+                lat = loc.latitude;
+                lng = loc.longitude;
+                isRealLocation = true;
+              } else if (m.latitude && m.longitude) {
+                lat = Number(m.latitude);
+                lng = Number(m.longitude);
+                if (lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng)) isRealLocation = true;
+              }
+            } else if (loc && loc.latitude && loc.longitude) {
+              lat = loc.latitude;
+              lng = loc.longitude;
               isRealLocation = true;
-            } else if (loc) {
-              const pt = parseLocationPoint(loc);
-              lat = pt.latitude;
-              lng = pt.longitude;
-              if (lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng)) isRealLocation = true;
             } else if (m.latitude && m.longitude) {
               lat = Number(m.latitude);
               lng = Number(m.longitude);

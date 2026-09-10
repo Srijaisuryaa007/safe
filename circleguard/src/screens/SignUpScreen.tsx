@@ -6,6 +6,10 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { supabase } from '../lib/supabase';
 import { useThemeStore } from '../store/useThemeStore';
+import { useRateLimitCountdown } from '../hooks/useRateLimitCountdown';
+import { ValidationSchema } from '../lib/validationSchema';
+import { ENV } from '../constants/env';
+import { handleServiceError } from '../lib/errorHandler';
 import AnimatedCircleGuardLogo from '../components/AnimatedCircleGuardLogo';
 import ConstellationBackground from '../components/ConstellationBackground';
 import { useCountryStore } from '../store/useCountryStore';
@@ -24,33 +28,67 @@ export default function SignUpScreen() {
   const [successMsg, setSuccessMsg] = useState('');
   const navigation = useNavigation<any>();
 
+  // Rate Limiting with Exponential Backoff (Per-Account & Per-Device)
+  const signUpLimiter = useRateLimitCountdown('AUTH_SIGNUP', email.trim());
+
   const handleSignUp = async () => {
-    if (!email.trim() || !password.trim()) {
-      setErrorMsg('Please enter both email and password.');
+    setErrorMsg(null);
+
+    // 1. Strict Input Schema Validation (Type, Length, Format)
+    const emailValidation = ValidationSchema.validateEmail(email);
+    if (!emailValidation.valid) {
+      setErrorMsg(emailValidation.error || 'Invalid email address format.');
       return;
     }
+
+    const passwordValidation = ValidationSchema.validatePassword(password);
+    if (!passwordValidation.valid) {
+      setErrorMsg(passwordValidation.error || 'Password does not meet security requirements.');
+      return;
+    }
+
+    // 2. Enforce Client/Account Rate Limit & Exponential Backoff
+    const limitCheck = await signUpLimiter.checkStatus();
+    if (!limitCheck.allowed) {
+      setErrorMsg(
+        limitCheck.reason ||
+          `Rate limit backoff active. Please wait ${limitCheck.retryAfterSec}s before retrying.`
+      );
+      return;
+    }
+
     try {
       setLoading(true);
       setErrorMsg(null);
-      const [signUpResult] = await Promise.all([
-        supabase.auth.signUp({
-          email: email.trim(),
-          password: password.trim(),
-        }),
-        new Promise((resolve) => setTimeout(resolve, 950)),
-      ]);
+      const signUpResult = await supabase.auth.signUp({
+        email: emailValidation.value!,
+        password: password.trim(),
+      });
 
       const { data, error } = signUpResult;
 
       if (error) {
-        setErrorMsg(error.message);
-      } else if (data.session) {
-        Alert.alert('Account Created', 'Your account has been created successfully!');
+        const record = await signUpLimiter.recordAttempt(false);
+        if (!record.allowed) {
+          setErrorMsg(
+            record.reason ||
+              `Too many registration attempts. Exponential backoff active: please wait ${record.retryAfterSec}s.`
+          );
+        } else {
+          setErrorMsg(handleServiceError('SignUp:signUp', error, 'Registration failed. Please check your inputs and try again.'));
+        }
       } else {
-        Alert.alert('Verification Sent', 'Please check your email to confirm your account.');
+        await signUpLimiter.recordAttempt(true);
+        if (data.session) {
+          const { useAuthStore } = require('../store/useAuthStore');
+          useAuthStore.getState().setSession(data.session);
+          Alert.alert('Account Created', 'Your account has been created successfully!');
+        } else {
+          Alert.alert('Verification Sent', 'Please check your email to confirm your account.');
+        }
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Something went wrong during sign up.');
+      setErrorMsg(handleServiceError('SignUp:catch', err, 'Something went wrong during sign up. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -66,7 +104,7 @@ export default function SignUpScreen() {
         try {
           const { GoogleSignin } = require('@react-native-google-signin/google-signin');
           GoogleSignin.configure({
-            webClientId: '648921591929-dspid5vmlhk9hm9213vcln5v5tftr079.apps.googleusercontent.com',
+            webClientId: ENV.GOOGLE_WEB_CLIENT_ID,
             offlineAccess: true,
           });
           await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
@@ -145,7 +183,7 @@ export default function SignUpScreen() {
       });
 
       if (error) {
-        Alert.alert('Google Sign-In Error', error.message);
+        Alert.alert('Google Sign-In Error', handleServiceError('SignUp:googleOAuth', error, 'Google sign-in could not be completed. Please try again.'));
         return;
       }
 
@@ -208,7 +246,7 @@ export default function SignUpScreen() {
         }
       }
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to initialize Google sign in');
+      Alert.alert('Error', handleServiceError('SignUp:googleCatch', err, 'Failed to initialize Google sign-in.'));
     } finally {
       setLoading(false);
     }
@@ -283,15 +321,33 @@ export default function SignUpScreen() {
           placeholderTextColor={colors.textMuted}
         />
 
+        {/* Live Exponential Backoff Warning Banner */}
+        {signUpLimiter.isBlocked && (
+          <View style={[styles.backoffBadge, { borderColor: colors.sosRed, backgroundColor: 'rgba(239, 68, 68, 0.1)', marginTop: 4 }]}>
+            <Ionicons name="timer-outline" size={16} color={colors.sosRed} />
+            <Text style={[styles.backoffText, { color: colors.sosRed }]}>
+              Exponential backoff active. Retry in {signUpLimiter.secondsRemaining}s
+            </Text>
+          </View>
+        )}
+
         <TouchableOpacity 
           accessibilityRole="button"
           aria-label="Create Account"
-          style={[styles.button, { backgroundColor: colors.accentGold }]} 
+          style={[
+            styles.button, 
+            { 
+              backgroundColor: (signUpLimiter.isBlocked || loading) ? '#6B7280' : colors.accentGold,
+              opacity: (signUpLimiter.isBlocked || loading) ? 0.75 : 1
+            }
+          ]} 
           onPress={handleSignUp} 
-          disabled={loading}
+          disabled={loading || signUpLimiter.isBlocked}
         >
           {loading ? (
             <ActivityIndicator color="#FFFFFF" />
+          ) : signUpLimiter.isBlocked ? (
+            <Text style={styles.buttonText}>PLEASE WAIT ({signUpLimiter.secondsRemaining}S)</Text>
           ) : (
             <Text style={styles.buttonText}>CREATE ACCOUNT</Text>
           )}
@@ -330,12 +386,12 @@ export default function SignUpScreen() {
 
         <TouchableOpacity
           accessibilityRole="button"
-          aria-label="I already have an account"
+          aria-label="Already have an account? Sign in"
           style={styles.linkButton}
           onPress={() => navigation.navigate('Login' as never)}
           disabled={loading}
         >
-          <Text style={[styles.linkText, { color: colors.accentGold }]}>I ALREADY HAVE AN ACCOUNT</Text>
+          <Text style={[styles.linkText, { color: colors.accentGold }]}>ALREADY HAVE AN ACCOUNT? SIGN IN</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -385,6 +441,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 12,
     backgroundColor: 'rgba(212, 175, 55, 0.05)',
+  },
+  backoffBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  backoffText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   inputLabel: {
     fontSize: 10,

@@ -23,6 +23,7 @@ import {
   COUNTRY_PHONE_RULES,
   DEFAULT_PHONE_RULE,
 } from '../lib/phoneValidation';
+import { handleServiceError } from '../lib/errorHandler';
 
 export default function ProfileSetupScreen() {
   const { colors, isDark, themeMode } = useThemeStore();
@@ -68,12 +69,40 @@ export default function ProfileSetupScreen() {
       return;
     }
 
-    if (!user) return;
+    // Robust resolution of active user identity across store and session providers
+    let currentUser = user || useAuthStore.getState().user || useAuthStore.getState().session?.user;
+    if (!currentUser) {
+      try {
+        const sess = (await supabase.auth.getSession()).data?.session;
+        if (sess?.user) {
+          currentUser = sess.user;
+          useAuthStore.getState().setSession(sess);
+        } else {
+          const refreshed = (await supabase.auth.refreshSession()).data?.session;
+          if (refreshed?.user) {
+            currentUser = refreshed.user;
+            useAuthStore.getState().setSession(refreshed);
+          } else {
+            const userRes = (await supabase.auth.getUser()).data?.user;
+            if (userRes) {
+              currentUser = userRes;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[ProfileSetup] User session check exception:', e);
+      }
+    }
+
+    if (!currentUser) {
+      setErrorMsg('User session expired or not found. Please tap "Sign Out & Switch Account" below to sign in again.');
+      return;
+    }
 
     setLoading(true);
     try {
       // 2. Proactive Duplicate Phone Detection
-      const dupCheck = await checkDuplicatePhoneNumber(validation.e164, user.id);
+      const dupCheck = await checkDuplicatePhoneNumber(validation.e164, currentUser.id);
       if (dupCheck.isDuplicate) {
         setErrorMsg(dupCheck.error || 'This phone number is already registered to another account.');
         setLoading(false);
@@ -86,9 +115,9 @@ export default function ProfileSetupScreen() {
         const { data: existingProf } = await supabase
           .from('profiles')
           .select('avatar_url')
-          .eq('id', user.id)
+          .eq('id', currentUser.id)
           .maybeSingle();
-        safeAvatarUrl = existingProf?.avatar_url || user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+        safeAvatarUrl = existingProf?.avatar_url || currentUser.user_metadata?.avatar_url || currentUser.user_metadata?.picture || null;
       }
 
       // 4. Upsert canonical profile with strict E.164 (no formatting spaces)
@@ -96,7 +125,7 @@ export default function ProfileSetupScreen() {
         .from('profiles')
         .upsert([
           { 
-            id: user.id, 
+            id: currentUser.id, 
             full_name: fullName.trim(), 
             phone: validation.e164,
             avatar_url: safeAvatarUrl,
@@ -109,13 +138,14 @@ export default function ProfileSetupScreen() {
         if (error.message && (error.message.includes('unique constraint') || error.message.includes('profiles_phone_key'))) {
           setErrorMsg(`The phone number ${validation.formattedDisplay} is already registered to another account. Please use your unique mobile number.`);
         } else {
-          setErrorMsg(error.message);
+          setErrorMsg(handleServiceError('ProfileSetup:upsert', error, 'Failed to save profile. Please check your inputs.'));
         }
       } else if (data) {
         setProfile(data);
+        useAuthStore.getState().setProfile(data);
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Something went wrong while saving your profile.');
+      setErrorMsg(handleServiceError('ProfileSetup:catch', err, 'Something went wrong while saving your profile. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -325,6 +355,23 @@ export default function ProfileSetupScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Switch Account / Sign Out Option */}
+        <TouchableOpacity
+          style={styles.switchAccountBtn}
+          onPress={async () => {
+            try {
+              await supabase.auth.signOut();
+            } catch (e) {}
+            useAuthStore.getState().resetAuthStore();
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="log-out-outline" size={15} color={colors.textMuted} />
+          <Text style={[styles.switchAccountText, { color: colors.textMuted }]}>
+            Want to use a different account? <Text style={{ color: colors.accentGold, fontWeight: '700' }}>Sign Out</Text>
+          </Text>
+        </TouchableOpacity>
+
         {/* Security Reassurance Footer */}
         <View style={styles.securityFooter}>
           <Ionicons name="lock-closed" size={14} color={colors.textMuted} />
@@ -512,5 +559,16 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: 'center',
     lineHeight: 16,
+  },
+  switchAccountBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 18,
+    paddingVertical: 8,
+  },
+  switchAccountText: {
+    fontSize: 12,
   },
 });

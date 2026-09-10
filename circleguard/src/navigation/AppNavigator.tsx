@@ -44,7 +44,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 import SplashScreen from '../screens/SplashScreen';
 import { registerForPushNotificationsAsync } from '../services/PushNotificationService';
 import ShakeSOSListener from '../components/ShakeSOSListener';
-import { LuxuryAlertProvider, useLuxuryAlert } from '../components/LuxuryAlertModal';
+import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import BiometricLockGate from '../components/BiometricLockGate';
 import { supabase } from '../lib/supabase';
 import { useCircleStore } from '../store/useCircleStore';
@@ -221,12 +221,22 @@ function GlobalChatNotificationListener() {
           const { data: senderProf } = await supabase.from('profiles').select('full_name').eq('id', newMsg.sender_id).single();
           const senderName = senderProf?.full_name || 'Circle Member';
 
-          const title = `💬 ${senderName}`;
-          const body = content.startsWith('📍 Shared Live Location') 
-            ? `📍 Dropped a live location pin on the map! Tap to view 👀` 
-            : (content.length > 90 ? `${content.substring(0, 90)}...` : content);
+          let title = `💬 ${senderName}`;
+          let body = content;
 
-          scheduleLocalNotification(title, body, { screen: 'Chat' });
+          if (newMsg.message_type === 'CHECKIN' || content.toLowerCase().includes('checked in safely')) {
+            title = `✅ Safety Check-In: ${senderName}`;
+            body = `${senderName} checked in safely! Status verified with circle.`;
+          } else if (newMsg.message_type === 'CHECKIN_REQUEST' || content.toLowerCase().includes('requested an instant safety check-in')) {
+            title = `📍 Check-In Request: ${senderName}`;
+            body = `${senderName} is requesting everyone in ${activeCircle.name || 'the circle'} to check in!`;
+          } else if (content.startsWith('📍 Shared Live Location')) {
+            body = `📍 Dropped a live location pin on the map! Tap to view 👀`;
+          } else if (content.length > 90) {
+            body = `${content.substring(0, 90)}...`;
+          }
+
+          scheduleLocalNotification(title, body, { screen: newMsg.message_type === 'CHECKIN' ? 'Timeline' : 'Chat' });
         }
       )
       .subscribe();
@@ -239,11 +249,10 @@ function GlobalChatNotificationListener() {
   return null;
 }
 
-import { View } from 'react-native';
-import CircleGuardGlobeLoader from '../components/CircleGuardGlobeLoader';
+import { View, ActivityIndicator } from 'react-native';
 
 export default function AppNavigator() {
-  const { session, profile, isLoading, isProfileFetching } = useAuthStore();
+  const { session, profile } = useAuthStore();
   const [showSplash, setShowSplash] = React.useState(true);
 
   React.useEffect(() => {
@@ -256,65 +265,48 @@ export default function AppNavigator() {
     return <SplashScreen onFinish={() => setShowSplash(false)} />;
   }
 
-  // Enterprise Universal Loading Experience:
-  // Render high-end animated radar globe during connection or profile hydration
-  if (isLoading || (session && isProfileFetching)) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#090A0C', justifyContent: 'center', alignItems: 'center' }}>
-        <CircleGuardGlobeLoader 
-          size={180} 
-          loadingLabel={session ? "Securing CircleGuard Session…" : "Connecting to CircleGuard Network…"} 
-        />
-      </View>
-    );
-  }
-
   return (
-    <LuxuryAlertProvider>
-      <BiometricLockGate>
-        <NavigationContainer ref={(r) => { if (typeof window !== 'undefined') (window as any).__navigationRef = r; }}>
-          <NetworkStatusBanner />
-          <GlobalCircleSwitchLoader />
-          {session && profile ? (
+    <BiometricLockGate>
+      <NavigationContainer ref={(r) => { if (typeof window !== 'undefined') (window as any).__navigationRef = r; }}>
+        <NetworkStatusBanner />
+        <GlobalCircleSwitchLoader />
+        {session && profile ? (
+          <>
+            <GlobalSOSModal />
+            <GlobalLocationShareModal />
+            <ShakeSOSListener />
+            <PrivacyPermissionListener />
+            <GlobalChatNotificationListener />
+          </>
+        ) : null}
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {!session ? (
+            // Unauthenticated Flow (Direct to Login/SignUp)
             <>
-              <GlobalSOSModal />
-              <GlobalLocationShareModal />
-              <ShakeSOSListener />
-              <PrivacyPermissionListener />
-              <GlobalChatNotificationListener />
+              <Stack.Screen name="Login" component={LoginScreen} />
+              <Stack.Screen name="SignUp" component={SignUpScreen} />
             </>
-          ) : null}
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
-            {!session ? (
-              // Unauthenticated Flow (Direct to Login/SignUp)
-              <>
-                <Stack.Screen name="Login" component={LoginScreen} />
-                <Stack.Screen name="SignUp" component={SignUpScreen} />
-              </>
-            ) : !profile || !profile.full_name || profile.full_name === 'Circle Member' || !profile.phone ? (
-              // Luxury Profile Setup Flow (Collect Name & Mobile Number)
+          ) : (
+            // Authenticated Flow (Direct to MainTabs flagship experience)
+            <>
+              <Stack.Screen name="MainTabs" component={MainTabNavigator} />
               <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
-            ) : (
-              // Authenticated Flow
-              <>
-                <Stack.Screen name="MainTabs" component={MainTabNavigator} />
-                <Stack.Screen name="CreateCircle" component={CreateCircleScreen} />
-                <Stack.Screen name="JoinCircle" component={JoinCircleScreen} />
-                <Stack.Screen 
-                  name="SOSAlert" 
-                  component={SOSAlertScreen} 
-                  options={{ presentation: 'fullScreenModal', animation: 'fade' }}
-                />
-                <Stack.Screen name="SafePlaces" component={SafePlacesScreen} />
-                <Stack.Screen name="Activity" component={ActivityScreen} />
-                <Stack.Screen name="LocationHistory" component={LocationHistoryScreen} />
-                <Stack.Screen name="DrivingReports" component={DrivingReportsScreen} />
-                <Stack.Screen name="Chat" component={ChatScreen} />
-              </>
-            )}
-          </Stack.Navigator>
-        </NavigationContainer>
-      </BiometricLockGate>
-    </LuxuryAlertProvider>
+              <Stack.Screen name="CreateCircle" component={CreateCircleScreen} />
+              <Stack.Screen name="JoinCircle" component={JoinCircleScreen} />
+              <Stack.Screen 
+                name="SOSAlert" 
+                component={SOSAlertScreen} 
+                options={{ presentation: 'fullScreenModal', animation: 'fade' }}
+              />
+              <Stack.Screen name="SafePlaces" component={SafePlacesScreen} />
+              <Stack.Screen name="Activity" component={ActivityScreen} />
+              <Stack.Screen name="LocationHistory" component={LocationHistoryScreen} />
+              <Stack.Screen name="DrivingReports" component={DrivingReportsScreen} />
+              <Stack.Screen name="Chat" component={ChatScreen} />
+            </>
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </BiometricLockGate>
   );
 }

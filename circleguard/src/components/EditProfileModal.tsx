@@ -33,6 +33,8 @@ import {
 } from '../lib/phoneValidation';
 import { getThemeCardStyles, getThemeButtonStyles, getThemeBorderStyles } from '../constants/theme';
 import { useLuxuryAlert } from './LuxuryAlertModal';
+import { validateImageUpload } from '../lib/fileUploadSecurity';
+import { handleServiceError } from '../lib/errorHandler';
 
 interface EditProfileModalProps {
   visible: boolean;
@@ -128,17 +130,35 @@ export default function EditProfileModal({ visible, onClose, onProfileUpdated }:
       if (result.canceled || !result.assets || result.assets.length === 0) return;
 
       setUploadingPhoto(true);
-      const uri = result.assets[0].uri;
+      const asset = result.assets[0];
+      const uri = asset.uri;
 
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
 
-      const fileName = `${profile.id}/${Date.now()}.jpg`;
+      // Strict validation: File size, magic bytes, script/SVG rejection, path isolation
+      const validation = validateImageUpload({
+        base64Content: base64,
+        fileSizeBytes: asset.fileSize,
+        userId: profile.id,
+      });
+
+      if (!validation.valid || !validation.sanitizedPath) {
+        showAlert({
+          title: 'Invalid Image',
+          message: validation.error || 'Please select a valid JPEG, PNG, or WebP image under 5MB.',
+          type: 'warning',
+        });
+        setUploadingPhoto(false);
+        return;
+      }
+
+      const fileName = validation.sanitizedPath;
       const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(fileName, decode(base64), {
-          contentType: 'image/jpeg',
+          contentType: validation.detectedMimeType || 'image/jpeg',
           upsert: true,
         });
 
@@ -167,10 +187,10 @@ export default function EditProfileModal({ visible, onClose, onProfileUpdated }:
         type: 'success',
       });
     } catch (err: any) {
-      console.error('Photo selection error:', err);
+      const cleanMessage = handleServiceError('EditProfileModal:uploadPhoto', err, 'Unable to upload profile photo. Please try again.');
       showAlert({
         title: 'Upload Failed',
-        message: err.message || 'Unable to upload profile photo.',
+        message: cleanMessage,
         type: 'error',
       });
     } finally {

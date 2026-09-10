@@ -1,6 +1,12 @@
 const { createClient } = require('@supabase/supabase-js');
-const supabaseUrl = 'https://phgizfyyywwjieruytsy.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBoZ2l6Znl5eXd3amllcnV5dHN5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NzI0OTgsImV4cCI6MjEwMDQ0ODQ5OH0.2wPN8HhSyfab5FxvNEoMmG4hF0152fLX2CZnL3gvGsQ';
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('[MockLocations] Missing SUPABASE_URL or SUPABASE_ANON_KEY environment variables.');
+  process.exit(1);
+}
+
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function simulate() {

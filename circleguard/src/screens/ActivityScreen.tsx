@@ -19,9 +19,10 @@ import { supabase } from '../lib/supabase';
 import AnimatedList from '../components/AnimatedList';
 import SpringTouchable from '../components/SpringTouchable';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
+import BillionDollarTimelineView from '../components/BillionDollarTimelineView';
 
 export default function ActivityScreen() {
-  const { colors, isDark } = useThemeStore();
+  const { colors, isDark, themeMode } = useThemeStore();
   const navigation = useNavigation<any>();
   const { activeCircle } = useCircleStore();
   const { showAlert } = useLuxuryAlert();
@@ -225,6 +226,10 @@ export default function ActivityScreen() {
       navigation.navigate('Map');
     }
   };
+
+  if (themeMode === 'billion_dollar') {
+    return <BillionDollarTimelineView />;
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#F2F2F7' }]}>

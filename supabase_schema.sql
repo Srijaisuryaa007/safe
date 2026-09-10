@@ -889,3 +889,323 @@ create trigger on_profile_deleted
   for each row execute procedure public.handle_profile_deleted();
 
 
+-- ============================================================================
+-- 14. PRODUCTION RATE LIMITING ENGINE (CONFIGURABLE & EXPONENTIAL BACKOFF)
+-- ============================================================================
+
+-- Rate limits tracking table (stores composite keys: IP, account email, or user id)
+create table if not exists public.rate_limits (
+  key text primary key,
+  action text not null,
+  attempts int default 1,
+  consecutive_failures int default 1,
+  first_attempt_at timestamptz default now(),
+  last_attempt_at timestamptz default now(),
+  blocked_until timestamptz default null
+);
+
+create index if not exists idx_rate_limits_action on public.rate_limits (action);
+create index if not exists idx_rate_limits_blocked_until on public.rate_limits (blocked_until);
+
+-- Enable RLS on rate_limits
+alter table public.rate_limits enable row level security;
+
+-- Direct table access blocked; interaction is strictly handled via security definer RPC
+drop policy if exists "Rate limits access restricted" on public.rate_limits;
+create policy "Rate limits access restricted" on public.rate_limits
+  for all using (false);
+
+-- Atomic Check & Record Rate Limit Procedure
+-- Implements configurable thresholds, sliding windows, and non-hard-lockout exponential backoff
+create or replace function public.check_and_record_rate_limit(
+  p_key text,
+  p_action text,
+  p_max_attempts int default 5,
+  p_window_seconds int default 300,
+  p_base_backoff_seconds int default 2,
+  p_backoff_factor float default 2.0,
+  p_max_backoff_seconds int default 300,
+  p_is_exponential boolean default true,
+  p_is_success boolean default false
+)
+returns jsonb as $$
+declare
+  v_rec public.rate_limits%rowtype;
+  v_now timestamptz := clock_timestamp();
+  v_allowed boolean := true;
+  v_retry_after_sec int := 0;
+  v_attempts_remaining int := p_max_attempts;
+  v_backoff_sec float;
+  v_exponent int;
+begin
+  -- 1. Fetch existing record with row-level lock
+  select * into v_rec
+  from public.rate_limits
+  where key = p_key
+  for update;
+
+  -- 2. If operation succeeded, reset consecutive failures & active backoffs
+  if p_is_success then
+    if found then
+      update public.rate_limits
+      set consecutive_failures = 0,
+          blocked_until = null,
+          attempts = 0,
+          last_attempt_at = v_now
+      where key = p_key;
+    end if;
+    return jsonb_build_object(
+      'allowed', true,
+      'retry_after_seconds', 0,
+      'attempts_remaining', p_max_attempts,
+      'is_backoff', false
+    );
+  end if;
+
+  -- 3. Check if currently blocked by active backoff or window lockout
+  if found and v_rec.blocked_until is not null and v_rec.blocked_until > v_now then
+    v_retry_after_sec := ceil(extract(epoch from (v_rec.blocked_until - v_now)))::int;
+    return jsonb_build_object(
+      'allowed', false,
+      'retry_after_seconds', v_retry_after_sec,
+      'attempts_remaining', 0,
+      'is_backoff', p_is_exponential
+    );
+  end if;
+
+  -- 4. Evaluate attempt history
+  if not found then
+    -- First attempt
+    insert into public.rate_limits (key, action, attempts, consecutive_failures, first_attempt_at, last_attempt_at, blocked_until)
+    values (p_key, p_action, 1, 1, v_now, v_now, null);
+    v_attempts_remaining := greatest(0, p_max_attempts - 1);
+  elsif (v_now - v_rec.first_attempt_at) > (p_window_seconds || ' seconds')::interval then
+    -- Window expired, start fresh window but retain consecutive failures if exponential backoff
+    v_rec.attempts := 1;
+    v_rec.consecutive_failures := v_rec.consecutive_failures + 1;
+    v_rec.first_attempt_at := v_now;
+    v_rec.last_attempt_at := v_now;
+    v_rec.blocked_until := null;
+
+    if p_is_exponential and v_rec.consecutive_failures >= p_max_attempts then
+      v_exponent := v_rec.consecutive_failures - p_max_attempts;
+      v_backoff_sec := least(p_max_backoff_seconds::float, p_base_backoff_seconds::float * power(p_backoff_factor, v_exponent));
+      v_rec.blocked_until := v_now + (v_backoff_sec || ' seconds')::interval;
+      v_allowed := false;
+      v_retry_after_sec := ceil(v_backoff_sec)::int;
+    end if;
+
+    update public.rate_limits
+    set attempts = v_rec.attempts,
+        consecutive_failures = v_rec.consecutive_failures,
+        first_attempt_at = v_rec.first_attempt_at,
+        last_attempt_at = v_rec.last_attempt_at,
+        blocked_until = v_rec.blocked_until
+    where key = p_key;
+
+    v_attempts_remaining := greatest(0, p_max_attempts - v_rec.attempts);
+  else
+    -- Active window update
+    v_rec.attempts := v_rec.attempts + 1;
+    v_rec.consecutive_failures := v_rec.consecutive_failures + 1;
+    v_rec.last_attempt_at := v_now;
+
+    if p_is_exponential then
+      if v_rec.consecutive_failures >= p_max_attempts then
+        v_exponent := v_rec.consecutive_failures - p_max_attempts;
+        v_backoff_sec := least(p_max_backoff_seconds::float, p_base_backoff_seconds::float * power(p_backoff_factor, v_exponent));
+        v_rec.blocked_until := v_now + (v_backoff_sec || ' seconds')::interval;
+        v_allowed := false;
+        v_retry_after_sec := ceil(v_backoff_sec)::int;
+      end if;
+    elsif v_rec.attempts >= p_max_attempts then
+      v_rec.blocked_until := v_rec.first_attempt_at + (p_window_seconds || ' seconds')::interval;
+      v_allowed := false;
+      v_retry_after_sec := ceil(extract(epoch from (v_rec.blocked_until - v_now)))::int;
+    end if;
+
+    update public.rate_limits
+    set attempts = v_rec.attempts,
+        consecutive_failures = v_rec.consecutive_failures,
+        last_attempt_at = v_rec.last_attempt_at,
+        blocked_until = v_rec.blocked_until
+    where key = p_key;
+
+    v_attempts_remaining := greatest(0, p_max_attempts - v_rec.attempts);
+  end if;
+
+  return jsonb_build_object(
+    'allowed', v_allowed,
+    'retry_after_seconds', v_retry_after_sec,
+    'attempts_remaining', v_attempts_remaining,
+    'is_backoff', p_is_exponential
+  );
+end;
+$$ language plpgsql security definer;
+
+-- Grant execution permissions
+grant execute on function public.check_and_record_rate_limit(text, text, int, int, int, float, int, boolean, boolean) to anon, authenticated;
+
+-- Maintenance: Automatic purge for stale rate limit records older than 24h
+create or replace function public.purge_stale_rate_limits()
+returns int as $$
+declare
+  v_purged int;
+begin
+  delete from public.rate_limits
+  where last_attempt_at < (now() - interval '24 hours')
+    and (blocked_until is null or blocked_until < now());
+  get diagnostics v_purged = row_count;
+  return v_purged;
+end;
+$$ language plpgsql security definer;
+
+
+-- ============================================================================
+-- 15. STRICT DATABASE-LEVEL INPUT VALIDATION (TYPE, LENGTH, FORMAT CHECKS)
+-- ============================================================================
+
+do $$
+begin
+  -- 1. Profiles Constraints
+  if not exists (select 1 from pg_constraint where conname = 'chk_profiles_full_name_length') then
+    alter table public.profiles add constraint chk_profiles_full_name_length
+      check (char_length(trim(full_name)) >= 2 and char_length(full_name) <= 70);
+  end if;
+
+  -- 2. Circles Constraints
+  if not exists (select 1 from pg_constraint where conname = 'chk_circles_name_length') then
+    alter table public.circles add constraint chk_circles_name_length
+      check (char_length(trim(name)) >= 2 and char_length(name) <= 50);
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'chk_circles_invite_code_format') then
+    alter table public.circles add constraint chk_circles_invite_code_format
+      check (
+        (char_length(invite_code) = 6 and invite_code ~ '^[A-Za-z0-9]{6}$')
+        or invite_code ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      );
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'chk_circles_tracking_mode') then
+    alter table public.circles add constraint chk_circles_tracking_mode
+      check (tracking_mode in ('continuous', 'privacy'));
+  end if;
+
+  -- 3. Messages Constraints
+  if not exists (select 1 from pg_constraint where conname = 'chk_messages_content_length') then
+    alter table public.circle_messages add constraint chk_messages_content_length
+      check (char_length(trim(content)) >= 1 and char_length(content) <= 2000);
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'chk_messages_type') then
+    alter table public.circle_messages add constraint chk_messages_type
+      check (message_type in ('text', 'location', 'safety_pill'));
+  end if;
+
+  -- 4. Places / Geofence Constraints
+  if not exists (select 1 from pg_constraint where conname = 'chk_places_name_length') then
+    alter table public.places add constraint chk_places_name_length
+      check (char_length(trim(name)) >= 2 and char_length(name) <= 50);
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'chk_places_radius_range') then
+    alter table public.places add constraint chk_places_radius_range
+      check (radius_m between 10 and 10000);
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'chk_places_category') then
+    alter table public.places add constraint chk_places_category
+      check (category in ('home', 'school', 'work', 'gym', 'station', 'other', 'route'));
+  end if;
+
+  -- 5. Locations Telemetry Constraints
+  if not exists (select 1 from pg_constraint where conname = 'chk_locations_coordinates') then
+    alter table public.locations add constraint chk_locations_coordinates
+      check (
+        (latitude is null or (latitude between -90.0 and 90.0)) and
+        (longitude is null or (longitude between -180.0 and 180.0))
+      );
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'chk_locations_battery_pct') then
+    alter table public.locations add constraint chk_locations_battery_pct
+      check (battery_pct is null or (battery_pct between 0 and 100));
+  end if;
+end $$;
+
+-- ============================================================================
+-- 16. FILE UPLOAD SAFETY & ISOLATED STORAGE POLICIES
+-- ============================================================================
+-- Enforces:
+-- 1. Dedicated 'avatars' storage bucket with public read and 5MB size limit.
+-- 2. Allowed MIME types strictly limited to safe raster images: JPEG, PNG, WebP.
+-- 3. Stored outside web server root in Supabase Storage (cloud object store).
+-- 4. Uploaded files cannot be executed as code (enforced by MIME types & RLS).
+-- 5. Row-Level Security on storage.objects ensures users can only upload/modify
+--    files inside their own folder: (storage.foldername(name))[1] = auth.uid()::text
+--    and filename must follow strict regex ^[0-9a-fA-F-]{36}/[0-9]+\.(jpg|jpeg|png|webp)$
+-- ============================================================================
+
+-- Ensure storage bucket 'avatars' exists with strict size & MIME type constraints
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'avatars',
+  'avatars',
+  true,
+  5242880, -- 5MB limit
+  array['image/jpeg', 'image/png', 'image/webp']::text[]
+)
+on conflict (id) do update set
+  public = true,
+  file_size_limit = 5242880,
+  allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp']::text[];
+
+-- Storage Policy 1: Public Read for Avatars
+drop policy if exists "Public Access for Avatars" on storage.objects;
+create policy "Public Access for Avatars"
+  on storage.objects for select
+  using (bucket_id = 'avatars');
+
+-- Storage Policy 2: User-isolated Avatar Uploads with Path and Content-Type Checks
+drop policy if exists "User-isolated Avatar Uploads" on storage.objects;
+create policy "User-isolated Avatar Uploads"
+  on storage.objects for insert
+  to authenticated
+  with check (
+    bucket_id = 'avatars' and
+    -- Must be placed in user's own folder
+    (storage.foldername(name))[1] = auth.uid()::text and
+    -- Strict filename format: {uuid}/{timestamp}.{ext} preventing directory traversal and executable extensions
+    name ~ '^[0-9a-fA-F-]{36}/[0-9]+\.(jpg|jpeg|png|webp)$'
+  );
+
+-- Storage Policy 3: User-isolated Avatar Updates
+drop policy if exists "User-isolated Avatar Updates" on storage.objects;
+create policy "User-isolated Avatar Updates"
+  on storage.objects for update
+  to authenticated
+  using (
+    bucket_id = 'avatars' and
+    (storage.foldername(name))[1] = auth.uid()::text
+  )
+  with check (
+    bucket_id = 'avatars' and
+    (storage.foldername(name))[1] = auth.uid()::text and
+    name ~ '^[0-9a-fA-F-]{36}/[0-9]+\.(jpg|jpeg|png|webp)$'
+  );
+
+-- Storage Policy 4: User-isolated Avatar Deletion
+drop policy if exists "User-isolated Avatar Deletion" on storage.objects;
+create policy "User-isolated Avatar Deletion"
+  on storage.objects for delete
+  to authenticated
+  using (
+    bucket_id = 'avatars' and
+    (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+
+
+
+

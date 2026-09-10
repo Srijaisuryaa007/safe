@@ -16,7 +16,7 @@ import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBadgeSt
 import { segmentTripsByStops, analyzeTripTelemetry, isVehicularTrip } from '../services/TripSegmentationService';
 import { fetchRoadSnappedRoute } from '../services/RoadRoutingService';
 import AnimatedListDropdown from '../components/AnimatedListDropdown';
-import CircleGuardGlobeLoader from '../components/CircleGuardGlobeLoader';
+import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import { usePaywall } from '../hooks/usePaywall';
 import PaywallModal from '../components/PaywallModal';
 
@@ -474,12 +474,12 @@ export default function DrivingReportsScreen() {
             attribution: '© OpenStreetMap contributors'
           }).addTo(map);
 
-          var routeColor = '#3B82F6';
+          var routeColor = '#2E7D5B';
 
           var polylineGlow = L.polyline(coords, {
             color: routeColor,
-            weight: 9,
-            opacity: 0.28,
+            weight: 8,
+            opacity: 0.25,
             lineCap: 'round',
             lineJoin: 'round'
           }).addTo(map);
@@ -502,18 +502,18 @@ export default function DrivingReportsScreen() {
 
           map.fitBounds(polylineMain.getBounds(), { padding: [40, 40] });
 
-          // Start Departure Marker (Emerald Green)
+          // Start Departure Marker (Sage Green)
           var startPinHtml = '<div style="display:flex;flex-direction:column;align-items:center;">' +
-            '<div style="background:#10B981;color:#FFFFFF;padding:3px 7px;border-radius:10px;font-size:9px;font-weight:900;font-family:sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.5);margin-bottom:2px;white-space:nowrap;">DEPARTURE (${selectedTrip.startTime})</div>' +
-            '<div style="width:18px;height:18px;border-radius:50%;background:#10B981;border:2.5px solid #FFFFFF;box-shadow:0 0 12px rgba(16,185,129,0.9);"></div>' +
+            '<div style="background:#2E7D5B;color:#FFFFFF;padding:3px 7px;border-radius:10px;font-size:9px;font-weight:900;font-family:sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.25);margin-bottom:2px;white-space:nowrap;">DEPARTURE (${selectedTrip.startTime})</div>' +
+            '<div style="width:18px;height:18px;border-radius:50%;background:#2E7D5B;border:2.5px solid #FFFFFF;box-shadow:0 0 10px rgba(46,125,91,0.6);"></div>' +
             '</div>';
           var startIcon = L.divIcon({ className: 'custom-pin', html: startPinHtml, iconSize: [120, 36], iconAnchor: [60, 36] });
           L.marker(coords[0], { icon: startIcon, zIndexOffset: 2000 }).addTo(map);
 
-          // End Arrival Marker (Crimson Red)
+          // End Arrival Marker (Warm Peach)
           var endPinHtml = '<div style="display:flex;flex-direction:column;align-items:center;">' +
-            '<div style="background:#EF4444;color:#FFFFFF;padding:3px 7px;border-radius:10px;font-size:9px;font-weight:900;font-family:sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.5);margin-bottom:2px;white-space:nowrap;">ARRIVAL (${selectedTrip.endTime})</div>' +
-            '<div style="width:18px;height:18px;border-radius:50%;background:#EF4444;border:2.5px solid #FFFFFF;box-shadow:0 0 12px rgba(239,68,68,0.9);"></div>' +
+            '<div style="background:#E07A5F;color:#FFFFFF;padding:3px 7px;border-radius:10px;font-size:9px;font-weight:900;font-family:sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.25);margin-bottom:2px;white-space:nowrap;">ARRIVAL (${selectedTrip.endTime})</div>' +
+            '<div style="width:18px;height:18px;border-radius:50%;background:#E07A5F;border:2.5px solid #FFFFFF;box-shadow:0 0 10px rgba(224,122,95,0.6);"></div>' +
             '</div>';
           var endIcon = L.divIcon({ className: 'custom-pin', html: endPinHtml, iconSize: [120, 36], iconAnchor: [60, 36] });
           L.marker(coords[coords.length - 1], { icon: endIcon, zIndexOffset: 2000 }).addTo(map);
@@ -535,7 +535,7 @@ export default function DrivingReportsScreen() {
         </TouchableOpacity>
         <View style={{ alignItems: 'center' }}>
           <Text style={[styles.headerTitle, { color: colors.foreground }]}>DRIVING REPORTS</Text>
-          <Text style={[styles.headerSubtitle, { color: colors.accentGold }]}>{getDateLabel().toUpperCase()}</Text>
+          <Text style={[styles.headerSubtitle, { color: '#2E7D5B' }]}>{getDateLabel().toUpperCase()}</Text>
         </View>
         <TouchableOpacity style={styles.iconBtn} onPress={fetchDrivingReport} activeOpacity={0.7}>
           <Ionicons name="refresh" size={20} color={colors.foreground} />
@@ -544,29 +544,29 @@ export default function DrivingReportsScreen() {
 
       {/* Date & Member Dropdown Control Row */}
       <View style={styles.controlsRow}>
-        <View style={[styles.dateSelectorContainer, { backgroundColor: 'rgba(212, 175, 55, 0.08)', borderColor: 'rgba(212, 175, 55, 0.15)', flex: 1 }]}>
+        <View style={[styles.dateSelectorContainer, { backgroundColor: '#E8F5EE', borderColor: '#C6E7D5', flex: 1 }]}>
           <TouchableOpacity
-            style={[styles.datePill, selectedDate === 'today' && [styles.datePillActive, { backgroundColor: '#D4AF37' }]]}
+            style={[styles.datePill, selectedDate === 'today' && [styles.datePillActive, { backgroundColor: '#2E7D5B' }]]}
             onPress={() => setSelectedDate('today')}
             activeOpacity={0.8}
           >
-            <Text style={[styles.datePillText, { color: selectedDate === 'today' ? '#FFFFFF' : '#D4AF37' }]}>
+            <Text style={[styles.datePillText, { color: selectedDate === 'today' ? '#FFFFFF' : '#2E7D5B' }]}>
               TODAY
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.datePill, selectedDate === 'yesterday' && [styles.datePillActive, { backgroundColor: '#D4AF37' }]]}
+            style={[styles.datePill, selectedDate === 'yesterday' && [styles.datePillActive, { backgroundColor: '#2E7D5B' }]]}
             onPress={() => setSelectedDate('yesterday')}
             activeOpacity={0.8}
           >
-            <Text style={[styles.datePillText, { color: selectedDate === 'yesterday' ? '#FFFFFF' : '#D4AF37' }]}>
+            <Text style={[styles.datePillText, { color: selectedDate === 'yesterday' ? '#FFFFFF' : '#2E7D5B' }]}>
               YESTERDAY
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.datePill, selectedDate === '2daysAgo' && [styles.datePillActive, { backgroundColor: '#D4AF37' }]]}
+            style={[styles.datePill, selectedDate === '2daysAgo' && [styles.datePillActive, { backgroundColor: '#2E7D5B' }]]}
             onPress={() => {
               if (userIsPremium) {
                 setSelectedDate('2daysAgo');
@@ -577,11 +577,11 @@ export default function DrivingReportsScreen() {
             activeOpacity={0.8}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <Text style={[styles.datePillText, { color: selectedDate === '2daysAgo' ? '#FFFFFF' : '#D4AF37' }]}>
+              <Text style={[styles.datePillText, { color: selectedDate === '2daysAgo' ? '#FFFFFF' : '#2E7D5B' }]}>
                 2 DAYS
               </Text>
               {!userIsPremium && (
-                <Ionicons name="lock-closed" size={10} color={selectedDate === '2daysAgo' ? '#FFFFFF' : '#D4AF37'} />
+                <Ionicons name="lock-closed" size={10} color={selectedDate === '2daysAgo' ? '#FFFFFF' : '#2E7D5B'} />
               )}
             </View>
           </TouchableOpacity>
@@ -589,17 +589,17 @@ export default function DrivingReportsScreen() {
 
         {members && members.length > 0 ? (
           <TouchableOpacity
-            style={[styles.memberDropdownBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            style={[styles.memberDropdownBtn, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}
             onPress={() => setMemberPickerVisible(true)}
             activeOpacity={0.8}
           >
-            <View style={[styles.avatarCircleMini, { backgroundColor: colors.accentGold }]}>
-              <Text style={styles.avatarInitialMini}>{selectedMemberInitial}</Text>
+            <View style={[styles.avatarCircleMini, { backgroundColor: '#2E7D5B' }]}>
+              <Text style={[styles.avatarInitialMini, { color: '#FFFFFF' }]}>{selectedMemberInitial}</Text>
             </View>
             <Text style={[styles.memberDropdownText, { color: colors.foreground }]} numberOfLines={1}>
               {selectedMemberName.split(' ')[0]}
             </Text>
-            <Ionicons name="chevron-down" size={14} color={colors.accentGold} />
+            <Ionicons name="chevron-down" size={14} color="#2E7D5B" />
           </TouchableOpacity>
         ) : null}
       </View>
@@ -607,7 +607,7 @@ export default function DrivingReportsScreen() {
       {/* Member Picker Modal */}
       <Modal visible={memberPickerVisible} animationType="fade" transparent onRequestClose={() => setMemberPickerVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setMemberPickerVisible(false)}>
-          <View style={[styles.modalPickerCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={[styles.modalPickerCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
             <View style={styles.modalPickerHeader}>
               <Text style={[styles.modalPickerTitle, { color: colors.foreground }]}>Select Circle Member</Text>
               <TouchableOpacity onPress={() => setMemberPickerVisible(false)}>
@@ -640,34 +640,34 @@ export default function DrivingReportsScreen() {
 
       <ScrollView style={styles.scrollContent} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {loading ? (
-          <CircleGuardGlobeLoader size={180} loadingLabel="Analyzing Driving Telemetry…" />
+          <LuxuryRadarLoading size={140} message="ANALYZING DRIVING TELEMETRY…" />
         ) : (
           <>
             {/* Safety Score Card */}
-            <View style={[styles.scoreCard, cardStyles, { backgroundColor: colors.surface, borderColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.4)' : (driverScore >= 80 ? 'rgba(212, 175, 55, 0.4)' : 'rgba(255, 83, 106, 0.4)') }]}>
+            <View style={[styles.scoreCard, cardStyles, { backgroundColor: colors.surface, borderColor: driverScore >= 80 ? '#C6E7D5' : '#FFD7C7' }]}>
               <View style={styles.scoreBadgeHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="shield-checkmark" size={14} color={colors.accentGold} />
-                  <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.accentGold, letterSpacing: 1.2 }}>
+                  <Ionicons name="shield-checkmark" size={14} color="#2E7D5B" />
+                  <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#2E7D5B', letterSpacing: 1.2 }}>
                     TELEMETRY SAFETY EVALUATION
                   </Text>
                 </View>
-                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(212, 175, 55, 0.15)' }}>
-                  <Text style={{ fontSize: 9, fontWeight: '900', color: driverScore >= 90 ? '#10B981' : '#D4AF37', letterSpacing: 1 }}>
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: driverScore >= 80 ? '#E8F5EE' : '#FFF3EB' }}>
+                  <Text style={{ fontSize: 9, fontWeight: '900', color: driverScore >= 80 ? '#2E7D5B' : '#E07A5F', letterSpacing: 1 }}>
                     {driverScore >= 90 ? 'GRADE A+' : (driverScore >= 80 ? 'GRADE A' : 'GRADE B')}
                   </Text>
                 </View>
               </View>
 
               <View style={styles.scoreTopRow}>
-                <View style={[styles.scoreCircleBg, { borderRadius: 35, borderColor: driverScore >= 90 ? '#10B981' : driverScore >= 80 ? '#D4AF37' : '#FF536A', backgroundColor: driverScore >= 90 ? 'rgba(16, 185, 129, 0.08)' : 'rgba(212, 175, 55, 0.08)' }]}>
+                <View style={[styles.scoreCircleBg, { borderRadius: 35, borderColor: driverScore >= 80 ? '#2E7D5B' : '#E07A5F', backgroundColor: driverScore >= 80 ? '#E8F5EE' : '#FFF3EB' }]}>
                   <Text 
-                    style={[styles.scoreNum, { color: driverScore >= 90 ? '#10B981' : driverScore >= 80 ? '#D4AF37' : '#FF536A' }]}
+                    style={[styles.scoreNum, { color: driverScore >= 80 ? '#2E7D5B' : '#E07A5F' }]}
                     numberOfLines={1}
                   >
                     {driverScore}
                   </Text>
-                  <Text style={styles.scoreDenom}>/100</Text>
+                  <Text style={[styles.scoreDenom, { color: colors.textMuted }]}>/100</Text>
                 </View>
 
                 <View style={styles.scoreInfo}>
@@ -682,42 +682,42 @@ export default function DrivingReportsScreen() {
 
               {/* Safety Event Badges */}
               <View style={styles.eventBadgesRow}>
-                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalHardBrakes === 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)', borderColor: totalHardBrakes === 0 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)' }]}>
-                  <Ionicons name="hand-right" size={13} color={totalHardBrakes === 0 ? '#10B981' : '#EF4444'} />
-                  <Text style={[styles.eventBadgeText, { color: totalHardBrakes === 0 ? '#10B981' : '#EF4444' }]}>{totalHardBrakes} HARD BRAKES</Text>
+                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalHardBrakes === 0 ? '#E8F5EE' : '#FEE2E2', borderColor: totalHardBrakes === 0 ? '#C6E7D5' : '#FECACA' }]}>
+                  <Ionicons name="hand-right" size={13} color={totalHardBrakes === 0 ? '#2E7D5B' : '#DC2626'} />
+                  <Text style={[styles.eventBadgeText, { color: totalHardBrakes === 0 ? '#2E7D5B' : '#DC2626' }]}>{totalHardBrakes} HARD BRAKES</Text>
                 </View>
 
-                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalRapidAccels === 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(212, 175, 55, 0.12)', borderColor: totalRapidAccels === 0 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(212, 175, 55, 0.3)' }]}>
-                  <Ionicons name="flash" size={13} color={totalRapidAccels === 0 ? '#10B981' : '#D4AF37'} />
-                  <Text style={[styles.eventBadgeText, { color: totalRapidAccels === 0 ? '#10B981' : '#D4AF37' }]}>{totalRapidAccels} RAPID ACCELS</Text>
+                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalRapidAccels === 0 ? '#E8F5EE' : '#FFF3EB', borderColor: totalRapidAccels === 0 ? '#C6E7D5' : '#FFD7C7' }]}>
+                  <Ionicons name="flash" size={13} color={totalRapidAccels === 0 ? '#2E7D5B' : '#E07A5F'} />
+                  <Text style={[styles.eventBadgeText, { color: totalRapidAccels === 0 ? '#2E7D5B' : '#E07A5F' }]}>{totalRapidAccels} RAPID ACCELS</Text>
                 </View>
 
-                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalSpeedingEvents > 0 ? 'rgba(255, 83, 106, 0.12)' : 'rgba(16, 185, 129, 0.12)', borderColor: totalSpeedingEvents > 0 ? 'rgba(255, 83, 106, 0.3)' : 'rgba(16, 185, 129, 0.3)' }]}>
-                  <Ionicons name="speedometer" size={13} color={totalSpeedingEvents > 0 ? '#FF536A' : '#10B981'} />
-                  <Text style={[styles.eventBadgeText, { color: totalSpeedingEvents > 0 ? '#FF536A' : '#10B981' }]}>{totalSpeedingEvents} SPEEDING</Text>
+                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalSpeedingEvents > 0 ? '#FEE2E2' : '#E8F5EE', borderColor: totalSpeedingEvents > 0 ? '#FECACA' : '#C6E7D5' }]}>
+                  <Ionicons name="speedometer" size={13} color={totalSpeedingEvents > 0 ? '#DC2626' : '#2E7D5B'} />
+                  <Text style={[styles.eventBadgeText, { color: totalSpeedingEvents > 0 ? '#DC2626' : '#2E7D5B' }]}>{totalSpeedingEvents} SPEEDING</Text>
                 </View>
               </View>
             </View>
 
             {/* Summary Metrics Cards */}
             <View style={styles.metricsRow}>
-              <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface }]}>
-                <View style={[styles.metricIconWrap, { borderRadius: 18, backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
-                  <Ionicons name="navigate-outline" size={18} color={colors.accentGold} />
+              <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
+                <View style={[styles.metricIconWrap, { borderRadius: 18, backgroundColor: '#E8F5EE' }]}>
+                  <Ionicons name="navigate-outline" size={18} color="#2E7D5B" />
                 </View>
                 <Text style={[styles.metricVal, { color: colors.foreground }]}>{totalDistanceKm} km</Text>
                 <Text style={[styles.metricLbl, { color: colors.textMuted }]}>DRIVEN</Text>
               </View>
 
-              <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface }]}>
-                <View style={[styles.metricIconWrap, { borderRadius: 18, backgroundColor: 'rgba(16, 185, 129, 0.12)' }]}>
-                  <Ionicons name="time-outline" size={18} color="#10B981" />
+              <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
+                <View style={[styles.metricIconWrap, { borderRadius: 18, backgroundColor: '#FFF3EB' }]}>
+                  <Ionicons name="time-outline" size={18} color="#E07A5F" />
                 </View>
                 <Text style={[styles.metricVal, { color: colors.foreground }]}>{totalDriveMins} mins</Text>
                 <Text style={[styles.metricLbl, { color: colors.textMuted }]}>DRIVE TIME</Text>
               </View>
 
-              <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface, borderColor: topSpeedKmh > 80 ? '#FF5266' : colors.border }]}>
+              <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface, borderColor: topSpeedKmh > 80 ? '#FF5266' : '#EDEBE6' }]}>
                 <View style={[styles.metricIconWrap, { borderRadius: 18, backgroundColor: topSpeedKmh > 80 ? 'rgba(255, 82, 102, 0.15)' : 'rgba(59, 130, 246, 0.12)' }]}>
                   <Ionicons name="speedometer-outline" size={18} color={topSpeedKmh > 80 ? "#FF5266" : "#3B82F6"} />
                 </View>
@@ -725,9 +725,9 @@ export default function DrivingReportsScreen() {
                 <Text style={[styles.metricLbl, { color: topSpeedKmh > 80 ? '#FF5266' : colors.textMuted }]}>TOP SPEED</Text>
               </View>
 
-              <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface }]}>
-                <View style={[styles.metricIconWrap, { borderRadius: 18, backgroundColor: 'rgba(212, 175, 55, 0.12)' }]}>
-                  <Ionicons name="bar-chart-outline" size={18} color={colors.accentGold} />
+              <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
+                <View style={[styles.metricIconWrap, { borderRadius: 18, backgroundColor: '#E8F5EE' }]}>
+                  <Ionicons name="bar-chart-outline" size={18} color="#2E7D5B" />
                 </View>
                 <Text style={[styles.metricVal, { color: colors.foreground }]}>{avgSpeedKmh} km/h</Text>
                 <Text style={[styles.metricLbl, { color: colors.textMuted }]}>AVG SPEED</Text>
@@ -737,12 +737,12 @@ export default function DrivingReportsScreen() {
             {/* Trips List Header */}
             <View style={styles.sectionHeaderRow}>
               <Text style={[styles.sectionTitle, { color: colors.foreground, textTransform: 'none', fontWeight: '700' }]}>Trips Recorded ({trips.length})</Text>
-              <View style={[styles.accentLine, { backgroundColor: colors.border }]} />
+              <View style={[styles.accentLine, { backgroundColor: '#EDEBE6' }]} />
             </View>
 
             {/* Trips List Cards */}
             {trips.length === 0 ? (
-              <View style={[styles.emptyTripsCard, cardStyles, { backgroundColor: colors.surface }]}>
+              <View style={[styles.emptyTripsCard, cardStyles, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
                 <Ionicons name="car-sport-outline" size={40} color={colors.textMuted} style={{ marginBottom: 8 }} />
                 <Text style={[styles.emptyTripsTitle, { color: colors.foreground }]}>NO DRIVING TRIPS LOGGED</Text>
                 <Text style={[styles.emptyTripsSub, { color: colors.textMuted }]}>
@@ -755,7 +755,7 @@ export default function DrivingReportsScreen() {
                 return (
                   <TouchableOpacity
                     key={trip.id}
-                    style={[styles.tripCard, cardStyles, { backgroundColor: colors.surface, borderColor: isSpeeding ? 'rgba(255,82,102,0.3)' : colors.border }]}
+                    style={[styles.tripCard, cardStyles, { backgroundColor: colors.surface, borderColor: isSpeeding ? 'rgba(255,82,102,0.3)' : '#EDEBE6' }]}
                     onPress={() => setSelectedTrip(trip)}
                     activeOpacity={0.8}
                   >
@@ -763,9 +763,9 @@ export default function DrivingReportsScreen() {
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                           <Text style={[styles.tripTitle, { color: colors.foreground, textTransform: 'none', fontWeight: '800' }]}>{trip.title}</Text>
-                          <View style={[styles.headingBadge, { borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
-                            <Ionicons name="compass-outline" size={11} color="#3B82F6" />
-                            <Text style={styles.headingBadgeText}>{trip.cardinalDirection} ({trip.bearingDegrees}°)</Text>
+                          <View style={[styles.headingBadge, { borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#E8F5EE' }]}>
+                            <Ionicons name="compass-outline" size={11} color="#2E7D5B" />
+                            <Text style={[styles.headingBadgeText, { color: '#2E7D5B' }]}>{trip.cardinalDirection} ({trip.bearingDegrees}°)</Text>
                           </View>
                         </View>
                         <Text style={[styles.tripTime, { color: colors.textMuted }]}>
@@ -773,19 +773,19 @@ export default function DrivingReportsScreen() {
                         </Text>
                       </View>
 
-                      <View style={[styles.tripScoreBadge, { borderRadius: 8, backgroundColor: trip.score >= 90 ? '#10B981' : trip.score >= 75 ? '#D4AF37' : '#EF4444' }]}>
+                      <View style={[styles.tripScoreBadge, { borderRadius: 8, backgroundColor: trip.score >= 80 ? '#2E7D5B' : '#E07A5F' }]}>
                         <Text style={[styles.tripScoreText, { color: '#FFFFFF' }]}>{trip.score}</Text>
                       </View>
                     </View>
 
                     <View style={styles.tripRoutePoints}>
                       <View style={styles.routePointRow}>
-                        <Ionicons name="ellipse" size={10} color="#10B981" />
+                        <Ionicons name="ellipse" size={10} color="#2E7D5B" />
                         <Text style={[styles.routePointText, { color: colors.foreground }]} numberOfLines={1}>{trip.startAddress}</Text>
                       </View>
                       <View style={styles.routeLineDot} />
                       <View style={styles.routePointRow}>
-                        <Ionicons name="location" size={12} color="#EF4444" />
+                        <Ionicons name="location" size={12} color="#E07A5F" />
                         <Text style={[styles.routePointText, { color: colors.foreground }]} numberOfLines={1}>{trip.endAddress}</Text>
                       </View>
                     </View>
@@ -800,7 +800,7 @@ export default function DrivingReportsScreen() {
                         </Text>
                       </Text>
                       <View style={styles.inspectBtn}>
-                        <Text style={[styles.viewDetailsText, { color: colors.accentGold, fontWeight: '800' }]}>INSPECT ROUTE →</Text>
+                        <Text style={[styles.viewDetailsText, { color: '#2E7D5B', fontWeight: '800' }]}>INSPECT ROUTE →</Text>
                       </View>
                     </View>
                   </TouchableOpacity>

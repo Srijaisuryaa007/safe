@@ -418,8 +418,11 @@ export const sendInstantLocationPing = async () => {
 
     const activeCircleId = useCircleStore.getState().activeCircle?.id;
 
-    const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    if (!loc) return;
+    let loc = await Location.getLastKnownPositionAsync();
+    if (!loc?.coords) {
+      loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    }
+    if (!loc?.coords) return;
 
     const { latitude, longitude, speed } = loc.coords;
 

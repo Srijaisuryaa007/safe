@@ -145,6 +145,8 @@ interface CircleState {
   fetchPlaces: (circleId: string) => Promise<Place[]>;
   deletePlace: (placeId: string) => Promise<boolean>;
   removeMember: (circleId: string, userId: string) => Promise<boolean>;
+  deleteCircle: (circleId: string) => Promise<{ success: boolean; error?: string }>;
+  leaveCircle: (circleId: string, userId: string) => Promise<{ success: boolean; error?: string }>;
   assignMemberSupervisor: (circleId: string, memberId: string, supervisorId: string | null) => Promise<boolean>;
   purgeUserFromStore: (userId: string) => void;
   clearCircleMarkersAndPlaces: () => void;
@@ -186,7 +188,9 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     // 1. Show the rotating globe loading animation immediately with initial status
     // Strict privacy isolation: immediately clear/decouple previous circle's places and members
     const initialTargetMembers = get().membersByCircle[targetCircle.id] || [];
-    const initialTargetPlaces = get().placesByCircle[targetCircle.id] || [];
+    const initialTargetPlaces = (get().placesByCircle[targetCircle.id] || []).filter(
+      p => p && p.circle_id === targetCircle.id
+    );
 
     set({
       isSwitchingCircle: true,
@@ -275,7 +279,9 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       // INSTANT ISOLATION:
       // Pull cached members and places for THIS exact circle ID immediately!
       const cachedMembers = get().membersByCircle[activeCircle.id];
-      const cachedPlaces = get().placesByCircle[activeCircle.id];
+      const cachedPlaces = (get().placesByCircle[activeCircle.id] || []).filter(
+        p => p && p.circle_id === activeCircle.id
+      );
 
       // If no cached members yet, seed with self to avoid displaying old circle members!
       let initialMembers: CircleMember[] = cachedMembers || [];
@@ -336,6 +342,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       members: initialMembers,
       places: [],
       membersByCircle: updatedMembersCache,
+      placesByCircle: { ...get().placesByCircle, [newCircle.id]: [] },
       circleFetched: true,
     });
 
@@ -366,7 +373,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
   setPlaces: (places) => {
     const activeCircleId = get().activeCircle?.id;
     // Strict isolation: only retain places that belong to this circle
-    const filteredPlaces = activeCircleId ? places.filter(p => !p.circle_id || p.circle_id === activeCircleId) : places;
+    const filteredPlaces = activeCircleId ? places.filter(p => p && p.circle_id === activeCircleId) : places;
     if (activeCircleId) {
       set({
         places: filteredPlaces,
@@ -419,19 +426,19 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     try {
       let membersData: any[] | null = null;
 
-      // Tier 1: Attempt query with privacy and supervisor columns
+      // Tier 1: Query with explicit foreign key relationship
       const res1 = await supabase
         .from('circle_members')
-        .select('circle_id, user_id, role, supervisor_id, joined_at, profiles(full_name, avatar_url, phone, is_ghost_mode, hide_online_presence)')
+        .select('circle_id, user_id, role, supervisor_id, joined_at, profiles:profiles!circle_members_user_id_fkey(full_name, avatar_url, phone, is_ghost_mode, hide_online_presence)')
         .eq('circle_id', circleId);
 
       if (!res1.error && res1.data) {
         membersData = res1.data;
       } else {
-        // Tier 2: Fallback query for core columns
+        // Tier 2: Fallback query for core columns with explicit foreign key
         const res2 = await supabase
           .from('circle_members')
-          .select('circle_id, user_id, role, supervisor_id, joined_at, profiles(full_name, avatar_url, phone)')
+          .select('circle_id, user_id, role, supervisor_id, joined_at, profiles:profiles!circle_members_user_id_fkey(full_name, avatar_url, phone)')
           .eq('circle_id', circleId);
 
         if (!res2.error && res2.data) {
@@ -481,58 +488,38 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       const validUserIds = userIds.filter(isValidUuid);
       if (validUserIds.length > 0) {
         console.log('[GPS_PIPELINE:LAYER_4_QUERY_FILTER] Querying locations for circle:', circleId, 'members:', validUserIds);
-        let locData: any[] = [];
         try {
-          // 1. Group-scoped query for locations in active circle
-          const circleLocRes = await supabase
+          const { data: locRows, error: locErr } = await supabase
             .from('locations')
             .select('user_id, geom, latitude, longitude, updated_at, battery_pct, is_driving, circle_id')
-            .eq('circle_id', circleId)
-            .in('user_id', validUserIds);
-          
-          if (circleLocRes.data) {
-            locData = [...circleLocRes.data];
-          }
+            .in('user_id', validUserIds)
+            .order('updated_at', { ascending: false });
 
-          // 2. Identify any members missing a location in this specific circle, and fetch their latest global location
-          const foundUserIds = new Set(locData.map(r => r.user_id));
-          const missingUserIds = validUserIds.filter(uid => !foundUserIds.has(uid));
+          if (!locErr && locRows) {
+            // Pick freshest location per member, preferring current circle if available
+            const latestPerUser: Record<string, any> = {};
+            locRows.forEach(l => {
+              if (!latestPerUser[l.user_id]) {
+                latestPerUser[l.user_id] = l;
+              } else if (l.circle_id === circleId && latestPerUser[l.user_id].circle_id !== circleId) {
+                latestPerUser[l.user_id] = l;
+              }
+            });
 
-          if (missingUserIds.length > 0) {
-            console.log('[GPS_PIPELINE:LAYER_4_QUERY_FILTER] Fallback query for members without circle-scoped location:', missingUserIds);
-            const fallbackLocRes = await supabase
-              .from('locations')
-              .select('user_id, geom, latitude, longitude, updated_at, battery_pct, is_driving, circle_id')
-              .in('user_id', missingUserIds)
-              .order('updated_at', { ascending: false });
-
-            if (fallbackLocRes.data && fallbackLocRes.data.length > 0) {
-              // Only take the latest record per member
-              const seenFallback = new Set<string>();
-              fallbackLocRes.data.forEach(item => {
-                if (!seenFallback.has(item.user_id)) {
-                  seenFallback.add(item.user_id);
-                  locData.push(item);
-                }
-              });
-            }
+            Object.values(latestPerUser).forEach(l => {
+              const pt = parsePoint(l);
+              locationsMap[l.user_id] = {
+                updated_at: l.updated_at,
+                battery_pct: l.battery_pct,
+                is_driving: l.is_driving,
+                latitude: pt.latitude !== 0 ? pt.latitude : undefined,
+                longitude: pt.longitude !== 0 ? pt.longitude : undefined,
+              };
+            });
           }
         } catch (e: any) {
           console.error('[GPS_PIPELINE:LAYER_4_QUERY_FILTER] Query error:', e?.message);
         }
-
-        console.log('[GPS_PIPELINE:LAYER_4_QUERY_FILTER] Total locations retrieved:', locData.length, 'for', validUserIds.length, 'members');
-
-        locData.forEach(l => {
-          const pt = parsePoint(l);
-          locationsMap[l.user_id] = {
-            updated_at: l.updated_at,
-            battery_pct: l.battery_pct,
-            is_driving: l.is_driving,
-            latitude: pt.latitude !== 0 ? pt.latitude : undefined,
-            longitude: pt.longitude !== 0 ? pt.longitude : undefined,
-          };
-        });
       }
 
       const now = Date.now();
@@ -620,68 +607,22 @@ export const useCircleStore = create<CircleState>((set, get) => ({
         };
       });
 
-      // Auto-Deduplication: Remove duplicate accounts sharing the same phone number or name as current user
-      const currentUserProfile = useAuthStore.getState().profile;
-      const cleanPhone = (p?: string | null) => (p || '').replace(/[^\d]/g, '');
-      const selfPhone = cleanPhone(currentUserProfile?.phone);
-      const selfFullName = currentUserProfile?.full_name?.trim().toLowerCase();
-
+      // Deduplicate by user_id to ensure unique member list
       const deduplicatedMembers: CircleMember[] = [];
       const seenUserIds = new Set<string>();
-      const seenPhones = new Set<string>();
-      const duplicateUserIdsToDelete: string[] = [];
 
       // 1. Add current user first if present in the circle
       const selfMember = formattedMembers.find(m => m.user_id === currentUserId);
       if (selfMember) {
         deduplicatedMembers.push(selfMember);
         seenUserIds.add(selfMember.user_id);
-        if (selfPhone) seenPhones.add(selfPhone);
       }
 
-      // 2. Add other members, filtering out duplicate ghost accounts of the current user or duplicate phones
+      // 2. Add other members, deduplicated by unique user_id
       for (const m of formattedMembers) {
-        if (m.user_id === currentUserId) continue;
-
-        const mPhone = cleanPhone(m.profile?.phone);
-        const mName = m.profile?.full_name?.trim().toLowerCase();
-
-        const isSelfPhoneDup = !!selfPhone && !!mPhone && mPhone === selfPhone;
-        const isSelfNameDup = !!selfFullName && !!mName && mName === selfFullName && (!mPhone || mPhone === selfPhone);
-
-        if (isSelfPhoneDup || isSelfNameDup) {
-          duplicateUserIdsToDelete.push(m.user_id);
-          continue;
-        }
-
         if (seenUserIds.has(m.user_id)) continue;
-        if (mPhone && seenPhones.has(mPhone)) {
-          duplicateUserIdsToDelete.push(m.user_id);
-          continue;
-        }
-
         seenUserIds.add(m.user_id);
-        if (mPhone) seenPhones.add(mPhone);
         deduplicatedMembers.push(m);
-      }
-
-      // 3. Proactively clean up duplicate ghost rows from Supabase circle_members if owner or co-leader
-      if (duplicateUserIdsToDelete.length > 0 && (selfMember?.role === 'owner' || selfMember?.role === 'co_leader')) {
-        for (const dupId of duplicateUserIdsToDelete) {
-          if (isValidUuid(dupId)) {
-            Promise.resolve(
-              supabase
-                .from('circle_members')
-                .delete()
-                .eq('circle_id', circleId)
-                .eq('user_id', dupId)
-            )
-              .then(({ error }: any) => {
-                if (!error) console.log(`[AutoDeduplicate] Cleaned up duplicate member ${dupId} from circle ${circleId}`);
-              })
-              .catch(() => {});
-          }
-        }
       }
 
       const finalMembers = deduplicatedMembers;
@@ -980,6 +921,121 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     } catch (e) {
       console.error('Error removing member from store:', e);
       return false;
+    }
+  },
+  deleteCircle: async (circleId: string) => {
+    try {
+      if (!circleId) {
+        return { success: false, error: 'Invalid circle ID' };
+      }
+
+      // 1. Delete from Supabase (foreign key cascade deletes members, places, locations)
+      const { error } = await supabase
+        .from('circles')
+        .delete()
+        .eq('id', circleId);
+
+      if (error) {
+        console.error('Failed to delete circle from Supabase:', error);
+        return { success: false, error: error.message };
+      }
+
+      // 2. Update local state
+      const remainingCircles = get().circles.filter((c) => c.id !== circleId);
+      const updatedMembersByCircle = { ...get().membersByCircle };
+      delete updatedMembersByCircle[circleId];
+      const updatedPlacesByCircle = { ...get().placesByCircle };
+      delete updatedPlacesByCircle[circleId];
+
+      const wasActive = get().activeCircle?.id === circleId;
+      const nextActive = wasActive ? (remainingCircles[0] || null) : get().activeCircle;
+
+      if (nextActive) {
+        await AsyncStorage.setItem('@circleguard_active_circle_id', nextActive.id).catch(() => {});
+        set({
+          circles: remainingCircles,
+          activeCircle: nextActive,
+          members: updatedMembersByCircle[nextActive.id] || [],
+          places: updatedPlacesByCircle[nextActive.id] || [],
+          membersByCircle: updatedMembersByCircle,
+          placesByCircle: updatedPlacesByCircle,
+        });
+        get().fetchMembers(nextActive.id).catch(() => {});
+        get().fetchPlaces(nextActive.id).catch(() => {});
+      } else {
+        await AsyncStorage.removeItem('@circleguard_active_circle_id').catch(() => {});
+        set({
+          circles: remainingCircles,
+          activeCircle: null,
+          members: [],
+          places: [],
+          membersByCircle: updatedMembersByCircle,
+          placesByCircle: updatedPlacesByCircle,
+        });
+      }
+
+      return { success: true };
+    } catch (e: any) {
+      console.error('Error deleting circle:', e);
+      return { success: false, error: e?.message || 'Failed to delete circle' };
+    }
+  },
+  leaveCircle: async (circleId: string, userId: string) => {
+    try {
+      if (!circleId || !userId) {
+        return { success: false, error: 'Invalid circle or user ID' };
+      }
+
+      // 1. Delete membership from Supabase
+      const { error } = await supabase
+        .from('circle_members')
+        .delete()
+        .eq('circle_id', circleId)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('Failed to leave circle:', error);
+        return { success: false, error: error.message };
+      }
+
+      // 2. Remove circle from local store
+      const remainingCircles = get().circles.filter((c) => c.id !== circleId);
+      const updatedMembersByCircle = { ...get().membersByCircle };
+      delete updatedMembersByCircle[circleId];
+      const updatedPlacesByCircle = { ...get().placesByCircle };
+      delete updatedPlacesByCircle[circleId];
+
+      const wasActive = get().activeCircle?.id === circleId;
+      const nextActive = wasActive ? (remainingCircles[0] || null) : get().activeCircle;
+
+      if (nextActive) {
+        await AsyncStorage.setItem('@circleguard_active_circle_id', nextActive.id).catch(() => {});
+        set({
+          circles: remainingCircles,
+          activeCircle: nextActive,
+          members: updatedMembersByCircle[nextActive.id] || [],
+          places: updatedPlacesByCircle[nextActive.id] || [],
+          membersByCircle: updatedMembersByCircle,
+          placesByCircle: updatedPlacesByCircle,
+        });
+        get().fetchMembers(nextActive.id).catch(() => {});
+        get().fetchPlaces(nextActive.id).catch(() => {});
+      } else {
+        await AsyncStorage.removeItem('@circleguard_active_circle_id').catch(() => {});
+        set({
+          circles: remainingCircles,
+          activeCircle: null,
+          members: [],
+          places: [],
+          membersByCircle: updatedMembersByCircle,
+          placesByCircle: updatedPlacesByCircle,
+        });
+      }
+
+      return { success: true };
+    } catch (e: any) {
+      console.error('Error leaving circle:', e);
+      return { success: false, error: e?.message || 'Failed to leave circle' };
     }
   },
 }));

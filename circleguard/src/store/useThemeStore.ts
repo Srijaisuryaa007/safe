@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { Appearance, ColorSchemeName } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BRAND_GREEN_THEME, LIGHT_THEME, DARK_THEME, ThemeColors, LUXURY_THEME } from '../constants/theme';
+import { BRAND_GREEN_THEME, LIGHT_THEME, DARK_THEME, BILLION_DOLLAR_THEME, ThemeColors, LUXURY_THEME } from '../constants/theme';
 
-export type ThemeMode = 'dark' | 'light' | 'brand_green' | 'system';
+export type ThemeMode = 'dark' | 'light' | 'brand_green' | 'billion_dollar' | 'system';
 export type MapStyleType = 'vector' | 'satellite' | 'dark' | 'terrain';
 
 interface ThemeState {
@@ -22,6 +22,7 @@ const getStorageKey = (userId?: string | null) => userId ? `@circleguard_theme_m
 const getMapStyleKey = (userId?: string | null) => userId ? `@circleguard_map_style_${userId}` : '@circleguard_map_style_default';
 
 const getThemeConfig = (mode: ThemeMode, sysScheme: ColorSchemeName | null | undefined): { colors: ThemeColors; isDark: boolean } => {
+  if (mode === 'billion_dollar') return { colors: BILLION_DOLLAR_THEME.colors, isDark: false };
   if (mode === 'brand_green') return { colors: BRAND_GREEN_THEME.colors, isDark: false };
   if (mode === 'light') return { colors: LIGHT_THEME.colors, isDark: false };
   if (mode === 'dark') return { colors: DARK_THEME.colors, isDark: true };
@@ -30,9 +31,9 @@ const getThemeConfig = (mode: ThemeMode, sysScheme: ColorSchemeName | null | und
 };
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
-  themeMode: 'dark',
-  isDark: true,
-  colors: DARK_THEME.colors,
+  themeMode: 'billion_dollar',
+  isDark: false,
+  colors: BILLION_DOLLAR_THEME.colors,
   mapStyle: 'vector',
   currentUserId: null,
 
@@ -44,20 +45,16 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
       const saved = await AsyncStorage.getItem(themeKey);
       const savedMapStyle = await AsyncStorage.getItem(mapKey);
-      let mode: ThemeMode = (saved as ThemeMode) || 'dark';
-      if (mode !== 'dark' && mode !== 'light' && mode !== 'brand_green' && mode !== 'system') {
-        mode = 'dark';
-      }
+      let mode: ThemeMode = 'billion_dollar';
       const mapStyle: MapStyleType = (savedMapStyle as MapStyleType) || 'vector';
-      const sysScheme = Appearance.getColorScheme();
-      const config = getThemeConfig(mode, sysScheme);
+      const config = getThemeConfig('billion_dollar', 'light');
 
       Object.assign(LUXURY_THEME.colors, config.colors);
 
       set({
-        themeMode: mode,
-        isDark: config.isDark,
-        colors: config.colors,
+        themeMode: 'billion_dollar',
+        isDark: false,
+        colors: BILLION_DOLLAR_THEME.colors,
         mapStyle: mapStyle,
         currentUserId: activeUser || null,
       });
@@ -110,12 +107,12 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
 
   resetThemeToDefault: () => {
-    const config = getThemeConfig('dark', 'dark');
+    const config = getThemeConfig('billion_dollar', 'light');
     Object.assign(LUXURY_THEME.colors, config.colors);
     set({
-      themeMode: 'dark',
-      isDark: true,
-      colors: DARK_THEME.colors,
+      themeMode: 'billion_dollar',
+      isDark: false,
+      colors: BILLION_DOLLAR_THEME.colors,
       mapStyle: 'vector',
       currentUserId: null,
     });
