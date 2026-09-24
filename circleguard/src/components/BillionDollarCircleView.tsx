@@ -13,6 +13,7 @@ import {
   Vibration,
   StatusBar,
   Alert,
+  Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
@@ -20,31 +21,92 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
+import { useThemeStore } from '../store/useThemeStore';
+import { navigationRef } from '../navigation/AppNavigator';
 import CircleQRCodeModal from './CircleQRCodeModal';
 import CircleSwitcherModal from './CircleSwitcherModal';
+import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
 import MemberRoleModal from './MemberRoleModal';
+import BranchAssignmentModal from './BranchAssignmentModal';
+import CircleHierarchyTree from './CircleHierarchyTree';
+import MemberQuickActionsModal from './MemberQuickActionsModal';
+import MemberShortProfileModal from './MemberShortProfileModal';
+import AnimatedList from './AnimatedList';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
+import { getSafeTopInset } from '../utils/safeArea';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function BillionDollarCircleView() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 38) : 24);
+  const topInset = getSafeTopInset(insets.top);
 
   const { profile } = useAuthStore();
   const { activeCircle, members, places, fetchMembers, fetchPlaces } = useCircleStore();
+  const { isDark } = useThemeStore();
 
   const [copyStatus, setCopyStatus] = useState('Copy');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [qrModalVisible, setQrModalVisible] = useState(false);
   const [circleSwitcherVisible, setCircleSwitcherVisible] = useState(false);
   const [roleModalMember, setRoleModalMember] = useState<any>(null);
+  const [branchModalMember, setBranchModalMember] = useState<any>(null);
+  const [hierarchyModalVisible, setHierarchyModalVisible] = useState(false);
+  const [selectedActionsMember, setSelectedActionsMember] = useState<any>(null);
+  const [shortProfileMember, setShortProfileMember] = useState<any>(null);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      (window as any).__openMemberShortProfile = (m: any) => setShortProfileMember(m);
+    }
+  }, []);
+
+  const navigateToRootScreen = React.useCallback((screenName: string, params?: any) => {
+    try {
+      if (navigationRef.isReady()) {
+        (navigationRef as any).navigate(screenName, params);
+        return;
+      }
+    } catch (e) {
+      console.warn('[CircleView] navigationRef error:', e);
+    }
+
+    try {
+      const parent = navigation.getParent?.();
+      if (parent && typeof parent.navigate === 'function') {
+        parent.navigate(screenName, params);
+        return;
+      }
+    } catch (e) {
+      console.warn('Parent nav error:', e);
+    }
+
+    try {
+      navigation.navigate(screenName, params);
+      return;
+    } catch (e) {
+      console.warn('Direct nav error:', e);
+    }
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && (window as any).__navigationRef?.isReady?.()) {
+      (window as any).__navigationRef.navigate(screenName, params);
+    }
+  }, [navigation]);
 
   const myMemberRecord = members.find((m) => m.user_id === profile?.id);
   const myRole = myMemberRecord?.role || 'member';
-  const isOwner = (activeCircle && profile && activeCircle.owner_id === profile.id) || myRole === 'owner';
-  const canManageRanks = isOwner || myRole === 'co_leader';
+  const isOwner = (activeCircle && profile && activeCircle.owner_id === profile.id) ||
+    (activeCircle && profile && (activeCircle as any).created_by === profile.id) ||
+    myRole === 'owner' ||
+    (myRole as string) === 'leader';
+  const canManageRanks = isOwner; // STRICT: Only circle leader / founder has permission to promote or edit roles
+
+  const founder = useMemo(() => {
+    const owners = members.filter((m) => m.role === 'owner');
+    return owners.length > 0 ? owners[0] : members[0];
+  }, [members]);
+  const founderName = founder?.profile?.full_name || 'Circle Leader';
 
   useEffect(() => {
     if (activeCircle?.id) {
@@ -90,7 +152,7 @@ export default function BillionDollarCircleView() {
     try {
       await sendExpoPushNotification(
         member.user_id,
-        '🔔 Urgent Audible Ring',
+        'Urgent Audible Ring',
         `${profile?.full_name || 'A circle member'} is ringing your device with an urgent audible chime!`,
         { type: 'RING' }
       );
@@ -106,7 +168,7 @@ export default function BillionDollarCircleView() {
     try {
       await sendExpoPushNotification(
         member.user_id,
-        '⚡ Low Battery Alert',
+        'Low Battery Alert',
         `${profile?.full_name || 'A circle member'} noticed your battery is at ${member.batteryPct || 15}%. Please plug in your charger!`,
         { type: 'LOW_BATTERY' }
       );
@@ -184,61 +246,52 @@ export default function BillionDollarCircleView() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isDark && { backgroundColor: '#0F1411' }]}>
       {/* Header Bar */}
-      <View style={[styles.header, { paddingTop: topInset, height: 56 + topInset }]}>
+      <View
+        style={[
+          styles.header,
+          { paddingTop: topInset, height: 56 + topInset },
+          isDark && { backgroundColor: '#141A17', borderBottomColor: '#212C26' },
+        ]}
+      >
         <View style={styles.headerLeft}>
-          <View style={styles.logoBadge}>
-            <Ionicons name="shield-checkmark" size={19} color="#2E7D5B" />
-          </View>
+          <OrbitalGoldenLogoBadge
+            size={34}
+            onPress={() => navigation.navigate('Home')}
+            accessibilityLabel="CircleGuard Logo"
+          />
           <TouchableOpacity
-            style={styles.circleSelectorBtn}
+            style={[styles.circleSelectorBtn, isDark && { backgroundColor: '#1C2621' }]}
             onPress={() => setCircleSwitcherVisible(true)}
             activeOpacity={0.7}
           >
-            <Text style={styles.circleSelectorText} numberOfLines={1}>
+            <Text style={[styles.circleSelectorText, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
               {circleName}
             </Text>
-            <Ionicons name="chevron-down" size={15} color="#5C665F" />
+            <Ionicons name="chevron-down" size={15} color={isDark ? '#9EACA3' : '#5C665F'} />
           </TouchableOpacity>
         </View>
 
         <View style={styles.headerRight}>
           <TouchableOpacity
-            style={styles.headerSOSBtn}
-            onPress={() => navigation.navigate('SOSAlert')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="warning" size={13} color="#FFFFFF" />
-            <Text style={styles.headerSOSText}>SOS</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.headerIconButton}
+            style={[styles.headerIconButton, isDark && { backgroundColor: '#1C2621' }]}
             onPress={() => navigation.navigate('Chat')}
             activeOpacity={0.7}
           >
-            <Ionicons name="chatbubbles-outline" size={19} color="#2E7D5B" />
+            <Ionicons name="chatbubbles-outline" size={19} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.headerIconButton}
-            onPress={() => navigation.navigate('Activity' as any)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="notifications-outline" size={19} color="#5C665F" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.profileAvatarBtn}
+            style={[styles.profileAvatarBtn, isDark && { borderColor: '#3ADFAB' }]}
             onPress={() => navigation.navigate('Profile')}
             activeOpacity={0.7}
           >
             {profile?.avatar_url ? (
               <Image source={{ uri: profile.avatar_url }} style={styles.profileAvatarImg} />
             ) : (
-              <View style={[styles.profileAvatarImg, styles.avatarFallback]}>
-                <Text style={styles.avatarFallbackText}>
+              <View style={[styles.profileAvatarImg, styles.avatarFallback, isDark && { backgroundColor: '#1C2621' }]}>
+                <Text style={[styles.avatarFallbackText, isDark && { color: '#3ADFAB' }]}>
                   {(profile?.full_name || 'U').charAt(0).toUpperCase()}
                 </Text>
               </View>
@@ -252,36 +305,27 @@ export default function BillionDollarCircleView() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Circle Header & Add Member Row */}
+        {/* Circle Header */}
         <View style={styles.topSection}>
           <View style={styles.titleRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-              <Text style={styles.headlineText} numberOfLines={1}>
+              <Text style={[styles.headlineText, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
                 {circleName}
               </Text>
             </View>
-
-            <TouchableOpacity
-              style={styles.addMemberBtn}
-              onPress={handleShareSMS}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="person-add" size={16} color="#FFFFFF" />
-              <Text style={styles.addMemberText}>Add Member</Text>
-            </TouchableOpacity>
           </View>
 
           {/* Active Circle Status Banner */}
-          <View style={styles.activeBanner}>
+          <View style={[styles.activeBanner, isDark && { backgroundColor: '#161E1A', borderColor: '#26342D' }]}>
             <View style={styles.greenPulseDot} />
-            <Text style={styles.bannerText}>
-              <Text style={{ fontWeight: '700', color: '#151C27' }}>
+            <Text style={[styles.bannerText, isDark && { color: '#9EACA3' }]}>
+              <Text style={{ fontWeight: '700', color: isDark ? '#FFFFFF' : '#151C27' }}>
                 {members.length} {members.length === 1 ? 'Active' : 'Active'}
               </Text>
               {'  ·  '}
               <Text>{circlePlaces.length} Geofences Monitored</Text>
               {'  ·  '}
-              <Text style={{ color: '#006C4F', fontWeight: '600' }}>
+              <Text style={{ color: isDark ? '#3ADFAB' : '#006C4F', fontWeight: '600' }}>
                 {normalBatteryCount} Normal Battery
               </Text>
             </Text>
@@ -290,226 +334,274 @@ export default function BillionDollarCircleView() {
 
         {/* Common Circle Group Chat Hub */}
         <TouchableOpacity
-          style={styles.commonChatCard}
+          style={[styles.commonChatCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}
           onPress={() => navigation.navigate('Chat')}
           activeOpacity={0.85}
         >
-          <View style={styles.commonChatIconBox}>
+          <View style={[styles.commonChatIconBox, isDark && { backgroundColor: '#2E7D5B' }]}>
             <Ionicons name="chatbubbles" size={22} color="#FFFFFF" />
           </View>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={styles.commonChatTitle}>Circle Group Chat</Text>
-              <View style={styles.liveChatBadge}>
-                <Text style={styles.liveChatBadgeText}>Active</Text>
+              <Text style={[styles.commonChatTitle, isDark && { color: '#FFFFFF' }]}>Circle Group Chat</Text>
+              <View style={[styles.liveChatBadge, isDark && { backgroundColor: 'rgba(58, 223, 171, 0.15)' }]}>
+                <Text style={[styles.liveChatBadgeText, isDark && { color: '#3ADFAB' }]}>Active</Text>
               </View>
             </View>
-            <Text style={styles.commonChatSub}>
+            <Text style={[styles.commonChatSub, isDark && { color: '#9EACA3' }]}>
               Common chat with all {members.length} circle members
             </Text>
           </View>
-          <View style={styles.commonChatAction}>
-            <Text style={styles.commonChatActionText}>Open</Text>
-            <Ionicons name="chevron-forward" size={16} color="#183CE6" />
+          <View style={[styles.commonChatAction, isDark && { backgroundColor: '#26342D' }]}>
+            <Text style={[styles.commonChatActionText, isDark && { color: '#3ADFAB' }]}>Open</Text>
+            <Ionicons name="chevron-forward" size={16} color={isDark ? '#3ADFAB' : '#183CE6'} />
           </View>
         </TouchableOpacity>
 
         {/* Family Members Section */}
         <View style={styles.sectionHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={styles.sectionTitle}>Family Members</Text>
-            <View style={styles.countBadge}>
-              <Text style={styles.countText}>{members.length}</Text>
+            <Text style={[styles.sectionTitle, isDark && { color: '#FFFFFF' }]}>Family Members</Text>
+            <View style={[styles.countBadge, isDark && { backgroundColor: '#26342D' }]}>
+              <Text style={[styles.countText, isDark && { color: '#FFFFFF' }]}>{members.length}</Text>
             </View>
           </View>
-          <TouchableOpacity onPress={() => navigation.navigate('Home')}>
-            <Text style={styles.sectionLink}>Live Map View ›</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              style={[
+                styles.hierarchyTreeBtn,
+                isDark && { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: 'rgba(212, 175, 55, 0.3)' },
+              ]}
+              onPress={() => setHierarchyModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="git-network-outline" size={13} color={isDark ? '#D4AF37' : '#926C15'} />
+              <Text style={[styles.hierarchyTreeBtnText, isDark && { color: '#D4AF37' }]}>Hierarchy</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('Home')}>
+              <Text style={[styles.sectionLink, isDark && { color: '#3ADFAB' }]}>Live Map View ›</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Real Members List */}
+        {/* Circle Members Animated List */}
         {members.length > 0 ? (
-          members.map((member) => {
-            const name = member.profile?.full_name || 'Family Member';
-            const isSelf = member.user_id === profile?.id;
-            const role = member.role || 'Member';
-            const battery = member.batteryPct != null ? `${member.batteryPct}%` : '100%';
-            const isLowBattery = (member.batteryPct != null && member.batteryPct <= 20);
-            const isDriving = Boolean(member.isDriving);
+          <AnimatedList
+            items={members}
+            showGradients={members.length > 3}
+            maxHeight={members.length > 3 ? 460 : undefined}
+            gradientColor={isDark ? '#111613' : '#FAF9F6'}
+            onItemSelect={(member) => setShortProfileMember(member)}
+            renderItem={(member) => {
+              const name = member.profile?.full_name || 'Family Member';
+              const isSelf = member.user_id === profile?.id;
+              const role = member.role || 'member';
+              const battery = member.batteryPct != null ? `${member.batteryPct}%` : '100%';
+              const isLowBattery = (member.batteryPct != null && member.batteryPct <= 20);
+              const isDriving = Boolean(member.isDriving);
+              const isOnline = member.isOnline !== false;
 
-            return (
-              <View key={member.user_id} style={styles.memberCard}>
-                <View style={styles.memberCardTop}>
-                  <View style={styles.memberAvatarWrapper}>
-                    {member.profile?.avatar_url ? (
-                      <Image source={{ uri: member.profile.avatar_url }} style={styles.avatarImg} />
-                    ) : (
-                      <View style={[styles.avatarImg, styles.avatarFallback]}>
-                        <Text style={styles.avatarFallbackText}>
-                          {name.charAt(0).toUpperCase()}
-                        </Text>
-                      </View>
-                    )}
-                    <View
-                      style={[
-                        styles.avatarStatusBadge,
-                        isDriving && { backgroundColor: '#DEE0FF' },
-                      ]}
-                    >
-                      {isDriving ? (
-                        <Ionicons name="car" size={10} color="#183CE6" />
+              const isTargetOwner = role === 'owner';
+              const roleLabel =
+                role === 'owner'
+                  ? 'Leader'
+                  : role === 'co_leader'
+                  ? 'Co-Leader'
+                  : role === 'guardian'
+                  ? 'Guardian'
+                  : 'Member';
+
+              const roleColor =
+                role === 'owner'
+                  ? (isDark ? '#3ADFAB' : '#059669')
+                  : role === 'co_leader'
+                  ? (isDark ? '#818CF8' : '#4F46E5')
+                  : role === 'guardian'
+                  ? (isDark ? '#2DD4BF' : '#0D9488')
+                  : (isDark ? '#94A3B8' : '#64748B');
+
+              const roleBg =
+                role === 'owner'
+                  ? (isDark ? 'rgba(58, 223, 171, 0.12)' : '#ECFDF5')
+                  : role === 'co_leader'
+                  ? (isDark ? 'rgba(99, 102, 241, 0.12)' : '#EEF2FF')
+                  : role === 'guardian'
+                  ? (isDark ? 'rgba(13, 148, 136, 0.12)' : '#F0FDFA')
+                  : (isDark ? 'rgba(148, 163, 184, 0.12)' : '#F1F5F9');
+
+              return (
+                <TouchableOpacity
+                  key={member.user_id}
+                  style={[
+                    styles.memberCard,
+                    isDark && { backgroundColor: '#1A231F', borderColor: '#283730' },
+                  ]}
+                  onPress={() => setShortProfileMember(member)}
+                  activeOpacity={0.85}
+                >
+                  <View style={styles.memberCardTop}>
+                    {/* Avatar */}
+                    <View style={styles.memberAvatarWrapper}>
+                      {member.profile?.avatar_url ? (
+                        <Image source={{ uri: member.profile.avatar_url }} style={styles.avatarImg} />
                       ) : (
-                        <View style={styles.avatarStatusDot} />
+                        <View style={[styles.avatarImg, styles.avatarFallback, isDark && { backgroundColor: '#26342D' }]}>
+                          <Text style={[styles.avatarFallbackText, isDark && { color: '#3ADFAB' }]}>
+                            {name.charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
                       )}
-                    </View>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={styles.memberName} numberOfLines={1}>
-                        {isSelf ? `${name} (You)` : name}
-                      </Text>
-                      <TouchableOpacity
+                      <View
                         style={[
-                          styles.roleTag,
-                          {
-                            backgroundColor: role === 'owner' ? '#FEF3C7' : (role === 'co_leader' ? '#F3E8FF' : (role === 'guardian' ? '#E0F2FE' : '#F3F4F6')),
-                            borderColor: role === 'owner' ? '#F59E0B' : (role === 'co_leader' ? '#A855F7' : (role === 'guardian' ? '#38BDF8' : '#D1D5DB')),
-                            borderWidth: 1,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 3,
-                            paddingHorizontal: 7,
-                            paddingVertical: 2,
-                            borderRadius: 6,
-                          }
+                          styles.avatarStatusBadge,
+                          isDriving && { backgroundColor: isDark ? '#1E254A' : '#DEE0FF' },
                         ]}
-                        onPress={() => {
-                          if (canManageRanks || isSelf) {
-                            setRoleModalMember(member);
-                          }
-                        }}
-                        activeOpacity={canManageRanks ? 0.7 : 1}
                       >
-                        <Ionicons
-                          name={role === 'owner' ? 'ribbon' : (role === 'co_leader' ? 'shield-checkmark' : (role === 'guardian' ? 'shield' : 'person'))}
-                          size={10}
-                          color={role === 'owner' ? '#B45309' : (role === 'co_leader' ? '#7E22CE' : (role === 'guardian' ? '#0369A1' : '#4B5563'))}
-                        />
-                        <Text
+                        {isDriving ? (
+                          <Ionicons name="car" size={10} color={isDark ? '#818CF8' : '#183CE6'} />
+                        ) : (
+                          <View
+                            style={[
+                              styles.avatarStatusDot,
+                              { backgroundColor: isOnline ? '#10B981' : '#94A3B8' }
+                            ]}
+                          />
+                        )}
+                      </View>
+                    </View>
+
+                    <View style={styles.memberInfoCol}>
+                      {/* Line 1: Member Name & 3-Dots Action Button */}
+                      <View style={styles.memberNameRow}>
+                        <Text style={[styles.memberName, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
+                          {isSelf ? `${name} (You)` : name}
+                        </Text>
+
+                        <TouchableOpacity
                           style={[
-                            styles.roleTagText,
-                            { color: role === 'owner' ? '#B45309' : (role === 'co_leader' ? '#7E22CE' : (role === 'guardian' ? '#0369A1' : '#4B5563')) }
+                            styles.threeDotsBtn,
+                            isDark && {
+                              backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                              borderColor: 'rgba(255, 255, 255, 0.12)',
+                            },
+                          ]}
+                          onPress={(e) => {
+                            e?.stopPropagation?.();
+                            setSelectedActionsMember(member);
+                          }}
+                          activeOpacity={0.65}
+                          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                          accessibilityLabel={`Actions for ${name}`}
+                        >
+                          <Ionicons
+                            name="ellipsis-horizontal"
+                            size={16}
+                            color={isDark ? '#3ADFAB' : '#2E7D5B'}
+                          />
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* Line 2: Role Badge, Battery Chip & Status */}
+                      <View style={styles.memberMetaRow}>
+                        <TouchableOpacity
+                          style={[
+                            styles.roleTag,
+                            {
+                              backgroundColor: roleBg,
+                              borderColor: roleColor,
+                            },
+                          ]}
+                          onPress={(e) => {
+                            if (canManageRanks && !isTargetOwner) {
+                              e.stopPropagation();
+                              setRoleModalMember(member);
+                            }
+                          }}
+                          activeOpacity={canManageRanks && !isTargetOwner ? 0.7 : 1}
+                        >
+                          <Ionicons
+                            name={
+                              role === 'owner'
+                                ? 'shield-checkmark'
+                                : role === 'co_leader'
+                                ? 'shield'
+                                : 'person'
+                            }
+                            size={10}
+                            color={roleColor}
+                          />
+                          <Text
+                            style={[
+                              styles.roleTagText,
+                              { color: roleColor },
+                            ]}
+                          >
+                            {roleLabel}
+                          </Text>
+                          {canManageRanks && !isTargetOwner && (
+                            <Ionicons name="pencil" size={9} color={roleColor} style={{ marginLeft: 3 }} />
+                          )}
+                        </TouchableOpacity>
+
+                        <View
+                          style={[
+                            styles.cardBatteryPill,
+                            isDark && { backgroundColor: '#26342D' },
+                            isLowBattery && { backgroundColor: isDark ? '#4A1D1D' : '#FFDAD7' },
                           ]}
                         >
-                          {role === 'owner' ? 'OWNER' : (role === 'co_leader' ? 'CO-LEADER' : (role === 'guardian' ? 'GUARDIAN' : 'MEMBER'))}
+                          <Ionicons
+                            name={isLowBattery ? 'battery-dead' : 'battery-full'}
+                            size={12}
+                            color={isLowBattery ? '#EF4444' : (isDark ? '#3ADFAB' : '#006C4F')}
+                          />
+                          <Text
+                            style={[
+                              styles.cardBatteryText,
+                              isDark && { color: '#E8EDE9' },
+                              isLowBattery && { color: '#EF4444', fontWeight: '700' },
+                            ]}
+                          >
+                            {battery}
+                          </Text>
+                        </View>
+
+                        <Text style={[styles.memberStatusText, isDark && { color: '#9EACA3' }]} numberOfLines={1}>
+                          • {isDriving
+                            ? 'In transit'
+                            : isOnline
+                            ? 'Sharing location'
+                            : 'Active recently'}
                         </Text>
-                        {canManageRanks && !isSelf && (
-                          <Ionicons name="create-outline" size={10} color="#7E22CE" style={{ marginLeft: 1 }} />
-                        )}
+                      </View>
+                    </View>
+                  </View>
+
+                  {isLowBattery && (
+                    <View style={[styles.lowBatteryNotice, isDark && { backgroundColor: '#2A1818', borderColor: '#4A2323' }]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                        <Ionicons name="battery-dead" size={15} color="#EF4444" />
+                        <Text style={[styles.lowBatteryText, isDark && { color: '#FCA5A5' }]}>Low battery ({battery})</Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleNudgeMember(member);
+                        }}
+                      >
+                        <Text style={[styles.nudgeBtn, isDark && { color: '#EF4444' }]}>Remind</Text>
                       </TouchableOpacity>
                     </View>
-                    <Text style={styles.memberStatusText} numberOfLines={1}>
-                      {isDriving
-                        ? 'Driving in transit'
-                        : member.isOnline !== false
-                        ? 'Location active on map'
-                        : 'Recently active'}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.cardBatteryPill,
-                      isLowBattery && { backgroundColor: '#FFDAD7' },
-                    ]}
-                  >
-                    <Ionicons
-                      name={isLowBattery ? 'battery-dead' : 'battery-full'}
-                      size={15}
-                      color={isLowBattery ? '#AE041B' : '#006C4F'}
-                    />
-                    <Text
-                      style={[
-                        styles.cardBatteryText,
-                        isLowBattery && { color: '#AE041B', fontWeight: '700' },
-                      ]}
-                    >
-                      {battery}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Member Actions */}
-                <View style={styles.memberActionsRow}>
-                  {canManageRanks && !isSelf && (
-                    <TouchableOpacity
-                      style={[styles.actionPillBtn, { borderColor: '#A855F7', backgroundColor: '#FAF5FF' }]}
-                      onPress={() => setRoleModalMember(member)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="shield-half-outline" size={14} color="#A855F7" />
-                      <Text style={[styles.actionPillText, { color: '#A855F7', fontWeight: '700' }]}>Promote</Text>
-                    </TouchableOpacity>
                   )}
-
-                  <TouchableOpacity
-                    style={styles.actionPillBtn}
-                    onPress={() => {
-                      if (member.latitude && member.longitude) {
-                        const scheme = Platform.select({
-                          ios: `maps:0,0?q=${member.latitude},${member.longitude}`,
-                          android: `geo:0,0?q=${member.latitude},${member.longitude}`,
-                          web: `https://www.google.com/maps/search/?api=1&query=${member.latitude},${member.longitude}`,
-                        });
-                        if (scheme) Linking.openURL(scheme);
-                      } else {
-                        navigation.navigate('Home');
-                      }
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="navigate-outline" size={15} color="#183CE6" />
-                    <Text style={styles.actionPillText}>Directions</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.actionPillBtn}
-                    onPress={() => handleRingMember(member)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="notifications-outline" size={15} color="#183CE6" />
-                    <Text style={styles.actionPillText}>Ring</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.actionIconBtn}
-                    onPress={() => navigation.navigate('LocationHistory', { member, circleId: activeCircle?.id })}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="time-outline" size={17} color="#444656" />
-                  </TouchableOpacity>
-                </View>
-
-                {isLowBattery && (
-                  <View style={styles.lowBatteryNotice}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                      <Ionicons name="leaf" size={15} color="#AE041B" />
-                      <Text style={styles.lowBatteryText}>Low battery detected</Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => handleNudgeMember(member)}
-                    >
-                      <Text style={styles.nudgeBtn}>Nudge</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            );
-          })
+                </TouchableOpacity>
+              );
+            }}
+          />
         ) : (
-          <View style={styles.emptyCard}>
-            <Ionicons name="person-add-outline" size={32} color="#183CE6" />
-            <Text style={styles.emptyCardTitle}>No Members In This Circle Yet</Text>
-            <Text style={styles.emptyCardSub}>
+          <View style={[styles.emptyCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
+            <Ionicons name="person-add-outline" size={32} color={isDark ? '#3ADFAB' : '#183CE6'} />
+            <Text style={[styles.emptyCardTitle, isDark && { color: '#FFFFFF' }]}>No Members In This Circle Yet</Text>
+            <Text style={[styles.emptyCardSub, isDark && { color: '#9EACA3' }]}>
               Share your invite code below with family to see their real-time location and safety status.
             </Text>
           </View>
@@ -518,44 +610,44 @@ export default function BillionDollarCircleView() {
         {/* Monitored Safe Places */}
         <View style={[styles.sectionHeader, { marginTop: 14 }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={styles.sectionTitle}>Monitored Places</Text>
-            <View style={styles.countBadge}>
-              <Text style={styles.countText}>{circlePlaces.length}</Text>
+            <Text style={[styles.sectionTitle, isDark && { color: '#FFFFFF' }]}>Monitored Places</Text>
+            <View style={[styles.countBadge, isDark && { backgroundColor: '#26342D' }]}>
+              <Text style={[styles.countText, isDark && { color: '#FFFFFF' }]}>{circlePlaces.length}</Text>
             </View>
           </View>
           <TouchableOpacity onPress={() => navigation.navigate('SafePlaces')}>
-            <Text style={styles.sectionLink}>Manage All</Text>
+            <Text style={[styles.sectionLink, isDark && { color: '#3ADFAB' }]}>Manage All</Text>
           </TouchableOpacity>
         </View>
 
         {circlePlaces && circlePlaces.length > 0 ? (
           circlePlaces.map((place) => (
-            <View key={place.id} style={styles.placeCard}>
-              <View style={[styles.placeIconBox, { backgroundColor: '#DEE0FF' }]}>
-                <Ionicons name="location" size={20} color="#183CE6" />
+            <View key={place.id} style={[styles.placeCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
+              <View style={[styles.placeIconBox, { backgroundColor: isDark ? '#1C2E24' : '#DEE0FF' }]}>
+                <Ionicons name="location" size={20} color={isDark ? '#3ADFAB' : '#183CE6'} />
               </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={styles.placeName} numberOfLines={1}>
+                  <Text style={[styles.placeName, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
                     {place.name}
                   </Text>
                   <View style={[styles.avatarStatusDot, { width: 6, height: 6 }]} />
                 </View>
-                <Text style={styles.placeMeta}>
+                <Text style={[styles.placeMeta, isDark && { color: '#9EACA3' }]}>
                   Radius {place.radius_m || 150}m · Entry & Exit notifications
                 </Text>
               </View>
               <TouchableOpacity
-                style={styles.placeEditBtn}
+                style={[styles.placeEditBtn, isDark && { backgroundColor: '#26342D' }]}
                 onPress={() => navigation.navigate('SafePlaces')}
               >
-                <Ionicons name="options-outline" size={18} color="#444656" />
+                <Ionicons name="options-outline" size={18} color={isDark ? '#CAD5CE' : '#444656'} />
               </TouchableOpacity>
             </View>
           ))
         ) : (
-          <View style={styles.emptyPlaceCard}>
-            <Text style={styles.emptyPlaceText}>
+          <View style={[styles.emptyPlaceCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
+            <Text style={[styles.emptyPlaceText, isDark && { color: '#CAD5CE' }]}>
               No safe places set up yet. Add home, school, or work to get automatic arrival & exit alerts.
             </Text>
           </View>
@@ -563,67 +655,104 @@ export default function BillionDollarCircleView() {
 
         {/* Add New Safe Place Button */}
         <TouchableOpacity
-          style={styles.addPlaceCard}
+          style={[styles.addPlaceCard, isDark && { backgroundColor: '#161E1A', borderColor: '#26342D' }]}
           onPress={() => navigation.navigate('SafePlaces')}
           activeOpacity={0.8}
         >
-          <Ionicons name="add-circle-outline" size={18} color="#183CE6" />
-          <Text style={styles.addPlaceText}>Add New Safe Place</Text>
+          <Ionicons name="add-circle-outline" size={18} color={isDark ? '#3ADFAB' : '#183CE6'} />
+          <Text style={[styles.addPlaceText, isDark && { color: '#3ADFAB' }]}>Add New Safe Place</Text>
         </TouchableOpacity>
 
         {/* Family Invite Code Section */}
-        <View style={styles.inviteCard}>
+        <View style={[styles.inviteCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
           <View style={styles.inviteCardTop}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="key" size={18} color="#183CE6" />
-              <Text style={styles.inviteCardTitle}>Family Invite Code</Text>
+              <Ionicons name="key" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Text style={[styles.inviteCardTitle, isDark && { color: '#FFFFFF' }]}>Family Invite Key & QR</Text>
             </View>
             <TouchableOpacity
               style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
               onPress={handleCopyCode}
             >
-              <Ionicons name="copy-outline" size={14} color="#183CE6" />
-              <Text style={styles.copyLinkText}>{copyStatus}</Text>
+              <Ionicons name="copy-outline" size={14} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Text style={[styles.copyLinkText, isDark && { color: '#3ADFAB' }]}>{copyStatus}</Text>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.inviteCodeRow}>
-            <Text style={styles.inviteCodeText}>{inviteCode}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <TouchableOpacity style={styles.codeActionBtn} onPress={handleShareSMS}>
-                <Ionicons name="chatbox-outline" size={14} color="#183CE6" />
-                <Text style={styles.codeActionText}>SMS</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.codeActionBtn}
-                onPress={() => setQrModalVisible(true)}
-              >
-                <Ionicons name="qr-code-outline" size={14} color="#183CE6" />
-                <Text style={styles.codeActionText}>QR</Text>
-              </TouchableOpacity>
+          <View style={[styles.inviteCodeRow, isDark && { backgroundColor: '#141A17' }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.inviteCodeText, isDark && { color: '#FFFFFF' }]}>{inviteCode}</Text>
+              <Text style={[styles.inviteCodeSub, isDark && { color: '#9EACA3' }]}>Private Circle Key</Text>
             </View>
+
+            {/* Direct Tap-to-Enlarge QR Thumbnail Preview */}
+            <TouchableOpacity
+              style={styles.qrThumbnailBtn}
+              onPress={() => setQrModalVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Image
+                source={{
+                  uri: `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent('circleguard://join/' + inviteCode)}&bgcolor=FFFFFF&color=0F172A&margin=1`
+                }}
+                style={styles.qrThumbnailImg}
+              />
+              <View style={styles.qrZoomBadge}>
+                <Ionicons name="scan-outline" size={10} color="#FFFFFF" />
+              </View>
+            </TouchableOpacity>
           </View>
 
-          <Text style={styles.inviteCodeNote}>
-            Only share with verified family members. New members will appear instantly upon joining.
+          {/* Quick Action Buttons */}
+          <View style={styles.inviteActionsRow}>
+            <TouchableOpacity
+              style={[styles.codeActionBtn, isDark && { backgroundColor: '#26342D', borderColor: '#33463C' }]}
+              onPress={handleCopyCode}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="copy-outline" size={13} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Text style={[styles.codeActionText, isDark && { color: '#FFFFFF' }]}>Copy Code</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.codeActionBtn, isDark && { backgroundColor: '#26342D', borderColor: '#33463C' }]}
+              onPress={handleShareSMS}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="share-social-outline" size={13} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Text style={[styles.codeActionText, isDark && { color: '#FFFFFF' }]}>Share Link</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.codeActionBtnActive, isDark && { backgroundColor: '#2E7D5B' }]}
+              onPress={() => setQrModalVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="qr-code" size={13} color="#FFFFFF" />
+              <Text style={styles.codeActionTextActive}>View QR</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.inviteCodeNote, isDark && { color: '#9EACA3' }]}>
+            Family members can scan the QR code with their camera or enter the 6-digit key to join instantly.
           </Text>
         </View>
 
         {/* Circle Management & Danger Zone */}
-        <View style={styles.dangerZoneCard}>
+        <View style={[styles.dangerZoneCard, isDark && { backgroundColor: '#231414', borderColor: '#421C1C' }]}>
           <View style={styles.dangerZoneHeader}>
             <View style={styles.dangerIconBox}>
               <Ionicons
                 name={isOwner ? 'trash-outline' : 'log-out-outline'}
                 size={18}
-                color="#DC2626"
+                color="#EF4444"
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.dangerZoneTitle}>
+              <Text style={[styles.dangerZoneTitle, isDark && { color: '#FFFFFF' }]}>
                 {isOwner ? 'Delete Circle' : 'Leave Circle'}
               </Text>
-              <Text style={styles.dangerZoneSubtitle}>
+              <Text style={[styles.dangerZoneSubtitle, isDark && { color: '#CAD5CE' }]}>
                 {isOwner
                   ? 'Permanently erase this circle, safe places, and member history'
                   : 'Disconnect and stop sharing location with this circle'}
@@ -632,16 +761,16 @@ export default function BillionDollarCircleView() {
           </View>
 
           <TouchableOpacity
-            style={styles.dangerActionBtn}
+            style={[styles.dangerActionBtn, isDark && { backgroundColor: '#3D1B1B', borderColor: '#5C2424' }]}
             onPress={handleDeleteOrLeaveCircle}
             activeOpacity={0.8}
           >
             <Ionicons
               name={isOwner ? 'trash' : 'exit-outline'}
               size={16}
-              color="#DC2626"
+              color="#EF4444"
             />
-            <Text style={styles.dangerActionBtnText}>
+            <Text style={[styles.dangerActionBtnText, isDark && { color: '#EF4444' }]}>
               {isOwner ? 'Delete Circle' : 'Leave Circle'}
             </Text>
           </TouchableOpacity>
@@ -662,7 +791,7 @@ export default function BillionDollarCircleView() {
         </View>
       )}
 
-      {/* Member Role Promotion Modal */}
+      {/* Member Role Promotion & Hierarchy Modal */}
       <MemberRoleModal
         visible={!!roleModalMember}
         member={roleModalMember}
@@ -670,14 +799,180 @@ export default function BillionDollarCircleView() {
         canEdit={canManageRanks}
         onClose={() => setRoleModalMember(null)}
         onRoleUpdated={(userId, newRole) => {
-          setRoleModalMember((prev: any) => prev ? { ...prev, role: newRole } : null);
+          setRoleModalMember((prev: any) => (prev ? { ...prev, role: newRole } : null));
           if (activeCircle?.id) fetchMembers(activeCircle.id);
           showToast(`Role updated to ${newRole.replace('_', ' ').toUpperCase()}`);
+        }}
+        onAssignGuardian={(m) => {
+          setBranchModalMember(m);
+        }}
+      />
+
+      {/* Safety Guardian Assignment Modal */}
+      <BranchAssignmentModal
+        visible={!!branchModalMember}
+        targetMember={branchModalMember}
+        circleId={activeCircle?.id || ''}
+        onAssigned={(supName, memName) => {
+          showToast(`${memName} is now assigned to ${supName}`);
+          if (activeCircle?.id) fetchMembers(activeCircle.id);
+        }}
+        onClose={() => {
+          setBranchModalMember(null);
+          if (activeCircle?.id) fetchMembers(activeCircle.id);
+        }}
+      />
+
+      {/* Circle Hierarchy Tree Modal */}
+      <Modal
+        visible={hierarchyModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        statusBarTranslucent={true}
+        onRequestClose={() => setHierarchyModalVisible(false)}
+      >
+        <View
+          style={[
+            styles.hierarchyModalContainer,
+            isDark && { backgroundColor: '#111613' },
+            { paddingBottom: Math.max(insets.bottom, 12) },
+          ]}
+        >
+          <View style={[styles.hierarchyModalHeader, { paddingTop: topInset + 8 }, isDark && { borderBottomColor: '#1E2922', backgroundColor: '#16201A' }]}>
+            <View>
+              <Text style={[styles.hierarchyModalTitle, isDark && { color: '#FFFFFF' }]}>Circle Protection Hierarchy</Text>
+              <Text style={[styles.hierarchyModalSub, isDark && { color: '#88988E' }]}>Emergency escalation structure</Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setHierarchyModalVisible(false)}
+              style={[styles.hierarchyCloseBtn, isDark && { backgroundColor: '#26342D' }]}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close" size={20} color={isDark ? '#FFFFFF' : '#1F2A24'} />
+            </TouchableOpacity>
+          </View>
+          <CircleHierarchyTree
+            members={members}
+            currentUserId={profile?.id}
+            isOwner={isOwner}
+            canManageRanks={canManageRanks}
+            onSelectMember={(m) => {
+              setHierarchyModalVisible(false);
+              setRoleModalMember(m);
+            }}
+            onMoveBranch={(m) => {
+              setHierarchyModalVisible(false);
+              setBranchModalMember(m);
+            }}
+          />
+        </View>
+      </Modal>
+
+      {/* Member Short Profile Modal (Triggered by Member Avatar / Card Tap) */}
+      <MemberShortProfileModal
+        visible={Boolean(shortProfileMember)}
+        member={shortProfileMember}
+        circleId={activeCircle?.id}
+        onClose={() => setShortProfileMember(null)}
+        onNavigateToHistory={(m) => {
+          setShortProfileMember(null);
+          const targetUserId = m.user_id || m.id;
+          navigateToRootScreen('LocationHistory', {
+            member: m,
+            memberId: targetUserId,
+            circleId: activeCircle?.id,
+          });
+        }}
+        onNavigateToDriving={(m) => {
+          setShortProfileMember(null);
+          const targetUserId = m.user_id || m.id;
+          navigateToRootScreen('DrivingReports', {
+            member: m,
+            memberId: targetUserId,
+            circleId: activeCircle?.id,
+          });
+        }}
+        onNavigateToMap={(_m) => {
+          setShortProfileMember(null);
+          navigation.navigate('Map');
+        }}
+        onNavigateToChat={(_m) => {
+          setShortProfileMember(null);
+          navigateToRootScreen('Chat');
+        }}
+      />
+
+      {/* Member 3-Dots Quick Actions Bottom Sheet (STRICT: ONLY opened by clicking the 3 dots button) */}
+      <MemberQuickActionsModal
+        visible={Boolean(selectedActionsMember)}
+        onClose={() => setSelectedActionsMember(null)}
+        member={selectedActionsMember}
+        circleId={activeCircle?.id}
+        isSelf={selectedActionsMember?.user_id === profile?.id}
+        canManageRanks={canManageRanks}
+        onNavigateMember={(_m) => {
+          navigation.navigate('Map');
+        }}
+        onRingMember={(m) => {
+          if (m.user_id === profile?.id) {
+            navigation.navigate('Home');
+          } else {
+            handleRingMember(m);
+          }
+        }}
+        onOpenHistory={(m) => {
+          const targetUserId = m.user_id || m.id;
+          navigateToRootScreen('LocationHistory', {
+            member: m,
+            memberId: targetUserId,
+            circleId: activeCircle?.id,
+          });
+        }}
+        onOpenDriving={(m) => {
+          const targetUserId = m.user_id || m.id;
+          navigateToRootScreen('DrivingReports', {
+            member: m,
+            memberId: targetUserId,
+            circleId: activeCircle?.id,
+          });
+        }}
+        onNudgeMember={(m) => {
+          handleNudgeMember(m);
+        }}
+        onAssignGuardian={(m) => {
+          setBranchModalMember(m);
+        }}
+        onManageRole={(m) => {
+          setRoleModalMember(m);
+        }}
+        onRemoveMember={(m) => {
+          Alert.alert(
+            'Remove Member',
+            `Are you sure you want to remove ${m.profile?.full_name || 'this member'} from the circle?`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Remove',
+                style: 'destructive',
+                onPress: async () => {
+                  if (!activeCircle?.id) return;
+                  try {
+                    await useCircleStore.getState().removeMember(activeCircle.id, m.user_id);
+                    showToast('Member removed from circle');
+                  } catch (e: any) {
+                    showToast(e?.message || 'Failed to remove member');
+                  }
+                },
+              },
+            ]
+          );
         }}
       />
     </View>
   );
 }
+
+const SANS_FONT = Platform.OS === 'web' ? 'sans-serif' : undefined;
 
 const styles = StyleSheet.create({
   container: {
@@ -946,12 +1241,14 @@ const styles = StyleSheet.create({
   },
   memberCardTop: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 12,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   memberAvatarWrapper: {
     position: 'relative',
+    marginTop: 2,
+    flexShrink: 0,
   },
   avatarImg: {
     width: 44,
@@ -977,42 +1274,85 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#006C4F',
   },
+  memberInfoCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  memberNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
   memberName: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 14,
+    fontFamily: SANS_FONT,
+    fontSize: 15,
     fontWeight: '700',
     color: '#151C27',
+    flex: 1,
+    minWidth: 0,
+  },
+  threeDotsBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#F2F6F4',
+    borderWidth: 1,
+    borderColor: '#E1E9E4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  memberMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
   },
   roleTag: {
     backgroundColor: '#E2E8F8',
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    flexShrink: 0,
   },
   roleTagText: {
+    fontFamily: SANS_FONT,
     fontSize: 10,
-    fontWeight: '600',
-    color: '#444656',
-  },
-  memberStatusText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 12,
-    color: '#444656',
-    marginTop: 2,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   cardBatteryPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
     backgroundColor: '#F0F3FF',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    flexShrink: 0,
   },
   cardBatteryText: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontFamily: SANS_FONT,
+    fontSize: 10.5,
+    fontWeight: '700',
     color: '#444656',
+  },
+  memberStatusText: {
+    fontFamily: SANS_FONT,
+    fontSize: 11,
+    color: '#6E7E74',
+    flexShrink: 1,
   },
   memberActionsRow: {
     flexDirection: 'row',
@@ -1193,25 +1533,86 @@ const styles = StyleSheet.create({
   },
   inviteCodeText: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '900',
     letterSpacing: 3,
     color: '#151C27',
   },
-  codeActionBtn: {
+  inviteCodeSub: {
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontSize: 11,
+    color: '#5C665F',
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  qrThumbnailBtn: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    padding: 3,
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  qrThumbnailImg: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 9,
+  },
+  qrZoomBadge: {
+    position: 'absolute',
+    bottom: -3,
+    right: -3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#2E7D5B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inviteActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  codeActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
     backgroundColor: '#F0F3FF',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    borderRadius: 10,
   },
   codeActionText: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#183CE6',
+  },
+  codeActionBtnActive: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: '#2E7D5B',
+  },
+  codeActionTextActive: {
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   inviteCodeNote: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
@@ -1330,5 +1731,94 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#DC2626',
+  },
+  hierarchyTreeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FDF8EB',
+    borderWidth: 1,
+    borderColor: '#F3E5BE',
+    paddingVertical: 4,
+    paddingHorizontal: 9,
+    borderRadius: 8,
+  },
+  hierarchyTreeBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#926C15',
+  },
+  escalationStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 2,
+    paddingHorizontal: 2,
+  },
+  guardianPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#EBF6F1',
+    borderWidth: 1,
+    borderColor: '#CBE6D7',
+    paddingVertical: 3.5,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    maxWidth: '100%',
+  },
+  guardianPillText: {
+    fontSize: 11,
+    color: '#344A3F',
+  },
+  supervisingPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    paddingVertical: 3.5,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  supervisingPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#B45309',
+  },
+  hierarchyModalContainer: {
+    flex: 1,
+    backgroundColor: '#F8FAF9',
+  },
+  hierarchyModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingBottom: 14,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#EBEBEB',
+  },
+  hierarchyModalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1F2A24',
+  },
+  hierarchyModalSub: {
+    fontSize: 12,
+    color: '#6E7E74',
+    marginTop: 2,
+  },
+  hierarchyCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#E8F5EE',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

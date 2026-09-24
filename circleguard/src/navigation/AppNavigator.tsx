@@ -1,7 +1,9 @@
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuthStore } from '../store/useAuthStore';
+
+export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 // Screens
 import LoginScreen from '../screens/LoginScreen';
@@ -16,13 +18,16 @@ import ActivityScreen from '../screens/ActivityScreen';
 import LocationHistoryScreen from '../screens/LocationHistoryScreen';
 import DrivingReportsScreen from '../screens/DrivingReportsScreen';
 import ChatScreen from '../screens/ChatScreen';
+import ProfileScreen from '../screens/ProfileScreen';
 
 import GlobalSOSModal from '../components/GlobalSOSModal';
 import GlobalLocationShareModal from '../components/GlobalLocationShareModal';
 import GlobalCircleSwitchLoader from '../components/GlobalCircleSwitchLoader';
 import NetworkStatusBanner from '../components/NetworkStatusBanner';
+import PasswordResetModal from '../components/PasswordResetModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { scheduleLocalNotification, sendPushNotificationToUser } from '../services/PushNotificationService';
+import { addInAppGeofenceBreachListener } from '../services/GeofenceEngine';
 
 export type RootStackParamList = {
   Login: undefined;
@@ -34,9 +39,10 @@ export type RootStackParamList = {
   SOSAlert: undefined;
   SafePlaces: undefined;
   Activity: undefined;
-  LocationHistory: undefined;
-  DrivingReports: undefined;
+  LocationHistory: { member?: any; memberId?: string; circleId?: string } | undefined;
+  DrivingReports: { member?: any; memberId?: string; circleId?: string } | undefined;
   Chat: undefined;
+  Profile: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -95,8 +101,8 @@ function PrivacyPermissionListener() {
                 // Dispatch push notification outside the app to requested member
                 await sendPushNotificationToUser(
                   senderId,
-                  '🎉 Privacy Request Approved!',
-                  `Your Circle Leader approved your request to activate ${featureName}!`,
+                  'Privacy Request Approved',
+                  `Your Circle Leader approved your request to activate ${featureName}.`,
                   { type: 'privacy_approved', feature: featureName }
                 );
 
@@ -152,13 +158,13 @@ function PrivacyPermissionListener() {
             }
 
             showAlert({
-              title: '🎉 Ghost Mode Approved!',
+              title: 'Ghost Mode Approved',
               message: 'Your Circle Leader has approved your request. Ghost Mode is now activated and your location is hidden.',
               type: 'success',
             });
 
             scheduleLocalNotification(
-              '🎉 Ghost Mode Approved!',
+              'Ghost Mode Approved',
               'Circle Leader has approved your request to activate Ghost Mode.',
               { type: 'privacy_approved' }
             );
@@ -173,13 +179,13 @@ function PrivacyPermissionListener() {
             }
 
             showAlert({
-              title: '🎉 Privacy Request Approved!',
+              title: 'Privacy Request Approved',
               message: 'Your Circle Leader has approved your request. Your online presence is now hidden.',
               type: 'success',
             });
 
             scheduleLocalNotification(
-              '🎉 Privacy Request Approved!',
+              'Privacy Request Approved',
               'Circle Leader has approved your request to hide online presence.',
               { type: 'privacy_approved' }
             );
@@ -221,17 +227,18 @@ function GlobalChatNotificationListener() {
           const { data: senderProf } = await supabase.from('profiles').select('full_name').eq('id', newMsg.sender_id).single();
           const senderName = senderProf?.full_name || 'Circle Member';
 
-          let title = `💬 ${senderName}`;
+          let title = senderName;
           let body = content;
 
           if (newMsg.message_type === 'CHECKIN' || content.toLowerCase().includes('checked in safely')) {
-            title = `✅ Safety Check-In: ${senderName}`;
-            body = `${senderName} checked in safely! Status verified with circle.`;
+            title = `Safety Check-In: ${senderName}`;
+            body = `${senderName} checked in safely. Status verified with circle.`;
           } else if (newMsg.message_type === 'CHECKIN_REQUEST' || content.toLowerCase().includes('requested an instant safety check-in')) {
-            title = `📍 Check-In Request: ${senderName}`;
-            body = `${senderName} is requesting everyone in ${activeCircle.name || 'the circle'} to check in!`;
-          } else if (content.startsWith('📍 Shared Live Location')) {
-            body = `📍 Dropped a live location pin on the map! Tap to view 👀`;
+            title = `Check-In Request: ${senderName}`;
+            body = `${senderName} is requesting everyone in ${activeCircle.name || 'the circle'} to check in.`;
+          } else if (content.startsWith('📍 Shared Live Location') || content.includes('Shared Live Location')) {
+            title = `Location Shared: ${senderName}`;
+            body = `${senderName} shared their live location on the map. Tap to view.`;
           } else if (content.length > 90) {
             body = `${content.substring(0, 90)}...`;
           }
@@ -249,10 +256,34 @@ function GlobalChatNotificationListener() {
   return null;
 }
 
+function GlobalGeofenceNotificationListener() {
+  const { showToast } = useLuxuryAlert();
+
+  React.useEffect(() => {
+    const unsubscribe = addInAppGeofenceBreachListener((breach) => {
+      // If MapScreen is active, MapScreen displays its own rich interactive breach modal
+      if (typeof window !== 'undefined' && (window as any).__isMapScreenActive) {
+        return;
+      }
+      const isExit = breach.type === 'exit';
+      showToast(
+        isExit
+          ? `${breach.userName} departed ${breach.placeName}`
+          : `${breach.userName} arrived at ${breach.placeName}`,
+        isExit ? 'warning' : 'success'
+      );
+    });
+
+    return unsubscribe;
+  }, [showToast]);
+
+  return null;
+}
+
 import { View, ActivityIndicator } from 'react-native';
 
 export default function AppNavigator() {
-  const { session, profile } = useAuthStore();
+  const { session, profile, isPasswordRecovery, setPasswordRecovery } = useAuthStore();
   const [showSplash, setShowSplash] = React.useState(true);
 
   React.useEffect(() => {
@@ -267,9 +298,24 @@ export default function AppNavigator() {
 
   return (
     <BiometricLockGate>
-      <NavigationContainer ref={(r) => { if (typeof window !== 'undefined') (window as any).__navigationRef = r; }}>
+      <NavigationContainer
+        ref={(r) => {
+          if (r) {
+            (navigationRef as any).current = r;
+          }
+          if (typeof window !== 'undefined') {
+            (window as any).__navigationRef = r;
+          }
+        }}
+      >
         <NetworkStatusBanner />
         <GlobalCircleSwitchLoader />
+        <PasswordResetModal
+          visible={isPasswordRecovery}
+          isRecoverySessionActive={true}
+          onClose={() => setPasswordRecovery(false)}
+          onSuccess={() => setPasswordRecovery(false)}
+        />
         {session && profile ? (
           <>
             <GlobalSOSModal />
@@ -277,6 +323,7 @@ export default function AppNavigator() {
             <ShakeSOSListener />
             <PrivacyPermissionListener />
             <GlobalChatNotificationListener />
+            <GlobalGeofenceNotificationListener />
           </>
         ) : null}
         <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -303,6 +350,11 @@ export default function AppNavigator() {
               <Stack.Screen name="LocationHistory" component={LocationHistoryScreen} />
               <Stack.Screen name="DrivingReports" component={DrivingReportsScreen} />
               <Stack.Screen name="Chat" component={ChatScreen} />
+              <Stack.Screen 
+                name="Profile" 
+                component={ProfileScreen} 
+                options={{ animation: 'slide_from_right' }}
+              />
             </>
           )}
         </Stack.Navigator>
