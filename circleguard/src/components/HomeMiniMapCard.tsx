@@ -5,6 +5,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useThemeStore } from '../store/useThemeStore';
 import { CircleMember } from '../store/useCircleStore';
+import { LEAFLET_JS, LEAFLET_CSS } from '../constants/leafletBundle';
+
+const WebViewAny: any = WebView;
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -21,7 +24,7 @@ export default function HomeMiniMapCard({
 }: HomeMiniMapCardProps) {
   const { colors, isDark } = useThemeStore();
   const navigation = useNavigation<any>();
-  const webViewRef = useRef<WebView | null>(null);
+  const webViewRef = useRef<any>(null);
 
   const centerLat = userLoc?.latitude || (members[0]?.latitude) || 20.5937;
   const centerLng = userLoc?.longitude || (members[0]?.longitude) || 78.9629;
@@ -80,8 +83,9 @@ export default function HomeMiniMapCard({
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <style>
+        ${LEAFLET_CSS}
+      </style>
       <style>
         * { margin:0; padding:0; box-sizing:border-box; }
         html, body, #map { width:100%; height:100%; background:${isDark ? '#0D0E12' : '#F4F4F5'}; overflow:hidden; }
@@ -91,6 +95,9 @@ export default function HomeMiniMapCard({
     <body>
       <div id="map"></div>
       <script>
+        ${LEAFLET_JS}
+      </script>
+      <script>
         var map = L.map('map', {
           zoomControl: false,
           attributionControl: false,
@@ -98,16 +105,28 @@ export default function HomeMiniMapCard({
           touchZoom: false,
           scrollWheelZoom: false,
           doubleClickZoom: false,
-          boxZoom: false
+          boxZoom: false,
+          minZoom: 3,
+          maxZoom: 18
         }).setView([20.5937, 78.9629], 15);
 
-        var tileUrl = '${isDark ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'}';
-        L.tileLayer(tileUrl, { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(map);
+        window.addEventListener('load', function() {
+          if (map) map.invalidateSize();
+          setTimeout(function() { if (map) map.invalidateSize(); }, 150);
+          setTimeout(function() { if (map) map.invalidateSize(); }, 500);
+        });
+        window.addEventListener('resize', function() {
+          if (map) map.invalidateSize();
+        });
+
+        var tileUrl = '${isDark ? 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'}';
+        L.tileLayer(tileUrl, { minZoom: 3, maxZoom: 18, maxNativeZoom: 18, attribution: '© OpenStreetMap contributors' }).addTo(map);
 
         var markers = {};
 
         window.updateHomeMiniMap = function(data) {
           if (!data) return;
+          if (map) map.invalidateSize();
 
           Object.keys(markers).forEach(function(k) {
             map.removeLayer(markers[k]);
@@ -192,12 +211,21 @@ export default function HomeMiniMapCard({
         onPress={() => navigation.navigate('Map')}
         activeOpacity={0.9}
       >
-        <WebView
+        <WebViewAny
           ref={webViewRef}
           originWhitelist={['*']}
-          source={{ html: miniMapHtml }}
+          source={{ html: miniMapHtml, baseUrl: 'https://unpkg.com' }}
           style={styles.webview}
-          onLoadEnd={pushMapData}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          mixedContentMode="always"
+          androidLayerType="hardware"
+          onLoadEnd={() => {
+            if (webViewRef.current) {
+              webViewRef.current.injectJavaScript('if (map) map.invalidateSize(); true;');
+            }
+            pushMapData();
+          }}
           pointerEvents="none"
         />
 

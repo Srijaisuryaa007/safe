@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView, ActivityIndicator, Image, Modal, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getSafeTopInset } from '../utils/safeArea';
 import { WebView } from 'react-native-webview';
+
+const WebViewAny: any = WebView;
 import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
 import { useCircleStore } from '../store/useCircleStore';
@@ -16,6 +20,7 @@ import PaywallModal from '../components/PaywallModal';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import { ValidationSchema } from '../lib/validationSchema';
 import { handleServiceError } from '../lib/errorHandler';
+import { LEAFLET_JS, LEAFLET_CSS } from '../constants/leafletBundle';
 
 function parseEWKBPoint(hexStr: string): { latitude: number; longitude: number } | null {
   try {
@@ -140,7 +145,7 @@ export default function SafePlacesScreen() {
   const { colors, themeMode, isDark } = useThemeStore();
   const { activeCircle, members, fetchMembers, deletePlace, fetchPlaces } = useCircleStore();
   const { profile } = useAuthStore();
-  const { showAlert, showConfirm } = useLuxuryAlert();
+  const { showAlert, showConfirm, showToast } = useLuxuryAlert();
   const { canCreatePlace, canUseRouteCategory, canUseAdaptiveBuffer, canUseSchedule } = useSubscriptionStore();
 
   const cardStyles = getThemeCardStyles(themeMode);
@@ -149,11 +154,29 @@ export default function SafePlacesScreen() {
   const dangerBtnStyles = getThemeButtonStyles(themeMode, 'danger');
   const borderStyles = getThemeBorderStyles(themeMode);
 
+  const insets = useSafeAreaInsets();
+  const topInset = getSafeTopInset(insets.top);
+  const route = useRoute<any>();
+  const initialTargetMemberId = route.params?.memberId;
+  const initialTargetMemberName = route.params?.memberName;
+  const [filterMemberId, setFilterMemberId] = useState<string | null>(initialTargetMemberId || null);
+
   const [placeName, setPlaceName] = useState('Home Safe Zone');
   const [selectedCategory, setSelectedCategory] = useState('home');
   const [radius, setRadius] = useState(150);
   const [saving, setSaving] = useState(false);
-  const [targetUserId, setTargetUserId] = useState<string | null>(null); // null = All Circle Members
+  const [targetUserId, setTargetUserId] = useState<string | null>(initialTargetMemberId || null);
+
+  useEffect(() => {
+    if (route.params?.memberId) {
+      setFilterMemberId(route.params.memberId);
+      setTargetUserId(route.params.memberId);
+      setSelectedUserIds([route.params.memberId]);
+      if (route.params.memberName) {
+        setPlaceName(`${route.params.memberName.split(' ')[0]}'s Safe Zone`);
+      }
+    }
+  }, [route.params?.memberId, route.params?.memberName]);
 
   // Premium Feature Form States
   const [speedAdaptive, setSpeedAdaptive] = useState(false);
@@ -161,8 +184,8 @@ export default function SafePlacesScreen() {
   const [gatedFeatureName, setGatedFeatureName] = useState('');
 
   // Interactive Mini Map & Start/End Points State
-  const webViewRef = useRef<WebView | null>(null);
-  const expandedWebViewRef = useRef<WebView | null>(null);
+  const webViewRef = useRef<any>(null);
+  const expandedWebViewRef = useRef<any>(null);
   const [startPoint, setStartPoint] = useState<{ latitude: number; longitude: number } | null>(null);
   const [endPoint, setEndPoint] = useState<{ latitude: number; longitude: number } | null>(null);
   const [activePointMode, setActivePointMode] = useState<'start' | 'end'>('start');
@@ -172,7 +195,7 @@ export default function SafePlacesScreen() {
   const [savedPlaces, setSavedPlaces] = useState<any[]>([]);
   const [loadingPlaces, setLoadingPlaces] = useState(true);
   const [editingPlaceId, setEditingPlaceId] = useState<string | null>(null);
-  const mainScrollViewRef = useRef<ScrollView | null>(null);
+  const mainScrollViewRef = useRef<any>(null);
   const [isScrollEnabled, setIsScrollEnabled] = useState(true);
   const [isMapExpanded, setIsMapExpanded] = useState(false);
   const [memberLocations, setMemberLocations] = useState<Array<{
@@ -496,6 +519,17 @@ export default function SafePlacesScreen() {
 
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
 
+  const displayedPlaces = React.useMemo(() => {
+    if (!filterMemberId) return savedPlaces;
+    return savedPlaces.filter((p) => {
+      const isTarget = p.target_user_id === filterMemberId;
+      const isAssigned = Array.isArray(p.assigned_user_ids) && p.assigned_user_ids.includes(filterMemberId);
+      const isPlaceMember = Array.isArray(p.place_members) && p.place_members.some((pm: any) => (pm.user_id || pm) === filterMemberId);
+      const isCreatedBy = p.created_by === filterMemberId || p.user_id === filterMemberId;
+      return isTarget || isAssigned || isPlaceMember || isCreatedBy;
+    });
+  }, [savedPlaces, filterMemberId]);
+
   const handleSavePlace = async () => {
     if (!activeCircle || !profile) {
       showAlert({
@@ -584,11 +618,7 @@ export default function SafePlacesScreen() {
 
         if (error) throw error;
 
-        showAlert({
-          title: 'Geofence Updated',
-          message: `"${placeName}" has been updated with ${radius >= 1000 ? `${(radius/1000).toFixed(1)}km` : `${radius}m`} radius!`,
-          type: 'success',
-        });
+        showToast(`"${placeName}" updated with ${radius >= 1000 ? `${(radius/1000).toFixed(1)}km` : `${radius}m`} radius`, 'success', 'Geofence Updated');
         setEditingPlaceId(null);
       } else {
         let { data: newPlace, error } = await supabase.from('places').insert(fullPayload).select().single();
@@ -602,11 +632,7 @@ export default function SafePlacesScreen() {
         if (error) throw error;
         if (newPlace) savedPlaceId = newPlace.id;
 
-        showAlert({
-          title: 'Geofence Created',
-          message: `Geofence "${placeName}" created with ${radius >= 1000 ? `${(radius/1000).toFixed(1)}km` : `${radius}m`} radius!`,
-          type: 'success',
-        });
+        showToast(`Geofence "${placeName}" created with ${radius >= 1000 ? `${(radius/1000).toFixed(1)}km` : `${radius}m`} radius`, 'success', 'Geofence Created');
       }
 
       if (savedPlaceId) {
@@ -627,11 +653,17 @@ export default function SafePlacesScreen() {
       fetchPlaces(activeCircle.id);
     } catch (err: any) {
       const cleanMessage = handleServiceError('SafePlaces:savePlace', err, 'Failed to save geofence. Please check coordinates and try again.');
-      showAlert({
-        title: 'Error Saving Geofence',
-        message: cleanMessage,
-        type: 'error',
-      });
+      if (cleanMessage.toLowerCase().includes('free tier') || cleanMessage.toLowerCase().includes('limit')) {
+        setGatedFeatureName('Unlimited Saved Safe Places (> 2 per circle)');
+        setPaywallVisible(true);
+      } else {
+        showAlert({
+          title: 'Unable to Save Geofence',
+          message: cleanMessage,
+          type: 'error',
+          buttonText: 'Understood',
+        });
+      }
     } finally {
       setSaving(false);
     }
@@ -718,8 +750,9 @@ export default function SafePlacesScreen() {
     <html>
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <style>
+        ${LEAFLET_CSS}
+      </style>
       <style>
         body, html, #map { 
           margin: 0; 
@@ -732,6 +765,8 @@ export default function SafePlacesScreen() {
           user-select: none;
           overscroll-behavior: none;
         }
+        .leaflet-container { background: #15171E !important; }
+        .leaflet-tile-container, .leaflet-zoom-animated, .leaflet-tile { will-change: transform; }
         .member-pin-icon, .leaflet-div-icon { background: transparent !important; border: none !important; }
         
         .start-pin-wrapper, .end-pin-wrapper {
@@ -865,6 +900,47 @@ export default function SafePlacesScreen() {
           pointer-events: none;
           animation: domePulseGlow 2.2s ease-in-out infinite;
         }
+        .member-pin {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          border: 2px solid #10B981;
+          position: relative;
+          background: #1F2A24;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .status-dot {
+          position: absolute;
+          bottom: -1px;
+          right: -1px;
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          border: 1.5px solid #15171E;
+        }
+        .member-name-tag {
+          position: absolute;
+          top: 36px;
+          left: 50%;
+          transform: translateX(-50%);
+          white-space: nowrap;
+          background: rgba(15, 23, 42, 0.92);
+          color: #FFFFFF;
+          font-size: 10px;
+          font-weight: 700;
+          font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+          padding: 2px 7px;
+          border-radius: 999px;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+          pointer-events: none;
+        }
+        .member-name-tag.self-tag {
+          border-color: #3ADFAB;
+          box-shadow: 0 0 8px rgba(58, 223, 171, 0.3);
+        }
       </style>
     </head>
     <body>
@@ -895,21 +971,40 @@ export default function SafePlacesScreen() {
       </svg>
       <div id="map"></div>
       <script>
+        ${LEAFLET_JS}
+      </script>
+      <script>
         var map = L.map('map', { 
           zoomControl: true,
           dragging: true,
           touchZoom: true,
           scrollWheelZoom: true,
-          tap: false
+          zoomAnimation: true,
+          zoomAnimationThreshold: 20,
+          fadeAnimation: true,
+          markerZoomAnimation: true,
+          tap: false,
+          minZoom: 3,
+          maxZoom: 18
         }).setView([20.5937, 78.9629], 13);
+
+        window.addEventListener('load', function() {
+          if (map) map.invalidateSize();
+          setTimeout(function() { if (map) map.invalidateSize(); }, 150);
+          setTimeout(function() { if (map) map.invalidateSize(); }, 500);
+        });
+        window.addEventListener('resize', function() {
+          if (map) map.invalidateSize();
+        });
         
         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19,
-          maxNativeZoom: 19,
+          minZoom: 3,
+          maxZoom: 18,
+          maxNativeZoom: 18,
           attribution: '© OpenStreetMap contributors',
           updateWhenIdle: false,
-          updateWhenZooming: false,
-          keepBuffer: 6
+          updateWhenZooming: true,
+          keepBuffer: 20
         }).addTo(map);
 
         var startMarker = null;
@@ -1077,21 +1172,21 @@ export default function SafePlacesScreen() {
           var coords = getMeridianCoords(lat, lng, radius);
 
           var baseAura = L.circle(latLng, {
-            radius: radius * 1.025,
-            color: theme.main,
-            weight: 4,
-            opacity: 0.16,
+            radius: radius * 1.035,
+            color: theme.highlight,
+            weight: 2,
+            opacity: 0.65,
             fill: false,
-            dashArray: '6, 8',
+            dashArray: '5, 5',
             interactive: false
           });
 
           var mainDome = L.circle(latLng, {
             radius: radius,
-            color: theme.main,
-            fillColor: 'url(#dome-grad-' + theme.gradKey + ')',
-            fillOpacity: 1.0,
-            weight: 2.6,
+            color: theme.dark || theme.main,
+            fillColor: theme.main,
+            fillOpacity: 0.26,
+            weight: 3.5,
             opacity: 0.95,
             className: 'geofence-3d-dome',
             interactive: false
@@ -1100,9 +1195,9 @@ export default function SafePlacesScreen() {
           var midRing = L.circle(latLng, {
             radius: radius * 0.68,
             color: theme.highlight,
-            weight: 1.4,
-            opacity: 0.65,
-            dashArray: '5, 6',
+            weight: 1.5,
+            opacity: 0.6,
+            dashArray: '5, 5',
             fill: false,
             interactive: false,
             className: 'geofence-dome-contour-mid'
@@ -1111,11 +1206,11 @@ export default function SafePlacesScreen() {
           var topRing = L.circle(latLng, {
             radius: radius * 0.38,
             color: theme.highlight,
-            weight: 1.6,
-            opacity: 0.85,
+            weight: 1.8,
+            opacity: 0.8,
             fillColor: theme.highlight,
-            fillOpacity: 0.12,
-            dashArray: '3, 5',
+            fillOpacity: 0.18,
+            dashArray: '3, 4',
             interactive: false,
             className: 'geofence-dome-contour-top'
           });
@@ -1306,11 +1401,13 @@ export default function SafePlacesScreen() {
 
               var statusDotColor = (m.battery && m.battery <= 20) ? '#EF4444' : (hasLoc ? '#10B981' : '#6B7280');
 
+              var cleanName = (m.name || 'Member').replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim() || 'Member';
+              var displayName = isCurrentSelf ? 'You' : cleanName;
               var markerHtml = '<div class="member-pin" style="border-color:' + roleColor + ';box-shadow:0 4px 14px ' + roleColor + '66;">' +
                 avatarHtml +
                 '<div class="status-dot" style="background:' + statusDotColor + ';"></div>' +
                 '</div>' +
-                '<div class="member-name-tag">' + (m.name || 'Member') + (isCurrentSelf ? ' (You)' : '') + '</div>';
+                '<div class="member-name-tag ' + (isCurrentSelf ? 'self-tag' : '') + '">' + displayName + '</div>';
 
               var mMarker = L.marker([lat, lng], {
                 icon: L.divIcon({
@@ -1351,7 +1448,7 @@ export default function SafePlacesScreen() {
                 popupAnchor: [0, -58]
               }),
               zIndexOffset: 1500
-            }).addTo(map).bindPopup("<b>📍 START POINT (A)</b><br/>Lat: " + data.startPoint.latitude.toFixed(5) + "<br/>Lng: " + data.startPoint.longitude.toFixed(5));
+            }).addTo(map).bindPopup("<b>START POINT (A)</b><br/>Lat: " + data.startPoint.latitude.toFixed(5) + "<br/>Lng: " + data.startPoint.longitude.toFixed(5));
 
             geofenceCircle = createDomeGeofence('active_start', 'active_start', [data.startPoint.latitude, data.startPoint.longitude], data.radius || 150, getDomeTheme('home'));
           }
@@ -1369,7 +1466,7 @@ export default function SafePlacesScreen() {
                 popupAnchor: [0, -58]
               }),
               zIndexOffset: 1501
-            }).addTo(map).bindPopup("<b>🏁 END POINT (B)</b><br/>Lat: " + data.endPoint.latitude.toFixed(5) + "<br/>Lng: " + data.endPoint.longitude.toFixed(5));
+            }).addTo(map).bindPopup("<b>END POINT (B)</b><br/>Lat: " + data.endPoint.latitude.toFixed(5) + "<br/>Lng: " + data.endPoint.longitude.toFixed(5));
 
             // 2. Connect Start & End with Route Corridor Polyline
             if (data.startPoint && data.startPoint.latitude && data.startPoint.longitude) {
@@ -1435,7 +1532,7 @@ export default function SafePlacesScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border, paddingTop: topInset + 8 }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.8}>
           <Ionicons name="arrow-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
@@ -1458,6 +1555,7 @@ export default function SafePlacesScreen() {
               <Text style={[styles.saveBtnText, { color: secondaryBtnStyles.textColor }]}>CANCEL</Text>
             </TouchableOpacity>
           ) : null}
+
           <TouchableOpacity 
             style={[
               styles.saveBtn, 
@@ -1476,6 +1574,26 @@ export default function SafePlacesScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Active Member Filter Banner */}
+      {filterMemberId && (
+        <View style={[styles.filterBanner, { backgroundColor: isDark ? '#16231D' : '#EAF5EE', borderBottomColor: isDark ? '#23372B' : '#C7E8D6' }]}>
+          <View style={styles.filterBannerLeft}>
+            <Ionicons name="location" size={13} color="#2E7D5B" />
+            <Text style={[styles.filterBannerText, { color: isDark ? '#E2FBEF' : '#065F46' }]} numberOfLines={1}>
+              Geofences for: {initialTargetMemberName || 'Selected Member'}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.filterBannerClearBtn, { backgroundColor: isDark ? '#2E7D5B' : '#047857' }]}
+            onPress={() => setFilterMemberId(null)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.filterBannerClearText}>Show All</Text>
+            <Ionicons name="close" size={13} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+      )}
 
       <ScrollView 
         ref={mainScrollViewRef} 
@@ -1750,17 +1868,24 @@ export default function SafePlacesScreen() {
               }}
             />
           ) : (
-            <WebView
+            <WebViewAny
               ref={webViewRef}
               originWhitelist={['*']}
-              source={{ html: miniMapHtml }}
+              source={{ html: miniMapHtml, baseUrl: 'https://unpkg.com' }}
               style={styles.miniMap}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              mixedContentMode="always"
+              androidLayerType="hardware"
               nestedScrollEnabled={false}
               scrollEnabled={false}
               onLoadEnd={() => {
+                if (webViewRef.current) {
+                  webViewRef.current.injectJavaScript('if (map) map.invalidateSize(); true;');
+                }
                 setTimeout(() => pushMiniMapData(false), 200);
               }}
-              onMessage={(event) => {
+              onMessage={(event: any) => {
                 try {
                   const msg = JSON.parse(event.nativeEvent.data);
                   if (msg.type === 'MAP_READY') {
@@ -1929,7 +2054,9 @@ export default function SafePlacesScreen() {
 
         {/* Saved Geofences Section */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>ACTIVE CIRCLE GEOFENCES ({savedPlaces.length})</Text>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+            {filterMemberId ? `GEOFENCES FOR ${initialTargetMemberName ? initialTargetMemberName.toUpperCase() : 'MEMBER'} (${displayedPlaces.length})` : `ACTIVE CIRCLE GEOFENCES (${displayedPlaces.length})`}
+          </Text>
           <View style={[styles.accentLine, { backgroundColor: colors.accentGold }]} />
         </View>
 
@@ -1941,15 +2068,29 @@ export default function SafePlacesScreen() {
               subMessage="Syncing geofences"
             />
           </View>
-        ) : savedPlaces.length === 0 ? (
+        ) : displayedPlaces.length === 0 ? (
           <View style={[styles.emptyCard, cardStyles]}>
             <Ionicons name="shield-checkmark-outline" size={32} color={colors.textMuted} />
-            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>NO GEOFENCES CONFIGURED</Text>
-            <Text style={[styles.emptySub, { color: colors.textMuted }]}>Tap points on the Mini Map above to automatically calculate radius and define geofence boundaries.</Text>
+            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
+              {filterMemberId ? `NO GEOFENCES FOR THIS MEMBER` : 'NO GEOFENCES CONFIGURED'}
+            </Text>
+            <Text style={[styles.emptySub, { color: colors.textMuted }]}>
+              {filterMemberId
+                ? 'No custom geofences are assigned specifically to this member. Use the form above to add one, or show all circle geofences.'
+                : 'Tap points on the Mini Map above to automatically calculate radius and define geofence boundaries.'}
+            </Text>
+            {filterMemberId && (
+              <TouchableOpacity
+                style={{ marginTop: 14, backgroundColor: '#2E7D5B', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10, alignSelf: 'center' }}
+                onPress={() => setFilterMemberId(null)}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 }}>SHOW ALL CIRCLE GEOFENCES</Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           <View style={styles.placesList}>
-            {savedPlaces.map(p => {
+            {displayedPlaces.map(p => {
               const assignedIds: string[] = p.assigned_user_ids || (p.target_user_id ? [p.target_user_id] : []);
               const assignedMembers = members.filter(m => assignedIds.includes(m.user_id));
 
@@ -1999,7 +2140,7 @@ export default function SafePlacesScreen() {
                       {/* Display Members Inside Zone or Assigned to Zone */}
                       <View style={{ marginTop: 8 }}>
                         <Text style={{ fontSize: 8.5, fontWeight: '800', color: insideMembers.length > 0 ? '#10B981' : colors.textMuted, letterSpacing: 0.5, marginBottom: 4 }}>
-                          {insideMembers.length > 0 ? `🟢 CURRENTLY INSIDE (${insideMembers.length}):` : 'CIRCLE MEMBERS IN ZONE:'}
+                          {insideMembers.length > 0 ? `CURRENTLY INSIDE (${insideMembers.length}):` : 'CIRCLE MEMBERS IN ZONE:'}
                         </Text>
                         
                         <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
@@ -2093,6 +2234,7 @@ export default function SafePlacesScreen() {
       <Modal 
         visible={isMapExpanded} 
         animationType="slide" 
+        statusBarTranslucent={true}
         onRequestClose={() => {
           setIsMapExpanded(false);
           setTimeout(() => pushMiniMapData(true), 150);
@@ -2105,7 +2247,7 @@ export default function SafePlacesScreen() {
             justifyContent: 'space-between', 
             alignItems: 'center', 
             paddingHorizontal: 20, 
-            paddingTop: Platform.OS === 'ios' ? 56 : (Platform.OS === 'android' ? 44 : 20),
+            paddingTop: topInset + 8,
             paddingBottom: 14,
             backgroundColor: isDark ? '#15171E' : '#FFFFFF',
             borderBottomWidth: 1,
@@ -2196,16 +2338,23 @@ export default function SafePlacesScreen() {
                 }}
               />
             ) : (
-              <WebView
+              <WebViewAny
                 ref={expandedWebViewRef}
                 originWhitelist={['*']}
-                source={{ html: miniMapHtml }}
+                source={{ html: miniMapHtml, baseUrl: 'https://unpkg.com' }}
                 style={{ flex: 1 }}
+                javaScriptEnabled={true}
+                domStorageEnabled={true}
+                mixedContentMode="always"
+                androidLayerType="hardware"
                 onLoadEnd={() => {
+                  if (expandedWebViewRef.current) {
+                    expandedWebViewRef.current.injectJavaScript('if (map) map.invalidateSize(); true;');
+                  }
                   setTimeout(() => pushMiniMapData(true), 150);
                   setTimeout(() => pushMiniMapData(true), 500);
                 }}
-                onMessage={(event) => {
+                onMessage={(event: any) => {
                   try {
                     const msg = JSON.parse(event.nativeEvent.data);
                     if (msg.type === 'MAP_READY') {
@@ -2368,11 +2517,43 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 24,
-    paddingTop: 60,
     paddingBottom: 16,
     backgroundColor: LUXURY_THEME.colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: LUXURY_THEME.colors.border,
+  },
+  filterBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  filterBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    marginRight: 12,
+  },
+  filterBannerText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  filterBannerClearBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  filterBannerClearText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
   headerTitle: {
     fontSize: 11,

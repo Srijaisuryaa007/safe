@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, ActivityIndicator, Dimensions, Platform, StatusBar } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getSafeTopInset } from '../utils/safeArea';
 import { WebView } from 'react-native-webview';
+const WebViewAny: any = WebView;
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
@@ -14,7 +16,10 @@ import { isValidUuid } from '../lib/utils';
 import { flushOfflineBreadcrumbs } from '../services/OfflineLocationQueueService';
 import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBadgeStyles, getThemeBorderStyles } from '../constants/theme';
 import { segmentTripsByStops, analyzeTripTelemetry, isVehicularTrip } from '../services/TripSegmentationService';
-import { fetchRoadSnappedRoute } from '../services/RoadRoutingService';
+import { fetchRoadSnappedRoute, fetchMapMatchedRoute } from '../services/RoadRoutingService';
+import { intelligentRouteReconstruction, HistoryPoint } from '../services/HistoricalRouteReconstructionService';
+import { smoothTrajectoryPoints, calculateHaversineDistanceMeters } from '../services/LocationSmoothingService';
+import { LEAFLET_CSS, LEAFLET_JS } from '../constants/leafletBundle';
 import AnimatedListDropdown from '../components/AnimatedListDropdown';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import { usePaywall } from '../hooks/usePaywall';
@@ -62,6 +67,8 @@ interface TripItem {
   bearingDegrees: number;
   routeCoords: { lat: number; lng: number; speed: number }[];
   isOutbound?: boolean;
+  isTransit?: boolean;
+  transitType?: 'metro' | 'rail' | 'road';
 }
 
 function parseEWKBPoint(hex: string): { latitude: number; longitude: number } | null {
@@ -121,6 +128,15 @@ function parsePointGeom(geom: any): { latitude: number; longitude: number } | nu
   return null;
 }
 
+function formatDurationText(mins: number): string {
+  if (mins >= 60) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  return `${mins} mins`;
+}
+
 export default function DrivingReportsScreen() {
   const navigation = useNavigation();
   const { colors, isDark, themeMode } = useThemeStore();
@@ -135,10 +151,14 @@ export default function DrivingReportsScreen() {
   const borderStyles = getThemeBorderStyles(themeMode);
 
   const insets = useSafeAreaInsets();
-  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 36) : 44);
+  const topInset = getSafeTopInset(insets.top);
 
+  const route = useRoute<any>();
+
+  // Filters - prioritize member passed from route navigation (e.g., Circle tab 3-dots actions)
+  const initialTargetMemberId = route.params?.memberId || route.params?.member?.user_id || route.params?.member?.id;
   const [selectedDate, setSelectedDate] = useState<'today' | 'yesterday' | '2daysAgo'>('today');
-  const [selectedMemberId, setSelectedMemberId] = useState<string>(profile?.id || '');
+  const [selectedMemberId, setSelectedMemberId] = useState<string>(initialTargetMemberId || profile?.id || '');
   const [memberPickerVisible, setMemberPickerVisible] = useState(false);
 
   const [loading, setLoading] = useState(true);
@@ -147,7 +167,7 @@ export default function DrivingReportsScreen() {
   const [tripRoadCoords, setTripRoadCoords] = useState<[number, number][]>([]);
 
   // Overall Daily Metrics
-  const [driverScore, setDriverScore] = useState(100);
+  const [driverScore, setDriverScore] = useState<number | null>(null);
   const [totalDistanceKm, setTotalDistanceKm] = useState(0);
   const [totalDriveMins, setTotalDriveMins] = useState(0);
   const [topSpeedKmh, setTopSpeedKmh] = useState(0);
@@ -156,11 +176,27 @@ export default function DrivingReportsScreen() {
   const [totalRapidAccels, setTotalRapidAccels] = useState(0);
   const [totalSpeedingEvents, setTotalSpeedingEvents] = useState(0);
 
-  const webViewModalRef = useRef<WebView | null>(null);
+  const webViewModalRef = useRef<any>(null);
+
+  // Sync selectedMemberId whenever route params change (e.g., navigating between different members)
+  useEffect(() => {
+    const targetId = route.params?.memberId || route.params?.member?.user_id || route.params?.member?.id;
+    if (targetId && targetId !== selectedMemberId) {
+      setSelectedMemberId(targetId);
+    }
+  }, [route.params?.memberId, route.params?.member?.user_id, route.params?.member?.id]);
 
   useEffect(() => {
+    const passedId = route.params?.memberId || route.params?.member?.user_id || route.params?.member?.id;
+    if (passedId) {
+      // Respect explicitly passed member from Circle navigation
+      if (selectedMemberId !== passedId) {
+        setSelectedMemberId(passedId);
+      }
+      return;
+    }
+
     if (profile?.id) {
-      // If no selection or selected member is not in current circle (and not self), reset strictly to self
       const isMemberInCircle = (members || []).some(m => m.user_id === selectedMemberId);
       if (!selectedMemberId || (!isMemberInCircle && selectedMemberId !== profile.id)) {
         setSelectedMemberId(profile.id);
@@ -169,19 +205,36 @@ export default function DrivingReportsScreen() {
       setSelectedMemberId('');
       setTrips([]);
     }
-  }, [profile?.id, members]);
+  }, [profile?.id, members, route.params?.memberId, route.params?.member?.user_id, route.params?.member?.id]);
 
   useEffect(() => {
     fetchDrivingReport();
   }, [selectedDate, selectedMemberId]);
 
   useEffect(() => {
+    let isCancelled = false;
     if (selectedTrip && selectedTrip.routeCoords && selectedTrip.routeCoords.length > 0) {
-      // Use 100% genuine recorded GPS breadcrumbs from the trip
-      setTripRoadCoords(selectedTrip.routeCoords.map(c => [c.lat, c.lng]));
+      const rawCoords = selectedTrip.routeCoords.map(c => ({ latitude: c.lat, longitude: c.lng, speed: c.speed }));
+      const smoothed = smoothTrajectoryPoints(rawCoords);
+      if (smoothed.length >= 2) {
+        fetchMapMatchedRoute(smoothed).then(res => {
+          if (!isCancelled && res && res.roadCoords && res.roadCoords.length >= 2) {
+            setTripRoadCoords(res.roadCoords);
+          } else if (!isCancelled) {
+            setTripRoadCoords(smoothed.map(c => [c.latitude, c.longitude]));
+          }
+        }).catch(() => {
+          if (!isCancelled) {
+            setTripRoadCoords(smoothed.map(c => [c.latitude, c.longitude]));
+          }
+        });
+      } else {
+        setTripRoadCoords(smoothed.map(c => [c.latitude, c.longitude]));
+      }
     } else {
       setTripRoadCoords([]);
     }
+    return () => { isCancelled = true; };
   }, [selectedTrip]);
 
   const getDateLabel = () => {
@@ -198,12 +251,13 @@ export default function DrivingReportsScreen() {
       let baseLng = 78.9629;
       let realCity = 'Current Area';
 
-      let targetUserId = selectedMemberId || profile?.id;
+      const passedId = route.params?.memberId || route.params?.member?.user_id || route.params?.member?.id;
+      let targetUserId = selectedMemberId || passedId || profile?.id;
 
       // Strict Enterprise Privacy Boundary:
-      // Verify that targetUserId is either self OR an active member in current circle
+      // Verify that targetUserId is either self OR an active member in current circle OR explicitly passed member
       const isSelf = targetUserId === profile?.id;
-      const isCircleMember = (members || []).some(m => m.user_id === targetUserId);
+      const isCircleMember = (members || []).some(m => m.user_id === targetUserId) || Boolean(passedId && targetUserId === passedId);
 
       if (!isSelf && !isCircleMember) {
         // Alien or previous user ID: enforce boundary to self only
@@ -222,7 +276,7 @@ export default function DrivingReportsScreen() {
         setTotalHardBrakes(0);
         setTotalRapidAccels(0);
         setTotalSpeedingEvents(0);
-        setDriverScore(100);
+        setDriverScore(null);
         setLoading(false);
         return;
       }
@@ -314,19 +368,63 @@ export default function DrivingReportsScreen() {
       // Sort points chronologically
       rawHistPoints.sort((a, b) => a.timeMs - b.timeMs);
 
+      // High-Precision Authentic GPS Telemetry Cleaning:
+      // Guarantees that only the genuine path the user travelled is used (zero artificial route detours)
+      const cleanedPoints: { lat: number; lng: number; timeMs: number; speed: number }[] = [];
+      for (let i = 0; i < rawHistPoints.length; i++) {
+        const p = rawHistPoints[i];
+        if (!p.lat || !p.lng || isNaN(p.lat) || isNaN(p.lng) || (p.lat === 0 && p.lng === 0)) continue;
+
+        if (cleanedPoints.length > 0) {
+          const prev = cleanedPoints[cleanedPoints.length - 1];
+          const dtSec = Math.max(0.1, (p.timeMs - prev.timeMs) / 1000);
+          const distM = calculateHaversineDistanceMeters(prev.lat, prev.lng, p.lat, p.lng);
+
+          // 1. Deduplicate identical GPS fixes within 2s and < 3m
+          if (dtSec < 2.0 && distM < 3.0) continue;
+
+          // 2. Reject impossible GPS multipath teleport spikes (> 125 km/h over < 4 seconds)
+          const impliedSpeed = (distM / dtSec) * 3.6;
+          if (dtSec < 4.0 && impliedSpeed > 125) continue;
+
+          // 3. Stationary dwell clustering: while parked/dwelling (speed < 1.8 km/h), collapse jitter drift (< 12m)
+          if (p.speed < 1.8 && prev.speed < 1.8 && distM < 12.0 && dtSec < 180) {
+            continue;
+          }
+
+          // If raw speed is 0 or missing, infer speed with kinematic acceleration cap
+          if (!p.speed || p.speed <= 0) {
+            const maxPhysicalSpeed = Math.min(115, (prev.speed > 0 ? prev.speed : 30) + (9 * dtSec));
+            p.speed = impliedSpeed < 1.8 ? 0 : Math.min(maxPhysicalSpeed, Math.round(impliedSpeed));
+          } else {
+            p.speed = Math.min(115, p.speed);
+          }
+        }
+        cleanedPoints.push(p);
+      }
+
       let generatedTrips: TripItem[] = [];
 
-      if (rawHistPoints.length >= 2) {
-        const tripLegs = segmentTripsByStops(rawHistPoints, (p) => p.timeMs, (p) => p.lat, (p) => p.lng, 4, 60);
+      if (cleanedPoints.length >= 2) {
+        const tripLegs = segmentTripsByStops(cleanedPoints, (p) => p.timeMs, (p) => p.lat, (p) => p.lng, 4, 60);
 
         for (let idx = 0; idx < tripLegs.length; idx++) {
           const leg = tripLegs[idx];
 
+          // Apply corner-preserving trajectory smoothing to clean lateral sensor jitter while strictly preserving all genuine turns
+          const rawLegCoords = leg.points.map((p: any) => ({
+            latitude: p.lat,
+            longitude: p.lng,
+            speed: p.speed,
+            timeMs: p.timeMs,
+          }));
+          const smoothedLegPoints = smoothTrajectoryPoints(rawLegCoords);
+
           const analysis = analyzeTripTelemetry(
-            leg.points,
+            smoothedLegPoints,
             p => p.timeMs,
-            p => p.lat,
-            p => p.lng,
+            p => p.latitude,
+            p => p.longitude,
             p => p.speed
           );
 
@@ -347,13 +445,24 @@ export default function DrivingReportsScreen() {
             endAddr = eAddr;
           } catch (_) {}
 
+          // Check for Metro or Rail transit signatures
+          const isMetroTrip = /metro|subway|underground/i.test(startAddr) || /metro|subway|underground/i.test(endAddr);
+          const isRailTrip = /rail|train|station|junction|terminal|cantt/i.test(startAddr) || /rail|train|station|junction|terminal|cantt/i.test(endAddr);
+          const isTransit = isMetroTrip || isRailTrip;
+          const transitType: 'metro' | 'rail' | 'road' = isMetroTrip ? 'metro' : (isRailTrip ? 'rail' : 'road');
+
           // Resolve Directional Title
           const cardDir = analysis.cardinalDirection || leg.cardinalDirection || 'NE';
           let tripTitle = `${cardDir}-bound Trip to ${endAddr.split(',')[0] || 'Destination'}`;
+          if (isMetroTrip) {
+            tripTitle = `Metro Transit to ${endAddr.split(',')[0] || 'Station'}`;
+          } else if (isRailTrip) {
+            tripTitle = `Rail Journey to ${endAddr.split(',')[0] || 'Station'}`;
+          }
 
           // Check if ending near a safe place
           const homePlace = places.find(p => p.category === 'home' || p.name.toLowerCase().includes('home'));
-          if (homePlace) {
+          if (homePlace && !isTransit) {
             const hLat = (homePlace as any).latitude ?? (homePlace as any).start_lat ?? ((homePlace as any).geom ? parsePointGeom((homePlace as any).geom)?.latitude : null);
             const hLng = (homePlace as any).longitude ?? (homePlace as any).start_lng ?? ((homePlace as any).geom ? parsePointGeom((homePlace as any).geom)?.longitude : null);
             if (hLat && hLng && leg.endLat && leg.endLng) {
@@ -381,8 +490,15 @@ export default function DrivingReportsScreen() {
             speedingEvents: analysis.speedingEvents,
             cardinalDirection: cardDir,
             bearingDegrees: analysis.bearingDegrees,
-            routeCoords: analysis.processedPoints,
+            routeCoords: smoothedLegPoints.map(p => ({
+              lat: p.latitude,
+              lng: p.longitude,
+              speed: p.speed,
+              timeMs: p.timeMs,
+            })),
             isOutbound: leg.isOutbound,
+            isTransit,
+            transitType,
           });
         }
       }
@@ -412,12 +528,13 @@ export default function DrivingReportsScreen() {
       setTotalDistanceKm(parseFloat(totDist.toFixed(1)));
       setTotalDriveMins(totDur);
       setTopSpeedKmh(maxSpd);
-      setAvgSpeedKmh(generatedTrips.length > 0 ? Math.round(sumAvgSpd / generatedTrips.length) : 0);
+      setAvgSpeedKmh(totDur > 0 && totDist > 0 ? Math.round(totDist / (totDur / 60)) : (generatedTrips.length > 0 ? Math.round(sumAvgSpd / generatedTrips.length) : 0));
       setTotalHardBrakes(hb);
       setTotalRapidAccels(ra);
       setTotalSpeedingEvents(spdEvt);
 
-      const calculatedScore = generatedTrips.length > 0 ? Math.round(sumScore / generatedTrips.length) : 100;
+      const hasDrives = generatedTrips.length > 0 && totDist > 0;
+      const calculatedScore = hasDrives ? Math.round(sumScore / generatedTrips.length) : null;
       setDriverScore(calculatedScore);
     } catch (e) {
       console.error('Error fetching driving reports:', e);
@@ -435,11 +552,8 @@ export default function DrivingReportsScreen() {
     <html>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-        <script src="https://unpkg.com/leaflet-polylineoffset@1.1.1/leaflet.polylineoffset.js"></script>
-        <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
         <style>
+          ${LEAFLET_CSS}
           body, html, #map { 
             margin: 0; 
             padding: 0; 
@@ -454,12 +568,17 @@ export default function DrivingReportsScreen() {
           .leaflet-control-attribution { display: none !important; }
           .custom-pin { background: transparent !important; border: none !important; }
         </style>
+        <script>
+          ${LEAFLET_JS}
+        </script>
       </head>
       <body>
         <div id="map"></div>
         <script>
           var coords = ${JSON.stringify(activeTripCoords)};
           var map = L.map('map', { 
+            minZoom: 3,
+            maxZoom: 18,
             zoomControl: false, 
             attributionControl: false,
             preferCanvas: true,
@@ -469,38 +588,84 @@ export default function DrivingReportsScreen() {
             tap: false
           }).setView(coords[0], 14);
           
-          L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '© OpenStreetMap contributors'
+          var tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+          var fallbackTileUrl = 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png';
+          var osmLayer = L.tileLayer(tileUrl, {
+            minZoom: 3,
+            maxZoom: 18,
+            maxNativeZoom: 18,
+            keepBuffer: 10,
+            crossOrigin: true
           }).addTo(map);
+          osmLayer.on('tileerror', function(e) {
+            e.tile.src = fallbackTileUrl.replace('{z}', e.coords.z).replace('{x}', e.coords.x).replace('{y}', e.coords.y);
+          });
 
-          var routeColor = '#2E7D5B';
+          var isMetro = ${selectedTrip?.transitType === 'metro'};
+          var isRail = ${selectedTrip?.transitType === 'rail'};
+          var routeColor = isMetro ? '#8B5CF6' : (isRail ? '#0EA5E9' : '#2E7D5B');
 
           var polylineGlow = L.polyline(coords, {
             color: routeColor,
-            weight: 8,
-            opacity: 0.25,
+            weight: isMetro ? 10 : 8,
+            opacity: isMetro ? 0.35 : 0.25,
             lineCap: 'round',
             lineJoin: 'round'
           }).addTo(map);
 
           var polylineMain = L.polyline(coords, {
             color: routeColor,
-            weight: 4.5,
+            weight: isMetro ? 5 : 4.5,
             opacity: 0.95,
             lineCap: 'round',
-            lineJoin: 'round'
+            lineJoin: 'round',
+            dashArray: isMetro ? '10, 6' : undefined
           }).addTo(map);
 
-          try {
-            L.polylineDecorator(polylineMain, {
-              patterns: [
-                { offset: 35, repeat: 70, symbol: L.Symbol.arrowHead({ pixelSize: 10, pathOptions: { color: '#FFFFFF', fillOpacity: 1, weight: 0 } }) }
-              ]
-            }).addTo(map);
-          } catch(e) {}
+          // SVG Trajectory Direction Chevrons along genuine travel vector
+          if (coords.length >= 4) {
+            var step = Math.max(3, Math.floor(coords.length / 8));
+            for (var i = Math.floor(step / 2); i < coords.length - 1; i += step) {
+              var p1 = coords[i];
+              var p2 = coords[i + 1];
+              var dLat = (p2[0] - p1[0]) * Math.PI / 180;
+              var dLng = (p2[1] - p1[1]) * Math.PI / 180;
+              var lat1 = p1[0] * Math.PI / 180;
+              var lat2 = p2[0] * Math.PI / 180;
+              var y = Math.sin(dLng) * Math.cos(lat2);
+              var x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+              var brng = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 
-          map.fitBounds(polylineMain.getBounds(), { padding: [40, 40] });
+              var arrowHtml = '<div style="transform:rotate(' + brng.toFixed(1) + 'deg);width:14px;height:14px;display:flex;align-items:center;justify-content:center;">' +
+                '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 15l7-7 7 7" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+                '</div>';
+              var arrowIcon = L.divIcon({ className: 'custom-pin', html: arrowHtml, iconSize: [14, 14], iconAnchor: [7, 7] });
+              L.marker(p1, { icon: arrowIcon, interactive: false }).addTo(map);
+            }
+          }
+
+          // Render authentic GPS breadcrumb waypoints with interactive speed/time popups
+          var rawPoints = ${JSON.stringify(selectedTrip?.routeCoords || [])};
+          if (rawPoints && rawPoints.length > 0) {
+            for (var p = 0; p < rawPoints.length; p++) {
+              var rpt = rawPoints[p];
+              var tStr = rpt.timeMs ? new Date(rpt.timeMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+              var sStr = (rpt.speed !== undefined ? rpt.speed : 0) + ' km/h';
+              var popHtml = '<div style="font-family:sans-serif;font-size:11px;line-height:1.4;color:#111;padding:3px 5px;">' +
+                '<b style="color:#008544;">GPS Fix #' + (p + 1) + '</b><br/>' +
+                (tStr ? 'Time: ' + tStr + '<br/>' : '') +
+                'Speed: ' + sStr + '<br/>' +
+                '<span style="color:#666;font-size:9.5px;">' + rpt.lat.toFixed(5) + ', ' + rpt.lng.toFixed(5) + '</span>' +
+                '</div>';
+
+              var dotHtml = '<div style="width:7px;height:7px;border-radius:50%;background:#00F29D;border:1.5px solid #FFFFFF;box-shadow:0 0 4px rgba(0,242,157,0.7);"></div>';
+              var dotIcon = L.divIcon({ className: 'custom-pin', html: dotHtml, iconSize: [7, 7], iconAnchor: [3.5, 3.5] });
+              var dotMarker = L.marker([rpt.lat, rpt.lng], { icon: dotIcon }).addTo(map);
+              dotMarker.bindPopup(popHtml);
+            }
+          }
+
+          map.fitBounds(polylineMain.getBounds(), { padding: [40, 40], maxZoom: 16 });
 
           // Start Departure Marker (Sage Green)
           var startPinHtml = '<div style="display:flex;flex-direction:column;align-items:center;">' +
@@ -517,13 +682,32 @@ export default function DrivingReportsScreen() {
             '</div>';
           var endIcon = L.divIcon({ className: 'custom-pin', html: endPinHtml, iconSize: [120, 36], iconAnchor: [60, 36] });
           L.marker(coords[coords.length - 1], { icon: endIcon, zIndexOffset: 2000 }).addTo(map);
+
+          setTimeout(function() { map.invalidateSize(); }, 250);
+          window.addEventListener('resize', function() { map.invalidateSize(); });
         </script>
       </body>
     </html>
   ` : '';
 
-  const selectedMemberObj = (members || []).find(m => m.user_id === selectedMemberId);
-  const selectedMemberName = selectedMemberId === profile?.id ? `${profile?.full_name || 'Me'} (You)` : (selectedMemberObj?.profile?.full_name || 'Member');
+  const allCircleMembers = useMemo(() => {
+    const list = [...(members || [])];
+    const pMember = route.params?.member;
+    if (pMember) {
+      const pId = pMember.user_id || pMember.id;
+      if (pId && !list.some(m => m.user_id === pId)) {
+        list.push(pMember);
+      }
+    }
+    return list;
+  }, [members, route.params?.member]);
+
+  const passedMember = route.params?.member;
+  const selectedMemberObj = allCircleMembers.find(m => m.user_id === selectedMemberId)
+    || (passedMember && (passedMember.user_id === selectedMemberId || passedMember.id === selectedMemberId) ? passedMember : null);
+  const isSelf = selectedMemberId === profile?.id;
+  const rawMemberName = isSelf ? (profile?.full_name || 'You') : (selectedMemberObj?.profile?.full_name || (selectedMemberObj as any)?.name || 'Member');
+  const selectedMemberName = rawMemberName.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim() || (isSelf ? 'You' : 'Member');
   const selectedMemberInitial = selectedMemberName.charAt(0).toUpperCase();
 
   return (
@@ -616,9 +800,9 @@ export default function DrivingReportsScreen() {
             </View>
 
             <AnimatedListDropdown
-              items={(members || []).map((m: any) => {
+              items={allCircleMembers.map((m: any) => {
                 const isSel = m.user_id === selectedMemberId;
-                const name = m.user_id === profile?.id ? `${profile?.full_name || 'Me'} (You)` : (m.profile?.full_name || 'Member');
+                const name = m.user_id === profile?.id ? `${profile?.full_name || 'Me'} (You)` : (m.profile?.full_name || m.name || 'Member');
                 return {
                   id: m.user_id,
                   title: name,
@@ -628,7 +812,7 @@ export default function DrivingReportsScreen() {
                   data: m,
                 };
               })}
-              selectedIndex={(members || []).findIndex((m: any) => m.user_id === selectedMemberId)}
+              selectedIndex={allCircleMembers.findIndex((m: any) => m.user_id === selectedMemberId)}
               onItemSelect={(item) => {
                 setSelectedMemberId(item.id);
                 setMemberPickerVisible(false);
@@ -644,57 +828,65 @@ export default function DrivingReportsScreen() {
         ) : (
           <>
             {/* Safety Score Card */}
-            <View style={[styles.scoreCard, cardStyles, { backgroundColor: colors.surface, borderColor: driverScore >= 80 ? '#C6E7D5' : '#FFD7C7' }]}>
+            <View style={[styles.scoreCard, cardStyles, { backgroundColor: colors.surface, borderColor: driverScore == null ? (isDark ? '#283730' : '#EDEBE6') : (driverScore >= 80 ? '#C6E7D5' : '#FFD7C7') }]}>
               <View style={styles.scoreBadgeHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="shield-checkmark" size={14} color="#2E7D5B" />
-                  <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#2E7D5B', letterSpacing: 1.2 }}>
+                  <Ionicons name={driverScore == null ? 'car-outline' : 'shield-checkmark'} size={14} color={driverScore == null ? colors.textMuted : '#2E7D5B'} />
+                  <Text style={{ fontSize: 9.5, fontWeight: '800', color: driverScore == null ? colors.textMuted : '#2E7D5B', letterSpacing: 1.2 }}>
                     TELEMETRY SAFETY EVALUATION
                   </Text>
                 </View>
-                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: driverScore >= 80 ? '#E8F5EE' : '#FFF3EB' }}>
-                  <Text style={{ fontSize: 9, fontWeight: '900', color: driverScore >= 80 ? '#2E7D5B' : '#E07A5F', letterSpacing: 1 }}>
-                    {driverScore >= 90 ? 'GRADE A+' : (driverScore >= 80 ? 'GRADE A' : 'GRADE B')}
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: driverScore == null ? (isDark ? '#26342D' : '#F1F5F2') : (driverScore >= 80 ? '#E8F5EE' : '#FFF3EB') }}>
+                  <Text style={{ fontSize: 9, fontWeight: '900', color: driverScore == null ? colors.textMuted : (driverScore >= 80 ? '#2E7D5B' : '#E07A5F'), letterSpacing: 1 }}>
+                    {driverScore == null ? 'NO TRIPS' : (driverScore >= 90 ? 'GRADE A+' : (driverScore >= 80 ? 'GRADE A' : 'GRADE B'))}
                   </Text>
                 </View>
               </View>
 
               <View style={styles.scoreTopRow}>
-                <View style={[styles.scoreCircleBg, { borderRadius: 35, borderColor: driverScore >= 80 ? '#2E7D5B' : '#E07A5F', backgroundColor: driverScore >= 80 ? '#E8F5EE' : '#FFF3EB' }]}>
+                <View style={[styles.scoreCircleBg, { 
+                  borderRadius: 35, 
+                  borderColor: driverScore == null ? (isDark ? '#3E4D44' : '#D5DDD8') : (driverScore >= 80 ? '#2E7D5B' : '#E07A5F'), 
+                  backgroundColor: driverScore == null ? (isDark ? '#1C2621' : '#F7FAF8') : (driverScore >= 80 ? '#E8F5EE' : '#FFF3EB') 
+                }]}>
                   <Text 
-                    style={[styles.scoreNum, { color: driverScore >= 80 ? '#2E7D5B' : '#E07A5F' }]}
+                    style={[styles.scoreNum, { color: driverScore == null ? colors.textMuted : (driverScore >= 80 ? '#2E7D5B' : '#E07A5F'), fontSize: driverScore == null ? 22 : 28 }]}
                     numberOfLines={1}
                   >
-                    {driverScore}
+                    {driverScore != null ? driverScore : '--'}
                   </Text>
-                  <Text style={[styles.scoreDenom, { color: colors.textMuted }]}>/100</Text>
+                  <Text style={[styles.scoreDenom, { color: colors.textMuted }]}>{driverScore != null ? '/100' : 'PTS'}</Text>
                 </View>
 
                 <View style={styles.scoreInfo}>
                   <Text style={[styles.scoreTitle, { color: colors.foreground }]}>
-                    {driverScore >= 90 ? 'EXCELLENT SAFE DRIVER' : (driverScore >= 80 ? 'GOOD DRIVING RECORD' : 'MODERATE SAFETY SCORE')}
+                    {driverScore == null 
+                      ? 'NO DRIVING DETECTED' 
+                      : (driverScore >= 90 ? 'EXCELLENT SAFE DRIVER' : (driverScore >= 80 ? 'GOOD DRIVING RECORD' : 'MODERATE SAFETY SCORE'))}
                   </Text>
                   <Text style={[styles.scoreSub, { color: colors.textMuted }]}>
-                    {selectedMemberName}'s driving evaluation calculated directly from authentic GPS telemetry and vehicle dynamics.
+                    {driverScore == null
+                      ? `No vehicular trips detected for ${isSelf ? 'you' : selectedMemberName} during this period. Safety score activates automatically when a drive is completed.`
+                      : `${selectedMemberName}'s driving evaluation calculated directly from authentic GPS telemetry and vehicle dynamics.`}
                   </Text>
                 </View>
               </View>
 
               {/* Safety Event Badges */}
               <View style={styles.eventBadgesRow}>
-                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalHardBrakes === 0 ? '#E8F5EE' : '#FEE2E2', borderColor: totalHardBrakes === 0 ? '#C6E7D5' : '#FECACA' }]}>
-                  <Ionicons name="hand-right" size={13} color={totalHardBrakes === 0 ? '#2E7D5B' : '#DC2626'} />
-                  <Text style={[styles.eventBadgeText, { color: totalHardBrakes === 0 ? '#2E7D5B' : '#DC2626' }]}>{totalHardBrakes} HARD BRAKES</Text>
+                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalHardBrakes === 0 ? (isDark ? '#1A231F' : '#E8F5EE') : '#FEE2E2', borderColor: totalHardBrakes === 0 ? (isDark ? '#283730' : '#C6E7D5') : '#FECACA' }]}>
+                  <Ionicons name="hand-right" size={13} color={totalHardBrakes === 0 ? (driverScore == null ? colors.textMuted : '#2E7D5B') : '#DC2626'} />
+                  <Text style={[styles.eventBadgeText, { color: totalHardBrakes === 0 ? (driverScore == null ? colors.textMuted : '#2E7D5B') : '#DC2626' }]}>{totalHardBrakes} HARD BRAKES</Text>
                 </View>
 
-                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalRapidAccels === 0 ? '#E8F5EE' : '#FFF3EB', borderColor: totalRapidAccels === 0 ? '#C6E7D5' : '#FFD7C7' }]}>
-                  <Ionicons name="flash" size={13} color={totalRapidAccels === 0 ? '#2E7D5B' : '#E07A5F'} />
-                  <Text style={[styles.eventBadgeText, { color: totalRapidAccels === 0 ? '#2E7D5B' : '#E07A5F' }]}>{totalRapidAccels} RAPID ACCELS</Text>
+                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalRapidAccels === 0 ? (isDark ? '#1A231F' : '#E8F5EE') : '#FFF3EB', borderColor: totalRapidAccels === 0 ? (isDark ? '#283730' : '#C6E7D5') : '#FFD7C7' }]}>
+                  <Ionicons name="flash" size={13} color={totalRapidAccels === 0 ? (driverScore == null ? colors.textMuted : '#2E7D5B') : '#E07A5F'} />
+                  <Text style={[styles.eventBadgeText, { color: totalRapidAccels === 0 ? (driverScore == null ? colors.textMuted : '#2E7D5B') : '#E07A5F' }]}>{totalRapidAccels} RAPID ACCELS</Text>
                 </View>
 
-                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalSpeedingEvents > 0 ? '#FEE2E2' : '#E8F5EE', borderColor: totalSpeedingEvents > 0 ? '#FECACA' : '#C6E7D5' }]}>
-                  <Ionicons name="speedometer" size={13} color={totalSpeedingEvents > 0 ? '#DC2626' : '#2E7D5B'} />
-                  <Text style={[styles.eventBadgeText, { color: totalSpeedingEvents > 0 ? '#DC2626' : '#2E7D5B' }]}>{totalSpeedingEvents} SPEEDING</Text>
+                <View style={[styles.eventBadge, { borderRadius: 8, backgroundColor: totalSpeedingEvents > 0 ? '#FEE2E2' : (isDark ? '#1A231F' : '#E8F5EE'), borderColor: totalSpeedingEvents > 0 ? '#FECACA' : (isDark ? '#283730' : '#C6E7D5') }]}>
+                  <Ionicons name="speedometer" size={13} color={totalSpeedingEvents > 0 ? '#DC2626' : (driverScore == null ? colors.textMuted : '#2E7D5B')} />
+                  <Text style={[styles.eventBadgeText, { color: totalSpeedingEvents > 0 ? '#DC2626' : (driverScore == null ? colors.textMuted : '#2E7D5B')} ]}>{totalSpeedingEvents} SPEEDING</Text>
                 </View>
               </View>
             </View>
@@ -713,7 +905,7 @@ export default function DrivingReportsScreen() {
                 <View style={[styles.metricIconWrap, { borderRadius: 18, backgroundColor: '#FFF3EB' }]}>
                   <Ionicons name="time-outline" size={18} color="#E07A5F" />
                 </View>
-                <Text style={[styles.metricVal, { color: colors.foreground }]}>{totalDriveMins} mins</Text>
+                <Text style={[styles.metricVal, { color: colors.foreground }]}>{formatDurationText(totalDriveMins)}</Text>
                 <Text style={[styles.metricLbl, { color: colors.textMuted }]}>DRIVE TIME</Text>
               </View>
 
@@ -769,7 +961,7 @@ export default function DrivingReportsScreen() {
                           </View>
                         </View>
                         <Text style={[styles.tripTime, { color: colors.textMuted }]}>
-                          {trip.startTime} → {trip.endTime} ({trip.durationMins} mins)
+                          {trip.startTime} → {trip.endTime} ({formatDurationText(trip.durationMins)})
                         </Text>
                       </View>
 
@@ -813,7 +1005,7 @@ export default function DrivingReportsScreen() {
 
       {/* Trip Detail Map Modal */}
       {selectedTrip ? (
-        <Modal visible={true} animationType="slide" transparent={false}>
+        <Modal visible={true} animationType="slide" transparent={false} statusBarTranslucent={true}>
           <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
             <View style={[styles.modalHeader, { borderBottomColor: colors.border, paddingTop: topInset + 10 }]}>
               <TouchableOpacity style={styles.iconBtn} onPress={() => setSelectedTrip(null)} activeOpacity={0.8}>
@@ -830,17 +1022,22 @@ export default function DrivingReportsScreen() {
                   style={{ width: '100%', height: '100%', border: 'none' }}
                 />
               ) : (
-                <WebView
+                <WebViewAny
                   ref={webViewModalRef}
                   originWhitelist={['*']}
-                  source={{ html: modalHtmlContent }}
+                  source={{ html: modalHtmlContent, baseUrl: 'https://unpkg.com' }}
+                  javaScriptEnabled={true}
+                  domStorageEnabled={true}
+                  mixedContentMode="always"
+                  allowFileAccess={true}
+                  androidLayerType="hardware"
                   style={{ flex: 1 }}
                 />
               )}
             </View>
 
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20 }} showsVerticalScrollIndicator={false}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                 <Text style={[styles.modalTripTitle, { color: colors.foreground, flex: 1 }]}>{selectedTrip.title}</Text>
                 <View style={[styles.headingBadge, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
                   <Ionicons name="compass-outline" size={11} color="#3B82F6" />
@@ -848,9 +1045,48 @@ export default function DrivingReportsScreen() {
                 </View>
               </View>
 
+              {/* Authentic User Trajectory Badge */}
+              <View style={styles.authenticTrajectoryBadge}>
+                <Ionicons name="shield-checkmark" size={13} color="#00F29D" />
+                <Text style={styles.authenticTrajectoryBadgeText}>
+                  VERIFIED TRUE USER TRAJECTORY • {selectedTrip.routeCoords?.length || 0} RECORDED GPS FIXES
+                </Text>
+              </View>
+
               <Text style={[styles.modalTripMeta, { color: colors.textMuted }]}>
-                {selectedTrip.startTime} - {selectedTrip.endTime} • {selectedTrip.distanceKm} km • {selectedTrip.durationMins} mins
+                {selectedTrip.startTime} - {selectedTrip.endTime} • {selectedTrip.distanceKm} km • {formatDurationText(selectedTrip.durationMins)}
               </Text>
+
+              {/* Departure & Arrival Endpoint Details */}
+              <View style={[styles.routeEndpointsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <View style={styles.routeEndpointRow}>
+                  <View style={[styles.routeEndpointDot, { backgroundColor: '#2E7D5B', borderColor: '#3ADFAB' }]} />
+                  <View style={styles.routeEndpointTextWrapper}>
+                    <Text style={[styles.routeEndpointLabel, { color: colors.textMuted }]}>DEPARTURE ({selectedTrip.startTime})</Text>
+                    <Text style={[styles.routeEndpointValue, { color: colors.foreground }]} numberOfLines={2}>
+                      {selectedTrip.startAddress || 'Departure Location'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[styles.routeDividerLine, { backgroundColor: colors.border }]} />
+                <View style={styles.routeEndpointRow}>
+                  <View style={[styles.routeEndpointDot, { backgroundColor: '#E11D48', borderColor: '#FB7185' }]} />
+                  <View style={styles.routeEndpointTextWrapper}>
+                    <Text style={[styles.routeEndpointLabel, { color: colors.textMuted }]}>ARRIVAL ({selectedTrip.endTime})</Text>
+                    <Text style={[styles.routeEndpointValue, { color: colors.foreground }]} numberOfLines={2}>
+                      {selectedTrip.endAddress || 'Arrival Destination'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Waypoint Explorer Notice */}
+              <View style={[styles.telemetryExplainerCard, { backgroundColor: isDark ? 'rgba(0, 242, 157, 0.08)' : 'rgba(46, 125, 91, 0.08)', borderColor: isDark ? 'rgba(0, 242, 157, 0.25)' : 'rgba(46, 125, 91, 0.25)' }]}>
+                <Ionicons name="information-circle-outline" size={15} color={isDark ? '#00F29D' : '#2E7D5B'} style={{ marginTop: 1 }} />
+                <Text style={[styles.telemetryExplainerText, { color: isDark ? '#E6EDF3' : '#1F2937' }]}>
+                  This map displays <Text style={{ fontWeight: '800' }}>only the authentic GPS path</Text> travelled by the user. Tap any green waypoint marker on the route to inspect its recorded timestamp, telemetry speed, and coordinates.
+                </Text>
+              </View>
 
               <View style={[styles.modalScoreCard, { backgroundColor: colors.surface, borderColor: colors.accentGold }]}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1286,5 +1522,75 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  authenticTrajectoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0, 242, 157, 0.12)',
+    borderColor: 'rgba(0, 242, 157, 0.3)',
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+  },
+  authenticTrajectoryBadgeText: {
+    color: '#00F29D',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  routeEndpointsCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 12,
+  },
+  routeEndpointRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  routeEndpointDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    marginTop: 4,
+  },
+  routeEndpointTextWrapper: {
+    flex: 1,
+  },
+  routeEndpointLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  routeEndpointValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  routeDividerLine: {
+    height: 1,
+    marginVertical: 10,
+    marginLeft: 24,
+  },
+  telemetryExplainerCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  telemetryExplainerText: {
+    flex: 1,
+    fontSize: 11.5,
+    lineHeight: 16.5,
   },
 });

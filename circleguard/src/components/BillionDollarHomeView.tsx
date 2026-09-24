@@ -12,28 +12,41 @@ import {
   StatusBar,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
+const WebViewAny: any = WebView;
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
+import { useThemeStore } from '../store/useThemeStore';
 import { sendInstantLocationPing } from '../services/LocationBackgroundService';
 import { supabase } from '../lib/supabase';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
+import { broadcastCheckIn } from '../services/ActivityService';
+import { calculateHaversineDistanceMeters } from '../services/LocationSmoothingService';
 import CircleSwitcherModal from './CircleSwitcherModal';
+import CurrentAddressModal from './CurrentAddressModal';
+import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
+import { getSafeTopInset } from '../utils/safeArea';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const LAST_USER_LOC_STORAGE_KEY = '@circleguard_last_user_location';
 
 export default function BillionDollarHomeView() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 38) : 24);
+  const topInset = getSafeTopInset(insets.top);
 
   const { profile } = useAuthStore();
   const { activeCircle, members, places, fetchMembers, fetchPlaces } = useCircleStore();
+  const { isDark } = useThemeStore();
 
-  const webViewRef = useRef<WebView | null>(null);
+  const webViewRef = useRef<any>(null);
+  const scrollViewRef = useRef<any>(null);
+  const hasCenteredOnUserRef = useRef(false);
+  const lastFocusedMemberIndexRef = useRef<number>(-1);
 
   const [userLoc, setUserLoc] = useState<{ latitude: number; longitude: number } | null>(null);
   const [activeFilter, setActiveFilter] = useState<'all' | 'safe' | 'moving'>('all');
@@ -42,7 +55,48 @@ export default function BillionDollarHomeView() {
   const [checkInState, setCheckInState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [circleModalVisible, setCircleModalVisible] = useState(false);
+  const [addressModalVisible, setAddressModalVisible] = useState(false);
   const [localPlaces, setLocalPlaces] = useState<any[]>([]);
+
+  const centerMapOnUser = (lat: number, lng: number, force: boolean = false) => {
+    if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
+    if (!hasCenteredOnUserRef.current || force) {
+      hasCenteredOnUserRef.current = true;
+      executeMapScript(`
+        if (window.recenterTo) {
+          window.recenterTo(${lat}, ${lng}, 16, true);
+        } else if (window.map) {
+          window.map.setView([${lat}, ${lng}], 16);
+        }
+      `);
+    }
+  };
+
+  const updateUserLocation = (coords: { latitude: number; longitude: number }, forceCenter: boolean = false) => {
+    if (!coords?.latitude || !coords?.longitude || isNaN(coords.latitude) || isNaN(coords.longitude)) return;
+    setUserLoc(coords);
+    AsyncStorage.setItem(LAST_USER_LOC_STORAGE_KEY, JSON.stringify(coords)).catch(() => {});
+    if (forceCenter || !hasCenteredOnUserRef.current) {
+      centerMapOnUser(coords.latitude, coords.longitude, forceCenter);
+    }
+  };
+
+  // Immediate 0ms cache restore on mount
+  useEffect(() => {
+    AsyncStorage.getItem(LAST_USER_LOC_STORAGE_KEY).then((raw) => {
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed?.latitude && parsed?.longitude) {
+            setUserLoc((prev) => prev || parsed);
+            if (!hasCenteredOnUserRef.current) {
+              centerMapOnUser(parsed.latitude, parsed.longitude);
+            }
+          }
+        } catch (_) {}
+      }
+    });
+  }, []);
 
   useEffect(() => {
     // Clear old circle's local places immediately on circle switch!
@@ -78,14 +132,14 @@ export default function BillionDollarHomeView() {
           // Instant 0ms cached location first
           const lastKnown = await Location.getLastKnownPositionAsync();
           if (isMounted && lastKnown?.coords) {
-            setUserLoc({ latitude: lastKnown.coords.latitude, longitude: lastKnown.coords.longitude });
+            updateUserLocation({ latitude: lastKnown.coords.latitude, longitude: lastKnown.coords.longitude }, true);
           }
 
           // Initial fast balanced fix
           Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
             .then((loc) => {
               if (isMounted && loc?.coords) {
-                setUserLoc({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+                updateUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
               }
             })
             .catch(() => {});
@@ -95,7 +149,7 @@ export default function BillionDollarHomeView() {
             { accuracy: Location.Accuracy.Balanced, timeInterval: 3000, distanceInterval: 5 },
             (pos) => {
               if (isMounted && pos?.coords) {
-                setUserLoc({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+                updateUserLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
               }
             }
           );
@@ -147,7 +201,7 @@ export default function BillionDollarHomeView() {
         const lastKnown = await Location.getLastKnownPositionAsync();
         if (lastKnown?.coords) {
           const { latitude, longitude } = lastKnown.coords;
-          setUserLoc({ latitude, longitude });
+          updateUserLocation({ latitude, longitude }, true);
           executeMapScript(`
             if (window.recenterTo) {
               window.recenterTo(${latitude}, ${longitude}, 16);
@@ -161,7 +215,7 @@ export default function BillionDollarHomeView() {
         .then((fresh) => {
           if (fresh?.coords) {
             const { latitude, longitude } = fresh.coords;
-            setUserLoc({ latitude, longitude });
+            updateUserLocation({ latitude, longitude });
             executeMapScript(`
               if (window.recenterTo) {
                 window.recenterTo(${latitude}, ${longitude}, 16);
@@ -177,36 +231,110 @@ export default function BillionDollarHomeView() {
     }
   };
 
+  const otherMembersWithLocation = useMemo(() => {
+    return members.filter(
+      (m) => m.user_id !== profile?.id && m.latitude && m.longitude && !isNaN(m.latitude) && !isNaN(m.longitude)
+    );
+  }, [members, profile?.id]);
+
+  const handleFocusOthers = () => {
+    if (otherMembersWithLocation.length === 0) {
+      const nonSelfMembers = members.filter((m) => m.user_id !== profile?.id);
+      if (nonSelfMembers.length === 0) {
+        showToast('Invite family members to see their live locations');
+      } else {
+        const name = nonSelfMembers[0].profile?.full_name?.split(' ')[0] || 'Member';
+        showToast(`Waiting for ${name}'s GPS location to sync`);
+      }
+      return;
+    }
+
+    if (otherMembersWithLocation.length === 1) {
+      const target = otherMembersWithLocation[0];
+      const name = target.profile?.full_name?.split(' ')[0] || 'Member';
+      executeMapScript(`
+        if (window.recenterTo) {
+          window.recenterTo(${target.latitude}, ${target.longitude}, 16);
+        } else if (window.map) {
+          window.map.setView([${target.latitude}, ${target.longitude}], 16);
+        }
+      `);
+      showToast(`📍 Focused on ${name}'s location`);
+      return;
+    }
+
+    // Multiple other members: cycle through each, then show all
+    const nextIdx = (lastFocusedMemberIndexRef.current + 1) % (otherMembersWithLocation.length + 1);
+    lastFocusedMemberIndexRef.current = nextIdx;
+
+    if (nextIdx < otherMembersWithLocation.length) {
+      const target = otherMembersWithLocation[nextIdx];
+      const name = target.profile?.full_name?.split(' ')[0] || 'Member';
+      executeMapScript(`
+        if (window.recenterTo) {
+          window.recenterTo(${target.latitude}, ${target.longitude}, 16);
+        } else if (window.map) {
+          window.map.setView([${target.latitude}, ${target.longitude}], 16);
+        }
+      `);
+      showToast(`📍 (${nextIdx + 1}/${otherMembersWithLocation.length}) Focused on ${name}`);
+    } else {
+      executeMapScript(`
+        if (window.fitAllMembers) {
+          window.fitAllMembers();
+        }
+      `);
+      showToast(`🌐 Viewing all ${otherMembersWithLocation.length + 1} circle members`);
+    }
+  };
+
+  const focusMemberOnMap = (target: any) => {
+    if (!target) return;
+    const lat = target.latitude;
+    const lng = target.longitude;
+    if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
+      navigation.navigate('LocationHistory', { member: target, circleId: activeCircle?.id });
+      return;
+    }
+    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    const name = target.profile?.full_name?.split(' ')[0] || 'Member';
+    executeMapScript(`
+      if (window.recenterTo) {
+        window.recenterTo(${lat}, ${lng}, 16);
+      } else if (window.map) {
+        window.map.setView([${lat}, ${lng}], 16);
+      }
+    `);
+    showToast(`📍 Focused on ${name}'s location`);
+  };
+
   const handleCheckIn = async () => {
     if (checkInState !== 'idle') return;
     setCheckInState('sending');
     try {
-      await sendInstantLocationPing();
       if (activeCircle?.id && profile?.id) {
-        await supabase.from('circle_messages').insert({
-          circle_id: activeCircle.id,
-          sender_id: profile.id,
-          content: `${profile?.full_name || 'I'} checked in safely.`,
-          message_type: 'CHECKIN',
-        });
         const otherMemberIds = members
           .filter((m) => m.user_id !== profile?.id)
           .map((m) => m.user_id);
-        if (otherMemberIds.length > 0) {
-          sendExpoPushNotification(
-            otherMemberIds,
-            '✅ Safety Check-In',
-            `${profile?.full_name || 'A circle member'} just checked in as SAFE!`,
-            { type: 'CHECKIN' }
-          ).catch(() => {});
-        }
+
+        await broadcastCheckIn({
+          circleId: activeCircle.id,
+          circleName: activeCircle.name,
+          userId: profile.id,
+          userName: profile.full_name || 'Member',
+          userAvatar: profile.avatar_url,
+          otherMemberIds,
+        });
+      } else {
+        await sendInstantLocationPing();
       }
       setCheckInState('sent');
       showToast('Checked in: Safe status shared with circle!');
       setTimeout(() => setCheckInState('idle'), 3500);
     } catch (e) {
-      setCheckInState('idle');
-      showToast('Check-in shared with circle!');
+      setCheckInState('sent');
+      showToast('Checked in safely!');
+      setTimeout(() => setCheckInState('idle'), 3500);
     }
   };
 
@@ -215,13 +343,6 @@ export default function BillionDollarHomeView() {
   const movingCount = useMemo(() => {
     return members.filter((m) => Boolean(m.isDriving)).length;
   }, [members]);
-
-  const displayedMembers = useMemo(() => {
-    if (activeFilter === 'moving') {
-      return members.filter((m) => Boolean(m.isDriving));
-    }
-    return members;
-  }, [members, activeFilter]);
 
   const safePlaces = useMemo(() => {
     if (!activeCircle?.id) return [];
@@ -265,6 +386,66 @@ export default function BillionDollarHomeView() {
       .filter((z): z is NonNullable<typeof z> => z !== null);
   }, [safePlaces]);
 
+  // Precise geofence containment checker for family members
+  const getMemberSafeZoneStatus = (member: any) => {
+    const isSelf = member.user_id === profile?.id;
+    const lat = (isSelf && userLoc?.latitude) ? userLoc.latitude : (member.latitude || 0);
+    const lng = (isSelf && userLoc?.longitude) ? userLoc.longitude : (member.longitude || 0);
+
+    if (member.isDriving) {
+      return {
+        isInZone: false,
+        statusText: '🚗 Moving in vehicle',
+        color: isDark ? '#818CF8' : '#183CE6',
+        zoneName: null,
+      };
+    }
+
+    if (!lat || !lng || zoneData.length === 0) {
+      return {
+        isInZone: false,
+        statusText: 'Outside Safe Zones',
+        color: isDark ? '#9EACA3' : '#718076',
+        zoneName: null,
+      };
+    }
+
+    for (const zone of zoneData) {
+      const distM = calculateHaversineDistanceMeters(lat, lng, zone.lat, zone.lng);
+      if (distM <= zone.radius) {
+        const cleanName = (zone.name || 'Safe Zone')
+          .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+          .trim() || 'Safe Zone';
+        return {
+          isInZone: true,
+          statusText: `In ${cleanName}`,
+          color: isDark ? '#3ADFAB' : '#2E7D5B',
+          zoneName: cleanName,
+        };
+      }
+    }
+
+    return {
+      isInZone: false,
+      statusText: 'Outside Safe Zones',
+      color: isDark ? '#9EACA3' : '#718076',
+      zoneName: null,
+    };
+  };
+
+  const displayedMembers = useMemo(() => {
+    if (activeFilter === 'moving') {
+      return members.filter((m) => Boolean(m.isDriving));
+    }
+    if (activeFilter === 'safe') {
+      return members.filter((m) => {
+        const st = getMemberSafeZoneStatus(m);
+        return st.isInZone;
+      });
+    }
+    return members;
+  }, [members, activeFilter, zoneData, profile?.id, userLoc]);
+
   const peaceOfMindTip = useMemo(() => {
     const lowBattMember = members.find((m) => m.batteryPct != null && m.batteryPct <= 20);
     if (lowBattMember) {
@@ -278,10 +459,11 @@ export default function BillionDollarHomeView() {
   }, [members]);
 
   // Stable Initial Center so mapHtml stays cached and WebView never reloads
+  const selfMember = members.find((m) => m.user_id === profile?.id);
   const initialCenter = useMemo(() => {
     return {
-      lat: userLoc?.latitude || members.find((m) => m.latitude)?.latitude || 13.0827,
-      lng: userLoc?.longitude || members.find((m) => m.longitude)?.longitude || 80.2707,
+      lat: userLoc?.latitude || selfMember?.latitude || 13.0827,
+      lng: userLoc?.longitude || selfMember?.longitude || 80.2707,
     };
   }, []);
 
@@ -292,13 +474,16 @@ export default function BillionDollarHomeView() {
         const lat = (isSelf && userLoc?.latitude) ? userLoc.latitude : (m.latitude || 0);
         const lng = (isSelf && userLoc?.longitude) ? userLoc.longitude : (m.longitude || 0);
         if (!lat || !lng || isNaN(lat) || isNaN(lng)) return null;
-        const name = m.profile?.full_name || 'Member';
+        const rawName = m.profile?.full_name || 'Member';
+        const cleanName = rawName
+          .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+          .trim();
         return {
           id: m.user_id,
           lat,
           lng,
-          name: isSelf ? `${name.split(' ')[0]} (You)` : name.split(' ')[0],
-          initial: name.charAt(0).toUpperCase(),
+          name: isSelf ? 'You' : (cleanName.split(' ')[0] || 'Member'),
+          initial: (cleanName || 'M').charAt(0).toUpperCase(),
           avatarUrl: m.profile?.avatar_url || null,
           battery: m.batteryPct != null ? `${m.batteryPct}%` : '100%',
           isSelf,
@@ -324,12 +509,36 @@ export default function BillionDollarHomeView() {
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
         <style>
           * { margin:0; padding:0; box-sizing:border-box; }
-          html, body, #map { width:100%; height:100%; background:#FAF9F6; overflow:hidden; }
+          html, body, #map {
+            width:100%; height:100%;
+            background-color: #0E131F;
+            background-image:
+              radial-gradient(circle at 50% 50%, rgba(46, 125, 91, 0.08) 0%, transparent 65%),
+              linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+            background-size: 100% 100%, 36px 36px, 36px 36px;
+            overflow:hidden;
+          }
+          .leaflet-container {
+            background-color: #0E131F !important;
+            background-image:
+              radial-gradient(circle at 50% 50%, rgba(46, 125, 91, 0.08) 0%, transparent 65%),
+              linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px) !important;
+            background-size: 100% 100%, 36px 36px, 36px 36px !important;
+          }
+          .leaflet-tile-container { will-change: transform; }
+          .leaflet-zoom-animated { will-change: transform; }
+          .leaflet-tile { will-change: transform, opacity; }
           .leaflet-control-attribution, .leaflet-control-zoom { display:none !important; }
           .member-pin {
             display: flex;
             flex-direction: column;
             align-items: center;
+            cursor: pointer;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
           }
           .pin-bubble {
             width: 38px;
@@ -351,24 +560,35 @@ export default function BillionDollarHomeView() {
           }
           .pin-bubble span {
             color: #FFFFFF;
-            font-size: 14px;
-            font-weight: bold;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 13px;
+            font-weight: 700;
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
           }
           .pin-label {
-            margin-top: 4px;
-            background: rgba(255, 255, 255, 0.96);
-            padding: 2px 7px;
+            margin-top: 5px;
+            background: rgba(15, 23, 42, 0.90);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            padding: 3px 9px;
             border-radius: 999px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.10);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.35);
             font-size: 11px;
-            font-weight: 700;
-            color: #1F2A24;
+            font-weight: 600;
+            letter-spacing: -0.1px;
+            color: #F8FAFC;
             white-space: nowrap;
             display: flex;
             align-items: center;
-            gap: 4px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            gap: 5px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+          }
+          .pin-label.self-label {
+            background: rgba(15, 23, 42, 0.95);
+            border: 1.5px solid #3ADFAB;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.45), 0 0 10px rgba(58, 223, 171, 0.3);
+            color: #FFFFFF;
+            font-weight: 700;
           }
           .self-ring {
             border: 2.5px solid #2E7D5B !important;
@@ -378,66 +598,55 @@ export default function BillionDollarHomeView() {
             width: 6px;
             height: 6px;
             border-radius: 3px;
-            background: #2E7D5B;
+            background: #10B981;
+            box-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
+          }
+          .online-dot.self-dot {
+            background: #3ADFAB;
+            box-shadow: 0 0 8px #3ADFAB;
+          }
+          .batt-tag {
+            font-size: 10px;
+            font-weight: 500;
+            opacity: 0.8;
+          }
+          .sep-dot {
+            opacity: 0.4;
+            font-size: 9px;
           }
 
-          /* 3D Geofence Dome Animations & Styles */
-          @keyframes domePulseGlow {
-            0% {
-              filter: drop-shadow(0 0 5px rgba(16, 185, 129, 0.45));
-            }
-            50% {
-              filter: drop-shadow(0 0 16px rgba(52, 211, 153, 0.85));
-            }
-            100% {
-              filter: drop-shadow(0 0 5px rgba(16, 185, 129, 0.45));
-            }
+          /* Clean Subtle Geofence Styles */
+          .custom-geofence-badge {
+            background: transparent !important;
+            border: none !important;
           }
-          @keyframes domeContourRotate {
-            from { stroke-dashoffset: 0; }
-            to { stroke-dashoffset: 60; }
-          }
-          @keyframes domeContourRotateRev {
-            from { stroke-dashoffset: 0; }
-            to { stroke-dashoffset: -60; }
-          }
-
-          .geofence-3d-dome {
-            animation: domePulseGlow 3.6s ease-in-out infinite;
-            stroke-linecap: round;
-          }
-          .geofence-dome-contour-mid {
-            animation: domeContourRotate 18s linear infinite;
-            pointer-events: none;
-          }
-          .geofence-dome-contour-top {
-            animation: domeContourRotateRev 12s linear infinite;
-            pointer-events: none;
-          }
-          .geofence-dome-meridian {
-            pointer-events: none;
-          }
-          .geofence-dome-beacon {
-            pointer-events: none;
-            animation: domePulseGlow 2.2s ease-in-out infinite;
-          }
-
           .geofence-badge {
-            background: rgba(15, 23, 42, 0.90);
+            transform: translate(-50%, -50%);
+            background: rgba(15, 23, 42, 0.92);
             color: #FFFFFF;
-            font-size: 10.5px;
-            font-weight: 800;
-            padding: 4px 10px;
-            border-radius: 14px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            padding: 4px 11px;
+            border-radius: 999px;
             border: 1.5px solid #10B981;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.65), 0 0 8px rgba(16, 185, 129, 0.4);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.5), 0 0 10px rgba(16, 185, 129, 0.3);
             white-space: nowrap;
-            display: flex;
+            display: inline-flex;
             align-items: center;
-            gap: 5px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
+            gap: 6px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            pointer-events: none;
+          }
+          .geofence-badge svg {
+            flex-shrink: 0;
+          }
+          .geofence-name {
+            color: #F8FAFC;
+            font-weight: 700;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
           }
         </style>
       </head>
@@ -472,16 +681,41 @@ export default function BillionDollarHomeView() {
           var map = L.map('map', {
             zoomControl: false,
             attributionControl: false,
+            zoomAnimation: true,
+            zoomAnimationThreshold: 20,
+            fadeAnimation: true,
+            markerZoomAnimation: true,
             dragging: true,
             touchZoom: true,
             scrollWheelZoom: true,
             doubleClickZoom: true,
+            minZoom: 3,
+            maxZoom: 18,
           }).setView([${initialCenter.lat}, ${initialCenter.lng}], 15);
 
           var currentTileLayer = L.tileLayer('${tileUrl}', {
-            maxZoom: 19,
+            minZoom: 3,
+            maxZoom: 18,
+            maxNativeZoom: 18,
             subdomains: 'abcd',
+            updateWhenIdle: false,
+            updateWhenZooming: true,
+            keepBuffer: 25,
+            crossOrigin: true
           }).addTo(map);
+
+          currentTileLayer.on('tileerror', function(error, tile) {
+            if (tile && tile.src && !tile.src.includes('retry=1')) {
+              tile.src = tile.src + (tile.src.includes('?') ? '&' : '?') + 'retry=1';
+            } else if (tile) {
+              try {
+                var coords = error && error.coords ? error.coords : null;
+                if (coords) {
+                  tile.src = 'https://tile.openstreetmap.org/' + coords.z + '/' + coords.x + '/' + coords.y + '.png';
+                }
+              } catch(e) {}
+            }
+          });
 
           var geofenceLayerGroup = L.layerGroup().addTo(map);
           var memberLayerGroup = L.layerGroup().addTo(map);
@@ -507,12 +741,31 @@ export default function BillionDollarHomeView() {
           }
 
           function getDomeTheme(cat) {
-            if (cat === 'home') {
-              return { main: '#10B981', highlight: '#6EE7B7', dark: '#047857', gradKey: 'green' };
-            } else if (cat === 'work') {
+            var c = (cat || '').toLowerCase();
+            if (c === 'work' || c === 'office') {
               return { main: '#3B82F6', highlight: '#93C5FD', dark: '#1D4ED8', gradKey: 'blue' };
+            } else if (c === 'school' || c === 'college') {
+              return { main: '#F59E0B', highlight: '#FDE68A', dark: '#D97706', gradKey: 'gold' };
             }
-            return { main: '#10B981', highlight: '#6EE7B7', dark: '#047857', gradKey: 'green' };
+            // Default: Vivid Pine & Emerald Green Safe Zone
+            return { main: '#10B981', highlight: '#34D399', dark: '#047857', gradKey: 'green' };
+          }
+
+          function getZoneSvgIcon(name, color) {
+            var n = (name || '').toLowerCase();
+            if (n.indexOf('home') !== -1 || n.indexOf('house') !== -1 || n.indexOf('residence') !== -1) {
+              return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>';
+            }
+            if (n.indexOf('work') !== -1 || n.indexOf('office') !== -1 || n.indexOf('corp') !== -1) {
+              return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>';
+            }
+            if (n.indexOf('school') !== -1 || n.indexOf('college') !== -1 || n.indexOf('univ') !== -1 || n.indexOf('class') !== -1) {
+              return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M22 10v6M2 10l10-5 10 5-10 5z"></path><path d="M6 12v5c3 3 9 3 12 0v-5"></path></svg>';
+            }
+            if (n.indexOf('gym') !== -1 || n.indexOf('fit') !== -1 || n.indexOf('sport') !== -1) {
+              return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M6 4v16M18 4v16M2 8h4M2 16h4M18 8h4M18 16h4M6 12h12"></path></svg>';
+            }
+            return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>';
           }
 
           function getMeridianCoords(lat, lng, r) {
@@ -527,116 +780,84 @@ export default function BillionDollarHomeView() {
           function renderGeofenceCircles(zones, visible) {
             geofenceLayerGroup.clearLayers();
             if (!visible || !zones || zones.length === 0) return;
-            ensureDomeSvgDefs();
 
             zones.forEach(function(z) {
               if (!z.lat || !z.lng) return;
               var r = z.radius || 150;
               var theme = getDomeTheme(z.category || 'home');
               var latLng = [z.lat, z.lng];
-              var coords = getMeridianCoords(z.lat, z.lng, r);
 
-              // 1. Ambient Base Halo
-              var baseAura = L.circle(latLng, {
-                radius: r * 1.025,
-                color: theme.main,
-                weight: 4,
-                opacity: 0.16,
-                fill: false,
-                dashArray: '6, 8',
-                interactive: false
-              });
-
-              // 2. Primary 3D Dome Hemispherical Shell
-              var mainDome = L.circle(latLng, {
-                radius: r,
-                color: theme.main,
-                fillColor: 'url(#dome-grad-' + theme.gradKey + ')',
-                fillOpacity: 1.0,
-                weight: 2.6,
-                opacity: 0.95,
-                className: 'geofence-3d-dome',
-                interactive: false
-              });
-
-              // 3. Mid-Latitude 3D Elevation Ring
-              var midRing = L.circle(latLng, {
-                radius: r * 0.68,
+              // 1. Outer Glowing Radar Aura Ring
+              var outerHalo = L.circle(latLng, {
+                radius: r * 1.04,
                 color: theme.highlight,
-                weight: 1.4,
+                weight: 2,
                 opacity: 0.65,
-                dashArray: '5, 6',
                 fill: false,
-                interactive: false,
-                className: 'geofence-dome-contour-mid'
+                dashArray: '5, 5',
+                interactive: false
               });
 
-              // 4. Crown 3D Plateau Ring
-              var topRing = L.circle(latLng, {
-                radius: r * 0.38,
+              // 2. High-Visibility Green Safe Zone (Vivid emerald perimeter & rich translucent fill)
+              var mainZone = L.circle(latLng, {
+                radius: r,
+                color: theme.dark,
+                weight: 3.5,
+                opacity: 0.95,
+                fillColor: theme.main,
+                fillOpacity: 0.25, // Prominent, clear green safe zone!
+                interactive: true
+              });
+
+              // 3. Inner Concentric Radar Contour Ring
+              var innerZone = L.circle(latLng, {
+                radius: r * 0.45,
                 color: theme.highlight,
-                weight: 1.6,
-                opacity: 0.85,
-                fillColor: theme.highlight,
-                fillOpacity: 0.12,
-                dashArray: '3, 5',
-                interactive: false,
-                className: 'geofence-dome-contour-top'
+                weight: 1.5,
+                opacity: 0.5,
+                fill: false,
+                dashArray: '4, 4',
+                interactive: false
               });
 
-              // 5. Geodesic Meridian Arcs
-              var nsArc = L.polyline(coords.ns, {
-                color: theme.highlight,
-                weight: 1.1,
-                opacity: 0.38,
-                dashArray: '4, 7',
-                interactive: false,
-                className: 'geofence-dome-meridian'
-              });
-
-              var weArc = L.polyline(coords.we, {
-                color: theme.highlight,
-                weight: 1.1,
-                opacity: 0.38,
-                dashArray: '4, 7',
-                interactive: false,
-                className: 'geofence-dome-meridian'
-              });
-
-              // 6. Apex Specular Beacon
-              var apexBeacon = L.circleMarker(latLng, {
-                radius: 3.5,
+              // 4. Center Apex Beacon Pin
+              var centerPin = L.circleMarker(latLng, {
+                radius: 4.5,
                 color: '#FFFFFF',
-                fillColor: theme.highlight,
-                fillOpacity: 0.95,
-                weight: 1.6,
-                interactive: false,
-                className: 'geofence-dome-beacon'
+                fillColor: theme.dark,
+                fillOpacity: 1.0,
+                weight: 2,
+                interactive: false
               });
 
-              var badgeHtml = '<div class="geofence-badge" style="border-color:' + theme.main + ';box-shadow:0 4px 12px rgba(0,0,0,0.65), 0 0 10px ' + theme.main + '55;"><span>🛡️</span> ' + (z.name || 'Safe Zone') + '</div>';
+              var cleanZoneName = (z.name || 'Safe Zone')
+                .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+                .trim() || 'Safe Zone';
+              var iconSvg = getZoneSvgIcon(cleanZoneName, theme.highlight || theme.main);
+              var badgeHtml = '<div class="geofence-badge" style="border-color:' + theme.highlight + ';box-shadow:0 4px 14px rgba(0,0,0,0.5), 0 0 12px ' + theme.main + '88;">' +
+                iconSvg +
+                '<span class="geofence-name">' + cleanZoneName + '</span>' +
+              '</div>';
               var badgeIcon = L.divIcon({
                 className: 'custom-geofence-badge',
                 html: badgeHtml,
-                iconSize: [110, 24],
-                iconAnchor: [55, 12]
+                iconSize: [0, 0],
+                iconAnchor: [0, 0]
               });
-              var badgeMarker = L.marker([z.lat, z.lng], { icon: badgeIcon, interactive: false });
+              var badgeMarker = L.marker([z.lat, z.lng], { icon: badgeIcon, interactive: true });
 
-              geofenceLayerGroup.addLayer(baseAura);
-              geofenceLayerGroup.addLayer(mainDome);
-              geofenceLayerGroup.addLayer(midRing);
-              geofenceLayerGroup.addLayer(topRing);
-              geofenceLayerGroup.addLayer(nsArc);
-              geofenceLayerGroup.addLayer(weArc);
-              geofenceLayerGroup.addLayer(apexBeacon);
+              mainZone.on('click', function() {
+                try { map.flyTo(latLng, 16, { animate: true, duration: 0.8 }); } catch(e) {}
+              });
+              badgeMarker.on('click', function() {
+                try { map.flyTo(latLng, 16, { animate: true, duration: 0.8 }); } catch(e) {}
+              });
+
+              geofenceLayerGroup.addLayer(outerHalo);
+              geofenceLayerGroup.addLayer(mainZone);
+              geofenceLayerGroup.addLayer(innerZone);
+              geofenceLayerGroup.addLayer(centerPin);
               geofenceLayerGroup.addLayer(badgeMarker);
-
-              setTimeout(function() {
-                if (mainDome._path) {
-                  mainDome._path.setAttribute('fill', 'url(#dome-grad-' + theme.gradKey + ')');
-                }
-              }, 15);
             });
           }
 
@@ -654,31 +875,53 @@ export default function BillionDollarHomeView() {
                 : '<span>' + m.initial + '</span>';
 
               var bubbleClass = m.isSelf ? 'pin-bubble self-ring' : 'pin-bubble';
+              var labelClass = m.isSelf ? 'pin-label self-label' : 'pin-label';
+              var dotClass = m.isSelf ? 'online-dot self-dot' : 'online-dot';
+
               var html = '<div class="member-pin">' +
                 '<div class="' + bubbleClass + '" style="background:' + m.roleColor + ';">' + innerContent + '</div>' +
-                '<div class="pin-label"><div class="online-dot"></div>' + m.name + ' · ' + m.battery + '</div>' +
+                '<div class="' + labelClass + '">' +
+                  '<div class="' + dotClass + '"></div>' +
+                  '<span>' + m.name + '</span>' +
+                  '<span class="sep-dot">·</span>' +
+                  '<span class="batt-tag">' + m.battery + '</span>' +
+                '</div>' +
                 '</div>';
 
               var icon = L.divIcon({
                 className: 'custom-member-marker',
                 html: html,
-                iconSize: [80, 60],
-                iconAnchor: [40, 24]
+                iconSize: [120, 60],
+                iconAnchor: [60, 24]
               });
 
               var marker = L.marker([m.lat, m.lng], { icon: icon }).addTo(memberLayerGroup);
-              marker.on('click', function() {
+              marker.on('click', function(e) {
+                if (e) {
+                  L.DomEvent.stopPropagation(e);
+                }
                 initialFitDone = true;
-                map.flyTo([m.lat, m.lng], 16, { animate: true, duration: 0.8 });
+                try {
+                  var curPos = this.getLatLng();
+                  var tLat = curPos ? curPos.lat : m.lat;
+                  var tLng = curPos ? curPos.lng : m.lng;
+                  map.stop();
+                  map.panTo([tLat, tLng], { animate: true, duration: 0.35, easeLinearity: 0.2 });
+                } catch(e) {
+                  map.setView([m.lat, m.lng], 16);
+                }
               });
             });
 
-            // Auto-fit bounds ONLY ONCE on initial map load so all members are visible at first
-            if (!initialFitDone && bounds.length > 1) {
-              initialFitDone = true;
-              try {
-                map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
-              } catch(e) {}
+            // Automatically focus on the user's location on initial load
+            if (!initialFitDone) {
+              var selfPin = pins.find(function(m) { return m.isSelf; });
+              if (selfPin && selfPin.lat && selfPin.lng) {
+                initialFitDone = true;
+                try {
+                  map.setView([selfPin.lat, selfPin.lng], 16);
+                } catch(e) {}
+              }
             }
           }
 
@@ -721,17 +964,33 @@ export default function BillionDollarHomeView() {
               ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
               : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
             currentTileLayer.setUrl(url);
+            currentTileLayer.options.maxZoom = 18;
+            currentTileLayer.options.maxNativeZoom = 18;
           };
 
-          window.recenterTo = function(lat, lng, zoom) {
+          window.recenterTo = function(lat, lng, zoom, instant) {
+            if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
             initialFitDone = true;
-            var targetZoom = (typeof zoom === 'number' && zoom > 0) ? zoom : 16;
+            var targetZoom = (typeof zoom === 'number' && zoom > 0) ? Math.min(zoom, 18) : 16;
+            if (instant) {
+              try {
+                map.stop();
+                map.setView([lat, lng], targetZoom);
+                return;
+              } catch(e) {}
+            }
+            var c = map.getCenter();
+            var dLat = Math.abs(c.lat - lat);
+            var dLng = Math.abs(c.lng - lng);
+            var dist = Math.sqrt(dLat * dLat + dLng * dLng);
+            var dur = dist > 0.08 ? 1.4 : (dist > 0.01 ? 1.0 : 0.6);
+
             try {
               map.stop();
               map.flyTo([lat, lng], targetZoom, {
                 animate: true,
-                duration: 0.9,
-                easeLinearity: 0.25
+                duration: dur,
+                easeLinearity: 0.18
               });
             } catch(e) {
               map.setView([lat, lng], targetZoom);
@@ -813,56 +1072,59 @@ export default function BillionDollarHomeView() {
         window.updateMembers(${JSON.stringify(memberPins)});
       }
     `);
+
+    if (userLoc?.latitude && userLoc?.longitude) {
+      executeMapScript(`
+        if (window.recenterTo) {
+          window.recenterTo(${userLoc.latitude}, ${userLoc.longitude}, 16, true);
+        } else if (window.map) {
+          window.map.setView([${userLoc.latitude}, ${userLoc.longitude}], 16);
+        }
+      `);
+      hasCenteredOnUserRef.current = true;
+    }
   };
 
   return (
-    <View style={styles.container}>
-      {/* 1. Header Bar (Light Minimal) */}
-      <View style={[styles.header, { paddingTop: topInset, height: 56 + topInset }]}>
+    <View style={[styles.container, isDark && { backgroundColor: '#0F1411' }]}>
+      {/* 1. Header Bar */}
+      <View
+        style={[
+          styles.header,
+          { paddingTop: topInset, height: 56 + topInset },
+          isDark && { backgroundColor: '#141A17', borderBottomColor: '#212C26' },
+        ]}
+      >
         <View style={styles.headerLeft}>
-          <View style={styles.logoBadge}>
-            <Ionicons name="shield-checkmark" size={19} color="#2E7D5B" />
-          </View>
+          <OrbitalGoldenLogoBadge
+            size={34}
+            onPress={() => setAddressModalVisible(true)}
+            accessibilityLabel="Current Live Address"
+            testID="header-app-logo-btn"
+          />
           <TouchableOpacity
-            style={styles.circleSelectorBtn}
+            style={[styles.circleSelectorBtn, isDark && { backgroundColor: '#1C2621' }]}
             onPress={() => setCircleModalVisible(true)}
             activeOpacity={0.7}
           >
-            <Text style={styles.circleSelectorText} numberOfLines={1}>
+            <Text style={[styles.circleSelectorText, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
               {circleTitle}
             </Text>
-            <Ionicons name="chevron-down" size={15} color="#5C665F" />
+            <Ionicons name="chevron-down" size={15} color={isDark ? '#9EACA3' : '#5C665F'} />
           </TouchableOpacity>
         </View>
 
         <View style={styles.headerRight}>
           <TouchableOpacity
-            style={styles.headerSOSBtn}
-            onPress={() => navigation.navigate('SOSAlert')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="warning" size={13} color="#FFFFFF" />
-            <Text style={styles.headerSOSText}>SOS</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.headerIconButton}
-            onPress={() => navigation.navigate('Activity' as any)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="notifications-outline" size={19} color="#5C665F" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.profileAvatarBtn}
+            style={[styles.profileAvatarBtn, isDark && { borderColor: '#3ADFAB' }]}
             onPress={() => navigation.navigate('Profile')}
             activeOpacity={0.7}
           >
             {profile?.avatar_url ? (
               <Image source={{ uri: profile.avatar_url }} style={styles.profileAvatarImg} />
             ) : (
-              <View style={[styles.profileAvatarImg, styles.avatarFallback]}>
-                <Text style={styles.avatarFallbackText}>
+              <View style={[styles.profileAvatarImg, styles.avatarFallback, isDark && { backgroundColor: '#1C2621' }]}>
+                <Text style={[styles.avatarFallbackText, isDark && { color: '#3ADFAB' }]}>
                   {(profile?.full_name || 'U').charAt(0).toUpperCase()}
                 </Text>
               </View>
@@ -873,12 +1135,13 @@ export default function BillionDollarHomeView() {
 
       {/* Main Scrollable Content */}
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollArea}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         {/* 2. Interactive Map Viewport Canvas */}
-        <View style={styles.mapViewport}>
+        <View style={[styles.mapViewport, isDark && { backgroundColor: '#141A17' }]}>
           {Platform.OS === 'web' ? (
             <iframe
               id="homeMapIframe"
@@ -887,7 +1150,7 @@ export default function BillionDollarHomeView() {
               onLoad={handleMapLoadEnd}
             />
           ) : (
-            <WebView
+            <WebViewAny
               ref={webViewRef}
               originWhitelist={['*']}
               source={{ html: mapHtml }}
@@ -895,6 +1158,8 @@ export default function BillionDollarHomeView() {
               javaScriptEnabled={true}
               domStorageEnabled={true}
               scrollEnabled={false}
+              overScrollMode="never"
+              androidLayerType="hardware"
               onLoadEnd={handleMapLoadEnd}
             />
           )}
@@ -903,7 +1168,11 @@ export default function BillionDollarHomeView() {
           <View style={styles.topFilterStrip}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
               <TouchableOpacity
-                style={[styles.filterChip, activeFilter === 'all' && styles.filterChipActive]}
+                style={[
+                  styles.filterChip,
+                  isDark && { backgroundColor: '#1C2621', borderColor: '#2A3A32' },
+                  activeFilter === 'all' && styles.filterChipActive,
+                ]}
                 onPress={() => {
                   setActiveFilter('all');
                   executeMapScript(`
@@ -917,23 +1186,29 @@ export default function BillionDollarHomeView() {
                 <View
                   style={[
                     styles.chipDot,
-                    { backgroundColor: activeFilter === 'all' ? '#FFFFFF' : '#2E7D5B' },
+                    { backgroundColor: activeFilter === 'all' ? '#FFFFFF' : isDark ? '#3ADFAB' : '#2E7D5B' },
                   ]}
                 />
                 <Text
-                  style={[styles.filterChipText, activeFilter === 'all' && styles.filterChipTextActive]}
+                  style={[
+                    styles.filterChipText,
+                    isDark && { color: '#CAD5CE' },
+                    activeFilter === 'all' && styles.filterChipTextActive,
+                  ]}
                 >
                   All Circle
                 </Text>
                 <View
                   style={[
                     styles.chipCountBadge,
+                    isDark && { backgroundColor: '#28362F' },
                     activeFilter === 'all' && styles.chipCountBadgeActive,
                   ]}
                 >
                   <Text
                     style={[
                       styles.chipCountText,
+                      isDark && { color: '#FFFFFF' },
                       activeFilter === 'all' && styles.chipCountTextActive,
                     ]}
                   >
@@ -943,7 +1218,11 @@ export default function BillionDollarHomeView() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.filterChip, activeFilter === 'safe' && styles.filterChipActive]}
+                style={[
+                  styles.filterChip,
+                  isDark && { backgroundColor: '#1C2621', borderColor: '#2A3A32' },
+                  activeFilter === 'safe' && styles.filterChipActive,
+                ]}
                 onPress={() => {
                   setActiveFilter('safe');
                   if (!highlightZones) {
@@ -965,23 +1244,29 @@ export default function BillionDollarHomeView() {
                 <View
                   style={[
                     styles.chipDot,
-                    { backgroundColor: activeFilter === 'safe' ? '#FFFFFF' : '#2E7D5B' },
+                    { backgroundColor: activeFilter === 'safe' ? '#FFFFFF' : isDark ? '#3ADFAB' : '#2E7D5B' },
                   ]}
                 />
                 <Text
-                  style={[styles.filterChipText, activeFilter === 'safe' && styles.filterChipTextActive]}
+                  style={[
+                    styles.filterChipText,
+                    isDark && { color: '#CAD5CE' },
+                    activeFilter === 'safe' && styles.filterChipTextActive,
+                  ]}
                 >
                   Safe Zones
                 </Text>
                 <View
                   style={[
                     styles.chipCountBadge,
+                    isDark && { backgroundColor: '#28362F' },
                     activeFilter === 'safe' && styles.chipCountBadgeActive,
                   ]}
                 >
                   <Text
                     style={[
                       styles.chipCountText,
+                      isDark && { color: '#FFFFFF' },
                       activeFilter === 'safe' && styles.chipCountTextActive,
                     ]}
                   >
@@ -991,7 +1276,11 @@ export default function BillionDollarHomeView() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.filterChip, activeFilter === 'moving' && styles.filterChipActivePeach]}
+                style={[
+                  styles.filterChip,
+                  isDark && { backgroundColor: '#1C2621', borderColor: '#2A3A32' },
+                  activeFilter === 'moving' && styles.filterChipActivePeach,
+                ]}
                 onPress={() => {
                   setActiveFilter('moving');
                   showToast(movingCount > 0 ? `${movingCount} member(s) moving` : 'No members currently moving');
@@ -1004,19 +1293,25 @@ export default function BillionDollarHomeView() {
                   color={activeFilter === 'moving' ? '#FFFFFF' : '#E07A5F'}
                 />
                 <Text
-                  style={[styles.filterChipText, activeFilter === 'moving' && styles.filterChipTextActive]}
+                  style={[
+                    styles.filterChipText,
+                    isDark && { color: '#CAD5CE' },
+                    activeFilter === 'moving' && styles.filterChipTextActive,
+                  ]}
                 >
                   Moving
                 </Text>
                 <View
                   style={[
                     styles.chipCountBadge,
+                    isDark && { backgroundColor: '#28362F' },
                     activeFilter === 'moving' && styles.chipCountBadgeActivePeach,
                   ]}
                 >
                   <Text
                     style={[
                       styles.chipCountText,
+                      isDark && { color: '#FFFFFF' },
                       activeFilter === 'moving' && styles.chipCountTextActive,
                     ]}
                   >
@@ -1032,7 +1327,8 @@ export default function BillionDollarHomeView() {
             <TouchableOpacity
               style={[
                 styles.railButton,
-                satelliteLayer && { backgroundColor: '#E8F5E9', borderColor: '#2E7D5B' }
+                isDark && { backgroundColor: '#1C2621', borderColor: '#2A3A32' },
+                satelliteLayer && { backgroundColor: isDark ? '#23382D' : '#E8F5E9', borderColor: '#2E7D5B' }
               ]}
               onPress={handleToggleSatellite}
               activeOpacity={0.85}
@@ -1040,14 +1336,15 @@ export default function BillionDollarHomeView() {
               <Ionicons
                 name={satelliteLayer ? 'map' : 'layers-outline'}
                 size={18}
-                color={satelliteLayer ? '#2E7D5B' : '#5C665F'}
+                color={satelliteLayer ? (isDark ? '#3ADFAB' : '#2E7D5B') : (isDark ? '#CAD5CE' : '#5C665F')}
               />
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
                 styles.railButton,
-                highlightZones && { backgroundColor: '#E8F5EE', borderColor: '#2E7D5B' }
+                isDark && { backgroundColor: '#1C2621', borderColor: '#2A3A32' },
+                highlightZones && { backgroundColor: isDark ? '#23382D' : '#E8F5EE', borderColor: '#2E7D5B' }
               ]}
               onPress={handleToggleHighlightZones}
               activeOpacity={0.85}
@@ -1055,70 +1352,92 @@ export default function BillionDollarHomeView() {
               <Ionicons
                 name={highlightZones ? 'shield' : 'shield-outline'}
                 size={18}
-                color={highlightZones ? '#2E7D5B' : '#5C665F'}
+                color={highlightZones ? (isDark ? '#3ADFAB' : '#2E7D5B') : (isDark ? '#CAD5CE' : '#5C665F')}
               />
             </TouchableOpacity>
 
+            {/* View / Focus Others' Location Button */}
             <TouchableOpacity
-              style={styles.railButton}
-              onPress={handleRecenter}
+              style={[
+                styles.railButton,
+                isDark && { backgroundColor: '#1C2621', borderColor: '#2A3A32' },
+              ]}
+              onPress={handleFocusOthers}
               activeOpacity={0.85}
+              accessibilityLabel="View Others Location"
             >
-              <Ionicons name="locate" size={19} color="#2E7D5B" />
+              <Ionicons name="people" size={19} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              {otherMembersWithLocation.length > 0 && (
+                <View style={[styles.miniMemberBadge, isDark && { backgroundColor: '#3ADFAB', borderColor: '#141A17' }]}>
+                  <Text style={[styles.miniMemberBadgeText, isDark && { color: '#002116' }]}>
+                    {otherMembersWithLocation.length}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.railButton, { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }]}
-              onPress={() => navigation.navigate('SOSAlert')}
+              style={[styles.railButton, isDark && { backgroundColor: '#1C2621', borderColor: '#2A3A32' }]}
+              onPress={handleRecenter}
               activeOpacity={0.85}
+              accessibilityLabel="My Location"
             >
-              <Ionicons name="warning" size={18} color="#DC2626" />
+              <Ionicons name="locate" size={19} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
             </TouchableOpacity>
           </View>
         </View>
 
         {/* 3. Refined Bottom Sheet Container */}
-        <View style={styles.bottomSheetCard}>
-          <View style={styles.sheetHandle} />
+        <View style={[styles.bottomSheetCard, isDark && { backgroundColor: '#141A17', borderColor: '#212C26' }]}>
+          <View style={[styles.sheetHandle, isDark && { backgroundColor: '#26342D' }]} />
 
           {/* Bottom Sheet Header */}
           <View style={styles.sheetHeaderRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.sheetTitle} numberOfLines={1}>
+              <Text style={[styles.sheetTitle, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
                 {circleTitle}
               </Text>
-              <Text style={styles.sheetSubtitle}>
+              <Text style={[styles.sheetSubtitle, isDark && { color: '#9EACA3' }]}>
                 {members.length} {members.length === 1 ? 'member' : 'members'} active · Shared location on
               </Text>
             </View>
-            <View style={styles.safeBadgePill}>
+            <View style={[styles.safeBadgePill, isDark && { backgroundColor: '#1C2621', borderColor: '#26342D' }]}>
               <View style={styles.pulsingGreenDot} />
-              <Text style={styles.safeBadgeText}>All members safe</Text>
+              <Text style={[styles.safeBadgeText, isDark && { color: '#3ADFAB' }]}>All members safe</Text>
             </View>
           </View>
 
           {/* Quick Safety Check-in Bar */}
-          <View style={styles.checkInBanner}>
+          <View style={[styles.checkInBanner, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
             <View style={styles.checkInLeft}>
-              <View style={styles.checkInIconBox}>
-                <Ionicons name="checkmark-done" size={19} color="#2E7D5B" />
+              <View style={[styles.checkInIconBox, isDark && { backgroundColor: '#23352B' }]}>
+                <Ionicons name="checkmark-done" size={19} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.checkInTitle}>Safety Check-in</Text>
-                <Text style={styles.checkInSub}>Broadcast your safe status to all circle members</Text>
+                <Text style={[styles.checkInTitle, isDark && { color: '#FFFFFF' }]}>Safety Check-in</Text>
+                <Text style={[styles.checkInSub, isDark && { color: '#9EACA3' }]}>Broadcast your safe status to all circle members</Text>
               </View>
             </View>
             <TouchableOpacity
-              style={[styles.checkInBtn, checkInState === 'sent' && { backgroundColor: '#2E7D5B' }]}
+              style={[
+                styles.checkInBtn,
+                { backgroundColor: '#2E7D5B' },
+                checkInState === 'sent' && { backgroundColor: '#3ADFAB' },
+              ]}
               onPress={handleCheckIn}
               activeOpacity={0.8}
             >
               <Ionicons
                 name={checkInState === 'sent' ? 'checkmark-circle' : 'send-outline'}
                 size={14}
-                color="#FFFFFF"
+                color={checkInState === 'sent' && isDark ? '#002116' : '#FFFFFF'}
               />
-              <Text style={styles.checkInBtnText}>
+              <Text
+                style={[
+                  styles.checkInBtnText,
+                  { color: checkInState === 'sent' && isDark ? '#002116' : '#FFFFFF' },
+                ]}
+              >
                 {checkInState === 'sent'
                   ? 'Sent'
                   : checkInState === 'sending'
@@ -1128,51 +1447,65 @@ export default function BillionDollarHomeView() {
             </TouchableOpacity>
           </View>
 
-          {/* Quick Action Feature Hub (Light Green & Peach Palette) */}
+          {/* Quick Action Feature Hub */}
           <View style={styles.quickFeatureHub}>
-
             <TouchableOpacity
-              style={[styles.featureHubTile, { backgroundColor: '#FFF3EB', borderColor: '#FFD7C7' }]}
+              style={[
+                styles.featureHubTile,
+                isDark
+                  ? { backgroundColor: '#16201B', borderColor: '#23322A' }
+                  : { backgroundColor: '#FFFFFF', borderColor: '#E5E8E5' },
+              ]}
               onPress={() => navigation.navigate('DrivingReports')}
               activeOpacity={0.8}
             >
-              <View style={[styles.featureIconBox, { backgroundColor: '#E07A5F' }]}>
-                <Ionicons name="speedometer" size={17} color="#FFFFFF" />
+              <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(224, 122, 95, 0.18)' : '#FDF2EE' }]}>
+                <Ionicons name="speedometer" size={17} color="#E07A5F" />
               </View>
-              <Text style={styles.featureHubTitle}>Driving</Text>
-              <Text style={styles.featureHubSub}>Crash & score</Text>
+              <Text style={[styles.featureHubTitle, isDark && { color: '#FFFFFF' }]}>Driving</Text>
+              <Text style={[styles.featureHubSub, isDark && { color: '#CAD5CE' }]}>Crash & score</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.featureHubTile, { backgroundColor: '#E8F5EE', borderColor: '#C6E7D5' }]}
+              style={[
+                styles.featureHubTile,
+                isDark
+                  ? { backgroundColor: '#16201B', borderColor: '#23322A' }
+                  : { backgroundColor: '#FFFFFF', borderColor: '#E5E8E5' },
+              ]}
               onPress={() => navigation.navigate('LocationHistory')}
               activeOpacity={0.8}
             >
-              <View style={[styles.featureIconBox, { backgroundColor: '#2E7D5B' }]}>
-                <Ionicons name="time" size={17} color="#FFFFFF" />
+              <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E8F5EE' }]}>
+                <Ionicons name="time" size={17} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
               </View>
-              <Text style={styles.featureHubTitle}>History</Text>
-              <Text style={styles.featureHubSub}>Route replay</Text>
+              <Text style={[styles.featureHubTitle, isDark && { color: '#FFFFFF' }]}>History</Text>
+              <Text style={[styles.featureHubSub, isDark && { color: '#CAD5CE' }]}>Route replay</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.featureHubTile, { backgroundColor: '#FFF3EB', borderColor: '#FFD7C7' }]}
+              style={[
+                styles.featureHubTile,
+                isDark
+                  ? { backgroundColor: '#16201B', borderColor: '#23322A' }
+                  : { backgroundColor: '#FFFFFF', borderColor: '#E5E8E5' },
+              ]}
               onPress={() => navigation.navigate('SafePlaces')}
               activeOpacity={0.8}
             >
-              <View style={[styles.featureIconBox, { backgroundColor: '#E07A5F' }]}>
-                <Ionicons name="shield-checkmark" size={17} color="#FFFFFF" />
+              <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(99, 102, 241, 0.16)' : '#EEF2FF' }]}>
+                <Ionicons name="shield-checkmark" size={17} color={isDark ? '#818CF8' : '#4F46E5'} />
               </View>
-              <Text style={styles.featureHubTitle}>Safe Zones</Text>
-              <Text style={styles.featureHubSub}>{safePlaces.length} monitored</Text>
+              <Text style={[styles.featureHubTitle, isDark && { color: '#FFFFFF' }]}>Safe Zones</Text>
+              <Text style={[styles.featureHubSub, isDark && { color: '#CAD5CE' }]}>{safePlaces.length} monitored</Text>
             </TouchableOpacity>
           </View>
 
           {/* Live Family Status Horizontal Strip */}
           <View style={styles.statusSectionHeader}>
-            <Text style={styles.statusSectionTitle}>Live Family Status</Text>
+            <Text style={[styles.statusSectionTitle, isDark && { color: '#FFFFFF' }]}>Live Family Status</Text>
             <TouchableOpacity onPress={() => navigation.navigate('Circle')}>
-              <Text style={styles.manageGeofenceLink}>Manage Circle ›</Text>
+              <Text style={[styles.manageGeofenceLink, isDark && { color: '#3ADFAB' }]}>Manage Circle ›</Text>
             </TouchableOpacity>
           </View>
 
@@ -1183,14 +1516,20 @@ export default function BillionDollarHomeView() {
                 const isSelf = member.user_id === profile?.id;
                 const battery = member.batteryPct != null ? `${member.batteryPct}%` : '100%';
                 const isDriving = Boolean(member.isDriving);
+                const zoneStatus = getMemberSafeZoneStatus(member);
 
                 return (
                   <TouchableOpacity
                     key={member.user_id}
-                    style={styles.memberStatusCard}
+                    style={[
+                      styles.memberStatusCard,
+                      isDark && { backgroundColor: '#1A231F', borderColor: '#283730' },
+                    ]}
                     onPress={() => {
                       if (isSelf) {
                         handleRecenter();
+                      } else if (member.latitude && member.longitude) {
+                        focusMemberOnMap(member);
                       } else {
                         navigation.navigate('LocationHistory', { member, circleId: activeCircle?.id });
                       }
@@ -1202,7 +1541,11 @@ export default function BillionDollarHomeView() {
                         <View
                           style={[
                             styles.memberCardAvatarBox,
-                            { backgroundColor: isSelf ? '#E8F5EE' : '#FFF3EB' },
+                            {
+                              backgroundColor: isSelf
+                                ? (isDark ? '#23352B' : '#E8F5EE')
+                                : (isDark ? '#33231E' : '#FFF3EB'),
+                            },
                           ]}
                         >
                           {member.profile?.avatar_url ? (
@@ -1211,21 +1554,46 @@ export default function BillionDollarHomeView() {
                               style={styles.memberCardAvatarImg}
                             />
                           ) : (
-                            <Text style={styles.memberCardInitial}>
+                            <Text
+                              style={[
+                                styles.memberCardInitial,
+                                { color: isSelf ? (isDark ? '#3ADFAB' : '#2E7D5B') : '#E07A5F' },
+                              ]}
+                            >
                               {name.charAt(0).toUpperCase()}
                             </Text>
                           )}
                         </View>
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.memberCardName} numberOfLines={1}>
-                            {name} {isSelf && '(You)'}
-                          </Text>
-                          <Text style={styles.memberCardSafeStatus}>
-                            {isDriving ? '🚗 Moving in vehicle' : 'Safe in zone'}
-                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                            <Text style={[styles.memberCardName, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
+                              {name}
+                            </Text>
+                            {isSelf && (
+                              <View style={[styles.selfBadgePill, isDark && { backgroundColor: 'rgba(58, 223, 171, 0.15)', borderColor: 'rgba(58, 223, 171, 0.4)' }]}>
+                                <Text style={[styles.selfBadgeText, isDark && { color: '#3ADFAB' }]}>YOU</Text>
+                              </View>
+                            )}
+                          </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3.5, marginTop: 1.5 }}>
+                            <Ionicons
+                              name={zoneStatus.isInZone ? 'shield-checkmark' : 'navigate-outline'}
+                              size={11}
+                              color={zoneStatus.color}
+                            />
+                            <Text
+                              style={[
+                                styles.memberCardSafeStatus,
+                                { color: zoneStatus.color },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {zoneStatus.statusText}
+                            </Text>
+                          </View>
                         </View>
                       </View>
-                      <View style={styles.batteryChip}>
+                      <View style={[styles.batteryChip, isDark && { backgroundColor: '#26342D' }]}>
                         <Ionicons
                           name={
                             (member.batteryPct ?? 100) > 20
@@ -1233,22 +1601,22 @@ export default function BillionDollarHomeView() {
                               : 'battery-dead'
                           }
                           size={13}
-                          color={(member.batteryPct ?? 100) > 20 ? '#2E7D5B' : '#E07A5F'}
+                          color={(member.batteryPct ?? 100) > 20 ? (isDark ? '#3ADFAB' : '#2E7D5B') : '#E07A5F'}
                         />
-                        <Text style={styles.batteryChipText}>{battery}</Text>
+                        <Text style={[styles.batteryChipText, isDark && { color: '#E8EDE9' }]}>{battery}</Text>
                       </View>
                     </View>
 
-                    <View style={styles.memberCardMetrics}>
+                    <View style={[styles.memberCardMetrics, isDark && { backgroundColor: '#141A17' }]}>
                       <View style={styles.metricRow}>
-                        <Text style={styles.metricLabel}>Role</Text>
-                        <Text style={styles.metricVal}>
+                        <Text style={[styles.metricLabel, isDark && { color: '#9EACA3' }]}>Role</Text>
+                        <Text style={[styles.metricVal, isDark && { color: '#FFFFFF' }]}>
                           {member.role ? member.role.toUpperCase() : 'MEMBER'}
                         </Text>
                       </View>
                       <View style={styles.metricRow}>
-                        <Text style={styles.metricLabel}>Status</Text>
-                        <Text style={styles.metricVal}>
+                        <Text style={[styles.metricLabel, isDark && { color: '#9EACA3' }]}>Status</Text>
+                        <Text style={[styles.metricVal, isDark && { color: '#E8EDE9' }]}>
                           {member.isOnline !== false ? 'Online' : 'Recent'}
                         </Text>
                       </View>
@@ -1258,22 +1626,22 @@ export default function BillionDollarHomeView() {
               })}
             </ScrollView>
           ) : (
-            <View style={styles.emptyMembersBox}>
-              <Ionicons name="people-outline" size={24} color="#2E7D5B" />
-              <Text style={styles.emptyMembersText}>
+            <View style={[styles.emptyMembersBox, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
+              <Ionicons name="people-outline" size={24} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Text style={[styles.emptyMembersText, isDark && { color: '#CAD5CE' }]}>
                 No members found for this filter. Invite family to grow your circle!
               </Text>
             </View>
           )}
 
-          {/* Mindful Insight Card (Peach Accent) */}
-          <View style={styles.headspaceCard}>
+          {/* Mindful Insight Card */}
+          <View style={[styles.headspaceCard, isDark && { backgroundColor: '#231B18', borderColor: '#3D2C24' }]}>
             <View style={styles.headspaceIconBox}>
-              <Ionicons name="sparkles" size={17} color="#E07A5F" />
+              <Ionicons name="shield-checkmark-outline" size={17} color="#E07A5F" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.headspaceTitle}>Peace of Mind Tip</Text>
-              <Text style={styles.headspaceText}>{peaceOfMindTip}</Text>
+              <Text style={[styles.headspaceTitle, isDark && { color: '#FFFFFF' }]}>Peace of Mind Tip</Text>
+              <Text style={[styles.headspaceText, isDark && { color: '#CAD5CE' }]}>{peaceOfMindTip}</Text>
             </View>
           </View>
         </View>
@@ -1290,6 +1658,14 @@ export default function BillionDollarHomeView() {
       <CircleSwitcherModal
         visible={circleModalVisible}
         onClose={() => setCircleModalVisible(false)}
+      />
+
+      {/* Current Address Bottom Sheet Modal */}
+      <CurrentAddressModal
+        visible={addressModalVisible}
+        onClose={() => setAddressModalVisible(false)}
+        userLoc={userLoc}
+        onRefreshLocation={handleRecenter}
       />
     </View>
   );
@@ -1323,6 +1699,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8F5EE',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  headerAppLogoImg: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
   },
   circleSelectorBtn: {
     flexDirection: 'row',
@@ -1493,6 +1874,30 @@ const styles = StyleSheet.create({
     elevation: 3,
     borderWidth: 1,
     borderColor: '#ECEAE4',
+  },
+  miniMemberBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 8.5,
+    backgroundColor: '#2E7D5B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    shadowColor: '#000000',
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  miniMemberBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    lineHeight: 12,
   },
   bottomSheetCard: {
     backgroundColor: '#FAF9F6',
@@ -1710,6 +2115,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#1F2A24',
+  },
+  selfBadgePill: {
+    paddingHorizontal: 5.5,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+    backgroundColor: 'rgba(46, 125, 91, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(46, 125, 91, 0.28)',
+  },
+  selfBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#2E7D5B',
+    letterSpacing: 0.4,
   },
   memberCardSafeStatus: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
