@@ -829,7 +829,6 @@ export default function LocationHistoryScreen() {
             overscroll-behavior: none;
           }
           .leaflet-container { background-color: ${isDark ? '#0D0E12' : '#F4F5FB'} !important; }
-          .leaflet-tile-container, .leaflet-zoom-animated, .leaflet-tile { will-change: transform; }
           .leaflet-control-attribution { display: none !important; }
           .stop-badge { background: #FF536A; color: #FFFFFF; font-weight: bold; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 11px; border: 2.5px solid #FFFFFF; box-shadow: 0 4px 10px rgba(255,83,106,0.4); }
           .custom-player-avatar {
@@ -847,6 +846,12 @@ export default function LocationHistoryScreen() {
           var startMarker = null, endMarker = null;
           var loadedRouteSignature = null, loadedRouteCoordsSignature = null;
 
+          function triggerInvalidate() {
+            if (map && typeof map.invalidateSize === 'function') {
+              map.invalidateSize();
+            }
+          }
+
           function initMap() {
             var tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
             var fallbackTileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
@@ -855,24 +860,37 @@ export default function LocationHistoryScreen() {
               maxZoom: 18,
               zoomControl: false, 
               attributionControl: false, 
-              preferCanvas: true, 
               dragging: true,
               touchZoom: true,
               scrollWheelZoom: true,
               doubleClickZoom: true,
               tap: false,
               zoomAnimation: true, 
-              zoomAnimationThreshold: 20,
               fadeAnimation: true, 
               markerZoomAnimation: true 
             }).setView([13.0827, 80.2707], 14);
 
-            var terrainLayer = L.tileLayer(tileUrl, { minZoom: 3, maxZoom: 18, maxNativeZoom: 18, keepBuffer: 20, updateWhenIdle: false, updateWhenZooming: true, crossOrigin: true }).addTo(map);
+            var terrainLayer = L.tileLayer(tileUrl, { 
+              minZoom: 3, 
+              maxZoom: 18, 
+              maxNativeZoom: 18, 
+              crossOrigin: true 
+            }).addTo(map);
+
             terrainLayer.on('tileerror', function(e) {
-              e.tile.src = fallbackTileUrl.replace('{z}', e.coords.z).replace('{x}', e.coords.x).replace('{y}', e.coords.y);
+              try {
+                e.tile.src = fallbackTileUrl.replace('{z}', e.coords.z).replace('{x}', e.coords.x).replace('{y}', e.coords.y);
+              } catch(err) {}
             });
+
+            triggerInvalidate();
+            setTimeout(triggerInvalidate, 100);
+            setTimeout(triggerInvalidate, 350);
           }
           initMap();
+
+          window.addEventListener('load', triggerInvalidate);
+          window.addEventListener('resize', triggerInvalidate);
 
           function notifyMapReady() {
             if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
@@ -911,6 +929,7 @@ export default function LocationHistoryScreen() {
 
           window.renderHistoryMap = function(data) {
             if (!map) return;
+            try { map.invalidateSize(); } catch(e) {}
 
             // Route signature check: ONLY rebuild polyline layers and reset zoom/fitBounds
             // when the route itself changes (different trip data or new date).
@@ -996,9 +1015,53 @@ export default function LocationHistoryScreen() {
                   });
 
                   // ONLY fit bounds on initial load of the route
-                  map.fitBounds(allBounds, { padding: [40, 40], maxZoom: 16 });
+                  if (allBounds.isValid()) {
+                    map.fitBounds(allBounds, { padding: [40, 40], maxZoom: 16, animate: false });
+                    setTimeout(triggerInvalidate, 80);
+                  }
 
                   // Start Marker
+                  if (data.roadCoords && data.roadCoords.length > 0) {
+                    var startPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(46,125,91,0.4));">' +
+                      '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+                        '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#2E7D5B"/>' +
+                        '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
+                      '</svg>' +
+                    '</div>';
+                    var startIcon = L.divIcon({ className: 'custom-3d-pin', html: startPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
+                    startMarker = L.marker(data.roadCoords[0], { icon: startIcon }).addTo(map).bindPopup('Start Location');
+
+                    // End Marker
+                    var endPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(224,122,95,0.4));">' +
+                      '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+                        '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#E07A5F"/>' +
+                        '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
+                      '</svg>' +
+                    '</div>';
+                    var endIcon = L.divIcon({ className: 'custom-3d-pin', html: endPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
+                    endMarker = L.marker(data.roadCoords[data.roadCoords.length - 1], { icon: endIcon }).addTo(map).bindPopup('End Destination');
+                  }
+                } else if (data.roadCoords && data.roadCoords.length > 0) {
+                  var fallbackBounds = L.latLngBounds();
+                  data.roadCoords.forEach(function(c) { fallbackBounds.extend(c); });
+                  var fallbackLine = L.polyline(data.roadCoords, {
+                    color: '#2E7D5B',
+                    weight: 4.5,
+                    opacity: 0.95,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                  }).addTo(map);
+                  legPolylines.push(fallbackLine);
+                  if (fallbackBounds.isValid()) {
+                    if (data.roadCoords.length >= 2) {
+                      map.fitBounds(fallbackBounds, { padding: [40, 40], maxZoom: 16, animate: false });
+                      setTimeout(triggerInvalidate, 80);
+                    } else {
+                      map.setView(data.roadCoords[0], 15);
+                      setTimeout(triggerInvalidate, 80);
+                    }
+                  }
+
                   var startPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(46,125,91,0.4));">' +
                     '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
                       '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#2E7D5B"/>' +
@@ -1008,7 +1071,6 @@ export default function LocationHistoryScreen() {
                   var startIcon = L.divIcon({ className: 'custom-3d-pin', html: startPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
                   startMarker = L.marker(data.roadCoords[0], { icon: startIcon }).addTo(map).bindPopup('Start Location');
 
-                  // End Marker
                   var endPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(224,122,95,0.4));">' +
                     '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
                       '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#E07A5F"/>' +
@@ -1041,23 +1103,6 @@ export default function LocationHistoryScreen() {
                   var m = L.marker([st.lat, st.lng], { icon: icon }).addTo(map).bindPopup(popupContent);
                   stopMarkers.push(m);
                 });
-              }
-              } else if (data.roadCoords && data.roadCoords.length > 0) {
-                var fallbackBounds = L.latLngBounds();
-                data.roadCoords.forEach(function(c) { fallbackBounds.extend(c); });
-                var fallbackLine = L.polyline(data.roadCoords, {
-                  color: '#2E7D5B',
-                  weight: 4.5,
-                  opacity: 0.95,
-                  lineCap: 'round',
-                  lineJoin: 'round'
-                }).addTo(map);
-                legPolylines.push(fallbackLine);
-                if (data.roadCoords.length >= 2) {
-                  map.fitBounds(fallbackBounds, { padding: [40, 40] });
-                } else {
-                  map.setView(data.roadCoords[0], 15);
-                }
               }
             }
 
