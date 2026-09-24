@@ -269,8 +269,49 @@ export default function LocationHistoryScreen() {
   const [travelDurationMinutes, setTravelDurationMinutes] = useState(0);
   const [topSpeedKmh, setTopSpeedKmh] = useState(0);
   const [averageSpeedKmh, setAverageSpeedKmh] = useState(0);
+  const [showAllPlaces, setShowAllPlaces] = useState(false);
   const [isScrollEnabled, setIsScrollEnabled] = useState(true);
   const [reconstructionStats, setReconstructionStats] = useState<ReconstructionResult | null>(null);
+
+  // Fallback calculation ensures Avg Speed can never be 0 when distance and moving time exist
+  const effectiveAvgSpeed = useMemo(() => {
+    if (averageSpeedKmh > 0) return averageSpeedKmh;
+    if (travelDurationMinutes > 0 && totalDistanceKm > 0) {
+      return Math.round(totalDistanceKm / (travelDurationMinutes / 60));
+    }
+    return 0;
+  }, [averageSpeedKmh, travelDurationMinutes, totalDistanceKm]);
+
+  // Main / Significant Places filter: Safe Zones, dwells >= 15m, or start/end anchors
+  const isMainStop = (stop: EnterpriseStationaryStop, idx: number, total: number) => {
+    return (
+      stop.isSafePlace ||
+      stop.category === 'safe_zone' ||
+      stop.durationMinutes >= 15 ||
+      idx === 0 ||
+      idx === total - 1
+    );
+  };
+
+  const mainStops = useMemo(() => {
+    if (!stationaryStops || stationaryStops.length <= 2) return stationaryStops;
+    const filtered = stationaryStops.filter((s, idx) => isMainStop(s, idx, stationaryStops.length));
+    return filtered.length > 0 ? filtered : stationaryStops.slice(0, 2);
+  }, [stationaryStops]);
+
+  const displayedStops = useMemo(() => {
+    return showAllPlaces ? stationaryStops : mainStops;
+  }, [showAllPlaces, stationaryStops, mainStops]);
+
+  const displayedTimelineEvents = useMemo(() => {
+    if (showAllPlaces || timelineEvents.length <= 3) return timelineEvents;
+    return timelineEvents.filter((ev, idx) => {
+      if (ev.type === 'trip') return true;
+      const isSafe = ev.data?.isSafePlace || ev.data?.category === 'safe_zone';
+      const mins = ev.data?.durationMinutes || 0;
+      return isSafe || mins >= 15 || idx === 0 || idx === timelineEvents.length - 1;
+    });
+  }, [timelineEvents, showAllPlaces]);
 
   // Sync selectedMemberId whenever route params or user profile changes
   useEffect(() => {
@@ -735,7 +776,14 @@ export default function LocationHistoryScreen() {
     const bearing = roadBearings[roadIdx] || 0;
     const cardinalDir = getCardinalDirection(bearing);
 
-    const stopCoords = stationaryStops.map(s => ({ lat: s.latitude, lng: s.longitude, name: s.name }));
+    const stopCoords = displayedStops.map(s => ({
+      lat: s.latitude,
+      lng: s.longitude,
+      name: s.name,
+      isSafePlace: s.isSafePlace,
+      category: s.category,
+      durationMinutes: s.durationMinutes,
+    }));
 
     const data = {
       tripLegs,
@@ -754,6 +802,13 @@ export default function LocationHistoryScreen() {
 
     sendMapTelemetry(data);
   };
+
+  // Re-sync map markers whenever showAllPlaces or displayedStops changes
+  useEffect(() => {
+    if (historyPoints.length > 0) {
+      updateMapPlaybackPin();
+    }
+  }, [showAllPlaces, displayedStops]);
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -789,7 +844,8 @@ export default function LocationHistoryScreen() {
         <div id="map"></div>
         <script>
           var map, legPolylines = [], legDecorators = [], playerMarker, stopMarkers = [];
-          var loadedRouteSignature = null;
+          var startMarker = null, endMarker = null;
+          var loadedRouteSignature = null, loadedRouteCoordsSignature = null;
 
           function initMap() {
             var tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -859,116 +915,133 @@ export default function LocationHistoryScreen() {
             // Route signature check: ONLY rebuild polyline layers and reset zoom/fitBounds
             // when the route itself changes (different trip data or new date).
             // During playback or scrubbing, DO NOT call fitBounds so user zoom is 100% preserved!
-            var incomingSig = (data.tripLegs ? data.tripLegs.length : 0) + '_' + 
-                              (data.roadCoords ? data.roadCoords.length : 0) + '_' + 
-                              (data.roadCoords && data.roadCoords.length > 0 ? (data.roadCoords[0][0].toFixed(4) + '_' + data.roadCoords[data.roadCoords.length - 1][0].toFixed(4)) : '') + '_' +
-                              (data.stops ? data.stops.length : 0);
+            var routeCoordsSig = (data.tripLegs ? data.tripLegs.length : 0) + '_' + 
+                                 (data.roadCoords ? data.roadCoords.length : 0) + '_' + 
+                                 (data.roadCoords && data.roadCoords.length > 0 ? (data.roadCoords[0][0].toFixed(4) + '_' + data.roadCoords[data.roadCoords.length - 1][0].toFixed(4)) : '');
+            var stopsSig = (data.stops ? data.stops.map(function(s) { return s.lat.toFixed(4) + ',' + s.lng.toFixed(4); }).join('|') : '');
+            var incomingSig = routeCoordsSig + '__' + stopsSig;
 
             if (incomingSig !== loadedRouteSignature) {
+              var routeChanged = (routeCoordsSig !== loadedRouteCoordsSignature);
               loadedRouteSignature = incomingSig;
+              loadedRouteCoordsSignature = routeCoordsSig;
 
               stopMarkers.forEach(function(m) { map.removeLayer(m); });
               stopMarkers = [];
-              legPolylines.forEach(function(p) { map.removeLayer(p); });
-              legPolylines = [];
-              legDecorators.forEach(function(d) { map.removeLayer(d); });
-              legDecorators = [];
 
-              if (data.tripLegs && data.tripLegs.length > 0) {
-                var allBounds = L.latLngBounds();
+              if (routeChanged) {
+                legPolylines.forEach(function(p) { map.removeLayer(p); });
+                legPolylines = [];
+                legDecorators.forEach(function(d) { map.removeLayer(d); });
+                legDecorators = [];
+                if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
+                if (endMarker) { map.removeLayer(endMarker); endMarker = null; }
 
-                data.tripLegs.forEach(function(leg) {
-                  var isOutbound = leg.isOutbound;
-                  var isTransit = leg.isTransit || leg.transitType === 'metro' || leg.transitType === 'rail';
-                  var isMetro = leg.transitType === 'metro';
-                  var isRail = leg.transitType === 'rail';
+                if (data.tripLegs && data.tripLegs.length > 0) {
+                  var allBounds = L.latLngBounds();
 
-                  var color = isMetro ? '#8B5CF6' : (isRail ? '#0EA5E9' : (isOutbound ? '#2E7D5B' : '#E07A5F'));
-                  var offsetVal = isTransit ? 0 : (isOutbound ? 4 : -4);
+                  data.tripLegs.forEach(function(leg) {
+                    var isOutbound = leg.isOutbound;
+                    var isTransit = leg.isTransit || leg.transitType === 'metro' || leg.transitType === 'rail';
+                    var isMetro = leg.transitType === 'metro';
+                    var isRail = leg.transitType === 'rail';
 
-                  var coords = leg.roadCoords;
-                  if (!coords || coords.length === 0) return;
+                    var color = isMetro ? '#8B5CF6' : (isRail ? '#0EA5E9' : (isOutbound ? '#2E7D5B' : '#E07A5F'));
+                    var offsetVal = isTransit ? 0 : (isOutbound ? 4 : -4);
 
-                  coords.forEach(function(c) { allBounds.extend(c); });
+                    var coords = leg.roadCoords;
+                    if (!coords || coords.length === 0) return;
 
-                  // Outer Glow / Tunnel illumination
-                  var glow = L.polyline(coords, {
-                    color: color,
-                    weight: isMetro ? 10 : 8,
-                    opacity: isMetro ? 0.35 : 0.2,
-                    lineCap: 'round',
-                    lineJoin: 'round',
-                    offset: offsetVal
-                  }).addTo(map);
-                  legPolylines.push(glow);
+                    coords.forEach(function(c) { allBounds.extend(c); });
 
-                  // Core Track Polyline
-                  var mainLine = L.polyline(coords, {
-                    color: color,
-                    weight: isMetro ? 5 : 4.5,
-                    opacity: 0.95,
-                    lineCap: 'round',
-                    lineJoin: 'round',
-                    dashArray: isMetro ? '10, 6' : undefined,
-                    offset: offsetVal
-                  }).addTo(map);
-                  legPolylines.push(mainLine);
+                    // Outer Glow / Tunnel illumination
+                    var glow = L.polyline(coords, {
+                      color: color,
+                      weight: isMetro ? 10 : 8,
+                      opacity: isMetro ? 0.35 : 0.2,
+                      lineCap: 'round',
+                      lineJoin: 'round',
+                      offset: offsetVal
+                    }).addTo(map);
+                    legPolylines.push(glow);
 
-                  if (isMetro) {
-                    mainLine.bindPopup('Metro Transit (Underground Tunnel Corridor)');
-                  } else if (isRail) {
-                    mainLine.bindPopup('Rail Transit Corridor');
-                  }
+                    // Core Track Polyline
+                    var mainLine = L.polyline(coords, {
+                      color: color,
+                      weight: isMetro ? 5 : 4.5,
+                      opacity: 0.95,
+                      lineCap: 'round',
+                      lineJoin: 'round',
+                      dashArray: isMetro ? '10, 6' : undefined,
+                      offset: offsetVal
+                    }).addTo(map);
+                    legPolylines.push(mainLine);
 
-                  try {
-                    if (typeof L.polylineDecorator === 'function') {
-                      var decorator = L.polylineDecorator(mainLine, {
-                        patterns: [
-                          { offset: 50, repeat: 100, symbol: L.Symbol.arrowHead({ pixelSize: 11, pathOptions: { color: color, fillOpacity: 1, weight: 0 } }) }
-                        ]
-                      }).addTo(map);
-                      legDecorators.push(decorator);
+                    if (isMetro) {
+                      mainLine.bindPopup('Metro Transit (Underground Tunnel Corridor)');
+                    } else if (isRail) {
+                      mainLine.bindPopup('Rail Transit Corridor');
                     }
-                  } catch(decErr) {}
-                });
 
-                // ONLY fit bounds on initial load of the route
-                map.fitBounds(allBounds, { padding: [40, 40], maxZoom: 16 });
-
-                // Start Marker
-                var startPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(46,125,91,0.4));">' +
-                  '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                    '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#2E7D5B"/>' +
-                    '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
-                  '</svg>' +
-                '</div>';
-                var startIcon = L.divIcon({ className: 'custom-3d-pin', html: startPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
-                L.marker(data.roadCoords[0], { icon: startIcon }).addTo(map).bindPopup('Start Location');
-
-                // End Marker
-                var endPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(224,122,95,0.4));">' +
-                  '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                    '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#E07A5F"/>' +
-                    '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
-                  '</svg>' +
-                '</div>';
-                var endIcon = L.divIcon({ className: 'custom-3d-pin', html: endPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
-                L.marker(data.roadCoords[data.roadCoords.length - 1], { icon: endIcon }).addTo(map).bindPopup('End Destination');
-
-                if (data.stops) {
-                  data.stops.forEach(function(st, i) {
-                    var isSafe = st.isSafePlace || st.category === 'safe_zone';
-                    var badgeHtml = isSafe
-                      ? '<div style="background:#2E7D5B; color:#FFFFFF; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; border:2.5px solid #FFFFFF; box-shadow:0 3px 10px rgba(46,125,91,0.5); font-size:12px; font-weight:bold;">🛡️</div>'
-                      : '<div class="stop-badge" style="background:#E07A5F; box-shadow:0 3px 10px rgba(224,122,95,0.4);">' + (i+1) + '</div>';
-                    var icon = L.divIcon({ className: 'custom-stop-marker', html: badgeHtml, iconSize: [28, 28], iconAnchor: [14, 14] });
-                    var popupContent = '<b>' + (st.name || 'Stationary Stay') + '</b>' +
-                      (isSafe ? '<br/><span style="color:#2E7D5B; font-weight:700; font-size:11px;">✓ Circle Safe Place</span>' : '') +
-                      '<br/><span style="font-size:11px;color:#666;">Dwell: ' + (st.durationMinutes || 0) + ' mins</span>';
-                    var m = L.marker([st.lat, st.lng], { icon: icon }).addTo(map).bindPopup(popupContent);
-                    stopMarkers.push(m);
+                    try {
+                      if (typeof L.polylineDecorator === 'function') {
+                        var decorator = L.polylineDecorator(mainLine, {
+                          patterns: [
+                            { offset: 50, repeat: 100, symbol: L.Symbol.arrowHead({ pixelSize: 11, pathOptions: { color: color, fillOpacity: 1, weight: 0 } }) }
+                          ]
+                        }).addTo(map);
+                        legDecorators.push(decorator);
+                      }
+                    } catch(decErr) {}
                   });
+
+                  // ONLY fit bounds on initial load of the route
+                  map.fitBounds(allBounds, { padding: [40, 40], maxZoom: 16 });
+
+                  // Start Marker
+                  var startPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(46,125,91,0.4));">' +
+                    '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+                      '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#2E7D5B"/>' +
+                      '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
+                    '</svg>' +
+                  '</div>';
+                  var startIcon = L.divIcon({ className: 'custom-3d-pin', html: startPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
+                  startMarker = L.marker(data.roadCoords[0], { icon: startIcon }).addTo(map).bindPopup('Start Location');
+
+                  // End Marker
+                  var endPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(224,122,95,0.4));">' +
+                    '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+                      '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#E07A5F"/>' +
+                      '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
+                    '</svg>' +
+                  '</div>';
+                  var endIcon = L.divIcon({ className: 'custom-3d-pin', html: endPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
+                  endMarker = L.marker(data.roadCoords[data.roadCoords.length - 1], { icon: endIcon }).addTo(map).bindPopup('End Destination');
                 }
+              }
+
+              // Render Stop Markers with spatial proximity de-duplication
+              if (data.stops) {
+                var renderedCoords = [];
+                data.stops.forEach(function(st, i) {
+                  var isTooClose = renderedCoords.some(function(rc) {
+                    return (Math.abs(rc.lat - st.lat) < 0.0008 && Math.abs(rc.lng - st.lng) < 0.0008);
+                  });
+                  if (isTooClose && !st.isSafePlace) return; // Prevent overlapping pin stacks
+                  renderedCoords.push({ lat: st.lat, lng: st.lng });
+
+                  var isSafe = st.isSafePlace || st.category === 'safe_zone';
+                  var badgeHtml = isSafe
+                    ? '<div style="background:#2E7D5B; color:#FFFFFF; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; border:2.5px solid #FFFFFF; box-shadow:0 3px 10px rgba(46,125,91,0.5); font-size:12px; font-weight:bold;">🛡️</div>'
+                    : '<div class="stop-badge" style="background:#E07A5F; box-shadow:0 3px 10px rgba(224,122,95,0.4); width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:11px; border:2px solid #fff;">' + (i+1) + '</div>';
+                  var icon = L.divIcon({ className: 'custom-stop-marker', html: badgeHtml, iconSize: [28, 28], iconAnchor: [14, 14] });
+                  var popupContent = '<b>' + (st.name || 'Stationary Stay') + '</b>' +
+                    (isSafe ? '<br/><span style="color:#2E7D5B; font-weight:700; font-size:11px;">✓ Circle Safe Place</span>' : '') +
+                    '<br/><span style="font-size:11px;color:#666;">Dwell: ' + (st.durationMinutes || 0) + ' mins</span>';
+                  var m = L.marker([st.lat, st.lng], { icon: icon }).addTo(map).bindPopup(popupContent);
+                  stopMarkers.push(m);
+                });
+              }
               } else if (data.roadCoords && data.roadCoords.length > 0) {
                 var fallbackBounds = L.latLngBounds();
                 data.roadCoords.forEach(function(c) { fallbackBounds.extend(c); });
@@ -1305,50 +1378,101 @@ export default function LocationHistoryScreen() {
               </View>
             ) : null}
 
-            {/* Metric Cards Grid */}
-            <View style={styles.metricsRow}>
-              <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
-                <View style={[styles.metricIconWrap, { backgroundColor: '#E8F5EE' }]}>
-                  <Ionicons name="navigate-outline" size={16} color="#2E7D5B" />
+            {/* Telematics Command Dashboard (2x2 Clean Grid) */}
+            <View style={[styles.kpiDashboardCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6' }]}>
+              {/* Row 1: Total Distance & Active Transit */}
+              <View style={styles.kpiRow}>
+                <View style={styles.kpiItem}>
+                  <View style={[styles.kpiIconWrap, { backgroundColor: isDark ? 'rgba(46, 125, 91, 0.2)' : '#E8F5EE' }]}>
+                    <Ionicons name="navigate-outline" size={17} color="#2E7D5B" />
+                  </View>
+                  <View style={styles.kpiTextWrap}>
+                    <Text style={[styles.kpiVal, { color: colors.foreground }]}>
+                      {typeof totalDistanceKm === 'number' ? totalDistanceKm.toFixed(1) : totalDistanceKm} <Text style={styles.kpiUnit}>km</Text>
+                    </Text>
+                    <Text style={[styles.kpiLbl, { color: colors.textMuted }]}>TOTAL DISTANCE</Text>
+                  </View>
                 </View>
-                <Text style={[styles.metricVal, { color: colors.foreground }]}>{typeof totalDistanceKm === 'number' ? totalDistanceKm.toFixed(1) : totalDistanceKm} km</Text>
-                <Text style={[styles.metricLbl, { color: colors.textMuted }]}>DISTANCE</Text>
+
+                <View style={[styles.kpiDividerV, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6' }]} />
+
+                <View style={styles.kpiItem}>
+                  <View style={[styles.kpiIconWrap, { backgroundColor: isDark ? 'rgba(224, 122, 95, 0.2)' : '#FFF3EB' }]}>
+                    <Ionicons name="stopwatch-outline" size={17} color="#E07A5F" />
+                  </View>
+                  <View style={styles.kpiTextWrap}>
+                    <Text style={[styles.kpiVal, { color: colors.foreground }]}>
+                      {Math.floor(travelDurationMinutes / 60)}h {travelDurationMinutes % 60}m
+                    </Text>
+                    <Text style={[styles.kpiLbl, { color: colors.textMuted }]}>ACTIVE TRANSIT</Text>
+                  </View>
+                </View>
               </View>
 
-              <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
-                <View style={[styles.metricIconWrap, { backgroundColor: '#FFF3EB' }]}>
-                  <Ionicons name="stopwatch-outline" size={16} color="#E07A5F" />
-                </View>
-                <Text style={[styles.metricVal, { color: colors.foreground }]}>{Math.floor(travelDurationMinutes / 60)}h {travelDurationMinutes % 60}m</Text>
-                <Text style={[styles.metricLbl, { color: colors.textMuted }]}>TRAVEL TIME</Text>
-              </View>
+              {/* Horizontal Divider */}
+              <View style={[styles.kpiDividerH, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6' }]} />
 
-              <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
-                <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
-                  <Ionicons name="speedometer-outline" size={16} color="#EF4444" />
+              {/* Row 2: Top Speed & Average Speed */}
+              <View style={styles.kpiRow}>
+                <View style={styles.kpiItem}>
+                  <View style={[styles.kpiIconWrap, { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEF2F2' }]}>
+                    <Ionicons name="speedometer-outline" size={17} color="#EF4444" />
+                  </View>
+                  <View style={styles.kpiTextWrap}>
+                    <Text style={[styles.kpiVal, { color: colors.foreground }]}>
+                      {topSpeedKmh} <Text style={styles.kpiUnit}>km/h</Text>
+                    </Text>
+                    <Text style={[styles.kpiLbl, { color: colors.textMuted }]}>TOP SPEED</Text>
+                  </View>
                 </View>
-                <Text style={[styles.metricVal, { color: colors.foreground }]}>{topSpeedKmh} km/h</Text>
-                <Text style={[styles.metricLbl, { color: colors.textMuted }]}>TOP SPEED</Text>
-              </View>
 
-              <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
-                <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(59, 130, 246, 0.12)' }]}>
-                  <Ionicons name="analytics-outline" size={16} color="#3B82F6" />
+                <View style={[styles.kpiDividerV, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6' }]} />
+
+                <View style={styles.kpiItem}>
+                  <View style={[styles.kpiIconWrap, { backgroundColor: isDark ? 'rgba(59, 130, 246, 0.2)' : '#EFF6FF' }]}>
+                    <Ionicons name="analytics-outline" size={17} color="#3B82F6" />
+                  </View>
+                  <View style={styles.kpiTextWrap}>
+                    <Text style={[styles.kpiVal, { color: colors.foreground }]}>
+                      {effectiveAvgSpeed} <Text style={styles.kpiUnit}>km/h</Text>
+                    </Text>
+                    <Text style={[styles.kpiLbl, { color: colors.textMuted }]}>AVG SPEED</Text>
+                  </View>
                 </View>
-                <Text style={[styles.metricVal, { color: colors.foreground }]}>{averageSpeedKmh} km/h</Text>
-                <Text style={[styles.metricLbl, { color: colors.textMuted }]}>AVG SPEED</Text>
               </View>
             </View>
 
-            {/* Stationary Stops */}
+            {/* Stationary / Visited Places */}
             {stationaryStops.length > 0 ? (
               <>
                 <View style={styles.sectionTitleRow}>
-                  <Text style={[styles.sectionTitle, { color: colors.foreground }]}>STATIONARY STOPS ({stationaryStops.length})</Text>
-                  <View style={[styles.accentLine, { backgroundColor: '#EDEBE6' }]} />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                    <Ionicons name={showAllPlaces ? "location" : "star"} size={14} color="#2E7D5B" />
+                    <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+                      {showAllPlaces ? `ALL VISITED PLACES (${stationaryStops.length})` : `KEY PLACES (${displayedStops.length})`}
+                    </Text>
+                  </View>
+                  {stationaryStops.length > mainStops.length && (
+                    <TouchableOpacity
+                      style={[styles.detailToggleBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F5EE' }]}
+                      onPress={() => setShowAllPlaces(!showAllPlaces)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.detailToggleBtnText, { color: '#2E7D5B' }]}>
+                        {showAllPlaces ? 'Key Places' : `View All (${stationaryStops.length})`}
+                      </Text>
+                      <Ionicons name={showAllPlaces ? "chevron-up" : "chevron-down"} size={13} color="#2E7D5B" />
+                    </TouchableOpacity>
+                  )}
                 </View>
 
-                {stationaryStops.map((stop, idx) => {
+                {!showAllPlaces && stationaryStops.length > mainStops.length && (
+                  <Text style={[styles.subtleFilterHint, { color: colors.textMuted }]}>
+                    Showing significant stops & safe places • {stationaryStops.length - mainStops.length} brief pause(s) hidden
+                  </Text>
+                )}
+
+                {displayedStops.map((stop, idx) => {
                   const isSafe = stop.isSafePlace || stop.category === 'safe_zone';
                   return (
                     <TouchableOpacity
@@ -1357,7 +1481,7 @@ export default function LocationHistoryScreen() {
                         styles.stopItemCard,
                         {
                           backgroundColor: colors.surface,
-                          borderColor: isSafe ? (isDark ? '#1E3A2B' : '#BFE3D1') : '#EDEBE6',
+                          borderColor: isSafe ? (isDark ? '#1E3A2B' : '#BFE3D1') : (isDark ? '#222' : '#EDEBE6'),
                         },
                       ]}
                       onPress={() => focusMapLocation(stop.latitude, stop.longitude, 17)}
@@ -1392,12 +1516,28 @@ export default function LocationHistoryScreen() {
 
             {/* Travel & Movement Timeline */}
             <View style={styles.sectionTitleRow}>
-              <Text style={[styles.sectionTitle, { color: colors.foreground }]}>PRECISION TELEMATICS TIMELINE ({timelineEvents.length})</Text>
-              <View style={[styles.accentLine, { backgroundColor: '#EDEBE6' }]} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                <Ionicons name="git-commit-outline" size={14} color="#2E7D5B" />
+                <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+                  {showAllPlaces ? `COMPLETE TIMELINE (${displayedTimelineEvents.length})` : `TRIPS & KEY STOPS (${displayedTimelineEvents.length})`}
+                </Text>
+              </View>
+              {timelineEvents.length > displayedTimelineEvents.length && (
+                <TouchableOpacity
+                  style={[styles.detailToggleBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F5EE' }]}
+                  onPress={() => setShowAllPlaces(!showAllPlaces)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.detailToggleBtnText, { color: '#2E7D5B' }]}>
+                    {showAllPlaces ? 'Key Highlights' : `All Events (${timelineEvents.length})`}
+                  </Text>
+                  <Ionicons name={showAllPlaces ? "chevron-up" : "chevron-down"} size={13} color="#2E7D5B" />
+                </TouchableOpacity>
+              )}
             </View>
 
-            {timelineEvents.length === 0 ? (
-              <View style={[styles.emptyTimelineCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
+            {displayedTimelineEvents.length === 0 ? (
+              <View style={[styles.emptyTimelineCard, { backgroundColor: colors.surface, borderColor: isDark ? '#222' : '#EDEBE6' }]}>
                 <View style={styles.emptyCardHeader}>
                   <View style={[styles.avatarCircleSmall, { backgroundColor: '#2E7D5B' }]}>
                     <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 13 }}>{selectedMemberInitial}</Text>
@@ -1440,129 +1580,143 @@ export default function LocationHistoryScreen() {
                     : `No driving trips or transit movement were logged on ${getDateRange().dateLabel}.`}
                 </Text>
 
+                {/* Clean tip without redundant duplicate buttons */}
                 {selectedDate === 'today' && (
-                  <View style={[styles.quickDateJumpWrap, { borderTopColor: isDark ? '#222' : '#EDEBE6' }]}>
-                    <Text style={[styles.quickDateJumpLabel, { color: colors.foreground }]}>Check recent driving trips:</Text>
-                    <View style={styles.quickDateBtnRow}>
-                      <TouchableOpacity
-                        style={[styles.quickJumpBtn, { backgroundColor: '#2E7D5B' }]}
-                        onPress={() => setSelectedDate('yesterday')}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons name="calendar-outline" size={13} color="#FFFFFF" />
-                        <Text style={styles.quickJumpBtnText}>View Yesterday</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.quickJumpBtnSecondary, { borderColor: '#2E7D5B', backgroundColor: isDark ? '#141E18' : '#E8F5EE' }]}
-                        onPress={() => setSelectedDate('2daysAgo')}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons name="calendar-outline" size={13} color="#2E7D5B" />
-                        <Text style={[styles.quickJumpBtnTextSecondary, { color: '#2E7D5B' }]}>2 Days Ago</Text>
-                      </TouchableOpacity>
-                    </View>
+                  <View style={[styles.emptyHintBox, { backgroundColor: isDark ? 'rgba(46,125,91,0.1)' : '#F0FDF4', borderColor: isDark ? 'rgba(46,125,91,0.25)' : '#DCFCE7' }]}>
+                    <Ionicons name="information-circle-outline" size={15} color="#2E7D5B" />
+                    <Text style={[styles.emptyHintText, { color: isDark ? '#A7F3D0' : '#166534' }]}>
+                      Switch dates using the selector above (Today, Yesterday, 2 Days) to view recorded routes.
+                    </Text>
                   </View>
                 )}
               </View>
             ) : (
-              timelineEvents.map((event, idx) => {
-                const isStay = event.type === 'stay';
-                const isSelected = selectedEventId === event.id;
-                const isSafe = isStay && (event.data?.isSafePlace || event.data?.category === 'safe_zone');
+              <>
+                {displayedTimelineEvents.map((event, idx) => {
+                  const isStay = event.type === 'stay';
+                  const isSelected = selectedEventId === event.id;
+                  const isSafe = isStay && (event.data?.isSafePlace || event.data?.category === 'safe_zone');
 
-                return (
-                  <TouchableOpacity
-                    key={event.id}
-                    style={[
-                      styles.timelineEventCard,
-                      {
-                        backgroundColor: isSelected ? (isDark ? '#14231B' : '#E8F5EE') : colors.surface,
-                        borderColor: isSelected ? '#2E7D5B' : (isDark ? '#222' : '#EDEBE6'),
-                      },
-                    ]}
-                    onPress={() => {
-                      setSelectedEventId(event.id);
-                      setIsPlaying(false);
-                      if (isStay) {
-                        focusMapLocation(event.latitude, event.longitude, 17);
-                      } else if (event.data?.roadCoords && event.data.roadCoords.length > 0) {
-                        focusMapBounds(event.data.roadCoords);
-                      }
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <View
+                  return (
+                    <TouchableOpacity
+                      key={event.id}
                       style={[
-                        styles.timelineIconBadge,
+                        styles.timelineEventCard,
                         {
-                          backgroundColor: isStay
-                            ? (isSafe ? (isDark ? '#1B3526' : '#E8F5EE') : (isDark ? '#35231C' : '#FFF3EB'))
-                            : (isDark ? '#1B3526' : '#E8F5EE'),
+                          backgroundColor: isSelected ? (isDark ? '#14231B' : '#E8F5EE') : colors.surface,
+                          borderColor: isSelected ? '#2E7D5B' : (isDark ? '#222' : '#EDEBE6'),
                         },
                       ]}
+                      onPress={() => {
+                        setSelectedEventId(event.id);
+                        setIsPlaying(false);
+                        if (isStay) {
+                          focusMapLocation(event.latitude, event.longitude, 17);
+                        } else if (event.data?.roadCoords && event.data.roadCoords.length > 0) {
+                          focusMapBounds(event.data.roadCoords);
+                        }
+                      }}
+                      activeOpacity={0.8}
                     >
-                      <Ionicons
-                        name={isStay ? (isSafe ? "shield-checkmark" : "location") : (event.data?.isTransit ? "subway-outline" : "car-sport")}
-                        size={18}
-                        color={isStay ? (isSafe ? '#2E7D5B' : '#E07A5F') : '#2E7D5B'}
-                      />
-                    </View>
+                      <View
+                        style={[
+                          styles.timelineIconBadge,
+                          {
+                            backgroundColor: isStay
+                              ? (isSafe ? (isDark ? '#1B3526' : '#E8F5EE') : (isDark ? '#35231C' : '#FFF3EB'))
+                              : (isDark ? '#1B3526' : '#E8F5EE'),
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={isStay ? (isSafe ? "shield-checkmark" : "location") : (event.data?.isTransit ? "subway-outline" : "car-sport")}
+                          size={18}
+                          color={isStay ? (isSafe ? '#2E7D5B' : '#E07A5F') : '#2E7D5B'}
+                        />
+                      </View>
 
-                    <View style={styles.timelineEventContent}>
-                      <View style={styles.timelineEventHeaderRow}>
-                        <Text style={[styles.timelineEventTitle, { color: colors.foreground }]} numberOfLines={1}>
-                          {event.title}
-                        </Text>
-                        <View
-                          style={[
-                            styles.timelineTypeBadge,
-                            {
-                              backgroundColor: isStay
-                                ? (isSafe ? '#2E7D5B' : '#E07A5F')
-                                : (event.data?.isTransit ? '#8B5CF6' : '#2E7D5B'),
-                            },
-                          ]}
-                        >
-                          <Text style={styles.timelineTypeBadgeText}>
-                            {isStay ? (isSafe ? 'SAFE ZONE' : 'STAY') : (event.data?.isTransit ? 'TRANSIT' : 'TRIP')}
+                      <View style={styles.timelineEventContent}>
+                        <View style={styles.timelineEventHeaderRow}>
+                          <Text style={[styles.timelineEventTitle, { color: colors.foreground }]} numberOfLines={1}>
+                            {event.title}
                           </Text>
+                          <View
+                            style={[
+                              styles.timelineTypeBadge,
+                              {
+                                backgroundColor: isStay
+                                  ? (isSafe ? '#2E7D5B' : '#E07A5F')
+                                  : (event.data?.isTransit ? '#8B5CF6' : '#2E7D5B'),
+                              },
+                            ]}
+                          >
+                            <Text style={styles.timelineTypeBadgeText}>
+                              {isStay ? (isSafe ? 'SAFE ZONE' : 'STAY') : (event.data?.isTransit ? 'TRANSIT' : 'TRIP')}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <Text style={[styles.timelineEventSubtitle, { color: colors.textMuted }]} numberOfLines={1}>
+                          {event.subtitle}
+                        </Text>
+
+                        <View style={styles.timelineMetaRow}>
+                          <View style={styles.timelineMetaItem}>
+                            <Ionicons name="time-outline" size={12} color={colors.textMuted} />
+                            <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.timeRange}</Text>
+                          </View>
+                          {event.distanceText && (
+                            <View style={styles.timelineMetaItem}>
+                              <Ionicons name="navigate-outline" size={12} color={colors.textMuted} />
+                              <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.distanceText}</Text>
+                            </View>
+                          )}
+                          {event.durationText && (
+                            <View style={styles.timelineMetaItem}>
+                              <Ionicons name="hourglass-outline" size={12} color={colors.textMuted} />
+                              <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.durationText}</Text>
+                            </View>
+                          )}
+                          {event.speedText && (
+                            <View style={styles.timelineMetaItem}>
+                              <Ionicons name="speedometer-outline" size={12} color={colors.textMuted} />
+                              <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.speedText}</Text>
+                            </View>
+                          )}
                         </View>
                       </View>
 
-                      <Text style={[styles.timelineEventSubtitle, { color: colors.textMuted }]} numberOfLines={1}>
-                        {event.subtitle}
-                      </Text>
+                      <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                    </TouchableOpacity>
+                  );
+                })}
 
-                      <View style={styles.timelineMetaRow}>
-                        <View style={styles.timelineMetaItem}>
-                          <Ionicons name="time-outline" size={12} color={colors.textMuted} />
-                          <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.timeRange}</Text>
-                        </View>
-                        {event.distanceText && (
-                          <View style={styles.timelineMetaItem}>
-                            <Ionicons name="navigate-outline" size={12} color={colors.textMuted} />
-                            <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.distanceText}</Text>
-                          </View>
-                        )}
-                        {event.durationText && (
-                          <View style={styles.timelineMetaItem}>
-                            <Ionicons name="hourglass-outline" size={12} color={colors.textMuted} />
-                            <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.durationText}</Text>
-                          </View>
-                        )}
-                        {event.speedText && (
-                          <View style={styles.timelineMetaItem}>
-                            <Ionicons name="speedometer-outline" size={12} color={colors.textMuted} />
-                            <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.speedText}</Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-
-                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                {timelineEvents.length > displayedTimelineEvents.length && !showAllPlaces && (
+                  <TouchableOpacity
+                    style={[styles.expandAllTimelineBtn, { backgroundColor: colors.surface, borderColor: isDark ? '#222' : '#EDEBE6' }]}
+                    onPress={() => setShowAllPlaces(true)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="list-outline" size={15} color="#2E7D5B" />
+                    <Text style={[styles.expandAllTimelineBtnText, { color: '#2E7D5B' }]}>
+                      Show All {timelineEvents.length} Events ({timelineEvents.length - displayedTimelineEvents.length} brief pauses hidden)
+                    </Text>
                   </TouchableOpacity>
-                );
-              })
+                )}
+
+                {showAllPlaces && timelineEvents.length > mainStops.length && (
+                  <TouchableOpacity
+                    style={[styles.expandAllTimelineBtn, { backgroundColor: colors.surface, borderColor: isDark ? '#222' : '#EDEBE6' }]}
+                    onPress={() => setShowAllPlaces(false)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="funnel-outline" size={14} color="#E07A5F" />
+                    <Text style={[styles.expandAllTimelineBtnText, { color: '#E07A5F' }]}>
+                      Collapse to Key Places Only
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </>
             )}
           </ScrollView>
         </>
@@ -1806,35 +1960,97 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 40,
   },
-  metricsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 16,
-  },
-  metricCard: {
-    flex: 1,
-    padding: 14,
-    borderRadius: 16,
+  kpiDashboardCard: {
+    borderRadius: 18,
     borderWidth: 1,
-    alignItems: 'center',
-    gap: 6,
+    padding: 14,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  metricIconWrap: {
+  kpiRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  kpiItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+  },
+  kpiDividerV: {
+    width: 1,
+    height: 38,
+    marginHorizontal: 4,
+  },
+  kpiDividerH: {
+    height: 1,
+    width: '100%',
+    marginVertical: 10,
+  },
+  kpiIconWrap: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  metricVal: {
-    fontSize: 15,
-    fontWeight: '800',
-    marginVertical: 2,
+  kpiTextWrap: {
+    flex: 1,
+    justifyContent: 'center',
   },
-  metricLbl: {
-    fontSize: 9,
+  kpiVal: {
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  kpiUnit: {
+    fontSize: 11,
+    fontWeight: '600',
+    opacity: 0.75,
+  },
+  kpiLbl: {
+    fontSize: 9.5,
     fontWeight: '700',
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
+    marginTop: 2,
+  },
+  detailToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
+  },
+  detailToggleBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  subtleFilterHint: {
+    fontSize: 11,
+    marginBottom: 8,
+    marginTop: -4,
+  },
+  expandAllTimelineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 12,
+  },
+  expandAllTimelineBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   sectionTitleRow: {
     flexDirection: 'row',
@@ -2149,44 +2365,19 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginTop: 4,
   },
-  quickDateJumpWrap: {
-    marginTop: 14,
-    paddingTop: 12,
-    borderTopWidth: 1,
-  },
-  quickDateJumpLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  quickDateBtnRow: {
+  emptyHintBox: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
-  },
-  quickJumpBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 10,
-  },
-  quickJumpBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  quickJumpBtnSecondary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    marginTop: 14,
+    padding: 10,
     borderRadius: 10,
     borderWidth: 1,
   },
-  quickJumpBtnTextSecondary: {
+  emptyHintText: {
+    flex: 1,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '500',
+    lineHeight: 15,
   },
 });
