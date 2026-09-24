@@ -23,51 +23,24 @@ import { intelligentRouteReconstruction, detectRouteGaps, ReconstructionResult }
 import AnimatedListDropdown from '../components/AnimatedListDropdown';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 
+import {
+  processEnterpriseLocationHistory,
+  EnterpriseHistoryPoint,
+  EnterpriseStationaryStop,
+  EnterpriseTripLeg,
+  EnterpriseTimelineEvent,
+  reverseGeocodeEnterprise,
+  matchSafePlace,
+} from '../services/EnterpriseLocationHistoryService';
+
 const geocodeCache: { [key: string]: string } = {};
 
 async function reverseGeocodeFast(lat: number, lng: number): Promise<string> {
-  const cacheKey = `${lat.toFixed(3)},${lng.toFixed(3)}`;
-  if (geocodeCache[cacheKey]) return geocodeCache[cacheKey];
-
-  let addr = `Location • ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-  try {
-    const geoPromise = Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1800));
-    const geoRes: any = await Promise.race([geoPromise, timeoutPromise]).catch(() => null);
-
-    if (geoRes && geoRes.length > 0) {
-      const place = geoRes[0];
-      const nameParts = [place.name, place.street, place.district || place.subregion || place.city].filter(Boolean);
-      if (nameParts.length > 0) addr = nameParts.join(', ');
-    }
-  } catch (e) {}
-
-  geocodeCache[cacheKey] = addr;
-  return addr;
+  return reverseGeocodeEnterprise(lat, lng);
 }
 
-interface HistoryPoint {
-  id: string;
-  latitude: number;
-  longitude: number;
-  timestamp: string;
-  rawTimeMs: number;
-  speedKmh: number;
-  activity: string;
-  address?: string;
-  isReconstructed?: boolean;
-  reconstructionSource?: 'metro_transit' | 'rail_network' | 'historical_learned' | 'road_snapped' | 'spline_interpolated';
-}
-
-interface StationaryStop {
-  id: string;
-  name: string;
-  latitude: number;
-  longitude: number;
-  arrivalTime: string;
-  departureTime: string;
-  durationMinutes: number;
-}
+export type HistoryPoint = EnterpriseHistoryPoint;
+export type StationaryStop = EnterpriseStationaryStop;
 
 function parseEWKBPoint(hex: string): { latitude: number; longitude: number } | null {
   try {
@@ -130,13 +103,15 @@ export default function LocationHistoryScreen() {
   const navigation = useNavigation();
   const route = useRoute<any>();
   const { colors, isDark } = useThemeStore();
-  const { activeCircle, members } = useCircleStore();
+  const { activeCircle, members, places } = useCircleStore();
   const { profile } = useAuthStore();
 
   const insets = useSafeAreaInsets();
   const topInset = getSafeTopInset(insets.top);
 
   const webViewRef = useRef<WebView | null>(null);
+  const isMapReadyRef = useRef<boolean>(false);
+  const latestTelemetryDataRef = useRef<any>(null);
 
   // Filters - prioritize member passed from route navigation (e.g., Circle tab 3-dots actions)
   const initialTargetMemberId = route.params?.memberId || route.params?.member?.user_id || route.params?.member?.id;
@@ -183,6 +158,7 @@ export default function LocationHistoryScreen() {
   const selectedMemberInitial = (selectedMemberName.replace('(You)', '').trim().charAt(0) || 'U').toUpperCase();
 
   const sendMapTelemetry = (data: any) => {
+    latestTelemetryDataRef.current = data;
     if (Platform.OS === 'web') {
       try {
         const iframe = document.getElementById('historyMapIframe') as HTMLIFrameElement | null;
@@ -206,12 +182,84 @@ export default function LocationHistoryScreen() {
     }
   };
 
+  const focusMapLocation = (lat: number, lng: number, zoom = 16) => {
+    const msg = { type: 'FOCUS_LOCATION', lat, lng, zoom };
+    if (Platform.OS === 'web') {
+      try {
+        const iframe = document.getElementById('historyMapIframe') as HTMLIFrameElement | null;
+        if (iframe && iframe.contentWindow) {
+          const win: any = iframe.contentWindow;
+          if (win.focusLocation) win.focusLocation(lat, lng, zoom);
+          else win.postMessage(msg, '*');
+        }
+      } catch (_) {}
+    } else if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        if (window.focusLocation) window.focusLocation(${lat}, ${lng}, ${zoom});
+        true;
+      `);
+    }
+  };
+
+  const focusMapBounds = (coords: [number, number][]) => {
+    if (!coords || coords.length === 0) return;
+    const msg = { type: 'FOCUS_BOUNDS', coords };
+    if (Platform.OS === 'web') {
+      try {
+        const iframe = document.getElementById('historyMapIframe') as HTMLIFrameElement | null;
+        if (iframe && iframe.contentWindow) {
+          const win: any = iframe.contentWindow;
+          if (win.focusBounds) win.focusBounds(coords);
+          else win.postMessage(msg, '*');
+        }
+      } catch (_) {}
+    } else if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        if (window.focusBounds) window.focusBounds(${JSON.stringify(coords)});
+        true;
+      `);
+    }
+  };
+
+  // Bi-directional MAP_READY handshake to eliminate telemetry race conditions
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      const handleWebMsg = (e: MessageEvent) => {
+        try {
+          const payload = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+          if (payload && payload.type === 'MAP_READY') {
+            isMapReadyRef.current = true;
+            if (latestTelemetryDataRef.current) {
+              sendMapTelemetry(latestTelemetryDataRef.current);
+            }
+          }
+        } catch (_) {}
+      };
+      window.addEventListener('message', handleWebMsg);
+      return () => window.removeEventListener('message', handleWebMsg);
+    }
+  }, []);
+
+  const handleWebViewMessage = (event: any) => {
+    try {
+      const payload = JSON.parse(event.nativeEvent.data);
+      if (payload && payload.type === 'MAP_READY') {
+        isMapReadyRef.current = true;
+        if (latestTelemetryDataRef.current) {
+          sendMapTelemetry(latestTelemetryDataRef.current);
+        }
+      }
+    } catch (_) {}
+  };
+
   const [loading, setLoading] = useState(true);
-  const [historyPoints, setHistoryPoints] = useState<HistoryPoint[]>([]);
-  const [tripLegs, setTripLegs] = useState<any[]>([]);
+  const [historyPoints, setHistoryPoints] = useState<EnterpriseHistoryPoint[]>([]);
+  const [tripLegs, setTripLegs] = useState<EnterpriseTripLeg[]>([]);
   const [roadCoords, setRoadCoords] = useState<[number, number][]>([]);
   const [roadBearings, setRoadBearings] = useState<number[]>([]);
-  const [stationaryStops, setStationaryStops] = useState<StationaryStop[]>([]);
+  const [stationaryStops, setStationaryStops] = useState<EnterpriseStationaryStop[]>([]);
+  const [timelineEvents, setTimelineEvents] = useState<EnterpriseTimelineEvent[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [playbackIndex, setPlaybackIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<1 | 2 | 5>(1);
@@ -220,6 +268,7 @@ export default function LocationHistoryScreen() {
   const [totalDistanceKm, setTotalDistanceKm] = useState(0);
   const [travelDurationMinutes, setTravelDurationMinutes] = useState(0);
   const [topSpeedKmh, setTopSpeedKmh] = useState(0);
+  const [averageSpeedKmh, setAverageSpeedKmh] = useState(0);
   const [isScrollEnabled, setIsScrollEnabled] = useState(true);
   const [reconstructionStats, setReconstructionStats] = useState<ReconstructionResult | null>(null);
 
@@ -421,8 +470,10 @@ export default function LocationHistoryScreen() {
             setTripLegs(cached.legs || []);
             setRoadCoords(cached.roadCoords || []);
             setStationaryStops(cached.stops || []);
+            setTimelineEvents(cached.events || []);
             setTotalDistanceKm(cached.totalDist || 0);
             setTopSpeedKmh(cached.maxSpd || 0);
+            setAverageSpeedKmh(cached.avgSpd || 0);
             setTravelDurationMinutes(cached.totalDur || 0);
             setLoading(false);
           }
@@ -440,13 +491,28 @@ export default function LocationHistoryScreen() {
         recorded_at: string;
       }[] = [];
 
-      const { data, error } = await supabase
-        .from('location_history')
-        .select('id, geom, speed_mps, recorded_at')
-        .eq('user_id', targetUserId)
-        .gte('recorded_at', start)
-        .lte('recorded_at', end)
-        .order('recorded_at', { ascending: true });
+      // 1. Query only necessary telemetry columns from Supabase with fast timeout
+      let data: any = null;
+      let error: any = null;
+      try {
+        const queryPromise = supabase
+          .from('location_history')
+          .select('id, geom, speed_mps, recorded_at')
+          .eq('user_id', targetUserId)
+          .gte('recorded_at', start)
+          .lte('recorded_at', end)
+          .order('recorded_at', { ascending: true });
+
+        const timeoutPromise = new Promise((resolve) =>
+          setTimeout(() => resolve({ data: null, error: new Error('timeout') }), 1800)
+        );
+
+        const res: any = await Promise.race([queryPromise, timeoutPromise]);
+        data = res?.data;
+        error = res?.error;
+      } catch (e) {
+        error = e;
+      }
 
       if (!error && data && data.length > 0) {
         data.forEach((item: any, idx: number) => {
@@ -465,10 +531,13 @@ export default function LocationHistoryScreen() {
         });
       }
 
-      // 2. Slow Network / Offline Resilience: Read pending local offline buffer from AsyncStorage
+      // 2. Slow Network / Offline Resilience: Read pending local offline buffer from AsyncStorage or localStorage
       if (selectedDate === 'today') {
         try {
-          const offlineRaw = await AsyncStorage.getItem(`@circleguard_offline_breadcrumbs_${targetUserId}`);
+          let offlineRaw = await AsyncStorage.getItem(`@circleguard_offline_breadcrumbs_${targetUserId}`).catch(() => null);
+          if (!offlineRaw && typeof window !== 'undefined' && window.localStorage) {
+            offlineRaw = window.localStorage.getItem(`@circleguard_offline_breadcrumbs_${targetUserId}`);
+          }
           if (offlineRaw) {
             const offlineQueue = JSON.parse(offlineRaw);
             if (Array.isArray(offlineQueue)) {
@@ -498,70 +567,35 @@ export default function LocationHistoryScreen() {
         } catch (e) {}
       }
 
-      // Sort all points chronologically
-      rawPoints.sort((a, b) => a.timeMs - b.timeMs);
-
-      let fetchedPoints: HistoryPoint[] = [];
-
-      if (rawPoints.length > 0) {
-        let prevPoint: { lat: number; lng: number; timeMs: number } | null = null;
-
-        for (let idx = 0; idx < rawPoints.length; idx++) {
-          const item = rawPoints[idx];
-          const timeMs = item.timeMs;
-
-          if (prevPoint) {
-            const distMeters = calculateHaversineDistanceMeters(prevPoint.lat, prevPoint.lng, item.lat, item.lng);
-            const timeDiffSec = Math.max(0.5, Math.abs(timeMs - prevPoint.timeMs) / 1000);
-
-            if (distMeters < 10 && timeDiffSec < 180 && idx < rawPoints.length - 1) {
-              continue;
-            }
-
-            const impliedKmh = (distMeters / timeDiffSec) * 3.6;
-            if (timeDiffSec < 4 && impliedKmh > 125) {
-              continue;
+      // Fallback to locally cached places if places array is empty
+      let effectivePlaces = places && places.length > 0 ? places : [];
+      if (effectivePlaces.length === 0) {
+        try {
+          const cachedPlacesStr = await AsyncStorage.getItem('@circleguard_cached_geofence_places').catch(() => null);
+          if (cachedPlacesStr) {
+            const parsed = JSON.parse(cachedPlacesStr);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              effectivePlaces = parsed;
             }
           }
-
-          let speed = 0;
-          if (item.speed_mps != null && !isNaN(item.speed_mps) && item.speed_mps > 0) {
-            speed = Math.min(115, Math.round(item.speed_mps * 3.6));
-          } else if (prevPoint) {
-            const distMeters = calculateHaversineDistanceMeters(prevPoint.lat, prevPoint.lng, item.lat, item.lng);
-            const timeDiffSec = Math.max(0.5, Math.abs(timeMs - prevPoint.timeMs) / 1000);
-            if (timeDiffSec > 0) {
-              const impliedKmh = (distMeters / timeDiffSec) * 3.6;
-              const prevSpeed = fetchedPoints.length > 0 ? fetchedPoints[fetchedPoints.length - 1].speedKmh : 30;
-              const maxPhysicalSpeed = Math.min(115, (prevSpeed > 0 ? prevSpeed : 30) + (9 * timeDiffSec));
-              speed = impliedKmh < 2.0 ? 0 : Math.min(maxPhysicalSpeed, Math.round(impliedKmh));
-            }
-          }
-
-          prevPoint = { lat: item.lat, lng: item.lng, timeMs };
-
-          fetchedPoints.push({
-            id: item.id,
-            latitude: item.lat,
-            longitude: item.lng,
-            timestamp: new Date(item.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            rawTimeMs: timeMs,
-            speedKmh: speed,
-            activity: speed > 18 ? 'Driving / Transit' : speed > 3 ? 'Walking' : 'Stationary',
-            address: `Point • ${item.lat.toFixed(4)}, ${item.lng.toFixed(4)}`,
-          });
-        }
+        } catch (_) {}
       }
 
-      if (fetchedPoints.length === 0) {
+      // 3. Run Enterprise Telematics Pipeline:
+      // Anti-drift centroid dwell clustering, safe places recognition, map matching, and telematics metrics
+      const enterpriseResult = await processEnterpriseLocationHistory(rawPoints, effectivePlaces, targetUserId);
+
+      if (enterpriseResult.points.length === 0) {
         setHistoryPoints([]);
         setTripLegs([]);
         setRoadCoords([]);
         setRoadBearings([]);
         setStationaryStops([]);
+        setTimelineEvents([]);
         setTotalDistanceKm(0);
         setTravelDurationMinutes(0);
         setTopSpeedKmh(0);
+        setAverageSpeedKmh(0);
         setLoading(false);
 
         // If member has known live coordinates, center map on them with stationary marker
@@ -587,153 +621,48 @@ export default function LocationHistoryScreen() {
         return;
       }
 
-      // Smooth jitter points
-      fetchedPoints = smoothTrajectoryPoints(fetchedPoints);
-
-      // Intelligent Route Reconstruction across GPS gaps
-      if (fetchedPoints.length >= 2) {
-        try {
-          const recon = await intelligentRouteReconstruction(fetchedPoints, targetUserId);
-          if (recon && recon.reconstructedPoints && recon.reconstructedPoints.length >= fetchedPoints.length) {
-            fetchedPoints = recon.reconstructedPoints;
-            setReconstructionStats(recon);
-          }
-        } catch (e) {
-          console.warn('[LocationHistory] Error in route reconstruction:', e);
-        }
-      }
-
-      // 3. Segment trips by stops (> 4 mins)
-      const legs = segmentTripsByStops(
-        fetchedPoints,
-        (p) => p.rawTimeMs,
-        (p) => p.latitude,
-        (p) => p.longitude,
-        4,
-        50
-      );
-
-      // Initial fast road coords from points
-      let allRoadCoords: [number, number][] = fetchedPoints.map(p => [p.latitude, p.longitude]);
-      let allBearings: number[] = [];
-      for (let i = 0; i < fetchedPoints.length - 1; i++) {
-        allBearings.push(calculateBearing(fetchedPoints[i].latitude, fetchedPoints[i].longitude, fetchedPoints[i + 1].latitude, fetchedPoints[i + 1].longitude));
-      }
-
-      const processedLegs = legs.map((leg) => ({
-        ...leg,
-        roadCoords: leg.points.map(p => [p.latitude, p.longitude] as [number, number]),
-        isTransit: leg.points.some((p: any) => p.activity && (p.activity.toLowerCase().includes('transit') || p.activity.toLowerCase().includes('metro'))),
-        transitType: 'road' as const,
-      }));
-
-      // Compute speed filter & stats synchronously (< 5ms)
-      let maxSpd = 0;
-      const speeds = fetchedPoints.map(p => p.speedKmh);
-      const filteredSpeeds: number[] = [];
-      for (let i = 0; i < speeds.length; i++) {
-        const prevSpd = i > 0 ? speeds[i - 1] : speeds[i];
-        const curSpd = speeds[i];
-        const nextSpd = i < speeds.length - 1 ? speeds[i + 1] : speeds[i];
-        const sorted = [prevSpd, curSpd, nextSpd].sort((a, b) => a - b);
-        filteredSpeeds.push(sorted[1]);
-        fetchedPoints[i].speedKmh = sorted[1];
-      }
-      const moving = filteredSpeeds.filter(s => s >= 5).sort((a, b) => a - b);
-      if (moving.length >= 5) {
-        const p98Idx = Math.min(moving.length - 1, Math.floor(moving.length * 0.98));
-        maxSpd = moving[p98Idx];
-      } else if (moving.length > 0) {
-        maxSpd = moving[moving.length - 1];
-      }
-
-      // Cluster stops synchronously
-      const stops: StationaryStop[] = [];
-      let currentGroup: HistoryPoint[] = [];
-
-      for (let i = 0; i < fetchedPoints.length; i++) {
-        const pt = fetchedPoints[i];
-        if (pt.speedKmh === 0 || pt.activity.includes('Stationary')) {
-          currentGroup.push(pt);
-        } else {
-          if (currentGroup.length >= 2) {
-            const first = currentGroup[0];
-            const last = currentGroup[currentGroup.length - 1];
-            const dwellMins = Math.max(5, Math.round((last.rawTimeMs - first.rawTimeMs) / 60000));
-            stops.push({
-              id: `stop_${first.id}`,
-              name: `Stay Location (${dwellMins}m)`,
-              latitude: first.latitude,
-              longitude: first.longitude,
-              arrivalTime: first.timestamp,
-              departureTime: last.timestamp,
-              durationMinutes: dwellMins,
-            });
-          }
-          currentGroup = [];
-        }
-      }
-
-      if (currentGroup.length >= 2) {
-        const first = currentGroup[0];
-        const last = currentGroup[currentGroup.length - 1];
-        const dwellMins = Math.max(5, Math.round((last.rawTimeMs - first.rawTimeMs) / 60000));
-        stops.push({
-          id: `stop_${first.id}`,
-          name: `Stay Location (${dwellMins}m)`,
-          latitude: first.latitude,
-          longitude: first.longitude,
-          arrivalTime: first.timestamp,
-          departureTime: last.timestamp,
-          durationMinutes: dwellMins,
-        });
-      }
-
-      // Calculate total authentic trip distance
-      let totalDist = 0;
-      for (let i = 1; i < allRoadCoords.length; i++) {
-        const segDist = getHaversineDistKm(allRoadCoords[i - 1][0], allRoadCoords[i - 1][1], allRoadCoords[i][0], allRoadCoords[i][1]);
-        if (segDist >= 0.008) {
-          totalDist += segDist;
-        }
-      }
-
-      let movingSec = 0;
-      for (let i = 1; i < fetchedPoints.length; i++) {
-        const prev = fetchedPoints[i - 1];
-        const cur = fetchedPoints[i];
-        const dtSec = Math.max(0, (cur.rawTimeMs - prev.rawTimeMs) / 1000);
-        const distM = calculateHaversineDistanceMeters(prev.latitude, prev.longitude, cur.latitude, cur.longitude);
-
-        const isMovingPt = cur.speedKmh >= 1.8 || prev.speedKmh >= 1.8 || distM >= 15;
-        if (isMovingPt) {
-          movingSec += Math.min(180, Math.max(1, dtSec));
-        } else if (dtSec <= 90) {
-          movingSec += dtSec;
-        }
-      }
-
-      const totalDur = Math.max(1, Math.round(movingSec / 60));
-      const formattedDist = totalDist > 0 ? parseFloat(totalDist.toFixed(1)) : 0;
-
-      // === 4. INSTANT RENDER: Map and Timeline are interactive in < 300ms ===
-      setHistoryPoints(fetchedPoints);
-      setTripLegs(processedLegs);
-      setRoadCoords(allRoadCoords);
-      setRoadBearings(allBearings);
-      setStationaryStops(stops);
-      setTotalDistanceKm(formattedDist);
-      setTopSpeedKmh(maxSpd);
-      setTravelDurationMinutes(totalDur);
+      setHistoryPoints(enterpriseResult.points);
+      setTripLegs(enterpriseResult.tripLegs);
+      setRoadCoords(enterpriseResult.allRoadCoords);
+      setRoadBearings(enterpriseResult.allRoadBearings);
+      setStationaryStops(enterpriseResult.stationaryStops);
+      setTimelineEvents(enterpriseResult.timelineEvents);
+      setTotalDistanceKm(enterpriseResult.totalDistanceKm);
+      setTravelDurationMinutes(enterpriseResult.travelDurationMinutes);
+      setTopSpeedKmh(enterpriseResult.topSpeedKmh);
+      setAverageSpeedKmh(enterpriseResult.averageSpeedKmh);
+      setReconstructionStats(enterpriseResult.reconstructionStats);
       setLoading(false);
 
-      // === 5. PROGRESSIVE ASYNC HYDRATION: Non-blocking background refinement ===
+      const activePt = enterpriseResult.points[0];
+      sendMapTelemetry({
+        tripLegs: enterpriseResult.tripLegs,
+        roadCoords: enterpriseResult.allRoadCoords,
+        currentPt: enterpriseResult.allRoadCoords[0] || [activePt.latitude, activePt.longitude],
+        bearing: enterpriseResult.allRoadBearings[0] || 0,
+        cardinalDir: getCardinalDirection(enterpriseResult.allRoadBearings[0] || 0),
+        currentLabel: `${activePt.timestamp} • ${activePt.speedKmh} km/h`,
+        stops: enterpriseResult.stationaryStops.map(s => ({
+          lat: s.latitude,
+          lng: s.longitude,
+          name: s.name,
+          isSafePlace: s.isSafePlace,
+          category: s.category,
+          durationMinutes: s.durationMinutes,
+        })),
+        isDark,
+        avatarUrl: selectedMemberAvatar,
+        userInitial: selectedMemberInitial,
+        userName: selectedMemberName,
+        speedKmh: activePt.speedKmh,
+      });
+
+      // Background reverse geocode for stops and endpoints
       (async () => {
         try {
-          // A. Geocode departure & arrival in parallel
           const [firstAddr, lastAddr] = await Promise.all([
-            reverseGeocodeFast(fetchedPoints[0].latitude, fetchedPoints[0].longitude).catch(() => null),
-            reverseGeocodeFast(fetchedPoints[fetchedPoints.length - 1].latitude, fetchedPoints[fetchedPoints.length - 1].longitude).catch(() => null),
+            reverseGeocodeFast(enterpriseResult.points[0].latitude, enterpriseResult.points[0].longitude).catch(() => null),
+            reverseGeocodeFast(enterpriseResult.points[enterpriseResult.points.length - 1].latitude, enterpriseResult.points[enterpriseResult.points.length - 1].longitude).catch(() => null),
           ]);
           if (firstAddr || lastAddr) {
             setHistoryPoints(prev => {
@@ -745,95 +674,29 @@ export default function LocationHistoryScreen() {
             });
           }
 
-          // B. Geocode stops in parallel
-          if (stops.length > 0) {
-            const geocodedStops = await Promise.all(
-              stops.map(async (s) => {
-                const addr = await reverseGeocodeFast(s.latitude, s.longitude).catch(() => null);
-                return { ...s, name: addr || s.name };
-              })
-            );
-            setStationaryStops(geocodedStops);
-          }
+          // Geocode unnamed stay locations
+          const geocodedStops = await Promise.all(
+            enterpriseResult.stationaryStops.map(async (s) => {
+              if (s.isSafePlace || !s.name.startsWith('Stay Location')) return s;
+              const addr = await reverseGeocodeFast(s.latitude, s.longitude).catch(() => null);
+              return addr ? { ...s, name: `${addr} (${s.durationMinutes}m)` } : s;
+            })
+          );
+          setStationaryStops(geocodedStops);
 
-          // C. Map-match road legs concurrently with Promise.allSettled
-          const matchPromises = legs.map(async (leg) => {
-            if (leg.points.length >= 2) {
-              const res = await fetchMapMatchedRoute(
-                leg.points.map(p => ({
-                  latitude: p.latitude,
-                  longitude: p.longitude,
-                  speed: p.speedKmh,
-                  timeMs: p.rawTimeMs,
-                }))
-              ).catch(() => null);
-              if (res && res.roadCoords && res.roadCoords.length >= 2) {
-                return { legId: leg.id, roadCoords: res.roadCoords, bearings: res.bearings || [] };
-              }
-            }
-            return null;
-          });
-
-          const matchResults = await Promise.allSettled(matchPromises);
-          let updatedRoadCoords: [number, number][] = [];
-          let updatedBearings: number[] = [];
-
-          const updatedLegs = legs.map((leg, idx) => {
-            const res = matchResults[idx];
-            if (res.status === 'fulfilled' && res.value) {
-              updatedRoadCoords = updatedRoadCoords.concat(res.value.roadCoords);
-              updatedBearings = updatedBearings.concat(res.value.bearings);
-              return { ...leg, roadCoords: res.value.roadCoords };
-            }
-            const fallbackCoords = leg.points.map(p => [p.latitude, p.longitude] as [number, number]);
-            updatedRoadCoords = updatedRoadCoords.concat(fallbackCoords);
-            return { ...leg, roadCoords: fallbackCoords };
-          });
-
-          if (updatedRoadCoords.length > 0) {
-            setRoadCoords(updatedRoadCoords);
-            setRoadBearings(updatedBearings);
-            setTripLegs(updatedLegs);
-
-            // Recompute accurate road distance
-            let accurateDistKm = 0;
-            for (let i = 1; i < updatedRoadCoords.length; i++) {
-              const seg = getHaversineDistKm(updatedRoadCoords[i - 1][0], updatedRoadCoords[i - 1][1], updatedRoadCoords[i][0], updatedRoadCoords[i][1]);
-              if (seg >= 0.003) accurateDistKm += seg;
-            }
-            if (accurateDistKm > 0) {
-              setTotalDistanceKm(parseFloat(accurateDistKm.toFixed(1)));
-            }
-
-            // Immediately dispatch refined road geometry to Leaflet map
-            const activePt = fetchedPoints[0];
-            sendMapTelemetry({
-              tripLegs: updatedLegs,
-              roadCoords: updatedRoadCoords,
-              currentPt: updatedRoadCoords[0] || [activePt.latitude, activePt.longitude],
-              bearing: updatedBearings[0] || 0,
-              cardinalDir: getCardinalDirection(updatedBearings[0] || 0),
-              currentLabel: `${activePt.timestamp} • ${activePt.speedKmh} km/h`,
-              stops: stops.map(s => ({ lat: s.latitude, lng: s.longitude, name: s.name })),
-              isDark,
-              avatarUrl: selectedMemberAvatar,
-              userInitial: selectedMemberInitial,
-              userName: selectedMemberName,
-              speedKmh: activePt.speedKmh,
-            });
-          }
-
-          // Save to local cache for instant return visits
+          // Save to cache
           AsyncStorage.setItem(
             cacheKey,
             JSON.stringify({
-              points: fetchedPoints,
-              legs: updatedLegs,
-              roadCoords: updatedRoadCoords.length > 0 ? updatedRoadCoords : allRoadCoords,
-              stops,
-              totalDist: formattedDist,
-              maxSpd,
-              totalDur,
+              points: enterpriseResult.points,
+              legs: enterpriseResult.tripLegs,
+              roadCoords: enterpriseResult.allRoadCoords,
+              stops: geocodedStops,
+              events: enterpriseResult.timelineEvents,
+              totalDist: enterpriseResult.totalDistanceKm,
+              maxSpd: enterpriseResult.topSpeedKmh,
+              avgSpd: enterpriseResult.averageSpeedKmh,
+              totalDur: enterpriseResult.travelDurationMinutes,
             })
           ).catch(() => {});
         } catch (_) {}
@@ -955,14 +818,40 @@ export default function LocationHistoryScreen() {
           }
           initMap();
 
+          function notifyMapReady() {
+            if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_READY' }));
+            } else if (window.parent && window.parent !== window) {
+              window.parent.postMessage(JSON.stringify({ type: 'MAP_READY' }), '*');
+            }
+          }
+          setTimeout(notifyMapReady, 40);
+
           window.addEventListener('message', function(event) {
             try {
               var payload = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-              if (payload && payload.type === 'RENDER_MAP' && payload.data) {
+              if (!payload) return;
+              if (payload.type === 'RENDER_MAP' && payload.data) {
                 window.renderHistoryMap(payload.data);
+              } else if (payload.type === 'FOCUS_LOCATION') {
+                window.focusLocation(payload.lat, payload.lng, payload.zoom);
+              } else if (payload.type === 'FOCUS_BOUNDS') {
+                window.focusBounds(payload.coords);
               }
             } catch(e) {}
           });
+
+          window.focusLocation = function(lat, lng, zoom) {
+            if (!map) return;
+            map.flyTo([lat, lng], zoom || 16, { animate: true, duration: 0.8 });
+          };
+
+          window.focusBounds = function(coords) {
+            if (!map || !coords || coords.length === 0) return;
+            var b = L.latLngBounds();
+            coords.forEach(function(c) { b.extend(c); });
+            map.fitBounds(b, { padding: [40, 40], maxZoom: 17, animate: true });
+          };
 
           window.renderHistoryMap = function(data) {
             if (!map) return;
@@ -1068,8 +957,15 @@ export default function LocationHistoryScreen() {
 
                 if (data.stops) {
                   data.stops.forEach(function(st, i) {
-                    var icon = L.divIcon({ className: 'stop-badge', html: (i+1).toString() });
-                    var m = L.marker([st.lat, st.lng], { icon: icon }).addTo(map).bindPopup(st.name);
+                    var isSafe = st.isSafePlace || st.category === 'safe_zone';
+                    var badgeHtml = isSafe
+                      ? '<div style="background:#2E7D5B; color:#FFFFFF; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; border:2.5px solid #FFFFFF; box-shadow:0 3px 10px rgba(46,125,91,0.5); font-size:12px; font-weight:bold;">🛡️</div>'
+                      : '<div class="stop-badge" style="background:#E07A5F; box-shadow:0 3px 10px rgba(224,122,95,0.4);">' + (i+1) + '</div>';
+                    var icon = L.divIcon({ className: 'custom-stop-marker', html: badgeHtml, iconSize: [28, 28], iconAnchor: [14, 14] });
+                    var popupContent = '<b>' + (st.name || 'Stationary Stay') + '</b>' +
+                      (isSafe ? '<br/><span style="color:#2E7D5B; font-weight:700; font-size:11px;">✓ Circle Safe Place</span>' : '') +
+                      '<br/><span style="font-size:11px;color:#666;">Dwell: ' + (st.durationMinutes || 0) + ' mins</span>';
+                    var m = L.marker([st.lat, st.lng], { icon: icon }).addTo(map).bindPopup(popupContent);
                     stopMarkers.push(m);
                   });
                 }
@@ -1284,7 +1180,13 @@ export default function LocationHistoryScreen() {
                   id="historyMapIframe"
                   srcDoc={htmlContent}
                   style={{ width: '100%', height: '100%', border: 'none', borderRadius: 20 }}
-                  onLoad={updateMapPlaybackPin}
+                  onLoad={() => {
+                    isMapReadyRef.current = true;
+                    if (latestTelemetryDataRef.current) {
+                      sendMapTelemetry(latestTelemetryDataRef.current);
+                    }
+                    updateMapPlaybackPin();
+                  }}
                 />
               ) : (
                 <WebViewAny
@@ -1299,7 +1201,14 @@ export default function LocationHistoryScreen() {
                   style={styles.webView}
                   nestedScrollEnabled={false}
                   scrollEnabled={false}
-                  onLoadEnd={updateMapPlaybackPin}
+                  onMessage={handleWebViewMessage}
+                  onLoadEnd={() => {
+                    isMapReadyRef.current = true;
+                    if (latestTelemetryDataRef.current) {
+                      sendMapTelemetry(latestTelemetryDataRef.current);
+                    }
+                    updateMapPlaybackPin();
+                  }}
                 />
               )}
             </View>
@@ -1400,15 +1309,15 @@ export default function LocationHistoryScreen() {
             <View style={styles.metricsRow}>
               <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
                 <View style={[styles.metricIconWrap, { backgroundColor: '#E8F5EE' }]}>
-                  <Ionicons name="navigate-outline" size={18} color="#2E7D5B" />
+                  <Ionicons name="navigate-outline" size={16} color="#2E7D5B" />
                 </View>
                 <Text style={[styles.metricVal, { color: colors.foreground }]}>{typeof totalDistanceKm === 'number' ? totalDistanceKm.toFixed(1) : totalDistanceKm} km</Text>
-                <Text style={[styles.metricLbl, { color: colors.textMuted }]}>TOTAL DISTANCE</Text>
+                <Text style={[styles.metricLbl, { color: colors.textMuted }]}>DISTANCE</Text>
               </View>
 
               <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
                 <View style={[styles.metricIconWrap, { backgroundColor: '#FFF3EB' }]}>
-                  <Ionicons name="stopwatch-outline" size={18} color="#E07A5F" />
+                  <Ionicons name="stopwatch-outline" size={16} color="#E07A5F" />
                 </View>
                 <Text style={[styles.metricVal, { color: colors.foreground }]}>{Math.floor(travelDurationMinutes / 60)}h {travelDurationMinutes % 60}m</Text>
                 <Text style={[styles.metricLbl, { color: colors.textMuted }]}>TRAVEL TIME</Text>
@@ -1416,10 +1325,18 @@ export default function LocationHistoryScreen() {
 
               <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
                 <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
-                  <Ionicons name="speedometer-outline" size={18} color="#EF4444" />
+                  <Ionicons name="speedometer-outline" size={16} color="#EF4444" />
                 </View>
                 <Text style={[styles.metricVal, { color: colors.foreground }]}>{topSpeedKmh} km/h</Text>
                 <Text style={[styles.metricLbl, { color: colors.textMuted }]}>TOP SPEED</Text>
+              </View>
+
+              <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
+                <View style={[styles.metricIconWrap, { backgroundColor: 'rgba(59, 130, 246, 0.12)' }]}>
+                  <Ionicons name="analytics-outline" size={16} color="#3B82F6" />
+                </View>
+                <Text style={[styles.metricVal, { color: colors.foreground }]}>{averageSpeedKmh} km/h</Text>
+                <Text style={[styles.metricLbl, { color: colors.textMuted }]}>AVG SPEED</Text>
               </View>
             </View>
 
@@ -1431,29 +1348,55 @@ export default function LocationHistoryScreen() {
                   <View style={[styles.accentLine, { backgroundColor: '#EDEBE6' }]} />
                 </View>
 
-                {stationaryStops.map((stop, idx) => (
-                  <View key={stop.id} style={[styles.stopItemCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
-                    <View style={[styles.stopNumberBadge, { backgroundColor: '#E07A5F' }]}>
-                      <Text style={[styles.stopNumberText, { color: '#FFFFFF' }]}>{idx + 1}</Text>
-                    </View>
-                    <View style={styles.stopInfo}>
-                      <Text style={[styles.stopName, { color: colors.foreground }]}>{stop.name}</Text>
-                      <Text style={[styles.stopMeta, { color: colors.textMuted }]}>
-                        Dwell Time: {stop.durationMinutes} mins • Arrived at {stop.arrivalTime}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
+                {stationaryStops.map((stop, idx) => {
+                  const isSafe = stop.isSafePlace || stop.category === 'safe_zone';
+                  return (
+                    <TouchableOpacity
+                      key={stop.id}
+                      style={[
+                        styles.stopItemCard,
+                        {
+                          backgroundColor: colors.surface,
+                          borderColor: isSafe ? (isDark ? '#1E3A2B' : '#BFE3D1') : '#EDEBE6',
+                        },
+                      ]}
+                      onPress={() => focusMapLocation(stop.latitude, stop.longitude, 17)}
+                      activeOpacity={0.8}
+                    >
+                      <View style={[styles.stopNumberBadge, { backgroundColor: isSafe ? '#2E7D5B' : '#E07A5F' }]}>
+                        {isSafe ? (
+                          <Ionicons name="shield-checkmark" size={14} color="#FFFFFF" />
+                        ) : (
+                          <Text style={[styles.stopNumberText, { color: '#FFFFFF' }]}>{idx + 1}</Text>
+                        )}
+                      </View>
+                      <View style={styles.stopInfo}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={[styles.stopName, { color: colors.foreground }]} numberOfLines={1}>{stop.name}</Text>
+                          {isSafe && (
+                            <View style={styles.safePlaceBadge}>
+                              <Text style={styles.safePlaceBadgeText}>SAFE ZONE</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={[styles.stopMeta, { color: colors.textMuted }]}>
+                          Dwell: {stop.durationMinutes} mins • {stop.arrivalTime} – {stop.departureTime}
+                        </Text>
+                      </View>
+                      <Ionicons name="navigate-circle-outline" size={20} color={isSafe ? '#2E7D5B' : colors.textMuted} />
+                    </TouchableOpacity>
+                  );
+                })}
               </>
             ) : null}
 
             {/* Travel & Movement Timeline */}
             <View style={styles.sectionTitleRow}>
-              <Text style={[styles.sectionTitle, { color: colors.foreground }]}>TRAVEL & MOVEMENT TIMELINE ({movementEvents.length})</Text>
+              <Text style={[styles.sectionTitle, { color: colors.foreground }]}>PRECISION TELEMATICS TIMELINE ({timelineEvents.length})</Text>
               <View style={[styles.accentLine, { backgroundColor: '#EDEBE6' }]} />
             </View>
 
-            {movementEvents.length === 0 ? (
+            {timelineEvents.length === 0 ? (
               <View style={[styles.emptyTimelineCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
                 <View style={styles.emptyCardHeader}>
                   <View style={[styles.avatarCircleSmall, { backgroundColor: '#2E7D5B' }]}>
@@ -1522,90 +1465,100 @@ export default function LocationHistoryScreen() {
                 )}
               </View>
             ) : (
-              movementEvents.map(({ point: pt, origIndex }, idx) => {
-                const isSelected = origIndex === playbackIndex;
-                const isStationary = pt.speedKmh <= 1.5 && !pt.activity.toLowerCase().includes('walking') && !pt.activity.toLowerCase().includes('driving');
+              timelineEvents.map((event, idx) => {
+                const isStay = event.type === 'stay';
+                const isSelected = selectedEventId === event.id;
+                const isSafe = isStay && (event.data?.isSafePlace || event.data?.category === 'safe_zone');
 
                 return (
                   <TouchableOpacity
-                    key={`${pt.id}_${idx}`}
+                    key={event.id}
                     style={[
-                      styles.historyRow,
+                      styles.timelineEventCard,
                       {
-                        backgroundColor: isSelected ? '#E8F5EE' : colors.surface,
-                        borderColor: isSelected ? '#2E7D5B' : '#EDEBE6',
+                        backgroundColor: isSelected ? (isDark ? '#14231B' : '#E8F5EE') : colors.surface,
+                        borderColor: isSelected ? '#2E7D5B' : (isDark ? '#222' : '#EDEBE6'),
                       },
                     ]}
                     onPress={() => {
-                      setPlaybackIndex(origIndex);
+                      setSelectedEventId(event.id);
                       setIsPlaying(false);
+                      if (isStay) {
+                        focusMapLocation(event.latitude, event.longitude, 17);
+                      } else if (event.data?.roadCoords && event.data.roadCoords.length > 0) {
+                        focusMapBounds(event.data.roadCoords);
+                      }
                     }}
                     activeOpacity={0.8}
                   >
-                    <View style={[styles.historyDot, { backgroundColor: pt.speedKmh > 50 ? '#EF4444' : pt.speedKmh > 1.5 ? '#2E7D5B' : (isStationary ? '#E07A5F' : '#2E7D5B') }]} />
-                    <View style={styles.historyDetails}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                        <Text style={[styles.historyTime, { color: colors.foreground }]}>{pt.timestamp}</Text>
-                        {(pt as any).isReconstructed && (
-                          <View style={[
-                            styles.reconstructionBadgeMini,
+                    <View
+                      style={[
+                        styles.timelineIconBadge,
+                        {
+                          backgroundColor: isStay
+                            ? (isSafe ? (isDark ? '#1B3526' : '#E8F5EE') : (isDark ? '#35231C' : '#FFF3EB'))
+                            : (isDark ? '#1B3526' : '#E8F5EE'),
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={isStay ? (isSafe ? "shield-checkmark" : "location") : (event.data?.isTransit ? "subway-outline" : "car-sport")}
+                        size={18}
+                        color={isStay ? (isSafe ? '#2E7D5B' : '#E07A5F') : '#2E7D5B'}
+                      />
+                    </View>
+
+                    <View style={styles.timelineEventContent}>
+                      <View style={styles.timelineEventHeaderRow}>
+                        <Text style={[styles.timelineEventTitle, { color: colors.foreground }]} numberOfLines={1}>
+                          {event.title}
+                        </Text>
+                        <View
+                          style={[
+                            styles.timelineTypeBadge,
                             {
-                              backgroundColor: (pt as any).reconstructionSource === 'metro_transit'
-                                ? (isDark ? 'rgba(139, 92, 246, 0.2)' : '#F5F3FF')
-                                : ((pt as any).reconstructionSource === 'rail_network'
-                                  ? (isDark ? 'rgba(14, 165, 233, 0.2)' : '#E0F2FE')
-                                  : ((pt as any).reconstructionSource === 'historical_learned'
-                                    ? (isDark ? 'rgba(58, 223, 171, 0.15)' : '#E8F5EE')
-                                    : (isDark ? 'rgba(24, 60, 230, 0.15)' : '#EAF0FE'))),
-                              borderColor: (pt as any).reconstructionSource === 'metro_transit'
-                                ? (isDark ? '#A78BFA' : '#8B5CF6')
-                                : ((pt as any).reconstructionSource === 'rail_network'
-                                  ? (isDark ? '#38BDF8' : '#0EA5E9')
-                                  : ((pt as any).reconstructionSource === 'historical_learned'
-                                    ? (isDark ? '#3ADFAB' : '#2E7D5B')
-                                    : (isDark ? '#818CF8' : '#183CE6'))),
-                            }
-                          ]}>
-                            <Ionicons
-                              name={(pt as any).reconstructionSource === 'metro_transit'
-                                ? "subway-outline"
-                                : ((pt as any).reconstructionSource === 'rail_network'
-                                  ? "train-outline"
-                                  : ((pt as any).reconstructionSource === 'historical_learned' ? "sparkles" : "navigate"))}
-                              size={8}
-                              color={(pt as any).reconstructionSource === 'metro_transit'
-                                ? (isDark ? '#C4B5FD' : '#8B5CF6')
-                                : ((pt as any).reconstructionSource === 'rail_network'
-                                  ? (isDark ? '#7DD3FC' : '#0EA5E9')
-                                  : ((pt as any).reconstructionSource === 'historical_learned'
-                                    ? (isDark ? '#3ADFAB' : '#2E7D5B')
-                                    : (isDark ? '#818CF8' : '#183CE6')))}
-                            />
-                            <Text style={[
-                              styles.reconstructionBadgeMiniText,
-                              {
-                                color: (pt as any).reconstructionSource === 'metro_transit'
-                                  ? (isDark ? '#C4B5FD' : '#8B5CF6')
-                                  : ((pt as any).reconstructionSource === 'rail_network'
-                                    ? (isDark ? '#7DD3FC' : '#0EA5E9')
-                                    : ((pt as any).reconstructionSource === 'historical_learned'
-                                      ? (isDark ? '#3ADFAB' : '#2E7D5B')
-                                      : (isDark ? '#818CF8' : '#183CE6'))),
-                              }
-                            ]}>
-                              {(pt as any).reconstructionSource === 'metro_transit'
-                                ? 'METRO TUNNEL'
-                                : ((pt as any).reconstructionSource === 'rail_network'
-                                  ? 'RAIL LINE'
-                                  : ((pt as any).reconstructionSource === 'historical_learned' ? 'LEARNED ROUTE' : 'ROAD SNAPPED'))}
-                            </Text>
+                              backgroundColor: isStay
+                                ? (isSafe ? '#2E7D5B' : '#E07A5F')
+                                : (event.data?.isTransit ? '#8B5CF6' : '#2E7D5B'),
+                            },
+                          ]}
+                        >
+                          <Text style={styles.timelineTypeBadgeText}>
+                            {isStay ? (isSafe ? 'SAFE ZONE' : 'STAY') : (event.data?.isTransit ? 'TRANSIT' : 'TRIP')}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <Text style={[styles.timelineEventSubtitle, { color: colors.textMuted }]} numberOfLines={1}>
+                        {event.subtitle}
+                      </Text>
+
+                      <View style={styles.timelineMetaRow}>
+                        <View style={styles.timelineMetaItem}>
+                          <Ionicons name="time-outline" size={12} color={colors.textMuted} />
+                          <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.timeRange}</Text>
+                        </View>
+                        {event.distanceText && (
+                          <View style={styles.timelineMetaItem}>
+                            <Ionicons name="navigate-outline" size={12} color={colors.textMuted} />
+                            <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.distanceText}</Text>
+                          </View>
+                        )}
+                        {event.durationText && (
+                          <View style={styles.timelineMetaItem}>
+                            <Ionicons name="hourglass-outline" size={12} color={colors.textMuted} />
+                            <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.durationText}</Text>
+                          </View>
+                        )}
+                        {event.speedText && (
+                          <View style={styles.timelineMetaItem}>
+                            <Ionicons name="speedometer-outline" size={12} color={colors.textMuted} />
+                            <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.speedText}</Text>
                           </View>
                         )}
                       </View>
-                      <Text style={[styles.historyDesc, { color: colors.textMuted }]}>
-                        {pt.activity} {pt.speedKmh > 0 ? `• ${pt.speedKmh} km/h` : ''} • {pt.address || 'Location Area'}
-                      </Text>
                     </View>
+
                     <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                   </TouchableOpacity>
                 );
@@ -1931,6 +1884,79 @@ const styles = StyleSheet.create({
   stopMeta: {
     fontSize: 11,
     marginTop: 2,
+  },
+  safePlaceBadge: {
+    backgroundColor: '#E8F5EE',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  safePlaceBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#2E7D5B',
+    letterSpacing: 0.5,
+  },
+  timelineEventCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 10,
+    gap: 12,
+  },
+  timelineIconBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  timelineEventContent: {
+    flex: 1,
+  },
+  timelineEventHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 3,
+  },
+  timelineEventTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    flex: 1,
+  },
+  timelineTypeBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  timelineTypeBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  timelineEventSubtitle: {
+    fontSize: 11.5,
+    marginBottom: 6,
+  },
+  timelineMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  timelineMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  timelineMetaText: {
+    fontSize: 10.5,
+    fontWeight: '600',
   },
   historyRow: {
     flexDirection: 'row',
