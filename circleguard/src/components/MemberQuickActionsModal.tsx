@@ -66,18 +66,30 @@ export default function MemberQuickActionsModal({
     }
   }, [visible]);
 
-  const handleDismiss = React.useCallback(() => {
-    if (isClosingRef.current) return;
-    isClosingRef.current = true;
+  const handleDismiss = React.useCallback(
+    (callback?: any) => {
+      const safeCb = typeof callback === 'function' ? callback : undefined;
+      if (isClosingRef.current) {
+        if (safeCb) safeCb();
+        return;
+      }
+      isClosingRef.current = true;
 
-    Animated.timing(translateY, {
-      toValue: 650,
-      duration: 180,
-      useNativeDriver: true,
-    }).start(() => {
-      onClose();
-    });
-  }, [onClose, translateY]);
+      Animated.timing(translateY, {
+        toValue: 650,
+        duration: 180,
+        useNativeDriver: Platform.OS !== 'web',
+      }).start(() => {
+        onClose();
+        if (safeCb) {
+          setTimeout(() => {
+            safeCb();
+          }, 80);
+        }
+      });
+    },
+    [onClose, translateY]
+  );
 
   const panResponder = useRef(
     PanResponder.create({
@@ -158,13 +170,13 @@ export default function MemberQuickActionsModal({
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={handleDismiss}
+      onRequestClose={() => handleDismiss()}
     >
       <View style={styles.backdrop}>
         <TouchableOpacity
           style={styles.dismissArea}
           activeOpacity={1}
-          onPress={handleDismiss}
+          onPress={() => handleDismiss()}
         />
 
         <Animated.View
@@ -324,17 +336,18 @@ export default function MemberQuickActionsModal({
                   },
                 ]}
                 onPress={() => {
-                  onClose();
-                  if (onNavigateMember) {
-                    onNavigateMember(member);
-                  } else if (member.latitude && member.longitude) {
-                    const scheme = Platform.select({
-                      ios: `maps:0,0?q=${member.latitude},${member.longitude}`,
-                      android: `geo:0,0?q=${member.latitude},${member.longitude}`,
-                      web: `https://www.google.com/maps/search/?api=1&query=${member.latitude},${member.longitude}`,
-                    });
-                    if (scheme) Linking.openURL(scheme);
-                  }
+                  handleDismiss(() => {
+                    if (onNavigateMember) {
+                      onNavigateMember(member);
+                    } else if (member.latitude && member.longitude) {
+                      const scheme = Platform.select({
+                        ios: `maps:0,0?q=${member.latitude},${member.longitude}`,
+                        android: `geo:0,0?q=${member.latitude},${member.longitude}`,
+                        web: `https://www.google.com/maps/search/?api=1&query=${member.latitude},${member.longitude}`,
+                      });
+                      if (scheme) Linking.openURL(scheme);
+                    }
+                  });
                 }}
                 activeOpacity={0.72}
               >
@@ -366,8 +379,9 @@ export default function MemberQuickActionsModal({
                   },
                 ]}
                 onPress={() => {
-                  onClose();
-                  if (onRingMember) onRingMember(member);
+                  handleDismiss(() => {
+                    if (onRingMember) onRingMember(member);
+                  });
                 }}
                 activeOpacity={0.72}
               >
@@ -403,8 +417,9 @@ export default function MemberQuickActionsModal({
                   },
                 ]}
                 onPress={() => {
-                  onClose();
-                  if (onOpenHistory) onOpenHistory(member);
+                  handleDismiss(() => {
+                    if (onOpenHistory) onOpenHistory(member);
+                  });
                 }}
                 activeOpacity={0.72}
               >
@@ -436,8 +451,9 @@ export default function MemberQuickActionsModal({
                   },
                 ]}
                 onPress={() => {
-                  onClose();
-                  if (onOpenDriving) onOpenDriving(member);
+                  handleDismiss(() => {
+                    if (onOpenDriving) onOpenDriving(member);
+                  });
                 }}
                 activeOpacity={0.72}
               >
@@ -488,8 +504,9 @@ export default function MemberQuickActionsModal({
                 <TouchableOpacity
                   style={styles.nudgeActionBtn}
                   onPress={() => {
-                    onClose();
-                    if (onNudgeMember) onNudgeMember(member);
+                    handleDismiss(() => {
+                      if (onNudgeMember) onNudgeMember(member);
+                    });
                   }}
                   activeOpacity={0.75}
                 >
@@ -522,8 +539,9 @@ export default function MemberQuickActionsModal({
                     <TouchableOpacity
                       style={styles.groupedRow}
                       onPress={() => {
-                        onClose();
-                        if (onAssignGuardian) onAssignGuardian(member);
+                        handleDismiss(() => {
+                          if (onAssignGuardian) onAssignGuardian(member);
+                        });
                       }}
                       activeOpacity={0.7}
                     >
@@ -561,8 +579,9 @@ export default function MemberQuickActionsModal({
                   <TouchableOpacity
                     style={styles.groupedRow}
                     onPress={() => {
-                      onClose();
-                      if (onManageRole) onManageRole(member);
+                      handleDismiss(() => {
+                        if (onManageRole) onManageRole(member);
+                      });
                     }}
                     activeOpacity={0.7}
                   >
@@ -597,8 +616,9 @@ export default function MemberQuickActionsModal({
                       },
                     ]}
                     onPress={() => {
-                      onClose();
-                      if (onRemoveMember) onRemoveMember(member);
+                      handleDismiss(() => {
+                        if (onRemoveMember) onRemoveMember(member);
+                      });
                     }}
                     activeOpacity={0.72}
                   >

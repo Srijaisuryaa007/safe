@@ -34,6 +34,7 @@ import MemberShortProfileModal from './MemberShortProfileModal';
 import AnimatedList from './AnimatedList';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
 import { getSafeTopInset } from '../utils/safeArea';
+import { useLuxuryAlert } from './LuxuryAlertModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -45,6 +46,7 @@ export default function BillionDollarCircleView() {
   const { profile } = useAuthStore();
   const { activeCircle, members, places, fetchMembers, fetchPlaces } = useCircleStore();
   const { isDark } = useThemeStore();
+  const { showConfirm } = useLuxuryAlert();
 
   const [copyStatus, setCopyStatus] = useState('Copy');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -62,35 +64,73 @@ export default function BillionDollarCircleView() {
     }
   }, []);
 
-  const navigateToRootScreen = React.useCallback((screenName: string, params?: any) => {
-    try {
-      if (navigationRef.isReady()) {
-        (navigationRef as any).navigate(screenName, params);
-        return;
+  const navigateToScreen = React.useCallback((screenName: string, params?: any) => {
+    const isTab = ['Home', 'Map', 'Activity', 'Circle', 'SOS'].includes(screenName);
+
+    if (isTab) {
+      // 1. Try local tab navigation directly
+      try {
+        if (navigation && typeof navigation.navigate === 'function') {
+          (navigation as any).navigate(screenName, params);
+          return;
+        }
+      } catch (_) {}
+
+      // 2. Try root navigation targeting MainTabs
+      try {
+        if (navigationRef.isReady()) {
+          (navigationRef as any).navigate('MainTabs', {
+            screen: screenName,
+            params,
+          });
+          return;
+        }
+      } catch (_) {}
+
+      // 3. Try parent navigator
+      try {
+        const parent = navigation.getParent?.();
+        if (parent && typeof parent.navigate === 'function') {
+          parent.navigate('MainTabs', { screen: screenName, params });
+          return;
+        }
+      } catch (_) {}
+
+      // 4. Web fallback
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && (window as any).__navigationRef?.isReady?.()) {
+        (window as any).__navigationRef.navigate('MainTabs', { screen: screenName, params });
       }
-    } catch (e) {
-      console.warn('[CircleView] navigationRef error:', e);
-    }
+    } else {
+      // Root stack screens (LocationHistory, DrivingReports, Chat, Profile, SafePlaces, etc.)
+      // 1. Try root navigationRef
+      try {
+        if (navigationRef.isReady()) {
+          (navigationRef as any).navigate(screenName, params);
+          return;
+        }
+      } catch (_) {}
 
-    try {
-      const parent = navigation.getParent?.();
-      if (parent && typeof parent.navigate === 'function') {
-        parent.navigate(screenName, params);
-        return;
+      // 2. Try parent navigation
+      try {
+        const parent = navigation.getParent?.();
+        if (parent && typeof parent.navigate === 'function') {
+          parent.navigate(screenName, params);
+          return;
+        }
+      } catch (_) {}
+
+      // 3. Try direct navigation
+      try {
+        if (navigation && typeof navigation.navigate === 'function') {
+          (navigation as any).navigate(screenName, params);
+          return;
+        }
+      } catch (_) {}
+
+      // 4. Web fallback
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && (window as any).__navigationRef?.isReady?.()) {
+        (window as any).__navigationRef.navigate(screenName, params);
       }
-    } catch (e) {
-      console.warn('Parent nav error:', e);
-    }
-
-    try {
-      navigation.navigate(screenName, params);
-      return;
-    } catch (e) {
-      console.warn('Direct nav error:', e);
-    }
-
-    if (Platform.OS === 'web' && typeof window !== 'undefined' && (window as any).__navigationRef?.isReady?.()) {
-      (window as any).__navigationRef.navigate(screenName, params);
     }
   }, [navigation]);
 
@@ -877,7 +917,7 @@ export default function BillionDollarCircleView() {
         onNavigateToHistory={(m) => {
           setShortProfileMember(null);
           const targetUserId = m.user_id || m.id;
-          navigateToRootScreen('LocationHistory', {
+          navigateToScreen('LocationHistory', {
             member: m,
             memberId: targetUserId,
             circleId: activeCircle?.id,
@@ -886,7 +926,7 @@ export default function BillionDollarCircleView() {
         onNavigateToDriving={(m) => {
           setShortProfileMember(null);
           const targetUserId = m.user_id || m.id;
-          navigateToRootScreen('DrivingReports', {
+          navigateToScreen('DrivingReports', {
             member: m,
             memberId: targetUserId,
             circleId: activeCircle?.id,
@@ -901,7 +941,7 @@ export default function BillionDollarCircleView() {
           const targetLng = memberInStore?.longitude ?? m?.longitude;
           const targetName = memberInStore?.profile?.full_name || m?.profile?.full_name || 'Member';
 
-          navigation.navigate('Map', {
+          navigateToScreen('Map', {
             focusUserId: targetUserId,
             focusLat: targetLat,
             focusLng: targetLng,
@@ -912,7 +952,7 @@ export default function BillionDollarCircleView() {
         }}
         onNavigateToChat={(_m) => {
           setShortProfileMember(null);
-          navigateToRootScreen('Chat');
+          navigateToScreen('Chat');
         }}
       />
 
@@ -933,7 +973,7 @@ export default function BillionDollarCircleView() {
           const targetLng = memberInStore?.longitude ?? m?.longitude;
           const targetName = memberInStore?.profile?.full_name || m?.profile?.full_name || 'Member';
 
-          navigation.navigate('Map', {
+          navigateToScreen('Map', {
             focusUserId: targetUserId,
             focusLat: targetLat,
             focusLng: targetLng,
@@ -943,23 +983,36 @@ export default function BillionDollarCircleView() {
           });
         }}
         onRingMember={(m) => {
-          if (m.user_id === profile?.id) {
-            navigation.navigate('Home');
+          if (m?.user_id === profile?.id) {
+            if (Platform.OS !== 'web') {
+              Vibration.vibrate([100, 100, 200]);
+            }
+            showToast('Centering on your location...');
+            const myLat = myMemberRecord?.latitude ?? (profile as any)?.latitude;
+            const myLng = myMemberRecord?.longitude ?? (profile as any)?.longitude;
+            navigateToScreen('Map', {
+              focusUserId: profile?.id,
+              focusLat: myLat,
+              focusLng: myLng,
+              focusUserName: profile?.full_name || 'You',
+              targetMember: myMemberRecord,
+              timestamp: Date.now(),
+            });
           } else {
             handleRingMember(m);
           }
         }}
         onOpenHistory={(m) => {
-          const targetUserId = m.user_id || m.id;
-          navigateToRootScreen('LocationHistory', {
+          const targetUserId = m?.user_id || m?.id;
+          navigateToScreen('LocationHistory', {
             member: m,
             memberId: targetUserId,
             circleId: activeCircle?.id,
           });
         }}
         onOpenDriving={(m) => {
-          const targetUserId = m.user_id || m.id;
-          navigateToRootScreen('DrivingReports', {
+          const targetUserId = m?.user_id || m?.id;
+          navigateToScreen('DrivingReports', {
             member: m,
             memberId: targetUserId,
             circleId: activeCircle?.id,
@@ -975,26 +1028,28 @@ export default function BillionDollarCircleView() {
           setRoleModalMember(m);
         }}
         onRemoveMember={(m) => {
-          Alert.alert(
-            'Remove Member',
-            `Are you sure you want to remove ${m.profile?.full_name || 'this member'} from the circle?`,
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Remove',
-                style: 'destructive',
-                onPress: async () => {
-                  if (!activeCircle?.id) return;
-                  try {
-                    await useCircleStore.getState().removeMember(activeCircle.id, m.user_id);
-                    showToast('Member removed from circle');
-                  } catch (e: any) {
-                    showToast(e?.message || 'Failed to remove member');
-                  }
-                },
-              },
-            ]
-          );
+          showConfirm({
+            title: 'Remove Member',
+            message: `Are you sure you want to remove ${m?.profile?.full_name || 'this member'} from the circle?`,
+            confirmText: 'Remove Member',
+            cancelText: 'Cancel',
+            isDestructive: true,
+            onConfirm: async () => {
+              if (!activeCircle?.id) return;
+              try {
+                showToast('Removing member from circle...');
+                const success = await useCircleStore.getState().removeMember(activeCircle.id, m.user_id);
+                if (success) {
+                  showToast('Member removed from circle');
+                  fetchMembers(activeCircle.id);
+                } else {
+                  showToast('Failed to remove member');
+                }
+              } catch (e: any) {
+                showToast(e?.message || 'Failed to remove member');
+              }
+            },
+          });
         }}
       />
     </View>
