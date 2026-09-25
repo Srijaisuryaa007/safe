@@ -18,7 +18,7 @@ import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBadgeSt
 import { segmentTripsByStops, analyzeTripTelemetry, isVehicularTrip } from '../services/TripSegmentationService';
 import { fetchRoadSnappedRoute, fetchMapMatchedRoute } from '../services/RoadRoutingService';
 import { intelligentRouteReconstruction, HistoryPoint } from '../services/HistoricalRouteReconstructionService';
-import { smoothTrajectoryPoints, calculateHaversineDistanceMeters } from '../services/LocationSmoothingService';
+import { smoothTrajectoryPoints, calculateHaversineDistanceMeters, filterGpsSpikesAndOutliers } from '../services/LocationSmoothingService';
 import { LEAFLET_CSS, LEAFLET_JS } from '../constants/leafletBundle';
 import AnimatedListDropdown from '../components/AnimatedListDropdown';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
@@ -215,7 +215,8 @@ export default function DrivingReportsScreen() {
     let isCancelled = false;
     if (selectedTrip && selectedTrip.routeCoords && selectedTrip.routeCoords.length > 0) {
       const rawCoords = selectedTrip.routeCoords.map(c => ({ latitude: c.lat, longitude: c.lng, speed: c.speed }));
-      const smoothed = smoothTrajectoryPoints(rawCoords);
+      const deSpiked = filterGpsSpikesAndOutliers(rawCoords);
+      const smoothed = smoothTrajectoryPoints(deSpiked);
       if (smoothed.length >= 2) {
         fetchMapMatchedRoute(smoothed).then(res => {
           if (!isCancelled && res && res.roadCoords && res.roadCoords.length >= 2) {
@@ -418,7 +419,8 @@ export default function DrivingReportsScreen() {
             speed: p.speed,
             timeMs: p.timeMs,
           }));
-          const smoothedLegPoints = smoothTrajectoryPoints(rawLegCoords);
+          const deSpikedLegPoints = filterGpsSpikesAndOutliers(rawLegCoords);
+          const smoothedLegPoints = smoothTrajectoryPoints(deSpikedLegPoints);
 
           const analysis = analyzeTripTelemetry(
             smoothedLegPoints,

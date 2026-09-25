@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Platform } from 'react-native';
+import React, { useRef, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Platform, Animated, PanResponder } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useLuxuryAlert } from './LuxuryAlertModal';
@@ -14,6 +14,46 @@ export default function AboutCircleGuardModal({
   onClose,
 }: AboutCircleGuardModalProps) {
   const { showAlert } = useLuxuryAlert();
+
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      translateY.setValue(0);
+    }
+  }, [visible]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 4,
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dy > 0) {
+            translateY.setValue(gestureState.dy);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > 80 || gestureState.vy > 0.5) {
+            Animated.timing(translateY, {
+              toValue: 600,
+              duration: 180,
+              useNativeDriver: true,
+            }).start(() => {
+              onClose();
+              translateY.setValue(0);
+            });
+          } else {
+            Animated.spring(translateY, {
+              toValue: 0,
+              bounciness: 4,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+      }),
+    [onClose, translateY]
+  );
 
   if (!visible) return null;
 
@@ -62,16 +102,39 @@ export default function AboutCircleGuardModal({
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
-        <View style={styles.sheetContainer}>
+        <Animated.View
+          style={[
+            styles.sheetContainer,
+            {
+              transform: [
+                {
+                  translateY: translateY.interpolate({
+                    inputRange: [-50, 0, 600],
+                    outputRange: [0, 0, 600],
+                    extrapolate: 'clamp',
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          {/* Top Interactive Drag-to-Dismiss / Tap-to-Close Handle */}
+          <TouchableOpacity
+            style={styles.handleContainer}
+            onPress={onClose}
+            activeOpacity={0.7}
+            {...panResponder.panHandlers}
+            accessibilityLabel="Drag down or tap to close about modal"
+          >
+            <View style={styles.handleBar} />
+          </TouchableOpacity>
+
           {/* Header */}
           <View style={styles.headerRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.overline}>FAMILY SAFETY ARCHITECTURE</Text>
               <Text style={styles.title}>About CircleGuard</Text>
             </View>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.8}>
-              <Ionicons name="close" size={20} color="#1F2A24" />
-            </TouchableOpacity>
           </View>
 
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -144,7 +207,7 @@ export default function AboutCircleGuardModal({
               </TouchableOpacity>
             </View>
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -162,8 +225,22 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     borderWidth: 1,
     borderColor: '#ECEAE4',
-    padding: 22,
+    paddingHorizontal: 22,
+    paddingTop: 10,
+    paddingBottom: 22,
     maxHeight: '88%',
+  },
+  handleContainer: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  handleBar: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#D1D5DB',
   },
   headerRow: {
     flexDirection: 'row',

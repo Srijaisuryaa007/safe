@@ -135,9 +135,8 @@ export default function SOSAlertScreen() {
     Linking.openURL(`tel:${phone}`);
   };
 
-  if (themeMode === 'billion_dollar') {
-    return <BillionDollarSOSView />;
-  }
+  // Modern unified interface for both Light and Dark mode
+  return <BillionDollarSOSView />;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -314,7 +313,7 @@ export default function SOSAlertScreen() {
       )}
 
       {/* Interactive Emergency Directory Dialing Modal */}
-      <Modal visible={callModalVisible} animationType="slide" transparent={false}>
+      <Modal visible={callModalVisible} animationType="slide" transparent={false} statusBarTranslucent={true}>
         <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
           <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
             <TouchableOpacity 
@@ -730,7 +729,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 56 : 42,
+    paddingTop: Platform.OS === 'ios' ? 56 : 52,
     paddingBottom: 16,
     borderBottomWidth: 1,
   },

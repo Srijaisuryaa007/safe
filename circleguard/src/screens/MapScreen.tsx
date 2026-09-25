@@ -1466,6 +1466,7 @@ export default function MapScreen() {
   const focusLat = route?.params?.focusLat;
   const focusLng = route?.params?.focusLng;
   const focusUserName = route?.params?.focusUserName;
+  const focusTimestamp = route?.params?.timestamp;
 
   const { colors, isDark, themeMode, mapStyle: mapStyleSetting, setMapStyle: setMapStyleSetting } = useThemeStore();
   const { profile } = useAuthStore();
@@ -1632,9 +1633,9 @@ export default function MapScreen() {
     setIsCardCollapsed(false);
   };
 
-  // Focus from search, chat, or other screens
+  // Focus from search, chat, or other screens (e.g. Circle tab member profile)
   useEffect(() => {
-    const focusKey = `${focusUserId || ''}_${focusLat || ''}_${focusLng || ''}_${focusUserName || ''}`;
+    const focusKey = `${focusUserId || ''}_${focusLat || ''}_${focusLng || ''}_${focusUserName || ''}_${focusTimestamp || ''}`;
     if (!focusUserId && !focusLat && !focusLng) {
       lastHandledFocusKeyRef.current = null;
       return;
@@ -1655,10 +1656,55 @@ export default function MapScreen() {
       userId: focusUserId,
     };
 
-    // CRITICAL: Disable automatic GPS camera snapping so map stays at searched place
+    // CRITICAL: Disable automatic GPS camera snapping so map stays at focused location
     setIsFollowUserActive(false);
 
-    if (latNum && lngNum && !isNaN(latNum) && !isNaN(lngNum)) {
+    if (focusUserId) {
+      // 1. FOCUSING A CIRCLE MEMBER
+      const found = members.find(m => String(m.user_id).toLowerCase() === String(focusUserId).toLowerCase()) || route?.params?.targetMember;
+      const loc = locations.find(l => String(l.user_id).toLowerCase() === String(focusUserId).toLowerCase());
+      const targetLat = (latNum && !isNaN(latNum) && latNum !== 0) ? latNum : (loc?.latitude || found?.latitude);
+      const targetLng = (lngNum && !isNaN(lngNum) && lngNum !== 0) ? lngNum : (loc?.longitude || found?.longitude);
+
+      setSelectedPlace(null);
+      setSelectedPoi(null);
+
+      // Clear any search pin
+      if (webViewRef.current) {
+        webViewRef.current.injectJavaScript(`
+          if (window.showSearchedPlace) { window.showSearchedPlace(null, null, null); }
+          true;
+        `);
+      }
+
+      if (targetLat && targetLng && !isNaN(targetLat) && !isNaN(targetLng) && targetLat !== 0 && targetLng !== 0) {
+        if (webViewRef.current) {
+          const js = `
+            if (window.smoothFlyTo) {
+              window.smoothFlyTo(${targetLat}, ${targetLng}, 16);
+            } else if (window.gtaZoomTo) {
+              window.gtaZoomTo(${targetLat}, ${targetLng}, 16, ${JSON.stringify(focusUserName || found?.profile?.full_name || 'Member')}, "Circle Member");
+            } else if (window.map) {
+              window.map.setView([${targetLat}, ${targetLng}], 16, { animate: true, duration: 0.5 });
+            }
+            true;
+          `;
+          webViewRef.current.injectJavaScript(js);
+        }
+      }
+
+      const memberToSelect = found
+        ? { ...found, latitude: targetLat, longitude: targetLng }
+        : {
+            user_id: focusUserId,
+            profile: { full_name: focusUserName || 'Circle Member', avatar_url: null },
+            isOnline: true,
+            latitude: targetLat,
+            longitude: targetLng,
+          };
+      handleSelectMember(memberToSelect);
+    } else if (latNum && lngNum && !isNaN(latNum) && !isNaN(lngNum)) {
+      // 2. FOCUSING A SEARCHED PLACE / POI
       if (webViewRef.current) {
         const js = `
           if (window.showSearchedPlace) {
@@ -1673,73 +1719,30 @@ export default function MapScreen() {
         webViewRef.current.injectJavaScript(js);
       }
 
-      if (focusUserId) {
-        // Focus on member
-        const found = members.find(m => String(m.user_id).toLowerCase() === String(focusUserId).toLowerCase());
-        setSelectedPlace(null);
+      setSelectedMember(null);
+      const matchingPlace = (places || []).find(p => {
+        const pt = parseLocationPoint(p);
+        const nameMatch = focusUserName && p.name && p.name.toLowerCase() === focusUserName.toLowerCase();
+        const coordMatch = Math.abs(pt.latitude - latNum) < 0.001 && Math.abs(pt.longitude - lngNum) < 0.001;
+        return nameMatch || coordMatch;
+      });
+
+      if (matchingPlace) {
         setSelectedPoi(null);
-        if (found) {
-          handleSelectMember({
-            ...found,
-            latitude: latNum,
-            longitude: lngNum,
-          });
-        } else {
-          handleSelectMember({
-            user_id: focusUserId,
-            profile: { full_name: focusUserName || 'Circle Member', avatar_url: null },
-            isOnline: true,
-            latitude: latNum,
-            longitude: lngNum,
-          });
-        }
+        setSelectedPlace(matchingPlace);
       } else {
-        // Focus on Searched Place or POI
-        setSelectedMember(null);
-        const matchingPlace = (places || []).find(p => {
-          const pt = parseLocationPoint(p);
-          const nameMatch = focusUserName && p.name && p.name.toLowerCase() === focusUserName.toLowerCase();
-          const coordMatch = Math.abs(pt.latitude - latNum) < 0.001 && Math.abs(pt.longitude - lngNum) < 0.001;
-          return nameMatch || coordMatch;
+        setSelectedPlace(null);
+        setSelectedPoi({
+          id: `search_${Date.now()}`,
+          name: focusUserName || 'Searched Location',
+          subText: `Coordinates: ${latNum.toFixed(4)}, ${lngNum.toFixed(4)}`,
+          category: 'location',
+          lat: latNum,
+          lng: lngNum,
         });
-
-        if (matchingPlace) {
-          setSelectedPoi(null);
-          setSelectedPlace(matchingPlace);
-        } else {
-          setSelectedPlace(null);
-          setSelectedPoi({
-            id: `search_${Date.now()}`,
-            name: focusUserName || 'Searched Location',
-            subText: `Coordinates: ${latNum.toFixed(4)}, ${lngNum.toFixed(4)}`,
-            category: 'location',
-            lat: latNum,
-            lng: lngNum,
-          });
-        }
-      }
-    } else if (focusUserId) {
-      const found = members.find(m => String(m.user_id).toLowerCase() === String(focusUserId).toLowerCase());
-      const loc = locations.find(l => String(l.user_id).toLowerCase() === String(focusUserId).toLowerCase());
-      const targetLat = loc?.latitude || found?.latitude;
-      const targetLng = loc?.longitude || found?.longitude;
-
-      if (targetLat && targetLng && webViewRef.current) {
-        const js = `
-          if (window.gtaZoomTo) {
-            window.gtaZoomTo(${targetLat}, ${targetLng}, 16, ${JSON.stringify(found?.profile?.full_name || (found as any)?.name || 'Member')}, "Circle Member");
-          } else if (window.map) {
-            window.map.setView([${targetLat}, ${targetLng}], 16, { animate: true, duration: 1.0 });
-          }
-          true;
-        `;
-        webViewRef.current.injectJavaScript(js);
-      }
-      if (found) {
-        handleSelectMember(found);
       }
     }
-  }, [focusUserId, focusLat, focusLng, focusUserName, members, locations, places]);
+  }, [focusUserId, focusLat, focusLng, focusUserName, focusTimestamp, members, locations, places]);
 
   const handleDeleteSelectedPlace = async () => {
     if (!selectedPlace) return;
@@ -2150,8 +2153,8 @@ export default function MapScreen() {
 
     const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
     const memberLoc = isSelf ? { latitude: userLoc?.latitude, longitude: userLoc?.longitude } : locations.find(l => l.user_id === m.user_id);
-    const targetLat = memberLoc?.latitude;
-    const targetLng = memberLoc?.longitude;
+    const targetLat = memberLoc?.latitude ?? m.latitude;
+    const targetLng = memberLoc?.longitude ?? m.longitude;
 
     // ALWAYS glide camera to the member's live location with 0ms lag
     if (targetLat && targetLng && webViewRef.current) {

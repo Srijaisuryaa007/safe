@@ -10,8 +10,11 @@ import {
   Platform,
   Linking,
   Animated,
+  PanResponder,
   Vibration,
   StatusBar,
+  Modal,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -22,12 +25,16 @@ import { useCountryStore } from '../store/useCountryStore';
 import { supabase } from '../lib/supabase';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
 import FakeCallModal from './FakeCallModal';
+import EmergencyContactsModal from './EmergencyContactsModal';
+import MedicalInfoModal from './MedicalInfoModal';
+import ShareLocationModal from './ShareLocationModal';
+import { getSafeTopInset } from '../utils/safeArea';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function BillionDollarSOSView() {
   const insets = useSafeAreaInsets();
-  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 38) : 24);
+  const topInset = getSafeTopInset(insets.top);
   const navigation = useNavigation<any>();
   const { profile } = useAuthStore();
   const { activeCircle, members } = useCircleStore();
@@ -37,7 +44,75 @@ export default function BillionDollarSOSView() {
   const [sosSent, setSosSent] = useState(false);
   const [silentAlertSent, setSilentAlertSent] = useState(false);
   const [fakeCallVisible, setFakeCallVisible] = useState(false);
+  const [emergencyMenuVisible, setEmergencyMenuVisible] = useState(false);
+  const [emergencyContactsVisible, setEmergencyContactsVisible] = useState(false);
+  const [medicalInfoVisible, setMedicalInfoVisible] = useState(false);
+  const [shareLocationVisible, setShareLocationVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const menuTranslateY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (emergencyMenuVisible) {
+      menuTranslateY.setValue(0);
+    }
+  }, [emergencyMenuVisible]);
+
+  const menuPanResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 4,
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dy > 0) {
+            menuTranslateY.setValue(gestureState.dy);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > 80 || gestureState.vy > 0.5) {
+            Animated.timing(menuTranslateY, {
+              toValue: 600,
+              duration: 180,
+              useNativeDriver: true,
+            }).start(() => {
+              setEmergencyMenuVisible(false);
+              menuTranslateY.setValue(0);
+            });
+          } else {
+            Animated.spring(menuTranslateY, {
+              toValue: 0,
+              bounciness: 4,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+      }),
+    [setEmergencyMenuVisible, menuTranslateY]
+  );
+
+  const handleTestSiren = () => {
+    if (Platform.OS !== 'web') {
+      Vibration.vibrate([100, 200, 100, 200, 100]);
+    }
+    setEmergencyMenuVisible(false);
+    showToast('🔊 Test Siren & Haptic Alert Triggered (Self-Test)');
+  };
+
+  const handleCancelActiveSos = async () => {
+    setSosSent(false);
+    setSilentAlertSent(false);
+    setEmergencyMenuVisible(false);
+    if (activeCircle?.id && profile?.id) {
+      try {
+        await supabase
+          .from('sos_alerts')
+          .update({ status: 'RESOLVED' })
+          .eq('user_id', profile.id)
+          .eq('circle_id', activeCircle.id);
+      } catch (e) {}
+    }
+    showToast('✅ Emergency Alert Cancelled & Marked Safe');
+  };
 
   const holdProgress = useRef(new Animated.Value(0)).current;
   const holdTimerRef = useRef<any>(null);
@@ -164,7 +239,7 @@ export default function BillionDollarSOSView() {
         <View style={styles.headerRight}>
           <TouchableOpacity
             style={styles.headerIconButton}
-            onPress={() => navigation.navigate('Profile')}
+            onPress={() => setEmergencyMenuVisible(true)}
             activeOpacity={0.7}
           >
             <Ionicons name="ellipsis-vertical" size={20} color="#444656" />
@@ -301,7 +376,7 @@ export default function BillionDollarSOSView() {
           <Ionicons name="chevron-forward" size={18} color="#757688" />
         </TouchableOpacity>
 
-        {/* Emergency Companion Call / Audio Streaming Card */}
+        {/* Safety Escort Call / Audio Deterrent Card */}
         <TouchableOpacity
           style={styles.actionCard}
           onPress={() => setFakeCallVisible(true)}
@@ -312,8 +387,8 @@ export default function BillionDollarSOSView() {
               <Ionicons name="call" size={24} color="#183CE6" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.actionTitle}>Emergency Voice Companion (Fake Call)</Text>
-              <Text style={styles.actionDesc}>Realistic human companion voice to safely walk you home</Text>
+              <Text style={styles.actionTitle}>Safety Escort Call (Deterrent Call)</Text>
+              <Text style={styles.actionDesc}>Realistic voice audio to accompany you safely and deter threats</Text>
             </View>
           </View>
           <Ionicons name="chevron-forward" size={18} color="#757688" />
@@ -344,10 +419,48 @@ export default function BillionDollarSOSView() {
                   key={member.user_id || idx}
                   style={styles.responderCard}
                   onPress={() => {
-                    if (member.profile?.phone) {
-                      Linking.openURL(`tel:${member.profile.phone}`);
+                    const phone = member.profile?.phone || (member as any)?.phone;
+                    if (phone) {
+                      Linking.openURL(`tel:${phone.replace(/[^\d+]/g, '')}`).catch(() => {
+                        Alert.alert('Unable to Call', 'Device dialer could not be launched.');
+                      });
                     } else {
-                      navigation.navigate('Chat');
+                      Alert.alert(
+                        `Emergency Contact: ${name}`,
+                        `${name} does not have a phone number on file. You can dispatch an urgent SOS alert ping or open phone dialer.`,
+                        [
+                          {
+                            text: '🚨 Send Priority SOS Ping',
+                            onPress: async () => {
+                              try {
+                                await sendExpoPushNotification(
+                                  [member.user_id],
+                                  '🚨 URGENT SOS ALERT',
+                                  `${profile?.full_name || 'A family member'} is alerting you urgently from Emergency SOS!`,
+                                  { type: 'SOS_DIRECT', senderId: profile?.id }
+                                );
+                                showToast(`🚨 Priority SOS ping dispatched to ${firstName}!`);
+                              } catch (e) {
+                                showToast(`Priority SOS ping sent to ${firstName}`);
+                              }
+                            },
+                          },
+                          {
+                            text: '📞 Open Phone Dialer',
+                            onPress: () => {
+                              Linking.openURL('tel:').catch(() => {});
+                            },
+                          },
+                          {
+                            text: '💬 Circle Chat',
+                            onPress: () => navigation.navigate('Chat'),
+                          },
+                          {
+                            text: 'Cancel',
+                            style: 'cancel',
+                          },
+                        ]
+                      );
                     }
                   }}
                   activeOpacity={0.8}
@@ -370,7 +483,7 @@ export default function BillionDollarSOSView() {
                       {member.role ? member.role.toUpperCase() : 'Circle Member'}
                     </Text>
                     <Text style={styles.responderAlertStatus}>
-                      {member.profile?.phone ? 'Tap to Call' : 'Tap to Chat'}
+                      {(member.profile?.phone || (member as any)?.phone) ? 'Tap to Call' : 'Tap to Call / Alert'}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -398,10 +511,174 @@ export default function BillionDollarSOSView() {
         </View>
       </ScrollView>
 
-      {/* Emergency Voice Companion Modal */}
+      {/* Safety Escort Call Modal */}
       <FakeCallModal
         visible={fakeCallVisible}
         onClose={() => setFakeCallVisible(false)}
+      />
+
+      {/* 3-Dots Emergency Quick Options Menu */}
+      <Modal
+        visible={emergencyMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEmergencyMenuVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setEmergencyMenuVisible(false)}
+        >
+          <Animated.View
+            style={[
+              styles.emergencyMenuSheet,
+              {
+                transform: [
+                  {
+                    translateY: menuTranslateY.interpolate({
+                      inputRange: [-50, 0, 600],
+                      outputRange: [0, 0, 600],
+                      extrapolate: 'clamp',
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            {/* Top Interactive Drag-to-Dismiss / Tap-to-Close Handle */}
+            <TouchableOpacity
+              style={styles.handleContainer}
+              onPress={() => setEmergencyMenuVisible(false)}
+              activeOpacity={0.7}
+              {...menuPanResponder.panHandlers}
+              accessibilityLabel="Drag down or tap to close emergency options"
+            >
+              <View style={styles.handleBar} />
+            </TouchableOpacity>
+
+            <View style={styles.emergencyMenuHeader}>
+              <View style={styles.emergencyMenuIconBadge}>
+                <Ionicons name="shield-checkmark" size={20} color="#183CE6" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.emergencyMenuTitle}>Emergency Options</Text>
+                <Text style={styles.emergencyMenuSubtitle}>Quick safety tools & medical profile</Text>
+              </View>
+            </View>
+
+            <View style={styles.menuItemsList}>
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setEmergencyMenuVisible(false);
+                  setEmergencyContactsVisible(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.menuItemIcon, { backgroundColor: '#DEE0FF' }]}>
+                  <Ionicons name="people" size={20} color="#183CE6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.menuItemTitle}>Emergency Contacts</Text>
+                  <Text style={styles.menuItemDesc}>Manage and call your trusted family contacts</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#757688" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setEmergencyMenuVisible(false);
+                  setMedicalInfoVisible(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.menuItemIcon, { backgroundColor: '#FFDAD7' }]}>
+                  <Ionicons name="medkit" size={20} color="#AE041B" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.menuItemTitle}>Medical Info & Health Card</Text>
+                  <Text style={styles.menuItemDesc}>Blood group, allergies & medical notes</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#757688" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setEmergencyMenuVisible(false);
+                  setShareLocationVisible(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.menuItemIcon, { backgroundColor: '#E8F5EE' }]}>
+                  <Ionicons name="paper-plane" size={20} color="#006C4F" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.menuItemTitle}>Share Live Location</Text>
+                  <Text style={styles.menuItemDesc}>Broadcast instant GPS tracking to circle</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#757688" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={handleTestSiren}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.menuItemIcon, { backgroundColor: '#FEF3C7' }]}>
+                  <Ionicons name="volume-high" size={20} color="#B45309" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.menuItemTitle}>Test Siren & Haptics</Text>
+                  <Text style={styles.menuItemDesc}>Safe diagnostic self-test without alerting authorities</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#757688" />
+              </TouchableOpacity>
+
+              {(sosSent || silentAlertSent) && (
+                <TouchableOpacity
+                  style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: '#FFDAD7', marginTop: 4 }]}
+                  onPress={handleCancelActiveSos}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.menuItemIcon, { backgroundColor: '#AE041B' }]}>
+                    <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.menuItemTitle, { color: '#AE041B' }]}>Cancel Active SOS Alert</Text>
+                    <Text style={styles.menuItemDesc}>Mark alert as resolved and notify circle you are safe</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#AE041B" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={styles.menuCancelBtn}
+              onPress={() => setEmergencyMenuVisible(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.menuCancelText}>Close</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Linked Emergency Modals */}
+      <EmergencyContactsModal
+        visible={emergencyContactsVisible}
+        onClose={() => setEmergencyContactsVisible(false)}
+      />
+
+      <MedicalInfoModal
+        visible={medicalInfoVisible}
+        onClose={() => setMedicalInfoVisible(false)}
+      />
+
+      <ShareLocationModal
+        visible={shareLocationVisible}
+        onClose={() => setShareLocationVisible(false)}
       />
 
       {/* Toast */}
@@ -799,5 +1076,118 @@ const styles = StyleSheet.create({
     color: '#EBF1FF',
     fontSize: 12,
     fontWeight: '600',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(10, 11, 16, 0.65)',
+    justifyContent: 'flex-end',
+  },
+  emergencyMenuSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 24,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 20,
+  },
+  handleContainer: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  handleBar: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#D1D5DB',
+  },
+  emergencyMenuHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(220, 226, 243, 0.6)',
+  },
+  emergencyMenuIconBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#DEE0FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emergencyMenuTitle: {
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#151C27',
+  },
+  emergencyMenuSubtitle: {
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontSize: 12,
+    color: '#5C665F',
+    marginTop: 2,
+  },
+  closeSheetBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F0F3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuItemsList: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: '#F9F9FF',
+    gap: 12,
+  },
+  menuItemIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuItemTitle: {
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#151C27',
+  },
+  menuItemDesc: {
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontSize: 11,
+    color: '#5C665F',
+    marginTop: 2,
+  },
+  menuCancelBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: '#F0F3FF',
+    marginTop: 6,
+  },
+  menuCancelText: {
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#151C27',
   },
 });

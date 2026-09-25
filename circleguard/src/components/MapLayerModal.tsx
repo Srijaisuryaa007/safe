@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useRef, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Animated, PanResponder } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
 
@@ -20,6 +20,46 @@ export default function MapLayerModal({
 }: MapLayerModalProps) {
   const { colors } = useThemeStore();
 
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      translateY.setValue(0);
+    }
+  }, [visible]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 4,
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dy > 0) {
+            translateY.setValue(gestureState.dy);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > 80 || gestureState.vy > 0.5) {
+            Animated.timing(translateY, {
+              toValue: 600,
+              duration: 180,
+              useNativeDriver: true,
+            }).start(() => {
+              onClose();
+              translateY.setValue(0);
+            });
+          } else {
+            Animated.spring(translateY, {
+              toValue: 0,
+              bounciness: 4,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+      }),
+    [onClose, translateY]
+  );
+
   const stylesList: Array<{
     id: MapStyleType;
     title: string;
@@ -35,33 +75,33 @@ export default function MapLayerModal({
       description: 'Clean high-clarity street vector map optimized for city navigation.',
       icon: 'map-outline',
       badge: 'DEFAULT',
-      previewBg: '#F9F8F6',
-      borderColor: '#3B82F6',
+      previewBg: '#1E293B',
+      borderColor: '#0284C7',
     },
     {
       id: 'satellite',
-      title: 'Satellite Imagery',
-      description: 'High-resolution real-world Earth satellite imagery from ESRI.',
+      title: 'Satellite Photographic Imagery',
+      description: 'High resolution orbital imagery with topological street overlays.',
       icon: 'earth-outline',
-      badge: 'SATELLITE',
-      previewBg: '#1C2E1E',
+      badge: 'ORBITAL',
+      previewBg: '#0F172A',
       borderColor: '#10B981',
     },
     {
-      id: 'dark',
-      title: 'Midnight Dark Mode',
-      description: 'Obsidian dark vector map designed for night viewing and battery saving.',
-      icon: 'moon-outline',
-      badge: 'NIGHT',
-      previewBg: '#0D0E12',
-      borderColor: '#A855F7',
+      id: 'terrain',
+      title: 'Topographic Terrain Radar',
+      description: 'Elevation contours and elevation tracking with shaded physical relief.',
+      icon: 'trail-sign-outline',
+      badge: 'TOPOGRAPHY',
+      previewBg: '#1B262C',
+      borderColor: '#8B5CF6',
     },
     {
-      id: 'terrain',
-      title: 'Topographic Terrain',
-      description: 'Contour lines, elevation profiles, and outdoor geographical terrain.',
-      icon: 'navigate-circle-outline',
-      badge: 'TERRAIN',
+      id: 'dark',
+      title: 'Tactical Midnight Stealth',
+      description: 'Ultra high-contrast OLED dark radar mode for night operations.',
+      icon: 'moon-outline',
+      badge: 'OLED DARK',
       previewBg: '#2D281E',
       borderColor: '#F59E0B',
     },
@@ -72,16 +112,41 @@ export default function MapLayerModal({
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
-        <View style={[styles.modalSheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Animated.View
+          style={[
+            styles.modalSheet,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              transform: [
+                {
+                  translateY: translateY.interpolate({
+                    inputRange: [-50, 0, 600],
+                    outputRange: [0, 0, 600],
+                    extrapolate: 'clamp',
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          {/* Top Interactive Drag-to-Dismiss / Tap-to-Close Handle */}
+          <TouchableOpacity
+            style={styles.handleContainer}
+            onPress={onClose}
+            activeOpacity={0.7}
+            {...panResponder.panHandlers}
+            accessibilityLabel="Drag down or tap to close map layer picker"
+          >
+            <View style={[styles.handleBar, { backgroundColor: colors.border }]} />
+          </TouchableOpacity>
+
           {/* Header */}
           <View style={styles.header}>
             <View>
-              <Text style={[styles.overline, { color: colors.accentGold }]}>MAP INTELLIGENCE</Text>
+              <Text style={[styles.overline, { color: colors.accentGold }]}>MAP RADAR & LAYERS</Text>
               <Text style={[styles.title, { color: colors.foreground }]}>Select Map View Style</Text>
             </View>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7}>
-              <Ionicons name="close" size={22} color={colors.foreground} />
-            </TouchableOpacity>
           </View>
 
           {/* Map Layer Options List */}
@@ -130,7 +195,7 @@ export default function MapLayerModal({
               );
             })}
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -146,14 +211,24 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1,
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingTop: 10,
+    paddingBottom: 24,
     maxHeight: '75%',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  handleContainer: {
+    width: '100%',
     alignItems: 'center',
-    marginBottom: 20,
+    paddingVertical: 6,
+    marginBottom: 10,
+  },
+  handleBar: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+  },
+  header: {
+    marginBottom: 16,
   },
   overline: {
     fontSize: 10,

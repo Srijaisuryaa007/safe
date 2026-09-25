@@ -201,7 +201,7 @@ export default function ZomatoLiveJourneyCard({
         type: 'spring',
         damping: 18,
         stiffness: 140,
-      }}
+      } as any}
       style={[
         styles.cardContainer,
         {

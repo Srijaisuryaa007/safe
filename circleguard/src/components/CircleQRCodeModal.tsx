@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,9 @@ import {
   Share,
   Alert,
   Platform,
+  Image,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -23,11 +26,53 @@ interface CircleQRCodeModalProps {
 
 export default function CircleQRCodeModal({ visible, circle, onClose }: CircleQRCodeModalProps) {
   const { colors, isDark } = useThemeStore();
+  const [svgError, setSvgError] = useState(false);
+
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      translateY.setValue(0);
+    }
+  }, [visible]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 4,
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dy > 0) {
+            translateY.setValue(gestureState.dy);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > 80 || gestureState.vy > 0.5) {
+            Animated.timing(translateY, {
+              toValue: 600,
+              duration: 180,
+              useNativeDriver: true,
+            }).start(() => {
+              onClose();
+              translateY.setValue(0);
+            });
+          } else {
+            Animated.spring(translateY, {
+              toValue: 0,
+              bounciness: 4,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+      }),
+    [onClose, translateY]
+  );
 
   if (!circle) return null;
 
   const inviteCode = (circle.invite_code || '').trim().toUpperCase();
   const qrPayload = `circleguard://join/${inviteCode}`;
+  const fallbackQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(qrPayload)}&bgcolor=FFFFFF&color=0F172A&margin=2`;
 
   const handleCopyCode = async () => {
     try {
@@ -41,8 +86,8 @@ export default function CircleQRCodeModal({ visible, circle, onClose }: CircleQR
   const handleShare = async () => {
     try {
       await Share.share({
-        title: `Join my "${circle.name}" safety circle on CircleGuard`,
-        message: `Join my "${circle.name}" safety circle on CircleGuard! Use private encryption key: ${inviteCode}\n\nOr scan the QR code in the app.`,
+        message: `Join my private circle "${circle.name}" on CircleGuard using invite code: ${inviteCode}\n\nDownload CircleGuard to connect safely: https://circleguard.app/join/${inviteCode}`,
+        title: `Join ${circle.name} on CircleGuard`,
       });
     } catch (e) {
       // ignore
@@ -52,7 +97,35 @@ export default function CircleQRCodeModal({ visible, circle, onClose }: CircleQR
   return (
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0' }]}>
+        <Animated.View
+          style={[
+            styles.card,
+            {
+              backgroundColor: colors.surface,
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0',
+              transform: [
+                {
+                  translateY: translateY.interpolate({
+                    inputRange: [-50, 0, 600],
+                    outputRange: [0, 0, 600],
+                    extrapolate: 'clamp',
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          {/* Top Interactive Drag-to-Dismiss / Tap-to-Close Handle */}
+          <TouchableOpacity
+            style={styles.handleContainer}
+            onPress={onClose}
+            activeOpacity={0.7}
+            {...panResponder.panHandlers}
+            accessibilityLabel="Drag down or tap to close circle QR code"
+          >
+            <View style={[styles.handleBar, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.18)' }]} />
+          </TouchableOpacity>
+
           {/* Header */}
           <View style={styles.headerRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -64,22 +137,27 @@ export default function CircleQRCodeModal({ visible, circle, onClose }: CircleQR
                 <Text style={[styles.title, { color: colors.foreground }]}>{circle.name}</Text>
               </View>
             </View>
-
-            <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : '#F1F5F9' }]}>
-              <Ionicons name="close" size={20} color={colors.foreground} />
-            </TouchableOpacity>
           </View>
 
           {/* QR Code Container */}
           <View style={styles.qrWrapper}>
             <View style={styles.qrCard}>
-              <QRCode
-                value={qrPayload}
-                size={180}
-                color="#0F172A"
-                backgroundColor="#FFFFFF"
-                quietZone={8}
-              />
+              {!svgError && qrPayload ? (
+                <QRCode
+                  value={qrPayload}
+                  size={180}
+                  color="#0F172A"
+                  backgroundColor="#FFFFFF"
+                  quietZone={8}
+                  onError={() => setSvgError(true)}
+                />
+              ) : (
+                <Image
+                  source={{ uri: fallbackQrUrl }}
+                  style={{ width: 180, height: 180, borderRadius: 8 }}
+                  resizeMode="contain"
+                />
+              )}
             </View>
             <Text style={[styles.qrHelperText, { color: isDark ? '#94A3B8' : '#64748B' }]}>
               Scan with CircleGuard camera to join instantly
@@ -113,7 +191,7 @@ export default function CircleQRCodeModal({ visible, circle, onClose }: CircleQR
               <Text style={[styles.actionBtnText, { color: isDark ? '#0F172A' : '#FFFFFF' }]}>SHARE INVITE KEY</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -129,16 +207,28 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1,
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingTop: 10,
     paddingBottom: Platform.OS === 'ios' ? 44 : 32,
     alignItems: 'center',
+  },
+  handleContainer: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  handleBar: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     width: '100%',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   iconOrb: {
     width: 38,

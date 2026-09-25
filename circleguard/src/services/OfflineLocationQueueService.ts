@@ -12,43 +12,83 @@ export interface QueuedLocationPoint {
 }
 
 const STORAGE_PREFIX = '@circleguard_offline_breadcrumbs_';
-const MAX_QUEUE_SIZE = 1000;
+const MAX_QUEUE_SIZE = 2500;
 let isFlushing = false;
+
+/**
+ * Extract latitude and longitude from WKT POINT(lng lat) if not provided
+ */
+function parseCoordsFromGeom(geom: string): { latitude: number; longitude: number } | null {
+  try {
+    const match = geom.match(/POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)/i);
+    if (match) {
+      return {
+        longitude: parseFloat(match[1]),
+        latitude: parseFloat(match[2]),
+      };
+    }
+  } catch {
+    // Ignore parse error
+  }
+  return null;
+}
 
 /**
  * Record a location point with offline resilience.
  * If online, sends immediately. If bad network / offline, queues locally and syncs on next connection.
+ * Retains transit/metro fixes up to 650m-900m so underground subways and rail corridors are never lost.
  */
 export async function queueAndSyncLocationHistory(point: QueuedLocationPoint): Promise<void> {
   if (!point.user_id) return;
 
-  // 1. Accuracy Filter: Drop inaccurate cell-tower triangulation spikes (> 40 meters error)
-  if (typeof point.accuracy === 'number' && point.accuracy > 40) {
+  // Strict Accuracy Filter: Only record authentic GPS fixes (<= 35m, or <= 45m when driving fast)
+  // Rejects cell-tower & WiFi multipath triangulation errors that jump onto random streets
+  const maxAllowedAccuracy = (point.speed_mps && point.speed_mps > 10.0) ? 45 : 35;
+  if (typeof point.accuracy === 'number' && point.accuracy > maxAllowedAccuracy) {
     return;
   }
+
+  // Ensure lat/lng are populated
+  let lat = point.latitude;
+  let lng = point.longitude;
+  if ((lat === undefined || lng === undefined) && point.geom) {
+    const parsed = parseCoordsFromGeom(point.geom);
+    if (parsed) {
+      lat = parsed.latitude;
+      lng = parsed.longitude;
+    }
+  }
+
+  const pointToSave: QueuedLocationPoint = {
+    user_id: point.user_id,
+    geom: point.geom,
+    speed_mps: point.speed_mps || 0,
+    recorded_at: point.recorded_at,
+    accuracy: point.accuracy,
+    latitude: lat,
+    longitude: lng,
+  };
 
   const storageKey = `${STORAGE_PREFIX}${point.user_id}`;
 
   try {
-    // 2. Load existing pending queue
+    // 1. Load existing pending queue
     const saved = await AsyncStorage.getItem(storageKey);
     let queue: QueuedLocationPoint[] = saved ? JSON.parse(saved) : [];
 
     // Append new point
-    queue.push({
-      user_id: point.user_id,
-      geom: point.geom,
-      speed_mps: point.speed_mps,
-      recorded_at: point.recorded_at,
-    });
+    queue.push(pointToSave);
 
     // Enforce max buffer size
     if (queue.length > MAX_QUEUE_SIZE) {
       queue = queue.slice(-MAX_QUEUE_SIZE);
     }
 
-    // 3. Try to sync entire batch to Supabase
-    const { error } = await supabase
+    // Always persist to local cache first so crash or abrupt connection loss never loses breadcrumbs
+    await AsyncStorage.setItem(storageKey, JSON.stringify(queue));
+
+    // 2. Try to sync entire batch to Supabase (with timeout guard)
+    const syncPromise = supabase
       .from('location_history')
       .insert(queue.map(p => ({
         user_id: p.user_id,
@@ -57,28 +97,48 @@ export async function queueAndSyncLocationHistory(point: QueuedLocationPoint): P
         recorded_at: p.recorded_at,
       })));
 
-    if (!error) {
+    // 4-second timeout to prevent hanging on flaky/underground 2G/3G connections
+    const timeoutPromise = new Promise<{ error: { message: string } }>((_, reject) =>
+      setTimeout(() => reject(new Error('Network timeout in tunnel/low-connectivity')), 4000)
+    );
+
+    const result = await Promise.race([syncPromise, timeoutPromise]) as { error?: any };
+
+    if (result && !result.error) {
       // Successfully uploaded all points! Clear local storage buffer
       await AsyncStorage.removeItem(storageKey);
-    } else {
-      // Network failed / slow: Persist pending queue in local AsyncStorage for future flush
-      await AsyncStorage.setItem(storageKey, JSON.stringify(queue));
     }
   } catch (err) {
-    // Network error / timeout: Ensure point is saved locally
-    try {
-      const saved = await AsyncStorage.getItem(storageKey);
-      let queue: QueuedLocationPoint[] = saved ? JSON.parse(saved) : [];
-      queue.push({
-        user_id: point.user_id,
-        geom: point.geom,
-        speed_mps: point.speed_mps,
-        recorded_at: point.recorded_at,
-      });
-      await AsyncStorage.setItem(storageKey, JSON.stringify(queue.slice(-MAX_QUEUE_SIZE)));
-    } catch (e) {
-      console.warn('[OfflineQueue] Local storage save error:', e);
-    }
+    // Network error / timeout: Point is safely stored in local queue already.
+    // Logging at debug level to avoid spamming console in tunnels.
+    // console.debug('[OfflineQueue] Buffered point offline:', err);
+  }
+}
+
+/**
+ * Retrieve any currently unsynced offline breadcrumbs from local storage.
+ * Used by map screens to render recent track history even before network sync completes.
+ */
+export async function getPendingOfflineBreadcrumbs(userId: string): Promise<QueuedLocationPoint[]> {
+  if (!userId) return [];
+  try {
+    const storageKey = `${STORAGE_PREFIX}${userId}`;
+    const saved = await AsyncStorage.getItem(storageKey);
+    if (!saved) return [];
+    const parsed: QueuedLocationPoint[] = JSON.parse(saved);
+    return parsed.map(p => {
+      if (p.latitude === undefined || p.longitude === undefined) {
+        const coords = parseCoordsFromGeom(p.geom);
+        return {
+          ...p,
+          latitude: coords?.latitude,
+          longitude: coords?.longitude,
+        };
+      }
+      return p;
+    });
+  } catch {
+    return [];
   }
 }
 

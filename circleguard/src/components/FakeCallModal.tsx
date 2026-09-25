@@ -5,15 +5,17 @@ import {
   StyleSheet,
   Modal,
   TouchableOpacity,
+  ScrollView,
   Animated,
   Platform,
   Vibration,
   Switch,
-  ScrollView,
+  StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getSafeTopInset } from '../utils/safeArea';
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech';
-import { LUXURY_THEME } from '../constants/theme';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { supabase } from '../lib/supabase';
@@ -24,13 +26,13 @@ interface FakeCallModalProps {
   callerName?: string;
 }
 
-// Single realistic human companion caller configuration
+// Single realistic human safety escort caller configuration
 const SINGLE_CALLER = {
   id: 'alex_companion',
   name: 'Alex',
-  subtitle: 'Mobile Call • Real Human Voice',
+  subtitle: 'Mobile Call • Safety Escort Voice',
   avatarIcon: 'person' as const,
-  accentColor: LUXURY_THEME.colors.accentGold,
+  accentColor: '#183CE6',
   initialDialogue: () =>
     `Hey! Where are you right now? I'm already standing outside waiting for you. Are you walking up the street? Okay, perfect. Just keep your phone in your hand and keep walking straight towards me. I'm staying right here on the phone with you until you get inside.`,
   followUps: [
@@ -68,6 +70,9 @@ const DTMF_TONES: Record<string, [number, number]> = {
 };
 
 export default function FakeCallModal({ visible, onClose, callerName }: FakeCallModalProps) {
+  const insets = useSafeAreaInsets();
+  const topInset = getSafeTopInset(insets.top);
+
   const { profile } = useAuthStore();
   const { activeCircle } = useCircleStore();
   const effectiveCallerName = callerName && callerName !== 'CIRCLEGUARD ESCORT' ? callerName : SINGLE_CALLER.name;
@@ -190,162 +195,121 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
     }
   };
 
-  // Play realistic DTMF Touch Tone
+  // Dual Tone Multi-Frequency (DTMF) Keypad audio simulator
   const playDtmfTone = (digit: string) => {
-    const freqs = DTMF_TONES[digit];
-    if (!freqs) return;
     try {
+      const frequencies = DTMF_TONES[digit];
+      if (!frequencies) return;
+
+      if (Platform.OS !== 'web') {
+        try {
+          Vibration.vibrate(40);
+        } catch (e) {}
+      }
+
       const ctx = getAudioContext();
       if (!ctx) return;
 
       const now = ctx.currentTime;
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const gain = ctx.createGain();
+      const oscLow = ctx.createOscillator();
+      const oscHigh = ctx.createOscillator();
+      const gainNode = ctx.createGain();
 
-      osc1.frequency.setValueAtTime(freqs[0], now);
-      osc2.frequency.setValueAtTime(freqs[1], now);
+      oscLow.frequency.setValueAtTime(frequencies[0], now);
+      oscHigh.frequency.setValueAtTime(frequencies[1], now);
 
-      gain.gain.setValueAtTime(0.001, now);
-      gain.gain.exponentialRampToValueAtTime(0.15, now + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+      gainNode.gain.setValueAtTime(0.001, now);
+      gainNode.gain.exponentialRampToValueAtTime(0.16, now + 0.02);
+      gainNode.gain.setValueAtTime(0.16, now + 0.14);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
 
-      osc1.connect(gain);
-      osc2.connect(gain);
-      gain.connect(ctx.destination);
+      oscLow.connect(gainNode);
+      oscHigh.connect(gainNode);
+      gainNode.connect(ctx.destination);
 
-      osc1.start(now);
-      osc2.start(now);
-      osc1.stop(now + 0.16);
-      osc2.stop(now + 0.16);
+      oscLow.start(now);
+      oscHigh.start(now);
+      oscLow.stop(now + 0.2);
+      oscHigh.stop(now + 0.2);
     } catch (e) {}
   };
 
-  // High-Definition Realistic Human Voice Finder for Native Mobile (iOS & Android)
-  // Ensures we select a high-fidelity, natural studio voice instead of the robotic default TTS
-  const getNativeVoiceId = () => {
-    if (!nativeVoices || nativeVoices.length === 0) return undefined;
-    const englishVoices = nativeVoices.filter(v => (v.language || '').toLowerCase().startsWith('en'));
-    if (englishVoices.length === 0) return undefined;
-
-    // Filter for enhanced / network / natural quality
-    const naturalVoice = englishVoices.find(v => {
-      const n = (v.name || '').toLowerCase();
-      const id = (v.identifier || '').toLowerCase();
-      return (
-        v.quality === 'Enhanced' ||
-        n.includes('natural') ||
-        n.includes('neural') ||
-        n.includes('studio') ||
-        n.includes('premium') ||
-        id.includes('network') ||
-        id.includes('enhanced') ||
-        n.includes('samantha') ||
-        n.includes('karen') ||
-        n.includes('ava') ||
-        n.includes('oliver') ||
-        n.includes('daniel')
-      );
-    });
-
-    return naturalVoice ? naturalVoice.identifier : englishVoices[0]?.identifier;
-  };
-
-  // High-Definition Realistic Human Voice Selector for Web
-  const getNaturalWebVoice = () => {
-    if (typeof window === 'undefined' || !window.speechSynthesis) return null;
-    const voices = window.speechSynthesis.getVoices();
-    if (!voices || voices.length === 0) return null;
-
-    // 1. Prioritize Microsoft Natural online neural voices (warmest, human studio quality)
-    const naturalVoices = voices.filter(v => v.name.includes('Natural') && v.lang.startsWith('en'));
-    if (naturalVoices.length > 0) {
-      const preferred = naturalVoices.find(v => v.name.includes('Jenny') || v.name.includes('Aria') || v.name.includes('Guy'));
-      return preferred || naturalVoices[0];
-    }
-
-    // 2. Google US/UK natural voices
-    const googleVoices = voices.filter(v => v.name.includes('Google') && v.lang.startsWith('en'));
-    if (googleVoices.length > 0) {
-      const preferred = googleVoices.find(v => v.name.includes('Female') || v.name.includes('US English'));
-      return preferred || googleVoices[0];
-    }
-
-    // 3. Apple / Android Enhanced voices
-    const enhanced = voices.filter(v => (v.name.includes('Enhanced') || (v as any).quality === 'Enhanced') && v.lang.startsWith('en'));
-    if (enhanced.length > 0) return enhanced[0];
-
-    // 4. Any English voice that is not a robotic legacy voice
-    const nonRobotic = voices.find(v => v.lang.startsWith('en') && !v.name.includes('eSpeak') && !v.name.includes('Desktop'));
-    if (nonRobotic) return nonRobotic;
-
-    const enUs = voices.find(v => v.lang === 'en-US' || v.lang === 'en_US');
-    return enUs || voices[0];
-  };
-
-  // Speak aloud with natural human conversational pacing (0.90 rate) and pure mobile call clarity (NO robotic clicks)
+  // Synthesize realistic dispatcher/escort speech
   const speakDispatcher = (text: string, onFinish?: () => void) => {
-    if (!isSpeakerOn) return;
     setOperatorSpeechText(text);
 
-    // 1. Native Mobile (iOS & Android) via Expo Speech
-    if (Platform.OS !== 'web') {
+    if (Platform.OS === 'web') {
       try {
-        if (typeof Speech !== 'undefined' && Speech.speak) {
-          Speech.stop();
-          const voiceId = getNativeVoiceId();
-          Speech.speak(text, {
-            language: 'en-US',
-            pitch: 1.0,
-            rate: 0.90, // Natural human conversational tempo
-            voice: voiceId,
-            onDone: () => {
-              if (onFinish) onFinish();
-            },
-            onError: () => {
-              if (onFinish) onFinish();
-            },
-          });
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 0.96;
+          utterance.pitch = 1.02;
+
+          const voices = window.speechSynthesis.getVoices();
+          const naturalVoice = voices.find(
+            (v) =>
+              v.lang.startsWith('en') &&
+              (v.name.includes('Natural') ||
+                v.name.includes('Premium') ||
+                v.name.includes('Neural') ||
+                v.name.includes('Samantha') ||
+                v.name.includes('Alex') ||
+                v.name.includes('Google') ||
+                v.name.includes('Daniel'))
+          );
+
+          if (naturalVoice) utterance.voice = naturalVoice;
+          utterance.onend = () => onFinish?.();
+          window.speechSynthesis.speak(utterance);
           return;
         }
       } catch (e) {}
     }
 
-    // 2. Web Speech API with Natural Neural Voice
     try {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 0.90;
-        utterance.pitch = 1.0;
+      if (typeof Speech !== 'undefined' && Speech.speak) {
+        Speech.stop();
 
-        const bestVoice = getNaturalWebVoice();
-        if (bestVoice) {
-          utterance.voice = bestVoice;
+        let voiceIdToUse: string | undefined = undefined;
+        if (nativeVoices && nativeVoices.length > 0) {
+          const preferred = nativeVoices.find(
+            (v) =>
+              (v.language?.startsWith('en') || v.lang?.startsWith('en')) &&
+              (v.quality === 'Enhanced' ||
+                v.quality === 300 ||
+                v.name?.includes('Enhanced') ||
+                v.name?.includes('Premium') ||
+                v.name?.includes('Natural') ||
+                v.name?.includes('Alex') ||
+                v.name?.includes('Samantha') ||
+                v.name?.includes('Siri'))
+          );
+          if (preferred) {
+            voiceIdToUse = preferred.identifier || preferred.name;
+          }
         }
 
-        utterance.onend = () => {
-          if (onFinish) onFinish();
-        };
-        utterance.onerror = () => {
-          if (onFinish) onFinish();
-        };
-
-        window.speechSynthesis.speak(utterance);
+        Speech.speak(text, {
+          rate: 0.95,
+          pitch: 1.0,
+          language: 'en-US',
+          voice: voiceIdToUse,
+          onDone: () => onFinish?.(),
+          onError: () => onFinish?.(),
+        });
       }
     } catch (e) {}
   };
 
   const stopDispatcherSpeech = () => {
-    setIsPreviewPlaying(false);
     try {
-      if (typeof Speech !== 'undefined' && Speech.stop) {
+      if (Platform.OS === 'web') {
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+        }
+      } else if (typeof Speech !== 'undefined' && Speech.stop) {
         Speech.stop();
-      }
-    } catch (e) {}
-    try {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
       }
     } catch (e) {}
   };
@@ -556,133 +520,173 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={false}>
-      <View style={styles.container}>
+    <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose} statusBarTranslucent={true}>
+      <View style={[styles.container, (stage === 'setup' || stage === 'countdown') && styles.containerLight]}>
         {/* =================================================================== */}
         {/* 1. SETUP / DISPATCHER CONFIGURATION STAGE                           */}
         {/* =================================================================== */}
         {stage === 'setup' && (
-          <ScrollView contentContainerStyle={styles.setupScroll} showsVerticalScrollIndicator={false}>
-            <View style={styles.setupHeader}>
-              <View style={styles.shieldBadge}>
-                <Ionicons name="call" size={30} color={LUXURY_THEME.colors.accentGold} />
+          <View style={styles.stageFull}>
+            {/* Header Bar */}
+            <View style={[styles.header, { paddingTop: topInset + 6 }]}>
+              <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.7}>
+                <Ionicons name="close" size={20} color="#334155" />
+              </TouchableOpacity>
+              <View style={styles.headerTitleBox}>
+                <View style={styles.headerBadge}>
+                  <View style={styles.headerDot} />
+                  <Text style={styles.headerOverline}>SAFETY ESCORT</Text>
+                </View>
+                <Text style={styles.headerTitle}>Safety Escort & Deterrent Call</Text>
               </View>
-              <Text style={styles.setupOverline}>REAL HUMAN CALL ESCORT</Text>
-              <Text style={styles.setupTitle}>Safety Phone Call</Text>
-              <Text style={styles.setupSubtitle}>
-                Triggers an authentic incoming phone call with a fluent, natural human companion voice to comfortably escort you anywhere.
-              </Text>
             </View>
 
-            {/* Dedicated Single Real-Human Voice Card */}
-            <Text style={styles.sectionHeader}>CALLER & VOICE PROFILE</Text>
-            <View style={styles.singleCallerCard}>
-              <View style={styles.singleCallerTop}>
-                <View style={styles.singleCallerIconBox}>
-                  <Ionicons name="person" size={24} color={LUXURY_THEME.colors.accentGold} />
+            <ScrollView
+              style={styles.scrollArea}
+              contentContainerStyle={styles.content}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Info Banner */}
+              <View style={styles.infoBanner}>
+                <View style={styles.infoIconBox}>
+                  <Ionicons name="shield-checkmark" size={20} color="#2E7D5B" />
                 </View>
-                <View style={{ flex: 1 }}>
-                  <View style={styles.singleCallerTitleRow}>
-                    <Text style={styles.singleCallerName}>{effectiveCallerName}</Text>
-                    <View style={styles.singleCallerVerifiedBadge}>
-                      <Ionicons name="checkmark-circle" size={14} color="#10B981" />
-                      <Text style={styles.singleCallerVerifiedText}>Real Human Voice</Text>
-                    </View>
+                <Text style={styles.infoBannerText}>
+                  Triggers an authentic incoming phone call with clear audio assistance to escort you home safely and deter unwanted attention.
+                </Text>
+              </View>
+
+              {/* Dedicated Single Real-Human Voice Card */}
+              <Text style={styles.sectionHeader}>CALLER & VOICE PROFILE</Text>
+              <View style={styles.singleCallerCard}>
+                <View style={styles.singleCallerTop}>
+                  <View style={styles.singleCallerIconBox}>
+                    <Ionicons name="person" size={22} color="#183CE6" />
                   </View>
-                  <Text style={styles.singleCallerSubtitle}>
-                    Natural mobile phone speech • Fluent conversational cadence
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.singleCallerTitleRow}>
+                      <Text style={styles.singleCallerName}>{effectiveCallerName}</Text>
+                      <View style={styles.singleCallerVerifiedBadge}>
+                        <Ionicons name="checkmark-circle" size={13} color="#2E7D5B" />
+                        <Text style={styles.singleCallerVerifiedText}>Live Audio</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.singleCallerSubtitle}>
+                      Natural voice audio • Walk-home safety deterrent
+                    </Text>
+                  </View>
                 </View>
+
+                <TouchableOpacity
+                  style={[styles.voicePreviewBtn, isPreviewPlaying && styles.voicePreviewBtnActive]}
+                  onPress={handleTogglePreview}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name={isPreviewPlaying ? 'stop-circle' : 'volume-high'}
+                    size={17}
+                    color={isPreviewPlaying ? '#FFFFFF' : '#183CE6'}
+                  />
+                  <Text style={[styles.voicePreviewBtnText, isPreviewPlaying && { color: '#FFFFFF' }]}>
+                    {isPreviewPlaying ? 'Stop Voice Sample' : 'Listen to Voice Sample'}
+                  </Text>
+                </TouchableOpacity>
               </View>
 
-              <TouchableOpacity
-                style={[styles.voicePreviewBtn, isPreviewPlaying && styles.voicePreviewBtnActive]}
-                onPress={handleTogglePreview}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name={isPreviewPlaying ? 'stop-circle' : 'volume-high'}
-                  size={18}
-                  color={isPreviewPlaying ? '#FFFFFF' : LUXURY_THEME.colors.accentGold}
+              {/* Delay Selector */}
+              <Text style={styles.sectionHeader}>TRIGGER TIMING</Text>
+              <View style={styles.timerRow}>
+                {[
+                  { label: 'Instant', sec: 0 },
+                  { label: '15 Sec', sec: 15 },
+                  { label: '30 Sec', sec: 30 },
+                  { label: '60 Sec', sec: 60 },
+                ].map((t) => {
+                  const isSelected = delaySeconds === t.sec;
+                  return (
+                    <TouchableOpacity
+                      key={t.sec}
+                      style={[styles.timerPill, isSelected && styles.timerPillActive]}
+                      onPress={() => setDelaySeconds(t.sec)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.timerPillText, isSelected && styles.timerPillTextActive]}>
+                        {t.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Circle Notification Toggle */}
+              <View style={styles.toggleRow}>
+                <View style={{ flex: 1, paddingRight: 16 }}>
+                  <Text style={styles.toggleTitle}>Notify Circle Guardians</Text>
+                  <Text style={styles.toggleSubtitle}>Log active escort walk in circle activity feed</Text>
+                </View>
+                <Switch
+                  value={notifyCircle}
+                  onValueChange={setNotifyCircle}
+                  trackColor={{ false: '#D1D5DB', true: '#183CE6' }}
+                  thumbColor="#FFFFFF"
                 />
-                <Text style={[styles.voicePreviewBtnText, isPreviewPlaying && { color: '#FFFFFF' }]}>
-                  {isPreviewPlaying ? 'Stop Voice Sample' : 'Listen to Voice Sample'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Delay Selector */}
-            <Text style={styles.sectionHeader}>TRIGGER TIMING</Text>
-            <View style={styles.timerRow}>
-              {[
-                { label: 'Instant', sec: 0 },
-                { label: '15 Sec', sec: 15 },
-                { label: '30 Sec', sec: 30 },
-                { label: '60 Sec', sec: 60 },
-              ].map((t) => {
-                const isSelected = delaySeconds === t.sec;
-                return (
-                  <TouchableOpacity
-                    key={t.sec}
-                    style={[styles.timerPill, isSelected && styles.timerPillActive]}
-                    onPress={() => setDelaySeconds(t.sec)}
-                  >
-                    <Text style={[styles.timerPillText, isSelected && styles.timerPillTextActive]}>{t.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            {/* Circle Notification Toggle */}
-            <View style={styles.toggleRow}>
-              <View style={{ flex: 1, paddingRight: 16 }}>
-                <Text style={styles.toggleTitle}>Notify Circle Guardians</Text>
-                <Text style={styles.toggleSubtitle}>Log active escort session in the group feed</Text>
               </View>
-              <Switch
-                value={notifyCircle}
-                onValueChange={setNotifyCircle}
-                trackColor={{ false: '#333333', true: LUXURY_THEME.colors.accentGold }}
-                thumbColor="#FFFFFF"
-              />
-            </View>
 
-            {/* Action Buttons */}
-            <View style={styles.setupActions}>
-              <TouchableOpacity style={styles.armBtn} onPress={handleArmEscort} activeOpacity={0.85}>
-                <Ionicons name="call" size={20} color="#0D0E12" />
-                <Text style={styles.armBtnText}>
-                  {delaySeconds === 0 ? 'CALL NOW' : `CALL IN ${delaySeconds} SECONDS`}
-                </Text>
-              </TouchableOpacity>
+              {/* Action Buttons */}
+              <View style={styles.setupActions}>
+                <TouchableOpacity style={styles.armBtn} onPress={handleArmEscort} activeOpacity={0.85}>
+                  <Ionicons name="call" size={19} color="#FFFFFF" />
+                  <Text style={styles.armBtnText}>
+                    {delaySeconds === 0 ? 'START ESCORT CALL' : `TRIGGER IN ${delaySeconds} SECONDS`}
+                  </Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity style={styles.cancelSetupBtn} onPress={onClose}>
-                <Text style={styles.cancelSetupText}>CANCEL</Text>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
+                <TouchableOpacity style={styles.cancelSetupBtn} onPress={onClose} activeOpacity={0.7}>
+                  <Text style={styles.cancelSetupText}>CANCEL</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
         )}
 
         {/* =================================================================== */}
         {/* 2. DISCREET COUNTDOWN STAGE                                        */}
         {/* =================================================================== */}
         {stage === 'countdown' && (
-          <View style={styles.countdownContainer}>
-            <View style={styles.countdownCard}>
-              <Ionicons name="time" size={48} color={LUXURY_THEME.colors.accentGold} />
-              <Text style={styles.countdownOverline}>ESCORT ARMED & DISCREET</Text>
-              <Text style={styles.countdownNumber}>{countdownRemaining}s</Text>
-              <Text style={styles.countdownDesc}>
-                Slip phone into pocket. {effectiveCallerName} will ring automatically when the timer reaches zero.
-              </Text>
-
-              <TouchableOpacity style={styles.triggerNowBtn} onPress={() => { setCountdownRemaining(0); }}>
-                <Text style={styles.triggerNowText}>TRIGGER CALL IMMEDIATELY</Text>
+          <View style={styles.stageFull}>
+            <View style={[styles.header, { paddingTop: topInset + 6, borderBottomWidth: 0, backgroundColor: 'transparent' }]}>
+              <TouchableOpacity onPress={() => setStage('setup')} style={styles.closeBtn} activeOpacity={0.7}>
+                <Ionicons name="arrow-back" size={20} color="#334155" />
               </TouchableOpacity>
+              <View style={styles.headerTitleBox}>
+                <Text style={styles.headerTitle}>Discreet Armed Escort</Text>
+              </View>
+            </View>
 
-              <TouchableOpacity style={styles.disarmBtn} onPress={() => setStage('setup')}>
-                <Text style={styles.disarmText}>CANCEL ESCORT</Text>
-              </TouchableOpacity>
+            <View style={styles.countdownContainer}>
+              <View style={styles.countdownCard}>
+                <View style={styles.countdownIconBox}>
+                  <Ionicons name="timer-outline" size={38} color="#183CE6" />
+                </View>
+                <Text style={styles.countdownOverline}>ESCORT ARMED & DISCREET</Text>
+                <Text style={styles.countdownNumber}>{countdownRemaining}s</Text>
+                <Text style={styles.countdownDesc}>
+                  Slip phone into pocket. {effectiveCallerName} will ring automatically when the timer reaches zero.
+                </Text>
+
+                <TouchableOpacity
+                  style={styles.triggerNowBtn}
+                  onPress={() => { setCountdownRemaining(0); }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="call" size={18} color="#FFFFFF" />
+                  <Text style={styles.triggerNowText}>TRIGGER CALL IMMEDIATELY</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.disarmBtn} onPress={() => setStage('setup')} activeOpacity={0.7}>
+                  <Text style={styles.disarmText}>CANCEL ESCORT</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         )}
@@ -692,15 +696,18 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
         {/* =================================================================== */}
         {stage === 'incoming' && (
           <View style={styles.incomingWrapper}>
-            <View style={styles.topInfo}>
-              <Text style={styles.overline}>INCOMING CALL</Text>
+            <View style={[styles.topInfo, { paddingTop: topInset + 10 }]}>
+              <View style={styles.callBadge}>
+                <View style={styles.callDot} />
+                <Text style={styles.overline}>INCOMING CALL</Text>
+              </View>
               <Text style={styles.callerName}>{effectiveCallerName}</Text>
               <Text style={styles.callStatus}>Mobile Call</Text>
             </View>
 
             <View style={styles.avatarCenter}>
-              <Animated.View style={[styles.avatarCircle, { transform: [{ scale: pulseAnim }], borderColor: SINGLE_CALLER.accentColor }]}>
-                <Ionicons name={SINGLE_CALLER.avatarIcon} size={64} color={SINGLE_CALLER.accentColor} />
+              <Animated.View style={[styles.avatarCircle, { transform: [{ scale: pulseAnim }], borderColor: '#183CE6' }]}>
+                <Ionicons name={SINGLE_CALLER.avatarIcon} size={64} color="#183CE6" />
               </Animated.View>
               <Text style={styles.incomingPrompt}>TAP TO ANSWER</Text>
             </View>
@@ -723,9 +730,12 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
         {/* 4. ACTIVE CONNECTED CALL STAGE                                     */}
         {/* =================================================================== */}
         {stage === 'active' && (
-          <View style={styles.activeWrapper}>
+          <View style={[styles.activeWrapper, { paddingTop: topInset + 8 }]}>
             <View style={styles.topInfo}>
-              <Text style={styles.overline}>CALL IN PROGRESS</Text>
+              <View style={styles.callActiveBadge}>
+                <View style={[styles.callDot, { backgroundColor: '#10B981' }]} />
+                <Text style={[styles.overline, { color: '#10B981' }]}>CALL IN PROGRESS</Text>
+              </View>
               <Text style={styles.callerName}>{effectiveCallerName}</Text>
               <Text style={styles.callTimerText}>{formatTimer(callTimer)}</Text>
             </View>
@@ -746,7 +756,7 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
 
             {/* Conversational Quick Talk Chips (Talk naturally to caller) */}
             <View style={styles.quickTalkSection}>
-              <Text style={styles.quickTalkHeader}>TAP TO REPLY NATURALLY:</Text>
+              <Text style={styles.quickTalkHeader}>TAP TO REPLY NATURALLY</Text>
               <View style={styles.quickTalkRow}>
                 <TouchableOpacity
                   style={styles.quickTalkPill}
@@ -761,15 +771,15 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
                   onPress={() => handleQuickResponse('someoneBehind')}
                   activeOpacity={0.8}
                 >
-                  <Text style={[styles.quickTalkPillText, { color: '#F59E0B' }]}>"Someone behind me"</Text>
+                  <Text style={[styles.quickTalkPillText, { color: '#FCD34D' }]}>"Someone behind me"</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.quickTalkPill, { borderColor: '#3B82F6' }]}
+                  style={[styles.quickTalkPill, { borderColor: '#38BDF8' }]}
                   onPress={() => handleQuickResponse('iSeeYou')}
                   activeOpacity={0.8}
                 >
-                  <Text style={[styles.quickTalkPillText, { color: '#3B82F6' }]}>"I see you!"</Text>
+                  <Text style={[styles.quickTalkPillText, { color: '#7DD3FC' }]}>"I see you!"</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -777,7 +787,7 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
                   onPress={() => handleQuickResponse('safeInside')}
                   activeOpacity={0.8}
                 >
-                  <Text style={[styles.quickTalkPillText, { color: '#10B981' }]}>"I'm safely inside"</Text>
+                  <Text style={[styles.quickTalkPillText, { color: '#6EE7B7' }]}>"I'm safely inside"</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -864,66 +874,119 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0D0E12',
+    backgroundColor: '#090D16',
   },
-  // Setup Stage Styles
-  setupScroll: {
-    padding: 24,
-    paddingTop: 64,
-    paddingBottom: 40,
+  containerLight: {
+    backgroundColor: '#FAF9F6',
   },
-  setupHeader: {
+  stageFull: {
+    flex: 1,
+  },
+
+  // Standard Header Bar Styles (Matches Medical & Contacts Modals)
+  header: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 28,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ECEAE4',
   },
-  shieldBadge: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(212, 175, 55, 0.15)',
-    borderWidth: 1.5,
-    borderColor: LUXURY_THEME.colors.accentGold,
+  closeBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  headerTitleBox: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  headerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  headerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#2E7D5B',
+  },
+  headerOverline: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#2E7D5B',
+    letterSpacing: 1,
+  },
+  headerTitle: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginTop: 1,
+  },
+
+  // Scroll Area & Content
+  scrollArea: {
+    flex: 1,
+  },
+  content: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+
+  // Info Banner
+  infoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#E8F5EE',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#C6E7D6',
     marginBottom: 16,
   },
-  setupOverline: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: LUXURY_THEME.colors.accentGold,
-    letterSpacing: 2,
-    marginBottom: 6,
+  infoIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  setupTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    fontFamily: LUXURY_THEME.typography.fontFamilyDisplay,
-    textAlign: 'center',
-    marginBottom: 8,
+  infoBannerText: {
+    fontSize: 12.5,
+    color: '#1B4D3E',
+    lineHeight: 18,
+    flex: 1,
+    fontWeight: '500',
   },
-  setupSubtitle: {
-    fontSize: 13,
-    color: '#9CA3AF',
-    textAlign: 'center',
-    lineHeight: 19,
-    maxWidth: 320,
-  },
+
   sectionHeader: {
     fontSize: 11,
-    fontWeight: '700',
-    color: '#6B7280',
-    letterSpacing: 1.5,
-    marginTop: 18,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 1.2,
+    marginTop: 16,
     marginBottom: 10,
   },
+
   // Single Caller Card
   singleCallerCard: {
     padding: 16,
     borderRadius: 18,
-    backgroundColor: '#16181F',
-    borderWidth: 1.5,
-    borderColor: 'rgba(212, 175, 55, 0.4)',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECEAE4',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
     gap: 14,
   },
   singleCallerTop: {
@@ -932,14 +995,12 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   singleCallerIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(212, 175, 55, 0.15)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#EEF2FF',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(212, 175, 55, 0.3)',
   },
   singleCallerTitleRow: {
     flexDirection: 'row',
@@ -948,15 +1009,15 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   singleCallerName: {
-    fontSize: 17,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
   },
   singleCallerVerifiedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    backgroundColor: '#E8F5EE',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 12,
@@ -964,11 +1025,11 @@ const styles = StyleSheet.create({
   singleCallerVerifiedText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#10B981',
+    color: '#2E7D5B',
   },
   singleCallerSubtitle: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#64748B',
     lineHeight: 16,
   },
   voicePreviewBtn: {
@@ -976,12 +1037,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 10,
+    paddingVertical: 11,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    backgroundColor: '#EEF2FF',
     borderWidth: 1,
-    borderColor: 'rgba(212, 175, 55, 0.3)',
+    borderColor: '#E0E7FF',
   },
   voicePreviewBtnActive: {
     backgroundColor: '#EF4444',
@@ -990,9 +1051,11 @@ const styles = StyleSheet.create({
   voicePreviewBtnText: {
     fontSize: 12,
     fontWeight: '700',
-    color: LUXURY_THEME.colors.accentGold,
-    letterSpacing: 0.5,
+    color: '#183CE6',
+    letterSpacing: 0.3,
   },
+
+  // Timing selector
   timerRow: {
     flexDirection: 'row',
     gap: 8,
@@ -1001,63 +1064,72 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: '#16181F',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: '#ECEAE4',
     alignItems: 'center',
   },
   timerPillActive: {
-    borderColor: LUXURY_THEME.colors.accentGold,
-    backgroundColor: 'rgba(212, 175, 55, 0.15)',
+    borderColor: '#183CE6',
+    backgroundColor: '#183CE6',
   },
   timerPillText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#9CA3AF',
+    fontWeight: '700',
+    color: '#64748B',
   },
   timerPillTextActive: {
-    color: LUXURY_THEME.colors.accentGold,
-    fontWeight: 'bold',
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
+
+  // Toggle row
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
     borderRadius: 16,
-    backgroundColor: '#16181F',
-    marginTop: 20,
+    backgroundColor: '#FFFFFF',
+    marginTop: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: '#ECEAE4',
   },
   toggleTitle: {
     fontSize: 14,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontWeight: '700',
+    color: '#0F172A',
     marginBottom: 2,
   },
   toggleSubtitle: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#64748B',
   },
+
+  // Setup Actions
   setupActions: {
-    marginTop: 28,
+    marginTop: 26,
     gap: 12,
   },
   armBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: LUXURY_THEME.colors.accentGold,
-    paddingVertical: 16,
-    borderRadius: 16,
+    backgroundColor: '#183CE6',
+    paddingVertical: 15,
+    borderRadius: 14,
     gap: 8,
+    shadowColor: '#183CE6',
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+    elevation: 3,
   },
   armBtnText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
-    color: '#0D0E12',
-    letterSpacing: 1,
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
   cancelSetupBtn: {
     alignItems: 'center',
@@ -1066,8 +1138,8 @@ const styles = StyleSheet.create({
   cancelSetupText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#6B7280',
-    letterSpacing: 1.5,
+    color: '#64748B',
+    letterSpacing: 0.8,
   },
 
   // Countdown Stage Styles
@@ -1080,58 +1152,73 @@ const styles = StyleSheet.create({
   countdownCard: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#16181F',
+    backgroundColor: '#FFFFFF',
     borderRadius: 24,
-    padding: 32,
+    padding: 28,
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: LUXURY_THEME.colors.accentGold,
+    borderWidth: 1,
+    borderColor: '#ECEAE4',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  countdownIconBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#EEF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
   },
   countdownOverline: {
     fontSize: 11,
     fontWeight: '800',
-    color: LUXURY_THEME.colors.accentGold,
-    letterSpacing: 2,
-    marginTop: 16,
-    marginBottom: 6,
+    color: '#183CE6',
+    letterSpacing: 1.5,
+    marginBottom: 4,
   },
   countdownNumber: {
-    fontSize: 64,
-    fontWeight: 'bold',
-    fontFamily: LUXURY_THEME.typography.fontFamilyMono,
-    color: '#FFFFFF',
-    marginVertical: 8,
+    fontSize: 58,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginVertical: 4,
   },
   countdownDesc: {
     fontSize: 13,
-    color: '#9CA3AF',
+    color: '#64748B',
     textAlign: 'center',
     lineHeight: 18,
     marginBottom: 24,
   },
   triggerNowBtn: {
-    backgroundColor: LUXURY_THEME.colors.accentGold,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#183CE6',
     paddingVertical: 14,
     paddingHorizontal: 24,
     borderRadius: 14,
     width: '100%',
-    alignItems: 'center',
+    gap: 8,
     marginBottom: 10,
   },
   triggerNowText: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#0D0E12',
-    letterSpacing: 1,
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
   disarmBtn: {
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   disarmText: {
     fontSize: 12,
     fontWeight: '700',
     color: '#EF4444',
-    letterSpacing: 1,
+    letterSpacing: 0.8,
   },
 
   // Incoming Stage Styles
@@ -1139,38 +1226,62 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 32,
-    paddingVertical: 60,
+    padding: 28,
+    paddingBottom: 60,
+    backgroundColor: '#090D16',
   },
   topInfo: {
     alignItems: 'center',
-    marginTop: 20,
+  },
+  callBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(24, 60, 230, 0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  callActiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  callDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#38BDF8',
   },
   overline: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
-    color: LUXURY_THEME.colors.accentGold,
-    letterSpacing: 2,
-    marginBottom: 8,
+    color: '#38BDF8',
+    letterSpacing: 1.5,
   },
   callerName: {
-    fontSize: 28,
-    fontFamily: LUXURY_THEME.typography.fontFamilyDisplay,
-    fontWeight: 'bold',
+    fontSize: 30,
+    fontWeight: '800',
     color: '#FFFFFF',
     marginBottom: 6,
     textAlign: 'center',
   },
   callStatus: {
     fontSize: 13,
-    color: '#9CA3AF',
+    color: '#94A3B8',
   },
   callTimerText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    fontFamily: LUXURY_THEME.typography.fontFamilyMono,
-    color: '#34D399',
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#10B981',
     marginTop: 4,
+    letterSpacing: 1,
   },
   avatarCenter: {
     justifyContent: 'center',
@@ -1180,28 +1291,32 @@ const styles = StyleSheet.create({
     width: 140,
     height: 140,
     borderRadius: 70,
-    backgroundColor: '#16181F',
+    backgroundColor: '#131B2E',
     borderWidth: 2.5,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,
+    shadowColor: '#183CE6',
+    shadowOpacity: 0.4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 16,
   },
   incomingPrompt: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#6B7280',
+    color: '#64748B',
     letterSpacing: 2,
   },
   actionRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     width: '100%',
-    maxWidth: 340,
+    maxWidth: 320,
   },
   callBtn: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -1220,7 +1335,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
     marginTop: 6,
-    letterSpacing: 1,
+    letterSpacing: 0.8,
   },
 
   // Active Call Stage Styles
@@ -1228,33 +1343,34 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'space-between',
     padding: 24,
-    paddingVertical: 48,
+    paddingBottom: 40,
+    backgroundColor: '#090D16',
   },
   audioWaveBox: {
-    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    backgroundColor: 'rgba(30, 41, 59, 0.7)',
     borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: 'rgba(212, 175, 55, 0.3)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.25)',
     padding: 16,
     alignItems: 'center',
-    marginVertical: 12,
+    marginVertical: 10,
   },
   waveBarsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     height: 28,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   waveBar: {
     width: 4,
     height: 24,
     borderRadius: 2,
-    backgroundColor: LUXURY_THEME.colors.accentGold,
+    backgroundColor: '#38BDF8',
   },
   operatorSpeechText: {
     fontSize: 13,
-    color: '#F3F4F6',
+    color: '#E2E8F0',
     textAlign: 'center',
     fontStyle: 'italic',
     lineHeight: 18,
@@ -1262,26 +1378,26 @@ const styles = StyleSheet.create({
   controlsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginVertical: 12,
+    marginVertical: 10,
   },
   controlCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#1C1F2B',
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#1E293B',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   controlCircleActive: {
-    backgroundColor: 'rgba(212, 175, 55, 0.25)',
-    borderColor: LUXURY_THEME.colors.accentGold,
+    backgroundColor: 'rgba(24, 60, 230, 0.4)',
+    borderColor: '#38BDF8',
   },
   controlLabel: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#9CA3AF',
+    color: '#94A3B8',
     marginTop: 4,
     letterSpacing: 0.5,
   },
@@ -1290,46 +1406,45 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'center',
     gap: 12,
-    marginVertical: 10,
+    marginVertical: 8,
   },
   keypadBtn: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#1C1F2B',
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: '#1E293B',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   keypadDigit: {
     fontSize: 22,
-    fontWeight: 'bold',
+    fontWeight: '800',
     color: '#FFFFFF',
-    fontFamily: LUXURY_THEME.typography.fontFamilyMono,
   },
   sosEscalateBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#EF4444',
-    paddingVertical: 14,
+    paddingVertical: 13,
     borderRadius: 14,
     gap: 8,
-    marginVertical: 8,
+    marginVertical: 6,
   },
   sosEscalateBtnActive: {
     backgroundColor: '#991B1B',
   },
   sosEscalateText: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '800',
     color: '#FFFFFF',
-    letterSpacing: 1,
+    letterSpacing: 0.8,
   },
   activeBottomRow: {
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   hideKeypadBtn: {
     paddingVertical: 6,
@@ -1337,33 +1452,33 @@ const styles = StyleSheet.create({
   hideKeypadText: {
     fontSize: 12,
     fontWeight: '700',
-    color: LUXURY_THEME.colors.accentGold,
-    letterSpacing: 1,
+    color: '#38BDF8',
+    letterSpacing: 0.8,
   },
   endCallBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#EF4444',
-    paddingVertical: 16,
+    paddingVertical: 15,
     width: '100%',
     borderRadius: 16,
     gap: 8,
   },
   endCallText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
     color: '#FFFFFF',
-    letterSpacing: 1,
+    letterSpacing: 0.8,
   },
   quickTalkSection: {
-    marginVertical: 6,
+    marginVertical: 4,
   },
   quickTalkHeader: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#6B7280',
-    letterSpacing: 1.5,
+    color: '#64748B',
+    letterSpacing: 1.2,
     marginBottom: 6,
     textAlign: 'center',
   },
@@ -1374,16 +1489,16 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   quickTalkPill: {
-    paddingVertical: 8,
+    paddingVertical: 7,
     paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: '#16181F',
-    borderWidth: 1.2,
-    borderColor: 'rgba(212, 175, 55, 0.4)',
+    borderRadius: 18,
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   quickTalkPillText: {
     fontSize: 11,
     fontWeight: '700',
-    color: LUXURY_THEME.colors.accentGold,
+    color: '#FFFFFF',
   },
 });

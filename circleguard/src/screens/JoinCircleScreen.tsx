@@ -12,6 +12,8 @@ import {
   Platform,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getSafeTopInset } from '../utils/safeArea';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -24,6 +26,8 @@ import { ValidationSchema } from '../lib/validationSchema';
 import { handleServiceError } from '../lib/errorHandler';
 
 export default function JoinCircleScreen() {
+  const insets = useSafeAreaInsets();
+  const topInset = getSafeTopInset(insets.top);
   const { colors, isDark } = useThemeStore();
   const route = useRoute<any>();
   const initialTab = route.params?.initialTab === 'code' ? 'code' : 'qr';
@@ -223,7 +227,7 @@ export default function JoinCircleScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topInset + 10 }]}>
       {/* Header */}
       <View style={styles.headerRow}>
         <TouchableOpacity 
@@ -425,7 +429,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 24,
-    paddingTop: Platform.OS === 'ios' ? 56 : 42,
   },
   headerRow: {
     flexDirection: 'row',

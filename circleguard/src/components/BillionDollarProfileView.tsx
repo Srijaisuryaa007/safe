@@ -15,7 +15,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { useCircleStore } from '../store/useCircleStore';
+import { useThemeStore } from '../store/useThemeStore';
+import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
+import { getSafeTopInset } from '../utils/safeArea';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -77,8 +81,9 @@ export default function BillionDollarProfileView({
   showToast,
 }: BillionDollarProfileViewProps) {
   const insets = useSafeAreaInsets();
-  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 38) : 24);
+  const topInset = getSafeTopInset(insets.top);
   const { activeCircle, members } = useCircleStore();
+  const { isDark, themeMode } = useThemeStore();
   const initial = String(profile?.full_name || 'U').charAt(0).toUpperCase();
 
   const [toastText, setToastText] = useState<string | null>(null);
@@ -102,27 +107,49 @@ export default function BillionDollarProfileView({
     displayToast(`Circle code ${inviteCode} copied to clipboard!`);
   };
 
+  const navigation = useNavigation<any>();
+  const canGoBack = Boolean(navigation?.canGoBack && navigation.canGoBack());
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isDark && { backgroundColor: '#0F1411' }]}>
       {/* Top Header */}
-      <View style={[styles.header, { paddingTop: topInset, height: 62 + topInset }]}>
+      <View
+        style={[
+          styles.header,
+          { paddingTop: topInset, height: 62 + topInset },
+          isDark && { backgroundColor: '#141A17', borderBottomColor: '#212C26' },
+        ]}
+      >
         <View style={styles.headerLeft}>
-          <View style={styles.logoBadge}>
-            <Ionicons name="shield-checkmark" size={19} color="#2E7D5B" />
-          </View>
+          {canGoBack && (
+            <TouchableOpacity
+              style={[styles.backBtn, isDark && { backgroundColor: '#1C2621', borderColor: '#2E3D35' }]}
+              onPress={() => navigation.goBack()}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityLabel="Go back"
+              accessibilityRole="button"
+            >
+              <Ionicons name="arrow-back" size={18} color={isDark ? '#FFFFFF' : '#1F2A24'} />
+            </TouchableOpacity>
+          )}
+          <OrbitalGoldenLogoBadge
+            size={34}
+            accessibilityLabel="CircleGuard Logo"
+          />
           <View>
-            <Text style={styles.headerTitle}>Profile & Settings</Text>
-            <Text style={styles.headerSub}>Account · Security · Preferences</Text>
+            <Text style={[styles.headerTitle, isDark && { color: '#FFFFFF' }]}>Profile & Settings</Text>
+            <Text style={[styles.headerSub, isDark && { color: '#9EACA3' }]}>Account · Security · Preferences</Text>
           </View>
         </View>
 
         <TouchableOpacity
-          style={styles.circleInviteBadge}
+          style={[styles.circleInviteBadge, isDark && { backgroundColor: '#261C18', borderColor: '#452A20' }]}
           onPress={handleCopyCode}
           activeOpacity={0.8}
         >
           <Ionicons name="key" size={13} color="#E07A5F" />
-          <Text style={styles.circleInviteBadgeText}>{inviteCode}</Text>
+          <Text style={[styles.circleInviteBadgeText, isDark && { color: '#FFB199' }]}>{inviteCode}</Text>
         </TouchableOpacity>
       </View>
 
@@ -135,7 +162,7 @@ export default function BillionDollarProfileView({
         }
       >
         {/* 1. Profile Identity Hero Card */}
-        <View style={styles.heroCard}>
+        <View style={[styles.heroCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
           <View style={styles.heroTopRow}>
             {/* Avatar with Camera Overlay */}
             <TouchableOpacity
@@ -144,7 +171,7 @@ export default function BillionDollarProfileView({
               disabled={uploading}
               activeOpacity={0.85}
             >
-              <View style={styles.avatarHalo} />
+              <View style={[styles.avatarHalo, isDark && { borderColor: '#3ADFAB' }]} />
               {profile?.avatar_url && !imageError ? (
                 <Image
                   source={{ uri: profile.avatar_url }}
@@ -152,27 +179,32 @@ export default function BillionDollarProfileView({
                   onError={() => setImageError(true)}
                 />
               ) : (
-                <View style={[styles.avatarImg, styles.avatarFallback]}>
-                  <Text style={styles.avatarFallbackText}>{initial}</Text>
+                <View style={[styles.avatarImg, styles.avatarFallback, isDark && { backgroundColor: '#26342D' }]}>
+                  <Text style={[styles.avatarFallbackText, isDark && { color: '#3ADFAB' }]}>{initial}</Text>
                 </View>
               )}
-              <View style={styles.cameraBadge}>
+              <View style={[styles.cameraBadge, isDark && { backgroundColor: '#3ADFAB', borderColor: '#0F1411' }]}>
                 {uploading ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color="#002116" />
                 ) : (
-                  <Ionicons name="camera" size={12} color="#FFFFFF" />
+                  <Ionicons name="camera" size={12} color={isDark ? '#002116' : '#FFFFFF'} />
                 )}
               </View>
             </TouchableOpacity>
 
             {/* User Title & Role */}
             <View style={{ flex: 1 }}>
-              <Text style={styles.userName} numberOfLines={1}>
+              <Text style={[styles.userName, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
                 {profile?.full_name || 'CircleGuard User'}
               </Text>
-              <View style={styles.roleTagPill}>
-                <View style={styles.roleTagDot} />
-                <Text style={styles.roleTagText}>
+              <View
+                style={[
+                  styles.roleTagPill,
+                  isDark && { backgroundColor: 'rgba(58, 223, 171, 0.15)', borderColor: '#3ADFAB' },
+                ]}
+              >
+                <View style={[styles.roleTagDot, isDark && { backgroundColor: '#3ADFAB' }]} />
+                <Text style={[styles.roleTagText, isDark && { color: '#3ADFAB' }]}>
                   {activeCircle?.owner_id === profile?.id ? 'CIRCLE LEADER' : 'VERIFIED MEMBER'}
                 </Text>
               </View>
@@ -180,35 +212,43 @@ export default function BillionDollarProfileView({
 
             {/* Edit Profile Button */}
             <TouchableOpacity
-              style={styles.editProfileBtn}
+              style={[
+                styles.editProfileBtn,
+                isDark && { backgroundColor: '#26342D', borderColor: '#33463C', borderWidth: 1 },
+              ]}
               onPress={onEditProfile}
               activeOpacity={0.7}
             >
-              <Ionicons name="pencil" size={16} color="#2E7D5B" />
+              <Ionicons name="pencil" size={16} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
             </TouchableOpacity>
           </View>
 
           {/* Contact Details Column */}
-          <View style={styles.contactDetailsBox}>
+          <View style={[styles.contactDetailsBox, isDark && { backgroundColor: '#141A17', borderColor: '#232F28' }]}>
             <View style={styles.detailRow}>
-              <View style={styles.detailIconSquircle}>
-                <Ionicons name="call-outline" size={14} color="#2E7D5B" />
+              <View style={[styles.detailIconSquircle, isDark && { backgroundColor: '#202D26' }]}>
+                <Ionicons name="call-outline" size={14} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
               </View>
-              <Text style={styles.detailText}>{userPhone}</Text>
+              <Text style={[styles.detailText, isDark && { color: '#E8EDE9' }]}>{userPhone}</Text>
             </View>
 
             <View style={styles.detailRow}>
-              <View style={styles.detailIconSquircle}>
-                <Ionicons name="mail-outline" size={14} color="#2E7D5B" />
+              <View style={[styles.detailIconSquircle, isDark && { backgroundColor: '#202D26' }]}>
+                <Ionicons name="mail-outline" size={14} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
               </View>
-              <Text style={styles.detailText}>{userEmail}</Text>
+              <Text style={[styles.detailText, isDark && { color: '#E8EDE9' }]}>{userEmail}</Text>
             </View>
 
             <View style={styles.detailRow}>
-              <View style={[styles.detailIconSquircle, { backgroundColor: '#FFF3EB' }]}>
+              <View
+                style={[
+                  styles.detailIconSquircle,
+                  { backgroundColor: isDark ? '#2D1F1A' : '#FFF3EB' },
+                ]}
+              >
                 <Ionicons name="calendar-outline" size={14} color="#E07A5F" />
               </View>
-              <Text style={styles.detailText}>
+              <Text style={[styles.detailText, isDark && { color: '#E8EDE9' }]}>
                 Date of Birth: {userDob || (profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : '07/08/2004')}
               </Text>
             </View>
@@ -216,41 +256,48 @@ export default function BillionDollarProfileView({
         </View>
 
         {/* 2. Active Circle Status Banner */}
-        <View style={styles.circleStatusCard}>
+        <View style={[styles.circleStatusCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
           <View style={styles.circleStatusLeft}>
-            <View style={styles.circleIconBox}>
-              <Ionicons name="people" size={18} color="#2E7D5B" />
+            <View style={[styles.circleIconBox, isDark && { backgroundColor: '#202D26' }]}>
+              <Ionicons name="people" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.circleStatusTitle} numberOfLines={1}>
+              <Text style={[styles.circleStatusTitle, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
                 {circleName}
               </Text>
-              <Text style={styles.circleStatusSub}>
+              <Text style={[styles.circleStatusSub, isDark && { color: '#9EACA3' }]}>
                 {members.length} active family {members.length === 1 ? 'member' : 'members'}
               </Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.copyInviteBtn} onPress={handleCopyCode} activeOpacity={0.8}>
-            <Ionicons name="copy-outline" size={13} color="#2E7D5B" />
-            <Text style={styles.copyInviteText}>Code: {inviteCode}</Text>
+          <TouchableOpacity
+            style={[
+              styles.copyInviteBtn,
+              isDark && { backgroundColor: '#202D26', borderColor: '#33463C' },
+            ]}
+            onPress={handleCopyCode}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="copy-outline" size={13} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+            <Text style={[styles.copyInviteText, isDark && { color: '#3ADFAB' }]}>Code: {inviteCode}</Text>
           </TouchableOpacity>
         </View>
 
         {/* 3. Primary Emergency Responder Card */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeaderTitle}>PRIMARY EMERGENCY RESPONDER</Text>
+          <Text style={[styles.sectionHeaderTitle, isDark && { color: '#9EACA3' }]}>PRIMARY EMERGENCY RESPONDER</Text>
         </View>
 
-        <View style={styles.emergencyCard}>
+        <View style={[styles.emergencyCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
           <View style={styles.emergencyCardLeft}>
-            <View style={styles.emergencyIconBox}>
+            <View style={[styles.emergencyIconBox, isDark && { backgroundColor: '#2D1F1A' }]}>
               <Ionicons name="shield" size={18} color="#E07A5F" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.emergencyCardTitle}>
+              <Text style={[styles.emergencyCardTitle, isDark && { color: '#FFFFFF' }]}>
                 {emergencyContact ? emergencyContact.name : 'No Primary Contact Set'}
               </Text>
-              <Text style={styles.emergencyCardSub}>
+              <Text style={[styles.emergencyCardSub, isDark && { color: '#9EACA3' }]}>
                 {emergencyContact ? emergencyContact.phone : 'Designate contact for 1-tap dispatch'}
               </Text>
             </View>
@@ -261,29 +308,29 @@ export default function BillionDollarProfileView({
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <TouchableOpacity
                   onPress={onPickContactFromPhone}
-                  style={styles.actionIconBtn}
+                  style={[styles.actionIconBtn, isDark && { backgroundColor: '#26342D' }]}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="pencil-outline" size={15} color="#2E7D5B" />
+                  <Ionicons name="pencil-outline" size={15} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   onPress={onDeleteContact}
-                  style={[styles.actionIconBtn, { backgroundColor: '#FFF3EB' }]}
+                  style={[styles.actionIconBtn, { backgroundColor: isDark ? '#2D1F1A' : '#FFF3EB' }]}
                   activeOpacity={0.7}
                 >
                   <Ionicons name="trash-outline" size={15} color="#E07A5F" />
                 </TouchableOpacity>
 
                 <TouchableOpacity onPress={onOpenContacts} style={styles.chevronBtn}>
-                  <Ionicons name="chevron-forward" size={16} color="#757688" />
+                  <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#757688'} />
                 </TouchableOpacity>
               </View>
             ) : (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <TouchableOpacity
                   onPress={onPickContactFromPhone}
-                  style={styles.addEmergencyBtn}
+                  style={[styles.addEmergencyBtn, isDark && { backgroundColor: '#2D1F1A', borderColor: '#483026' }]}
                   activeOpacity={0.8}
                 >
                   <Ionicons name="add" size={14} color="#E07A5F" />
@@ -291,7 +338,7 @@ export default function BillionDollarProfileView({
                 </TouchableOpacity>
 
                 <TouchableOpacity onPress={onOpenContacts} style={styles.chevronBtn}>
-                  <Ionicons name="chevron-forward" size={16} color="#757688" />
+                  <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#757688'} />
                 </TouchableOpacity>
               </View>
             )}
@@ -301,10 +348,10 @@ export default function BillionDollarProfileView({
         {/* 4. Grouped Settings Menus */}
         {/* Section: SAFETY & MEDICAL PROTOCOLS */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeaderTitle}>SAFETY & MEDICAL PROTOCOLS</Text>
+          <Text style={[styles.sectionHeaderTitle, isDark && { color: '#9EACA3' }]}>SAFETY & MEDICAL PROTOCOLS</Text>
         </View>
 
-        <View style={styles.menuGroupCard}>
+        <View style={[styles.menuGroupCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
           {/* Emergency Contacts */}
           <TouchableOpacity
             style={styles.menuItemRow}
@@ -312,18 +359,18 @@ export default function BillionDollarProfileView({
             activeOpacity={0.7}
           >
             <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: '#FFF3EB' }]}>
+              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#2D1F1A' : '#FFF3EB' }]}>
                 <Ionicons name="call-outline" size={18} color="#E07A5F" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>Emergency Contacts</Text>
-                <Text style={styles.menuItemDesc}>Manage priority responders & notification chimes</Text>
+                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>Emergency Contacts</Text>
+                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Manage priority responders & notification chimes</Text>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#8E9992" />
+            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
           </TouchableOpacity>
 
-          <View style={styles.menuDivider} />
+          <View style={[styles.menuDivider, isDark && { backgroundColor: '#25322B' }]} />
 
           {/* Regional Emergency Hotlines */}
           <TouchableOpacity
@@ -332,20 +379,20 @@ export default function BillionDollarProfileView({
             activeOpacity={0.7}
           >
             <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: '#E8F5EE' }]}>
-                <Ionicons name="globe-outline" size={18} color="#2E7D5B" />
+              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#202D26' : '#E8F5EE' }]}>
+                <Ionicons name="globe-outline" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>
+                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>
                   Emergency Hotlines ({country.flag} {country.name})
                 </Text>
-                <Text style={styles.menuItemDesc}>Local dispatch: {country.primaryEmergency}</Text>
+                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Local dispatch: {country.primaryEmergency}</Text>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#8E9992" />
+            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
           </TouchableOpacity>
 
-          <View style={styles.menuDivider} />
+          <View style={[styles.menuDivider, isDark && { backgroundColor: '#25322B' }]} />
 
           {/* Medical Information */}
           <TouchableOpacity
@@ -354,24 +401,24 @@ export default function BillionDollarProfileView({
             activeOpacity={0.7}
           >
             <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: '#E8F5EE' }]}>
-                <Ionicons name="medical-outline" size={18} color="#2E7D5B" />
+              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#202D26' : '#E8F5EE' }]}>
+                <Ionicons name="medical-outline" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>Medical Information</Text>
-                <Text style={styles.menuItemDesc}>Blood type, allergies, conditions & first responder ID</Text>
+                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>Medical Information</Text>
+                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Blood type, allergies, conditions & first responder ID</Text>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#8E9992" />
+            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
           </TouchableOpacity>
         </View>
 
         {/* Section: SYSTEM & PREFERENCES */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeaderTitle}>SYSTEM & PREFERENCES</Text>
+          <Text style={[styles.sectionHeaderTitle, isDark && { color: '#9EACA3' }]}>SYSTEM & PREFERENCES</Text>
         </View>
 
-        <View style={styles.menuGroupCard}>
+        <View style={[styles.menuGroupCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
           {/* Appearance & Theme */}
           <TouchableOpacity
             style={styles.menuItemRow}
@@ -379,23 +426,48 @@ export default function BillionDollarProfileView({
             activeOpacity={0.7}
           >
             <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: '#FFF3EB' }]}>
+              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#2D1F1A' : '#FFF3EB' }]}>
                 <Ionicons name="color-palette-outline" size={18} color="#E07A5F" />
               </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={styles.menuItemTitle}>Appearance & Theme</Text>
-                  <View style={styles.billionDollarPill}>
-                    <Text style={styles.billionDollarPillText}>BILLION DOLLAR UI</Text>
+                  <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>Appearance & Theme</Text>
+                  <View
+                    style={[
+                      styles.billionDollarPill,
+                      {
+                        backgroundColor: isDark
+                          ? 'rgba(58, 223, 171, 0.15)'
+                          : '#E8F5EE',
+                        borderColor: isDark
+                          ? '#3ADFAB'
+                          : '#C6E7D5',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.billionDollarPillText,
+                        {
+                          color: isDark
+                            ? '#3ADFAB'
+                            : '#2E7D5B',
+                        },
+                      ]}
+                    >
+                      {isDark ? 'DARK UI' : 'LIGHT UI'}
+                    </Text>
                   </View>
                 </View>
-                <Text style={styles.menuItemDesc}>Pine Emerald, Terracotta Peach, map styles</Text>
+                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>
+                  Light UI mode, Dark UI mode, map styles
+                </Text>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#8E9992" />
+            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
           </TouchableOpacity>
 
-          <View style={styles.menuDivider} />
+          <View style={[styles.menuDivider, isDark && { backgroundColor: '#25322B' }]} />
 
           {/* Notifications */}
           <TouchableOpacity
@@ -404,18 +476,18 @@ export default function BillionDollarProfileView({
             activeOpacity={0.7}
           >
             <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: '#F0EFEA' }]}>
-                <Ionicons name="notifications-outline" size={18} color="#1F2A24" />
+              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#202D26' : '#F0EFEA' }]}>
+                <Ionicons name="notifications-outline" size={18} color={isDark ? '#3ADFAB' : '#1F2A24'} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>Notifications & Alerts</Text>
-                <Text style={styles.menuItemDesc}>Geofence entry/exit, battery warnings & pings</Text>
+                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>Notifications & Alerts</Text>
+                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Geofence entry/exit, battery warnings & pings</Text>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#8E9992" />
+            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
           </TouchableOpacity>
 
-          <View style={styles.menuDivider} />
+          <View style={[styles.menuDivider, isDark && { backgroundColor: '#25322B' }]} />
 
           {/* Privacy & Security */}
           <TouchableOpacity
@@ -424,18 +496,18 @@ export default function BillionDollarProfileView({
             activeOpacity={0.7}
           >
             <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: '#F0EFEA' }]}>
-                <Ionicons name="lock-closed-outline" size={18} color="#1F2A24" />
+              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#202D26' : '#F0EFEA' }]}>
+                <Ionicons name="lock-closed-outline" size={18} color={isDark ? '#3ADFAB' : '#1F2A24'} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>Privacy & Security</Text>
-                <Text style={styles.menuItemDesc}>Encrypted telemetry, ghost mode & app lock</Text>
+                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>Privacy & Security</Text>
+                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Encrypted telemetry, ghost mode & app lock</Text>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#8E9992" />
+            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
           </TouchableOpacity>
 
-          <View style={styles.menuDivider} />
+          <View style={[styles.menuDivider, isDark && { backgroundColor: '#25322B' }]} />
 
           {/* App Settings */}
           <TouchableOpacity
@@ -444,87 +516,91 @@ export default function BillionDollarProfileView({
             activeOpacity={0.7}
           >
             <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: '#F0EFEA' }]}>
-                <Ionicons name="settings-outline" size={18} color="#1F2A24" />
+              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#202D26' : '#F0EFEA' }]}>
+                <Ionicons name="settings-outline" size={18} color={isDark ? '#3ADFAB' : '#1F2A24'} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>Settings</Text>
-                <Text style={styles.menuItemDesc}>Distance units, GPS sync rate & local cache</Text>
+                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>Settings</Text>
+                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Distance units, GPS sync rate & local cache</Text>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#8E9992" />
+            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
           </TouchableOpacity>
         </View>
 
         {/* Section: APPLICATION INFO */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeaderTitle}>APPLICATION INFO</Text>
+          <Text style={[styles.sectionHeaderTitle, isDark && { color: '#9EACA3' }]}>APPLICATION INFO</Text>
         </View>
 
-        <View style={styles.menuGroupCard}>
+        <View style={[styles.menuGroupCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
           <TouchableOpacity
             style={styles.menuItemRow}
             onPress={onOpenAbout}
             activeOpacity={0.7}
           >
             <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: '#E8F5EE' }]}>
-                <Ionicons name="information-circle-outline" size={18} color="#2E7D5B" />
+              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#202D26' : '#E8F5EE' }]}>
+                <Ionicons name="information-circle-outline" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.menuItemTitle}>About CircleGuard</Text>
-                <Text style={styles.menuItemDesc}>Version 1.2.0 • Flagship Safety Platform</Text>
+                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>About CircleGuard</Text>
+                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Version 1.2.0 • Flagship Safety Platform</Text>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#8E9992" />
+            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
           </TouchableOpacity>
         </View>
 
         {/* Section: SESSION & ACCOUNT SECURITY */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeaderTitle}>SESSION & ACCOUNT SECURITY</Text>
+          <Text style={[styles.sectionHeaderTitle, isDark && { color: '#9EACA3' }]}>SESSION & ACCOUNT SECURITY</Text>
         </View>
 
         <View style={styles.actionButtonsCol}>
           {/* Logout Button */}
           <TouchableOpacity
-            style={styles.actionBoxBtn}
+            style={[styles.actionBoxBtn, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}
             onPress={onOpenLogout}
             activeOpacity={0.8}
           >
-            <View style={styles.actionIconCircle}>
+            <View style={[styles.actionIconCircle, isDark && { backgroundColor: '#2D1F1A' }]}>
               <Ionicons name="log-out-outline" size={18} color="#E07A5F" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.actionBtnTitle}>Log Out</Text>
-              <Text style={styles.actionBtnSub}>Sign out of your session on this device</Text>
+              <Text style={[styles.actionBtnTitle, isDark && { color: '#FFFFFF' }]}>Log Out</Text>
+              <Text style={[styles.actionBtnSub, isDark && { color: '#9EACA3' }]}>Sign out of your session on this device</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color="#E07A5F" />
           </TouchableOpacity>
 
           {/* Delete Account Button */}
           <TouchableOpacity
-            style={[styles.actionBoxBtn, styles.deleteActionBox]}
+            style={[
+              styles.actionBoxBtn,
+              styles.deleteActionBox,
+              isDark && { backgroundColor: '#231414', borderColor: '#4A1D1D' },
+            ]}
             onPress={onOpenDeleteAccount}
             activeOpacity={0.8}
           >
-            <View style={[styles.actionIconCircle, { backgroundColor: '#FEE2E2' }]}>
-              <Ionicons name="trash-outline" size={18} color="#DC2626" />
+            <View style={[styles.actionIconCircle, { backgroundColor: isDark ? '#3D1B1B' : '#FEE2E2' }]}>
+              <Ionicons name="trash-outline" size={18} color="#EF4444" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.actionBtnTitle, { color: '#DC2626' }]}>Delete Account</Text>
-              <Text style={styles.actionBtnSub}>Permanently erase your account and telemetry data</Text>
+              <Text style={[styles.actionBtnTitle, { color: '#EF4444' }]}>Delete Account</Text>
+              <Text style={[styles.actionBtnSub, isDark && { color: '#CAD5CE' }]}>Permanently erase your account and telemetry data</Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#DC2626" />
+            <Ionicons name="chevron-forward" size={16} color="#EF4444" />
           </TouchableOpacity>
         </View>
       </ScrollView>
 
       {/* Floating In-App Toast */}
       {toastText && (
-        <View style={styles.toastContainer}>
-          <Ionicons name="checkmark-circle" size={15} color="#2E7D5B" style={{ marginRight: 6 }} />
-          <Text style={styles.toastText}>{toastText}</Text>
+        <View style={[styles.toastContainer, isDark && { backgroundColor: '#1A231F', borderColor: '#283730', borderWidth: 1 }]}>
+          <Ionicons name="checkmark-circle" size={15} color={isDark ? '#3ADFAB' : '#2E7D5B'} style={{ marginRight: 6 }} />
+          <Text style={[styles.toastText, isDark && { color: '#FFFFFF' }]}>{toastText}</Text>
         </View>
       )}
     </View>
@@ -551,6 +627,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     flex: 1,
+  },
+  backBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#F0EFEA',
+    borderWidth: 1,
+    borderColor: '#E2E0D8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 2,
   },
   logoBadge: {
     width: 36,

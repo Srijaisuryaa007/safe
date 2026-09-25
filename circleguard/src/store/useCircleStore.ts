@@ -587,6 +587,15 @@ export const useCircleStore = create<CircleState>((set, get) => ({
           ? m.supervisor_id
           : (localHierarchyMap[m.user_id] ?? null);
 
+        let effectiveLat = loc?.latitude;
+        let effectiveLng = loc?.longitude;
+        if (isGhost && !isSelf && effectiveLat && effectiveLng) {
+          const charCode = m.user_id.charCodeAt(0) || 65;
+          const fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
+          effectiveLat = parseFloat((effectiveLat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
+          effectiveLng = parseFloat((effectiveLng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
+        }
+
         return {
           circle_id: m.circle_id,
           user_id: m.user_id,
@@ -598,12 +607,13 @@ export const useCircleStore = create<CircleState>((set, get) => ({
             is_ghost_mode: isGhost,
             hide_online_presence: hideOnline,
           } : { full_name: 'Member', avatar_url: null, is_ghost_mode: isGhost, hide_online_presence: hideOnline },
+          isGhost,
           isOnline,
           lastSeenText,
           batteryPct: loc?.battery_pct,
-          isDriving: loc?.is_driving,
-          latitude: loc?.latitude,
-          longitude: loc?.longitude,
+          isDriving: isGhost ? false : loc?.is_driving,
+          latitude: effectiveLat,
+          longitude: effectiveLng,
         };
       });
 
@@ -846,9 +856,19 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       // Only set active places if this circle is still the active circle!
       if (get().activeCircle?.id === circleId) {
         set({ places: formatted, placesByCircle: updatedPlacesByCircle });
+        try {
+          const { registerNativeGeofencesAsync } = require('../services/LocationBackgroundService');
+          registerNativeGeofencesAsync(formatted);
+        } catch (e) {}
       } else {
         set({ placesByCircle: updatedPlacesByCircle });
       }
+
+      // Persist to local storage for instant offline/closed-app geofence evaluation
+      try {
+        await AsyncStorage.setItem('@circleguard_cached_geofence_places', JSON.stringify(formatted));
+      } catch (e) {}
+
       return formatted;
     } catch (e) {
       console.warn('Error fetching circle places:', e);
@@ -859,7 +879,12 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     try {
       // 1. Optimistic instant removal from global state with 0ms lag
       const current = get().places;
-      set({ places: current.filter(p => p.id !== placeId) });
+      const remaining = current.filter(p => p.id !== placeId);
+      set({ places: remaining });
+      try {
+        const { registerNativeGeofencesAsync } = require('../services/LocationBackgroundService');
+        registerNativeGeofencesAsync(remaining);
+      } catch (e) {}
 
       // 2. Delete from Supabase backend
       const { error } = await supabase

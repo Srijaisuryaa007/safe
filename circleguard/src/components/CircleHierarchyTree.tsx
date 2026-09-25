@@ -85,6 +85,30 @@ export default function CircleHierarchyTree({
     setCollapsedNodes(newCollapsed);
   };
 
+  // Zoom State & Handlers
+  const [zoomScale, setZoomScale] = useState(1);
+
+  const handleZoomIn = () => {
+    try {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    } catch (e) {}
+    setZoomScale((prev) => Math.min(1.5, Math.round((prev + 0.15) * 100) / 100));
+  };
+
+  const handleZoomOut = () => {
+    try {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    } catch (e) {}
+    setZoomScale((prev) => Math.max(0.5, Math.round((prev - 0.15) * 100) / 100));
+  };
+
+  const handleResetZoom = () => {
+    try {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    } catch (e) {}
+    setZoomScale(1);
+  };
+
   // 2. Build Cycle-Proof, Mathematically Robust Tree Structure
   const treeRoot = useMemo<TreeNode | null>(() => {
     if (!founder || !Array.isArray(members) || members.length === 0) return null;
@@ -196,13 +220,13 @@ export default function CircleHierarchyTree({
   const getRoleInfo = (m: CircleMember) => {
     switch (m.role) {
       case 'owner':
-        return { color: '#F5D061', title: 'FOUNDER', icon: 'star-sharp' as keyof typeof Ionicons.glyphMap };
+        return { color: '#D97706', title: 'FOUNDER', icon: 'ribbon' as keyof typeof Ionicons.glyphMap };
       case 'co_leader':
-        return { color: '#C084FC', title: 'CO-LEADER', icon: 'shield-checkmark-sharp' as keyof typeof Ionicons.glyphMap };
+        return { color: '#7E22CE', title: 'CO-LEADER', icon: 'shield-checkmark' as keyof typeof Ionicons.glyphMap };
       case 'guardian':
-        return { color: '#38BDF8', title: 'GUARDIAN', icon: 'shield-outline' as keyof typeof Ionicons.glyphMap };
+        return { color: '#0284C7', title: 'GUARDIAN', icon: 'shield' as keyof typeof Ionicons.glyphMap };
       default:
-        return { color: '#34D399', title: 'MEMBER', icon: 'person-outline' as keyof typeof Ionicons.glyphMap };
+        return { color: '#2E7D5B', title: 'MEMBER', icon: 'person' as keyof typeof Ionicons.glyphMap };
     }
   };
 
@@ -497,7 +521,7 @@ export default function CircleHierarchyTree({
       <View style={styles.toolbarRow}>
         <View style={styles.toolbarBadge}>
           <Ionicons name="git-network" size={12} color={colors.accentGold} />
-          <Text style={[styles.toolbarText, { color: colors.accentGold }]}>FAMILY COMMAND TREE</Text>
+          <Text style={[styles.toolbarText, { color: '#2E7D5B' }]}>FAMILY COMMAND TREE</Text>
         </View>
 
         <View style={{ flexDirection: 'row', gap: 6 }}>
@@ -509,9 +533,9 @@ export default function CircleHierarchyTree({
             <Ionicons
               name={hasCollapsedBranches ? 'eye-outline' : 'contract-outline'}
               size={11}
-              color={hasCollapsedBranches ? '#38BDF8' : colors.accentGold}
+              color={hasCollapsedBranches ? '#0284C7' : '#2E7D5B'}
             />
-            <Text style={[styles.expandAllText, { color: hasCollapsedBranches ? '#38BDF8' : colors.accentGold }]}>
+            <Text style={[styles.expandAllText, { color: hasCollapsedBranches ? '#0284C7' : '#2E7D5B' }]}>
               {hasCollapsedBranches ? 'EXPAND ALL' : 'COLLAPSE ALL'}
             </Text>
           </TouchableOpacity>
@@ -521,61 +545,139 @@ export default function CircleHierarchyTree({
       {/* Role Legend Bar */}
       <View style={styles.legendRow}>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: '#F5D061' }]} />
+          <View style={[styles.legendDot, { backgroundColor: '#D97706' }]} />
           <Text style={[styles.legendText, { color: colors.textMuted }]}>FOUNDER</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: '#C084FC' }]} />
+          <View style={[styles.legendDot, { backgroundColor: '#7E22CE' }]} />
           <Text style={[styles.legendText, { color: colors.textMuted }]}>CO-LEADER</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: '#38BDF8' }]} />
+          <View style={[styles.legendDot, { backgroundColor: '#0284C7' }]} />
           <Text style={[styles.legendText, { color: colors.textMuted }]}>GUARDIAN</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: '#34D399' }]} />
+          <View style={[styles.legendDot, { backgroundColor: '#2E7D5B' }]} />
           <Text style={[styles.legendText, { color: colors.textMuted }]}>MEMBER</Text>
         </View>
       </View>
 
-      {/* Dual-Axis Scrollable Canvas with Safe Centering */}
+      {/* Dual-Axis Scrollable Canvas (Vertical + Horizontal) with Safe Centering */}
       <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={[styles.canvasContent, { minWidth: canvasMinWidth }]}
+        style={styles.verticalScroll}
+        contentContainerStyle={[
+          styles.verticalScrollContent,
+          zoomScale > 1 && { minHeight: 900 * zoomScale },
+        ]}
+        showsVerticalScrollIndicator={true}
+        nestedScrollEnabled={true}
+        bounces={true}
       >
-        <View style={[styles.graphCanvas, { width: canvasMinWidth }]}>
-          {renderSubtree(treeRoot, true)}
+        <ScrollView
+          horizontal
+          style={styles.horizontalScroll}
+          contentContainerStyle={[
+            styles.canvasContent,
+            { minWidth: Math.max(canvasMinWidth, canvasMinWidth * zoomScale) },
+          ]}
+          showsHorizontalScrollIndicator={true}
+          nestedScrollEnabled={true}
+          bounces={true}
+        >
+          <View
+            style={[
+              styles.graphCanvas,
+              { width: canvasMinWidth },
+              {
+                transform: [{ scale: zoomScale }],
+                ...(Platform.OS === 'web' ? { transformOrigin: 'top center' } : {}),
+              },
+            ]}
+          >
+            {renderSubtree(treeRoot, true)}
 
-          {/* If Circle has only 1 member, show helpful growth guidance node */}
-          {members.length === 1 && (
-            <View style={styles.singleMemberHelpBox}>
-              <View style={[styles.singleMemberHelpStem, { backgroundColor: `${colors.accentGold}50` }]} />
-              <View
-                style={[
-                  styles.singleMemberCard,
-                  { backgroundColor: isDark ? 'rgba(21, 23, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)', borderColor: `${colors.accentGold}40` },
-                ]}
-              >
-                <Ionicons name="person-add-outline" size={16} color={colors.accentGold} />
-                <Text style={[styles.singleMemberTitle, { color: colors.foreground }]}>GROW YOUR TREE</Text>
-                <Text style={[styles.singleMemberSubtitle, { color: colors.textMuted }]}>
-                  Share your circle invite code to add guardians and subordinates.
-                </Text>
+            {/* If Circle has only 1 member, show helpful growth guidance node */}
+            {members.length === 1 && (
+              <View style={styles.singleMemberHelpBox}>
+                <View style={[styles.singleMemberHelpStem, { backgroundColor: `${colors.accentGold}50` }]} />
+                <View
+                  style={[
+                    styles.singleMemberCard,
+                    { backgroundColor: isDark ? 'rgba(21, 23, 30, 0.6)' : 'rgba(255, 255, 255, 0.8)', borderColor: `${colors.accentGold}40` },
+                  ]}
+                >
+                  <Ionicons name="person-add-outline" size={16} color={colors.accentGold} />
+                  <Text style={[styles.singleMemberTitle, { color: colors.foreground }]}>GROW YOUR TREE</Text>
+                  <Text style={[styles.singleMemberSubtitle, { color: colors.textMuted }]}>
+                    Share your circle invite code to add guardians and subordinates.
+                  </Text>
+                </View>
               </View>
-            </View>
-          )}
-        </View>
+            )}
+          </View>
+        </ScrollView>
       </ScrollView>
+
+      {/* Floating Tactical Zoom Controls Dock */}
+      <View
+        style={[
+          styles.zoomDock,
+          {
+            backgroundColor: isDark ? 'rgba(20, 26, 23, 0.94)' : 'rgba(255, 255, 255, 0.96)',
+            borderColor: isDark ? 'rgba(58, 223, 171, 0.28)' : '#D6E2DC',
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={[styles.zoomBtn, zoomScale <= 0.5 && styles.zoomBtnDisabled]}
+          onPress={handleZoomOut}
+          disabled={zoomScale <= 0.5}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel="Zoom Out"
+        >
+          <Ionicons
+            name="remove"
+            size={16}
+            color={zoomScale <= 0.5 ? (isDark ? '#475C50' : '#A0AEC0') : (isDark ? '#3ADFAB' : '#2E7D5B')}
+          />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.zoomResetBtn}
+          onPress={handleResetZoom}
+          activeOpacity={0.7}
+          accessibilityLabel="Reset Zoom"
+        >
+          <Text style={[styles.zoomPercentText, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+            {Math.round(zoomScale * 100)}%
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.zoomBtn, zoomScale >= 1.5 && styles.zoomBtnDisabled]}
+          onPress={handleZoomIn}
+          disabled={zoomScale >= 1.5}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel="Zoom In"
+        >
+          <Ionicons
+            name="add"
+            size={16}
+            color={zoomScale >= 1.5 ? (isDark ? '#475C50' : '#A0AEC0') : (isDark ? '#3ADFAB' : '#2E7D5B')}
+          />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: {
+    flex: 1,
     width: '100%',
     paddingTop: 4,
-    marginBottom: 24,
   },
   toolbarRow: {
     flexDirection: 'row',
@@ -641,13 +743,69 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.4,
   },
+  verticalScroll: {
+    flex: 1,
+    width: '100%',
+  },
+  verticalScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 64,
+  },
+  horizontalScroll: {
+    flex: 1,
+    width: '100%',
+  },
   canvasContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 48,
     justifyContent: 'center',
+    alignItems: 'center',
+    flexGrow: 1,
   },
   graphCanvas: {
     alignItems: 'center',
+  },
+  zoomDock: {
+    position: 'absolute',
+    bottom: 24,
+    right: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 22,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 999,
+  },
+  zoomBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  zoomBtnDisabled: {
+    opacity: 0.35,
+  },
+  zoomResetBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  zoomPercentText: {
+    fontFamily: Platform.OS === 'web' ? 'sans-serif' : undefined,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    minWidth: 38,
+    textAlign: 'center',
   },
   treeColumn: {
     alignItems: 'center',

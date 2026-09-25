@@ -11,6 +11,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getSafeTopInset } from '../utils/safeArea';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from '../lib/supabase';
@@ -33,6 +35,8 @@ const getMedicalStorageKey = (userId?: string | null) =>
   userId ? `@circleguard_medical_info_${userId}` : '@circleguard_medical_info_guest';
 
 export default function MedicalInfoModal({ visible, onClose }: MedicalInfoModalProps) {
+  const insets = useSafeAreaInsets();
+  const topInset = getSafeTopInset(insets.top);
   const { profile } = useAuthStore();
   const { showAlert } = useLuxuryAlert();
 
@@ -146,10 +150,10 @@ export default function MedicalInfoModal({ visible, onClose }: MedicalInfoModalP
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={false}>
+    <Modal visible={visible} animationType="slide" transparent={false} statusBarTranslucent={true}>
       <View style={styles.container}>
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: topInset + 8 }]}>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.8}>
             <Ionicons name="close" size={20} color="#1F2A24" />
           </TouchableOpacity>

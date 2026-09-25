@@ -15,6 +15,7 @@ import AnimatedCircleGuardLogo from '../components/AnimatedCircleGuardLogo';
 import ConstellationBackground from '../components/ConstellationBackground';
 import { useCountryStore } from '../store/useCountryStore';
 import CountrySelectorModal from '../components/CountrySelectorModal';
+import PasswordResetModal from '../components/PasswordResetModal';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -32,13 +33,8 @@ export default function LoginScreen() {
   // Rate Limiting with Exponential Backoff (Per-Account & Per-Device)
   const loginLimiter = useRateLimitCountdown('AUTH_LOGIN', email.trim());
 
-  // Password Reset State & Rate Limiter
+  // Password Reset Modal State
   const [resetModalVisible, setResetModalVisible] = useState(false);
-  const [resetEmail, setResetEmail] = useState('');
-  const [resetLoading, setResetLoading] = useState(false);
-  const [resetStatusMsg, setResetStatusMsg] = useState('');
-  const [resetIsError, setResetIsError] = useState(false);
-  const pwResetLimiter = useRateLimitCountdown('AUTH_PASSWORD_RESET', resetEmail.trim() || email.trim());
 
   const handleLogin = async () => {
     setErrorMsg('');
@@ -98,54 +94,6 @@ export default function LoginScreen() {
       setErrorMsg(handleServiceError('Login:catch', err, 'Something went wrong during sign in. Please try again.'));
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleResetPassword = async () => {
-    const targetEmail = (resetEmail || email).trim();
-    
-    // Strict schema validation for password reset email
-    const emailValidation = ValidationSchema.validateEmail(targetEmail);
-    if (!emailValidation.valid) {
-      setResetStatusMsg(emailValidation.error || 'Please enter a valid email address.');
-      setResetIsError(true);
-      return;
-    }
-
-    const check = await pwResetLimiter.checkStatus();
-    if (!check.allowed) {
-      setResetStatusMsg(
-        check.reason || `Rate limit active. Please wait ${check.retryAfterSec}s before requesting again.`
-      );
-      setResetIsError(true);
-      return;
-    }
-
-    setResetLoading(true);
-    setResetStatusMsg('');
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(emailValidation.value!, {
-        redirectTo:
-          Platform.OS === 'web'
-            ? window.location.origin
-            : Linking.createURL('auth/reset-callback', { scheme: 'circleguard' }),
-      });
-
-      if (error) {
-        await pwResetLimiter.recordAttempt(false);
-        setResetStatusMsg(handleServiceError('Login:resetPassword', error, 'Failed to send password reset email.'));
-        setResetIsError(true);
-      } else {
-        await pwResetLimiter.recordAttempt(true);
-        setResetStatusMsg('Password reset link sent! Check your inbox.');
-        setResetIsError(false);
-      }
-    } catch (err: any) {
-      await pwResetLimiter.recordAttempt(false);
-      setResetStatusMsg(handleServiceError('Login:resetPasswordCatch', err, 'Failed to send password reset email.'));
-      setResetIsError(true);
-    } finally {
-      setResetLoading(false);
     }
   };
 
@@ -390,11 +338,7 @@ export default function LoginScreen() {
           <TouchableOpacity
             accessibilityRole="button"
             aria-label="Forgot Password"
-            onPress={() => {
-              setResetEmail(email);
-              setResetStatusMsg('');
-              setResetModalVisible(true);
-            }}
+            onPress={() => setResetModalVisible(true)}
           >
             <Text style={{ fontSize: 11, fontWeight: '700', color: colors.accentGold, letterSpacing: 0.8 }}>
               FORGOT PASSWORD?
@@ -483,77 +427,13 @@ export default function LoginScreen() {
       onClose={() => setCountryModalVisible(false)}
     />
 
-    {/* Password Reset Modal with Exponential Backoff Rate Limiting */}
-    <Modal
+    {/* Password Reset Modal with In-App Code Verification & Direct Reset */}
+    <PasswordResetModal
       visible={resetModalVisible}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setResetModalVisible(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={[styles.modalCard, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: colors.border }]}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <Text style={[styles.modalTitle, { color: colors.foreground }]}>RESET PASSWORD</Text>
-            <TouchableOpacity onPress={() => setResetModalVisible(false)} style={{ padding: 4 }}>
-              <Ionicons name="close" size={22} color={colors.foreground} />
-            </TouchableOpacity>
-          </View>
-
-          <Text style={[styles.modalSubtitle, { color: colors.textMuted }]}>
-            Enter the email address associated with your CircleGuard account to receive secure recovery instructions.
-          </Text>
-
-          {resetStatusMsg ? (
-            <View style={[styles.resetStatusBox, { borderColor: resetIsError ? colors.sosRed : '#10B981', backgroundColor: resetIsError ? 'rgba(239, 68, 68, 0.08)' : 'rgba(16, 185, 129, 0.08)' }]}>
-              <Text style={{ fontSize: 12, color: resetIsError ? colors.sosRed : '#10B981', textAlign: 'center', fontWeight: '600' }}>
-                {resetStatusMsg}
-              </Text>
-            </View>
-          ) : null}
-
-          {pwResetLimiter.isBlocked && (
-            <View style={[styles.backoffBadge, { borderColor: colors.sosRed, backgroundColor: 'rgba(239, 68, 68, 0.1)', marginVertical: 8 }]}>
-              <Ionicons name="timer-outline" size={14} color={colors.sosRed} />
-              <Text style={[styles.backoffText, { color: colors.sosRed }]}>
-                Exponential backoff active: retry in {pwResetLimiter.secondsRemaining}s
-              </Text>
-            </View>
-          )}
-
-          <Text style={[styles.inputLabel, { color: colors.foreground, marginTop: 12 }]}>ACCOUNT EMAIL</Text>
-          <TextInput
-            style={[styles.underlineInput, { borderBottomColor: colors.foreground, color: colors.foreground, marginBottom: 16 }]}
-            placeholder="name@domain.com"
-            value={resetEmail}
-            onChangeText={setResetEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            placeholderTextColor={colors.textMuted}
-          />
-
-          <TouchableOpacity
-            style={[
-              styles.button,
-              {
-                backgroundColor: (pwResetLimiter.isBlocked || resetLoading) ? '#6B7280' : colors.accentGold,
-                marginTop: 8,
-                opacity: (pwResetLimiter.isBlocked || resetLoading) ? 0.75 : 1,
-              },
-            ]}
-            onPress={handleResetPassword}
-            disabled={resetLoading || pwResetLimiter.isBlocked}
-          >
-            {resetLoading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : pwResetLimiter.isBlocked ? (
-              <Text style={styles.buttonText}>PLEASE WAIT ({pwResetLimiter.secondsRemaining}S)</Text>
-            ) : (
-              <Text style={styles.buttonText}>SEND RESET LINK</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
+      initialEmail={email}
+      onClose={() => setResetModalVisible(false)}
+      onSuccess={() => setResetModalVisible(false)}
+    />
   </View>
   );
 }

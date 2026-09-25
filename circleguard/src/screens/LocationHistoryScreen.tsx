@@ -275,12 +275,15 @@ export default function LocationHistoryScreen() {
 
   // Fallback calculation ensures Avg Speed can never be 0 when distance and moving time exist
   const effectiveAvgSpeed = useMemo(() => {
-    if (averageSpeedKmh > 0) return averageSpeedKmh;
-    if (travelDurationMinutes > 0 && totalDistanceKm > 0) {
-      return Math.round(totalDistanceKm / (travelDurationMinutes / 60));
+    let speed = averageSpeedKmh;
+    if (speed <= 0 && travelDurationMinutes > 0 && totalDistanceKm > 0) {
+      speed = Math.round(totalDistanceKm / (travelDurationMinutes / 60));
     }
-    return 0;
-  }, [averageSpeedKmh, travelDurationMinutes, totalDistanceKm]);
+    if (topSpeedKmh > 0 && speed > topSpeedKmh) {
+      speed = topSpeedKmh;
+    }
+    return speed;
+  }, [averageSpeedKmh, travelDurationMinutes, totalDistanceKm, topSpeedKmh]);
 
   // Main / Significant Places filter: Safe Zones, dwells >= 15m, or start/end anchors
   const isMainStop = (stop: EnterpriseStationaryStop, idx: number, total: number) => {
@@ -487,7 +490,7 @@ export default function LocationHistoryScreen() {
         }
       }
 
-      if (!targetUserId || !isValidUuid(targetUserId)) {
+      if (!targetUserId || typeof targetUserId !== 'string' || !targetUserId.trim()) {
         setHistoryPoints([]);
         setTripLegs([]);
         setRoadCoords([]);
@@ -501,7 +504,7 @@ export default function LocationHistoryScreen() {
       }
 
       // 0. Instant Cache-First Hydration for sub-300ms instant view
-      const cacheKey = `@circleguard_history_cache_${targetUserId}_${selectedDate}`;
+      const cacheKey = `@circleguard_history_cache_v3_${targetUserId}_${selectedDate}`;
       try {
         const cachedRaw = await AsyncStorage.getItem(cacheKey);
         if (cachedRaw) {
@@ -545,7 +548,7 @@ export default function LocationHistoryScreen() {
           .order('recorded_at', { ascending: true });
 
         const timeoutPromise = new Promise((resolve) =>
-          setTimeout(() => resolve({ data: null, error: new Error('timeout') }), 1800)
+          setTimeout(() => resolve({ data: null, error: new Error('timeout') }), 7000)
         );
 
         const res: any = await Promise.race([queryPromise, timeoutPromise]);
@@ -930,6 +933,7 @@ export default function LocationHistoryScreen() {
           window.renderHistoryMap = function(data) {
             if (!map) return;
             try { map.invalidateSize(); } catch(e) {}
+            console.log('[LEAFLET_RENDER] tripLegs count:', data.tripLegs ? data.tripLegs.length : 0, 'total roadCoords:', data.roadCoords ? data.roadCoords.length : 0, 'leg 0 roadCoords:', data.tripLegs && data.tripLegs[0] && data.tripLegs[0].roadCoords ? data.tripLegs[0].roadCoords.length : 0);
 
             // Route signature check: ONLY rebuild polyline layers and reset zoom/fitBounds
             // when the route itself changes (different trip data or new date).
@@ -1079,6 +1083,9 @@ export default function LocationHistoryScreen() {
                   '</div>';
                   var endIcon = L.divIcon({ className: 'custom-3d-pin', html: endPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
                   endMarker = L.marker(data.roadCoords[data.roadCoords.length - 1], { icon: endIcon }).addTo(map).bindPopup('End Destination');
+                } else if (data.currentPt) {
+                  map.setView(data.currentPt, 16);
+                  setTimeout(triggerInvalidate, 80);
                 }
               }
 
@@ -1403,10 +1410,10 @@ export default function LocationHistoryScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.reconstructionBannerTitle, isDark && { color: '#FFFFFF' }]}>
-                    Verified True User Trajectory
+                    Verified Road-Snapped Route
                   </Text>
                   <Text style={[styles.reconstructionBannerSubtitle, isDark && { color: '#9EACA3' }]}>
-                    Displaying only authentic GPS fixes travelled ({historyPoints.length} points logged, zero synthetic routing)
+                    Snapped to authentic road centerlines and street turns ({roadCoords.length > 0 ? roadCoords.length : historyPoints.length} points, zero straight cuts)
                   </Text>
                 </View>
                 <View style={[
@@ -1417,7 +1424,7 @@ export default function LocationHistoryScreen() {
                     styles.reconstructionBadgeText,
                     isDark && { color: '#3ADFAB' }
                   ]}>
-                    AUTHENTIC
+                    ROAD SNAPPED
                   </Text>
                 </View>
               </View>
@@ -1447,7 +1454,9 @@ export default function LocationHistoryScreen() {
                   </View>
                   <View style={styles.kpiTextWrap}>
                     <Text style={[styles.kpiVal, { color: colors.foreground }]}>
-                      {Math.floor(travelDurationMinutes / 60)}h {travelDurationMinutes % 60}m
+                      {travelDurationMinutes >= 60
+                        ? `${Math.floor(travelDurationMinutes / 60)}h ${travelDurationMinutes % 60}m`
+                        : `${travelDurationMinutes} min${travelDurationMinutes === 1 ? '' : 's'}`}
                     </Text>
                     <Text style={[styles.kpiLbl, { color: colors.textMuted }]}>ACTIVE TRANSIT</Text>
                   </View>

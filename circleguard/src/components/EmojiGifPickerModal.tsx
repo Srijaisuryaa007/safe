@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import {
   FlatList,
   Platform,
   ActivityIndicator,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
@@ -287,22 +289,87 @@ export default function EmojiGifPickerModal({
     };
   }, [searchQuery, activeTab, visible]);
 
+  const translateY = useRef(new Animated.Value(0)).current;
+  const isClosingRef = useRef(false);
+
+  useEffect(() => {
+    if (visible) {
+      isClosingRef.current = false;
+      translateY.setValue(0);
+    }
+  }, [visible, translateY]);
+
+  const handleDismiss = useCallback(() => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    Animated.timing(translateY, {
+      toValue: 650,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(() => {
+      onClose();
+    });
+  }, [onClose, translateY]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 2,
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dy > 0) {
+            translateY.setValue(gestureState.dy);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          const isTap = Math.abs(gestureState.dy) < 8 && Math.abs(gestureState.dx) < 8;
+          const isDragDown = gestureState.dy > 35 || gestureState.vy > 0.2;
+
+          if (isTap || isDragDown) {
+            handleDismiss();
+          } else {
+            Animated.spring(translateY, {
+              toValue: 0,
+              bounciness: 4,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+      }),
+    [handleDismiss, translateY]
+  );
+
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={handleDismiss}>
       <View style={styles.overlay}>
-        <View
+        <Animated.View
           style={[
             styles.trayCard,
             {
               backgroundColor: isDark ? colors.surface : '#FFFFFF',
               borderColor: colors.border,
+              transform: [
+                {
+                  translateY: translateY.interpolate({
+                    inputRange: [-50, 0, 600],
+                    outputRange: [0, 0, 600],
+                    extrapolate: 'clamp',
+                  }),
+                },
+              ],
             },
           ]}
         >
-          {/* Top Grabber Handle */}
-          <View style={styles.topHandleBar}>
+          {/* Top Grabber Handle - Interactive Drag or Tap to Close */}
+          <View
+            style={styles.topHandleBar}
+            {...panResponder.panHandlers}
+            accessible={true}
+            accessibilityLabel="Drag down or tap to close emoji and gif picker"
+            accessibilityRole="button"
+          >
             <View style={[styles.dragHandle, { backgroundColor: colors.border }]} />
           </View>
 
@@ -314,6 +381,7 @@ export default function EmojiGifPickerModal({
                 {
                   backgroundColor: isDark ? colors.background : '#F1F5F9',
                   borderColor: colors.border,
+                  flex: 1,
                 },
               ]}
             >
@@ -361,15 +429,6 @@ export default function EmojiGifPickerModal({
                 </Text>
               </TouchableOpacity>
             </View>
-
-            {/* Close Button */}
-            <TouchableOpacity
-              onPress={onClose}
-              style={[styles.closeIconBtn, { borderColor: colors.border }]}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="close" size={18} color={colors.foreground} />
-            </TouchableOpacity>
           </View>
 
           {/* Global Search Bar (Discord / Apple Style) */}
@@ -429,7 +488,12 @@ export default function EmojiGifPickerModal({
                   onPress={() => setSelectedEmojiCategory('all')}
                   activeOpacity={0.7}
                 >
-                  <Text style={{ fontSize: 13, marginRight: 4 }}>✨</Text>
+                  <Ionicons
+                    name="grid-outline"
+                    size={13}
+                    color={selectedEmojiCategory === 'all' ? '#FFFFFF' : (isDark ? '#F4F4F5' : '#0F172A')}
+                    style={{ marginRight: 5 }}
+                  />
                   <Text
                     style={[
                       styles.categoryPillText,
@@ -569,7 +633,7 @@ export default function EmojiGifPickerModal({
               }
             />
           )}
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );

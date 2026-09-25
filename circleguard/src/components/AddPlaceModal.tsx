@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ScrollView, Image } from 'react-native';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ScrollView, Image, Animated, PanResponder } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
 
@@ -27,6 +27,46 @@ export default function AddPlaceModal({ visible, coordinate, members = [], onClo
   const [category, setCategory] = useState('home');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
 
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      translateY.setValue(0);
+    }
+  }, [visible]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 4,
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dy > 0) {
+            translateY.setValue(gestureState.dy);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > 80 || gestureState.vy > 0.5) {
+            Animated.timing(translateY, {
+              toValue: 600,
+              duration: 180,
+              useNativeDriver: true,
+            }).start(() => {
+              onClose();
+              translateY.setValue(0);
+            });
+          } else {
+            Animated.spring(translateY, {
+              toValue: 0,
+              bounciness: 4,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+      }),
+    [onClose, translateY]
+  );
+
   useEffect(() => {
     if (visible) {
       setName('');
@@ -37,9 +77,11 @@ export default function AddPlaceModal({ visible, coordinate, members = [], onClo
   }, [visible]);
 
   const toggleUserSelection = (userId: string) => {
-    setSelectedUserIds(prev =>
-      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
-    );
+    if (selectedUserIds.includes(userId)) {
+      setSelectedUserIds(selectedUserIds.filter(id => id !== userId));
+    } else {
+      setSelectedUserIds([...selectedUserIds, userId]);
+    }
   };
 
   const toggleSelectAll = () => {
@@ -64,12 +106,37 @@ export default function AddPlaceModal({ visible, coordinate, members = [], onClo
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
         style={styles.overlay}
       >
-        <View style={[styles.modalBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Animated.View
+          style={[
+            styles.modalBox,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              transform: [
+                {
+                  translateY: translateY.interpolate({
+                    inputRange: [-50, 0, 600],
+                    outputRange: [0, 0, 600],
+                    extrapolate: 'clamp',
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          {/* Top Interactive Drag-to-Dismiss / Tap-to-Close Handle */}
+          <TouchableOpacity
+            style={styles.handleContainer}
+            onPress={onClose}
+            activeOpacity={0.7}
+            {...panResponder.panHandlers}
+            accessibilityLabel="Drag down or tap to close zone creator"
+          >
+            <View style={[styles.handleBar, { backgroundColor: colors.border }]} />
+          </TouchableOpacity>
+
           <View style={styles.headerRow}>
             <Text style={[styles.title, { color: colors.foreground }]}>Create Geofence Zone</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={24} color={colors.textMuted} />
-            </TouchableOpacity>
           </View>
 
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
@@ -194,7 +261,7 @@ export default function AddPlaceModal({ visible, coordinate, members = [], onClo
               <Text style={styles.saveButtonText}>Save Zone</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -209,9 +276,21 @@ const styles = StyleSheet.create({
   modalBox: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingTop: 10,
     paddingBottom: 36,
     borderWidth: 1,
+  },
+  handleContainer: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  handleBar: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
   },
   headerRow: {
     flexDirection: 'row',

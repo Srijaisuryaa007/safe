@@ -50,48 +50,62 @@ export function segmentTripsByStops<T>(
 
   for (let i = 1; i < sortedPoints.length; i++) {
     const pt = sortedPoints[i];
+    const prevPt = sortedPoints[i - 1];
     const timeMs = getTimeMs(pt);
+    const prevTimeMs = getTimeMs(prevPt);
     const lat = getLat(pt);
     const lng = getLng(pt);
 
     // Skip invalid coordinates
     if (!lat || !lng || isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) continue;
 
+    const timeSincePrev = timeMs - prevTimeMs;
     const distFromAnchor = calculateHaversineDistanceMeters(potentialStopAnchorLat, potentialStopAnchorLng, lat, lng);
 
-    if (distFromAnchor > stopRadiusMeters) {
-      const timeAtAnchor = timeMs - potentialStopStartTime;
-      
-      if (timeAtAnchor >= thresholdMs) {
-        // Significant stop detected! Split the trip here.
-        if (currentLegPoints.length >= 2) {
-          const first = currentLegPoints[0];
-          const last = currentLegPoints[currentLegPoints.length - 1];
-          const sLat = getLat(first);
-          const sLng = getLng(first);
-          const eLat = getLat(last);
-          const eLng = getLng(last);
+    // Split condition 1: Gap in pings >= thresholdMs (e.g. phone was parked/dormant for 5+ mins)
+    // Split condition 2: User moved outside stop anchor after dwelling there >= thresholdMs
+    const isPingGapStop = timeSincePrev >= thresholdMs;
+    const isAnchorDwellStop = distFromAnchor > stopRadiusMeters && (timeMs - potentialStopStartTime >= thresholdMs);
 
-          const bearing = calculateBearing(sLat, sLng, eLat, eLng);
-          const cardDir = getCardinalDirection(bearing);
+    if (isPingGapStop || isAnchorDwellStop) {
+      // Significant stop detected! Split the trip here so dwell time is not added to the leg.
+      if (currentLegPoints.length >= 2) {
+        const first = currentLegPoints[0];
+        const last = currentLegPoints[currentLegPoints.length - 1];
+        const sLat = getLat(first);
+        const sLng = getLng(first);
+        const eLat = getLat(last);
+        const eLng = getLng(last);
 
-          legs.push({
-            id: `leg_${legs.length + 1}`,
-            points: [...currentLegPoints],
-            startTimeMs: getTimeMs(first),
-            endTimeMs: getTimeMs(last),
-            isOutbound: legs.length % 2 === 0,
-            bearing,
-            cardinalDirection: cardDir,
-            startLat: sLat,
-            startLng: sLng,
-            endLat: eLat,
-            endLng: eLng,
-          });
-        }
-        currentLegPoints = [];
+        const bearing = calculateBearing(sLat, sLng, eLat, eLng);
+        const cardDir = getCardinalDirection(bearing);
+
+        legs.push({
+          id: `leg_${legs.length + 1}`,
+          points: [...currentLegPoints],
+          startTimeMs: getTimeMs(first),
+          endTimeMs: getTimeMs(last),
+          isOutbound: legs.length % 2 === 0,
+          bearing,
+          cardinalDirection: cardDir,
+          startLat: sLat,
+          startLng: sLng,
+          endLat: eLat,
+          endLng: eLng,
+        });
+      } else if (currentLegPoints.length === 1 && legs.length > 0) {
+        // Preserve transit/underground station entry fix by appending to the preceding leg
+        legs[legs.length - 1].points.push(currentLegPoints[0]);
+        legs[legs.length - 1].endTimeMs = getTimeMs(currentLegPoints[0]);
+        legs[legs.length - 1].endLat = getLat(currentLegPoints[0]);
+        legs[legs.length - 1].endLng = getLng(currentLegPoints[0]);
       }
-      
+      currentLegPoints = [];
+      potentialStopStartTime = timeMs;
+      potentialStopAnchorLat = lat;
+      potentialStopAnchorLng = lng;
+    } else if (distFromAnchor > stopRadiusMeters) {
+      // Moved within the leg - update stop anchor
       potentialStopStartTime = timeMs;
       potentialStopAnchorLat = lat;
       potentialStopAnchorLng = lng;
@@ -125,24 +139,31 @@ export function segmentTripsByStops<T>(
       endLat: eLat,
       endLng: eLng,
     });
-  } else if (currentLegPoints.length === 1 && legs.length === 0) {
-    // Single point fallback
-    const single = currentLegPoints[0];
-    const sLat = getLat(single);
-    const sLng = getLng(single);
-    legs.push({
-      id: 'leg_1',
-      points: currentLegPoints,
-      startTimeMs: getTimeMs(single),
-      endTimeMs: getTimeMs(single),
-      isOutbound: true,
-      bearing: 0,
-      cardinalDirection: 'N',
-      startLat: sLat,
-      startLng: sLng,
-      endLat: sLat,
-      endLng: sLng,
-    });
+  } else if (currentLegPoints.length === 1) {
+    if (legs.length > 0) {
+      legs[legs.length - 1].points.push(currentLegPoints[0]);
+      legs[legs.length - 1].endTimeMs = getTimeMs(currentLegPoints[0]);
+      legs[legs.length - 1].endLat = getLat(currentLegPoints[0]);
+      legs[legs.length - 1].endLng = getLng(currentLegPoints[0]);
+    } else {
+      // Single point fallback
+      const single = currentLegPoints[0];
+      const sLat = getLat(single);
+      const sLng = getLng(single);
+      legs.push({
+        id: 'leg_1',
+        points: currentLegPoints,
+        startTimeMs: getTimeMs(single),
+        endTimeMs: getTimeMs(single),
+        isOutbound: true,
+        bearing: 0,
+        cardinalDirection: 'N',
+        startLat: sLat,
+        startLng: sLng,
+        endLat: sLat,
+        endLng: sLng,
+      });
+    }
   }
 
   return legs;
@@ -181,7 +202,7 @@ export function analyzeTripTelemetry<T>(
       hardBrakes: 0,
       rapidAccels: 0,
       speedingEvents: 0,
-      driverScore: 100,
+      driverScore: 0,
       cardinalDirection: 'N',
       bearingDegrees: 0,
       processedPoints: [],
@@ -206,25 +227,29 @@ export function analyzeTripTelemetry<T>(
       const dtSec = Math.max(0.5, (curTime - prev.timeMs) / 1000);
       const stepDistMeters = calculateHaversineDistanceMeters(prev.lat, prev.lng, curLat, curLng);
 
-      // GPS Jitter filter: skip impossible teleports (> 160 km/h in very short intervals)
       const impliedSpeedKmh = (stepDistMeters / dtSec) * 3.6;
-      if (dtSec < 3 && impliedSpeedKmh > 160) {
+
+      // Jitter & Teleport Filter: skip impossible speeds (> 125 km/h in under 4 seconds)
+      if (dtSec < 4 && impliedSpeedKmh > 125) {
         continue; // ignore spurious multipath jump
       }
 
-      // Stationary Drift Filter: Only accumulate distance if actual movement occurred (>= 5m and speed >= 2.5 km/h)
-      if (stepDistMeters >= 5 && (speedKmh >= 2.5 || impliedSpeedKmh >= 2.5)) {
-        totalDistanceMeters += stepDistMeters;
+      // Genuine Movement Filter: Accumulate movement if moved >= 4m or moving >= 1.8 km/h
+      if (stepDistMeters >= 4 && (speedKmh >= 1.8 || impliedSpeedKmh >= 1.8)) {
+        // Curve compensation: straight lines between GPS pings undercount street curves
+        const curveFactor = dtSec >= 12 ? 1.06 : 1.0;
+        totalDistanceMeters += (stepDistMeters * curveFactor);
       }
 
       if (!speedKmh || speedKmh <= 0) {
-        // Smooth infer speed with speed cap (zero out stationary noise)
-        speedKmh = impliedSpeedKmh < 2.0 ? 0 : Math.min(130, Math.round(impliedSpeedKmh));
+        // Smooth infer speed with kinematic acceleration cap (max 9 km/h/s change from prev)
+        const maxPhysicalSpeed = Math.min(115, (prev.speed > 0 ? prev.speed : 30) + (9 * dtSec));
+        speedKmh = impliedSpeedKmh < 1.8 ? 0 : Math.min(maxPhysicalSpeed, Math.round(impliedSpeedKmh));
       }
     }
 
-    // Cap realistic vehicular speeds
-    speedKmh = Math.min(140, Math.max(0, Math.round(speedKmh)));
+    // Cap realistic vehicular speeds (prevent unverified speed spikes)
+    speedKmh = Math.min(115, Math.max(0, Math.round(speedKmh)));
 
     rawProcessed.push({
       lat: curLat,
@@ -243,7 +268,7 @@ export function analyzeTripTelemetry<T>(
       hardBrakes: 0,
       rapidAccels: 0,
       speedingEvents: 0,
-      driverScore: 100,
+      driverScore: 0,
       cardinalDirection: 'N',
       bearingDegrees: 0,
       processedPoints: [],
@@ -256,76 +281,121 @@ export function analyzeTripTelemetry<T>(
   const bearing = calculateBearing(firstPt.lat, firstPt.lng, lastPt.lat, lastPt.lng);
   const cardDir = getCardinalDirection(bearing);
 
-  // Analyze events
+  // 3-Point Rolling Median Filter on speeds:
+  // Eliminates single-ping GPS glitches (e.g., [50, 140, 55] -> 55) while strictly preserving genuine sustained driving speed
+  const filteredSpeeds: number[] = [];
+  for (let i = 0; i < rawProcessed.length; i++) {
+    const prevSpd = i > 0 ? rawProcessed[i - 1].speed : rawProcessed[i].speed;
+    const curSpd = rawProcessed[i].speed;
+    const nextSpd = i < rawProcessed.length - 1 ? rawProcessed[i + 1].speed : rawProcessed[i].speed;
+    const sorted = [prevSpd, curSpd, nextSpd].sort((a, b) => a - b);
+    filteredSpeeds.push(sorted[1]);
+  }
+
   let hardBrakes = 0;
   let rapidAccels = 0;
   let speedingEvents = 0;
   let movingSpeedSum = 0;
   let movingSpeedCount = 0;
-  let maxObservedSpeed = 0;
   let isCurrentlySpeeding = false;
 
   for (let i = 0; i < rawProcessed.length; i++) {
-    const cur = rawProcessed[i];
+    const smoothSpd = filteredSpeeds[i];
+    rawProcessed[i].speed = smoothSpd; // update to smoothed speed
 
-    if (cur.speed > maxObservedSpeed) {
-      maxObservedSpeed = cur.speed;
-    }
-
-    if (cur.speed >= 4) {
-      movingSpeedSum += cur.speed;
+    if (smoothSpd >= 3) {
+      movingSpeedSum += smoothSpd;
       movingSpeedCount++;
     }
 
-    if (i > 0) {
+    // Verify acceleration across 2 consecutive points to eliminate single-fix GPS noise
+    if (i >= 1) {
       const prev = rawProcessed[i - 1];
-      const dtSec = Math.max(0.5, (cur.timeMs - prev.timeMs) / 1000);
+      const dtSec = Math.max(0.8, (rawProcessed[i].timeMs - prev.timeMs) / 1000);
       
-      // Enterprise Event Detection: Only evaluate acceleration within a realistic sampling interval (1s - 8s)
       if (dtSec >= 1.0 && dtSec <= 8.0) {
-        const accelKmhPerSec = (cur.speed - prev.speed) / dtSec;
+        const accelKmhPerSec = (smoothSpd - prev.speed) / dtSec;
 
-        // Hard brake requires initial vehicular speed >= 20 km/h and deceleration <= -12.5 km/h/s (~ -0.35g)
-        if (prev.speed >= 20 && accelKmhPerSec <= -12.5) {
-          hardBrakes++;
+        // Hard brake: initial vehicular speed >= 25 km/h and deceleration <= -13.5 km/h/s (~ -0.38g)
+        if (prev.speed >= 25 && accelKmhPerSec <= -13.5) {
+          const isPersistentBrake = i === rawProcessed.length - 1 || rawProcessed[i + 1].speed <= smoothSpd + 8;
+          if (isPersistentBrake) {
+            hardBrakes++;
+          }
         } 
-        // Rapid acceleration requires acceleration >= +11.0 km/h/s (~ +0.31g)
-        else if (accelKmhPerSec >= 11.0 && cur.speed >= 15) {
+        // Rapid acceleration: initial vehicular speed >= 12 km/h and acceleration >= +13.0 km/h/s (~ +0.37g)
+        else if (accelKmhPerSec >= 13.0 && smoothSpd >= 25) {
           rapidAccels++;
         }
       }
     }
 
-    // Enterprise Speeding: sustained velocity > 80 km/h (episode-based detection)
-    if (cur.speed > 80) {
+    // Speeding: sustained velocity > 85 km/h (episode-based detection)
+    if (smoothSpd > 85) {
       if (!isCurrentlySpeeding) {
         speedingEvents++;
         isCurrentlySpeeding = true;
       }
-    } else {
+    } else if (smoothSpd < 78) {
       isCurrentlySpeeding = false;
     }
   }
 
+  // Top speed: Highest sustained moving speed (already de-glitched by the 3-point rolling median filter)
+  const movingSpeeds = filteredSpeeds.filter(s => s >= 5).sort((a, b) => a - b);
+  let maxObservedSpeed = 0;
+  if (movingSpeeds.length > 0) {
+    maxObservedSpeed = movingSpeeds[movingSpeeds.length - 1];
+  }
+
   const startTime = rawProcessed[0].timeMs;
   const endTime = rawProcessed[rawProcessed.length - 1].timeMs;
-  const rawDurationMins = Math.round((endTime - startTime) / 60000);
-  const durationMins = Math.max(1, rawDurationMins);
+  const rawDurationMins = Math.max(1, Math.round((endTime - startTime) / 60000));
+
+  // Calculate genuine in-transit driving duration by summing active moving segments
+  let activeDriveDurationSec = 0;
+  for (let i = 1; i < rawProcessed.length; i++) {
+    const prev = rawProcessed[i - 1];
+    const cur = rawProcessed[i];
+    const dtSec = Math.max(0, (cur.timeMs - prev.timeMs) / 1000);
+    const dDistM = calculateHaversineDistanceMeters(prev.lat, prev.lng, cur.lat, cur.lng);
+
+    // If point represents motion or normal traffic/traffic-light waiting:
+    const isMoving = cur.speed >= 1.8 || prev.speed >= 1.8 || dDistM >= 15;
+    if (isMoving) {
+      // Normal driving interval or short red light (cap at 180s = 3 mins to eliminate parked dwell gaps)
+      activeDriveDurationSec += Math.min(180, Math.max(1, dtSec));
+    } else if (dtSec <= 90) {
+      // Brief traffic pause (under 90s)
+      activeDriveDurationSec += dtSec;
+    }
+  }
+
+  const activeDurationMins = Math.max(1, Math.round(activeDriveDurationSec / 60));
+  // Use active in-transit driving duration (strictly excluding parked dwell time)
+  const durationMins = (activeDurationMins >= 1 && activeDurationMins <= rawDurationMins)
+    ? activeDurationMins
+    : rawDurationMins;
   const distanceKm = parseFloat((totalDistanceMeters / 1000).toFixed(1));
 
-  // Enterprise Moving Average Speed: computed over moving points to prevent red lights/parking from distorting speed
-  let avgSpeedKmh = movingSpeedCount > 0 
-    ? Math.round(movingSpeedSum / movingSpeedCount) 
-    : (distanceKm > 0 && durationMins > 0 ? Math.round((distanceKm / (durationMins / 60))) : 0);
+  // Genuine Moving Average Speed: Distance (km) / Active Transit (hours)
+  let avgSpeedKmh = 0;
+  if (distanceKm > 0 && durationMins > 0) {
+    avgSpeedKmh = Math.round(distanceKm / (durationMins / 60));
+  } else if (movingSpeedCount > 0) {
+    avgSpeedKmh = Math.round(movingSpeedSum / movingSpeedCount);
+  }
 
+  if (maxObservedSpeed > 0 && avgSpeedKmh > maxObservedSpeed) {
+    avgSpeedKmh = maxObservedSpeed;
+  }
   if (isNaN(avgSpeedKmh)) avgSpeedKmh = 0;
 
-  // Enterprise Rate-Weighted Driver Safety Score (0-100):
-  // Normalizes safety events per 10km driven rather than raw counts,
-  // preventing long safe highway journeys from being unfairly penalized.
+  // Normalized Driver Safety Score (0-100):
+  // Baseline 100, fair rate-weighted penalty per 10km driven
   const effectiveDistance = Math.max(1.0, distanceKm);
-  const eventRatePer10Km = ((hardBrakes * 10) + (rapidAccels * 6) + (speedingEvents * 8)) / (effectiveDistance / 10);
-  const driverScore = Math.max(50, Math.min(100, Math.round(100 - eventRatePer10Km)));
+  const eventDeduction = ((hardBrakes * 3) + (rapidAccels * 2) + (speedingEvents * 4)) / Math.max(1, effectiveDistance / 10);
+  const driverScore = Math.max(65, Math.min(100, Math.round(100 - eventDeduction)));
 
   return {
     distanceKm,
@@ -343,14 +413,17 @@ export function analyzeTripTelemetry<T>(
 }
 
 /**
- * Enterprise classification: Checks if a trip segment is a genuine vehicular drive
- * rather than a stationary jitter cluster or a pedestrian walk.
+ * Enhanced vehicular trip classifier:
+ * Accurately detects city drives, neighborhood trips, and highway journeys
+ * while rejecting stationary noise and slow pedestrian walks.
  */
 export function isVehicularTrip(analysis: TelemetryAnalysisResult): boolean {
-  // A vehicular drive must have either:
-  // 1. A top speed of at least 22 km/h AND minimum distance of 0.3 km
-  // 2. OR a distance >= 0.6 km with avg moving speed >= 18 km/h
-  return (analysis.topSpeedKmh >= 22 && analysis.distanceKm >= 0.3) ||
-         (analysis.distanceKm >= 0.6 && analysis.avgSpeedKmh >= 18);
+  // A vehicular drive is confirmed if:
+  // 1. Distance >= 0.2 km AND top speed >= 16 km/h (captures neighborhood drives & traffic)
+  // 2. OR distance >= 0.4 km AND avg moving speed >= 11 km/h
+  // 3. OR top speed >= 25 km/h (clear vehicular speed)
+  return (analysis.distanceKm >= 0.2 && analysis.topSpeedKmh >= 16) ||
+         (analysis.distanceKm >= 0.4 && analysis.avgSpeedKmh >= 11) ||
+         (analysis.topSpeedKmh >= 25 && analysis.distanceKm >= 0.15);
 }
 

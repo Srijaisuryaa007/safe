@@ -245,12 +245,18 @@ export function logInternalError(
   const stack = error instanceof Error ? error.stack : undefined;
 
   // In production, this can forward to Sentry / Datadog / Supabase error logs
-  console.error(`[CircleGuard:Error][${timestamp}][${context}] ${rawMessage || 'Unknown error'}`, {
-    message: rawMessage,
-    stack,
-    metadata,
-    rawError: error
-  });
+  const isBusinessOrValidation =
+    rawMessage.includes('Free tier') ||
+    rawMessage.includes('limit') ||
+    rawMessage.includes('violates') ||
+    rawMessage.includes('registered') ||
+    rawMessage.includes('required');
+
+  if (isBusinessOrValidation) {
+    console.warn(`[CircleGuard:Notice][${timestamp}][${context}] ${rawMessage || 'Handled notice'}`);
+  } else {
+    console.warn(`[CircleGuard:Diagnostic][${timestamp}][${context}] ${rawMessage || 'Handled exception'}`);
+  }
 }
 
 /**

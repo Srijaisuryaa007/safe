@@ -127,7 +127,30 @@ export const DARK_THEME = {
   } as ThemeColors,
 };
 
+export const INSPO_FLAGSHIP_THEME = {
+  colors: {
+    background: '#0B0D11', // Deep Space Obsidian
+    foreground: '#F4F6F8', // Ultra-Crisp White Heading
+    surface: '#131720', // Studio Slate Elevated Surface
+    surfaceMuted: '#1A202C', // Elevated Secondary Container
+    textMuted: '#94A3B8', // Cool Slate Muted Body Text
+    accentGold: '#00F29D', // Inspo Cyber Emerald (Live Telemetry & Safe Ring)
+    accentGoldLight: 'rgba(0, 242, 157, 0.12)', // Subtle Emerald Glow Wash
+    sosRed: '#FF334B', // High-Luminance SOS Scarlet
+    border: 'rgba(255, 255, 255, 0.08)', // Precision Titanium Hairline
+    borderDark: '#1E2533',
+    borderGold: '#00F29D', // Focused Emerald Glow Border
+  } as ThemeColors,
+};
+
 export const getThemeBorderStyles = (themeMode?: string) => {
+  if (themeMode === 'inspo_flagship') {
+    return {
+      borderWidth: 1,
+      borderRadius: 18,
+      borderColor: 'rgba(255, 255, 255, 0.12)',
+    };
+  }
   if (themeMode === 'billion_dollar') {
     return {
       borderWidth: 1,
@@ -157,6 +180,19 @@ export const getThemeBorderStyles = (themeMode?: string) => {
 };
 
 export const getThemeCardStyles = (themeMode?: string) => {
+  if (themeMode === 'inspo_flagship') {
+    return {
+      borderWidth: 1,
+      borderRadius: 20,
+      borderColor: 'rgba(255, 255, 255, 0.08)',
+      backgroundColor: '#131720',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.4,
+      shadowRadius: 16,
+      elevation: 6,
+    };
+  }
   if (themeMode === 'billion_dollar') {
     return {
       borderWidth: 1,
@@ -210,6 +246,22 @@ export const getThemeCardStyles = (themeMode?: string) => {
 };
 
 export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 'secondary' | 'danger' = 'primary') => {
+  if (themeMode === 'inspo_flagship') {
+    const bg = variant === 'danger' ? '#FF334B' : variant === 'secondary' ? '#1A202C' : '#00F29D';
+    const text = variant === 'primary' ? '#071610' : '#FFFFFF';
+    return {
+      borderWidth: variant === 'secondary' ? 1 : 0,
+      borderRadius: 16,
+      borderColor: variant === 'secondary' ? 'rgba(255, 255, 255, 0.12)' : 'transparent',
+      backgroundColor: bg,
+      textColor: text,
+      shadowColor: variant === 'primary' ? '#00F29D' : '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: variant === 'primary' ? 0.35 : 0.2,
+      shadowRadius: 10,
+      elevation: 4,
+    };
+  }
   if (themeMode === 'billion_dollar') {
     const bg = variant === 'danger' ? '#DC2626' : variant === 'secondary' ? '#FFF3EB' : '#2E7D5B';
     const text = variant === 'secondary' ? '#E07A5F' : '#FFFFFF';
@@ -273,6 +325,18 @@ export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 's
 };
 
 export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert' | 'info' = 'live') => {
+  if (themeMode === 'inspo_flagship') {
+    const bg = variant === 'alert' ? 'rgba(255, 51, 75, 0.15)' : variant === 'info' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(0, 242, 157, 0.14)';
+    const border = variant === 'alert' ? 'rgba(255, 51, 75, 0.4)' : variant === 'info' ? 'rgba(245, 158, 11, 0.4)' : 'rgba(0, 242, 157, 0.35)';
+    const text = variant === 'alert' ? '#FF5C6F' : variant === 'info' ? '#FBBF24' : '#00F29D';
+    return {
+      backgroundColor: bg,
+      borderWidth: 1,
+      borderColor: border,
+      borderRadius: 9999,
+      textColor: text,
+    };
+  }
   if (themeMode === 'billion_dollar') {
     const bg = variant === 'alert' ? '#FEE2E2' : variant === 'info' ? '#FFF3EB' : '#E8F5EE';
     const border = variant === 'alert' ? '#FECACA' : variant === 'info' ? '#FFD7C7' : '#C6E7D5';
@@ -319,6 +383,20 @@ export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert
 };
 
 export const getThemeSheetStyles = (themeMode?: string) => {
+  if (themeMode === 'inspo_flagship') {
+    return {
+      backgroundColor: '#11141C',
+      borderTopWidth: 1,
+      borderTopColor: 'rgba(255, 255, 255, 0.12)',
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: -8 },
+      shadowOpacity: 0.5,
+      shadowRadius: 24,
+      elevation: 20,
+    };
+  }
   if (themeMode === 'billion_dollar') {
     return {
       backgroundColor: '#FFFFFF',
@@ -376,6 +454,19 @@ export const getThemeSheetStyles = (themeMode?: string) => {
 };
 
 export const getThemeFloatingControlStyles = (themeMode?: string) => {
+  if (themeMode === 'inspo_flagship') {
+    return {
+      backgroundColor: 'rgba(19, 23, 32, 0.94)',
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.12)',
+      borderRadius: 9999,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.4,
+      shadowRadius: 14,
+      elevation: 8,
+    };
+  }
   if (themeMode === 'billion_dollar') {
     return {
       backgroundColor: 'rgba(255, 255, 255, 0.92)',
@@ -429,6 +520,17 @@ export const getThemeFloatingControlStyles = (themeMode?: string) => {
 };
 
 export const getThemeChatBubbleStyles = (themeMode?: string, isSelf: boolean = false) => {
+  if (themeMode === 'inspo_flagship') {
+    return {
+      backgroundColor: isSelf ? '#00F29D' : '#1A202C',
+      textColor: isSelf ? '#051A11' : '#F4F6F8',
+      borderWidth: 1,
+      borderColor: isSelf ? '#00F29D' : 'rgba(255, 255, 255, 0.08)',
+      borderRadius: 18,
+      borderBottomRightRadius: isSelf ? 3 : 18,
+      borderBottomLeftRadius: isSelf ? 18 : 3,
+    };
+  }
   if (themeMode === 'billion_dollar') {
     return {
       backgroundColor: isSelf ? '#183CE6' : '#F0F3FF',
@@ -566,7 +668,7 @@ export const typographyStyles = {
 export const LUXURY_THEME = {
   colors: { ...DARK_THEME.colors },
   typography: {
-    fontFamilySerif: 'serif',
+    fontFamilySerif: 'sans-serif',
     fontFamilySans: 'sans-serif',
     fontFamilyDisplay: 'sans-serif',
     fontFamilyMono: 'monospace',

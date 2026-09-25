@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Modal,
   View,
@@ -8,6 +8,8 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
@@ -28,45 +30,86 @@ export default function PaywallModal({ visible, onClose, gatedFeatureName }: Pay
 
   const selectedPkg: SubscriptionPackage = selectedPeriod === 'annual' ? packages.annual : packages.monthly;
 
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      translateY.setValue(0);
+    }
+  }, [visible]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 4,
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dy > 0) {
+            translateY.setValue(gestureState.dy);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > 80 || gestureState.vy > 0.5) {
+            Animated.timing(translateY, {
+              toValue: 600,
+              duration: 180,
+              useNativeDriver: true,
+            }).start(() => {
+              onClose();
+              translateY.setValue(0);
+            });
+          } else {
+            Animated.spring(translateY, {
+              toValue: 0,
+              bounciness: 4,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+      }),
+    [onClose, translateY]
+  );
+
   const handleSubscribe = async () => {
-    setLoading(true);
     try {
-      const success = await RevenueCatService.purchasePackage(selectedPkg);
-      if (success) {
-        Alert.alert(
-          'Welcome to Circle Guard Plus',
-          'Unlimited safe places, speed-adaptive geofencing, schedules, and route ETAs are now active.',
-          [{ text: 'OK', onPress: onClose }]
-        );
+      setLoading(true);
+      await RevenueCatService.purchasePackage(selectedPkg);
+      await setPremium(true);
+      Alert.alert('Subscribed!', 'Welcome to Circle Guard Plus. All features unlocked.');
+      onClose();
+    } catch (err: any) {
+      if (err.message && !err.message.includes('cancelled')) {
+        Alert.alert('Purchase Error', err.message || 'Payment failed.');
       }
-    } catch (e) {
-      Alert.alert('Purchase Error', 'Failed to complete transaction.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleRestore = async () => {
-    setLoading(true);
     try {
-      const success = await RevenueCatService.restorePurchases();
-      if (success) {
-        Alert.alert('Purchases Restored', 'Your Circle Guard Plus subscription has been restored.', [{ text: 'OK', onPress: onClose }]);
+      setLoading(true);
+      const isRestored = await RevenueCatService.restorePurchases();
+      if (isRestored) {
+        await setPremium(true);
+        Alert.alert('Purchases Restored', 'Your Circle Guard Plus access has been verified.');
+        onClose();
+      } else {
+        Alert.alert('No Subscription Found', 'We could not find an active subscription for this account.');
       }
-    } catch (e) {
-      Alert.alert('Restore Error', 'No active subscription found.');
+    } catch (err: any) {
+      Alert.alert('Restore Failed', err.message || 'Unable to restore purchases.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleToggleSandboxTest = async () => {
-    const nextState = !isPremium;
-    await setPremium(nextState, 'annual');
+    await setPremium(!isPremium);
     Alert.alert(
-      nextState ? 'Sandbox Test Premium Activated' : 'Returned to Free Tier',
-      nextState
-        ? 'Unlocked Unlimited Places, Speed-Adaptive Buffers, Schedules, and Route ETAs.'
+      'Sandbox Mode Toggled',
+      !isPremium
+        ? 'Circle Guard Plus is now active! All geofences and safety perks unlocked.'
         : 'Restricted to 2 Safe Places and Basic Geofencing.',
       [{ text: 'OK', onPress: onClose }]
     );
@@ -75,17 +118,41 @@ export default function PaywallModal({ visible, onClose, gatedFeatureName }: Pay
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Animated.View
+          style={[
+            styles.card,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              transform: [
+                {
+                  translateY: translateY.interpolate({
+                    inputRange: [-50, 0, 600],
+                    outputRange: [0, 0, 600],
+                    extrapolate: 'clamp',
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          {/* Top Interactive Drag-to-Dismiss / Tap-to-Close Handle */}
+          <TouchableOpacity
+            style={styles.handleContainer}
+            onPress={onClose}
+            activeOpacity={0.7}
+            {...panResponder.panHandlers}
+            accessibilityLabel="Drag down or tap to close paywall"
+          >
+            <View style={[styles.handleBar, { backgroundColor: colors.border }]} />
+          </TouchableOpacity>
           
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerBadge}>
-              <Ionicons name="sparkles-sharp" size={16} color={colors.accentGold} />
+              <Ionicons name="shield-checkmark" size={16} color={colors.accentGold} />
               <Text style={[styles.headerBadgeText, { color: colors.accentGold }]}>CIRCLE GUARD PLUS</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={22} color={colors.foreground} />
-            </TouchableOpacity>
           </View>
 
           <ScrollView contentContainerStyle={styles.content}>
@@ -200,7 +267,7 @@ export default function PaywallModal({ visible, onClose, gatedFeatureName }: Pay
             </View>
           </View>
 
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -218,12 +285,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     maxHeight: '90%',
   },
+  handleContainer: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  handleBar: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 6,
     paddingBottom: 10,
   },
   headerBadge: {

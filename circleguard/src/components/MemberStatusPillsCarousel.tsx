@@ -256,7 +256,7 @@ export default function MemberStatusPillsCarousel({
               damping: 18,
               stiffness: 160,
               delay: index * 50,
-            }}
+            } as any}
           >
             <TouchableOpacity
               style={[

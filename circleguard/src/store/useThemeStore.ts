@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Appearance, ColorSchemeName } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BRAND_GREEN_THEME, LIGHT_THEME, DARK_THEME, BILLION_DOLLAR_THEME, ThemeColors, LUXURY_THEME } from '../constants/theme';
+import { BRAND_GREEN_THEME, LIGHT_THEME, DARK_THEME, BILLION_DOLLAR_THEME, INSPO_FLAGSHIP_THEME, ThemeColors, LUXURY_THEME } from '../constants/theme';
 
 export type ThemeMode = 'dark' | 'light' | 'brand_green' | 'billion_dollar' | 'system';
 export type MapStyleType = 'vector' | 'satellite' | 'dark' | 'terrain';
@@ -22,16 +22,15 @@ const getStorageKey = (userId?: string | null) => userId ? `@circleguard_theme_m
 const getMapStyleKey = (userId?: string | null) => userId ? `@circleguard_map_style_${userId}` : '@circleguard_map_style_default';
 
 const getThemeConfig = (mode: ThemeMode, sysScheme: ColorSchemeName | null | undefined): { colors: ThemeColors; isDark: boolean } => {
-  if (mode === 'billion_dollar') return { colors: BILLION_DOLLAR_THEME.colors, isDark: false };
-  if (mode === 'brand_green') return { colors: BRAND_GREEN_THEME.colors, isDark: false };
-  if (mode === 'light') return { colors: LIGHT_THEME.colors, isDark: false };
   if (mode === 'dark') return { colors: DARK_THEME.colors, isDark: true };
+  if (mode === 'light' || mode === 'billion_dollar') return { colors: BILLION_DOLLAR_THEME.colors, isDark: false };
+  if (mode === 'brand_green') return { colors: BRAND_GREEN_THEME.colors, isDark: false };
   const isSysDark = sysScheme === 'dark';
-  return { colors: isSysDark ? DARK_THEME.colors : LIGHT_THEME.colors, isDark: isSysDark };
+  return { colors: isSysDark ? DARK_THEME.colors : BILLION_DOLLAR_THEME.colors, isDark: isSysDark };
 };
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
-  themeMode: 'billion_dollar',
+  themeMode: 'light',
   isDark: false,
   colors: BILLION_DOLLAR_THEME.colors,
   mapStyle: 'vector',
@@ -45,16 +44,22 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
       const saved = await AsyncStorage.getItem(themeKey);
       const savedMapStyle = await AsyncStorage.getItem(mapKey);
-      let mode: ThemeMode = 'billion_dollar';
+      let mode: ThemeMode = (saved as ThemeMode) || 'light';
+      if (mode === 'billion_dollar' || (mode as any) === 'inspo_flagship') {
+        mode = 'light';
+        await AsyncStorage.setItem(themeKey, 'light');
+      }
+      await AsyncStorage.removeItem('@circleguard_inspo_ui_kept');
       const mapStyle: MapStyleType = (savedMapStyle as MapStyleType) || 'vector';
-      const config = getThemeConfig('billion_dollar', 'light');
+      const sysScheme = Appearance.getColorScheme();
+      const config = getThemeConfig(mode, sysScheme);
 
       Object.assign(LUXURY_THEME.colors, config.colors);
 
       set({
-        themeMode: 'billion_dollar',
-        isDark: false,
-        colors: BILLION_DOLLAR_THEME.colors,
+        themeMode: mode,
+        isDark: config.isDark,
+        colors: config.colors,
         mapStyle: mapStyle,
         currentUserId: activeUser || null,
       });
@@ -107,10 +112,10 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
 
   resetThemeToDefault: () => {
-    const config = getThemeConfig('billion_dollar', 'light');
+    const config = getThemeConfig('light', 'light');
     Object.assign(LUXURY_THEME.colors, config.colors);
     set({
-      themeMode: 'billion_dollar',
+      themeMode: 'light',
       isDark: false,
       colors: BILLION_DOLLAR_THEME.colors,
       mapStyle: 'vector',
@@ -122,3 +127,4 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 if (typeof window !== 'undefined') {
   (window as any).__useThemeStore = useThemeStore;
 }
+

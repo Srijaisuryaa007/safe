@@ -41,3 +41,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+tests/*.png
+scratch/
+playwright_screenshots/

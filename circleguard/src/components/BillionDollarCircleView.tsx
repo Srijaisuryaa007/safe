@@ -892,9 +892,23 @@ export default function BillionDollarCircleView() {
             circleId: activeCircle?.id,
           });
         }}
-        onNavigateToMap={(_m) => {
+        onNavigateToMap={(m) => {
           setShortProfileMember(null);
-          navigation.navigate('Map');
+          const targetUserId = m?.user_id || m?.id;
+          const allMembers = useCircleStore.getState().members;
+          const memberInStore = allMembers.find((x) => x.user_id === targetUserId) || m;
+          const targetLat = memberInStore?.latitude ?? m?.latitude;
+          const targetLng = memberInStore?.longitude ?? m?.longitude;
+          const targetName = memberInStore?.profile?.full_name || m?.profile?.full_name || 'Member';
+
+          navigation.navigate('Map', {
+            focusUserId: targetUserId,
+            focusLat: targetLat,
+            focusLng: targetLng,
+            focusUserName: targetName,
+            targetMember: memberInStore,
+            timestamp: Date.now(),
+          });
         }}
         onNavigateToChat={(_m) => {
           setShortProfileMember(null);
@@ -910,8 +924,23 @@ export default function BillionDollarCircleView() {
         circleId={activeCircle?.id}
         isSelf={selectedActionsMember?.user_id === profile?.id}
         canManageRanks={canManageRanks}
-        onNavigateMember={(_m) => {
-          navigation.navigate('Map');
+        onNavigateMember={(m) => {
+          setSelectedActionsMember(null);
+          const targetUserId = m?.user_id || m?.id;
+          const allMembers = useCircleStore.getState().members;
+          const memberInStore = allMembers.find((x) => x.user_id === targetUserId) || m;
+          const targetLat = memberInStore?.latitude ?? m?.latitude;
+          const targetLng = memberInStore?.longitude ?? m?.longitude;
+          const targetName = memberInStore?.profile?.full_name || m?.profile?.full_name || 'Member';
+
+          navigation.navigate('Map', {
+            focusUserId: targetUserId,
+            focusLat: targetLat,
+            focusLng: targetLng,
+            focusUserName: targetName,
+            targetMember: memberInStore,
+            timestamp: Date.now(),
+          });
         }}
         onRingMember={(m) => {
           if (m.user_id === profile?.id) {

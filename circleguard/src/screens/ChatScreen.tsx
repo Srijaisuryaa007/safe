@@ -12,11 +12,11 @@ import {
   ActivityIndicator,
   Image,
   Alert,
-  ViewToken,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getSafeTopInset } from '../utils/safeArea';
 import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
@@ -52,12 +52,24 @@ export interface ChatMessage {
 
 export default function ChatScreen() {
   const navigation = useNavigation();
-  const { colors, themeMode } = useThemeStore();
+  const route = useRoute<any>();
+  const { colors, themeMode, isDark } = useThemeStore();
   const { profile } = useAuthStore();
   const { activeCircle, members } = useCircleStore();
 
   const insets = useSafeAreaInsets();
-  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 36) : 44);
+  const topInset = getSafeTopInset(insets.top);
+
+  const initialFilterId = route.params?.filterMemberId || route.params?.memberId;
+  const targetMemberName = route.params?.memberName;
+  const [activeFilterMemberId, setActiveFilterMemberId] = useState<string | null>(initialFilterId || null);
+
+  useEffect(() => {
+    const fId = route.params?.filterMemberId || route.params?.memberId;
+    if (fId) {
+      setActiveFilterMemberId(fId);
+    }
+  }, [route.params?.filterMemberId, route.params?.memberId]);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -116,6 +128,13 @@ export default function ChatScreen() {
       }
     };
   }, [activeCircle?.id]);
+
+  const displayedMessages = React.useMemo(() => {
+    if (!activeFilterMemberId) return messages;
+    return messages.filter(
+      (m) => m.sender_id === activeFilterMemberId || m.sender_id === profile?.id
+    );
+  }, [messages, activeFilterMemberId, profile?.id]);
 
   const isPermissionOrSystemMsg = (content?: string) => {
     if (!content) return false;
@@ -329,7 +348,7 @@ export default function ChatScreen() {
     minimumViewTime: 1500,
   }).current;
 
-  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<ViewToken> }) => {
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<any> }) => {
     if (!profile?.id) return;
 
     viewableItems.forEach((item) => {
@@ -830,6 +849,26 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Active Member Filter Banner */}
+      {activeFilterMemberId && (
+        <View style={[styles.filterBanner, { backgroundColor: isDark ? '#16231D' : '#EAF5EE', borderBottomColor: isDark ? '#23372B' : '#C7E8D6' }]}>
+          <View style={styles.filterBannerLeft}>
+            <View style={[styles.filterBannerDot, { backgroundColor: '#10B981' }]} />
+            <Text style={[styles.filterBannerText, { color: isDark ? '#E2FBEF' : '#065F46' }]} numberOfLines={1}>
+              Filtered: {targetMemberName || 'Member'}'s Messages
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.filterBannerClearBtn, { backgroundColor: isDark ? '#2E7D5B' : '#047857' }]}
+            onPress={() => setActiveFilterMemberId(null)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.filterBannerClearText}>Show All</Text>
+            <Ionicons name="close" size={13} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Quick Action Safety Pills */}
       <View style={[styles.pillsBar, { borderBottomColor: colors.border }]}>
         <FlatList
@@ -884,18 +923,31 @@ export default function ChatScreen() {
         <View style={styles.centerContainer}>
           <LuxuryRadarLoading size={140} message="CONNECTING ENCRYPTED CHANNEL…" />
         </View>
-      ) : messages.length === 0 ? (
+      ) : displayedMessages.length === 0 ? (
         <View style={styles.centerContainer}>
           <Ionicons name="chatbubbles-outline" size={48} color={colors.textMuted} style={{ marginBottom: 12 }} />
-          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>NO MESSAGES YET</Text>
-          <Text style={[styles.emptySub, { color: colors.textMuted }]}>
-            Start a secure conversation with your circle. Chat messages automatically purge between 1 to 2 days maximum.
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
+            {activeFilterMemberId ? `NO MESSAGES FROM ${targetMemberName ? targetMemberName.toUpperCase() : 'MEMBER'}` : 'NO MESSAGES YET'}
           </Text>
+          <Text style={[styles.emptySub, { color: colors.textMuted }]}>
+            {activeFilterMemberId
+              ? `No messages exchanged with this member yet. Tap below or type a message to start.`
+              : 'Start a secure conversation with your circle. Chat messages automatically purge between 1 to 2 days maximum.'}
+          </Text>
+          {activeFilterMemberId && (
+            <TouchableOpacity
+              style={{ marginTop: 16, backgroundColor: '#2E7D5B', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 }}
+              onPress={() => setActiveFilterMemberId(null)}
+              activeOpacity={0.8}
+            >
+              <Text style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 }}>SHOW ALL CIRCLE MESSAGES</Text>
+            </TouchableOpacity>
+          )}
         </View>
       ) : (
         <FlatList
           ref={flatListRef}
-          data={messages}
+          data={displayedMessages}
           keyExtractor={(item) => item.id}
           renderItem={renderMessageItem}
           viewabilityConfig={viewabilityConfig}
@@ -1181,5 +1233,43 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  filterBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+  },
+  filterBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    flex: 1,
+    marginRight: 10,
+  },
+  filterBannerDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  filterBannerText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  filterBannerClearBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  filterBannerClearText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

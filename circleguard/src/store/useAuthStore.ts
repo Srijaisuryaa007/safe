@@ -24,11 +24,13 @@ interface AuthState {
   profile: Profile | null;
   isLoading: boolean;
   isProfileFetching: boolean;
+  isPasswordRecovery: boolean;
   initAuth: () => Promise<{ cachedSession: Session | null; cachedProfile: Profile | null }>;
   setSession: (session: Session | null) => void;
   setProfile: (profile: Profile | null) => void;
   setLoading: (isLoading: boolean) => void;
   setProfileFetching: (isProfileFetching: boolean) => void;
+  setPasswordRecovery: (isPasswordRecovery: boolean) => void;
   resetAuthStore: () => void;
 }
 
@@ -38,6 +40,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   profile: null,
   isLoading: true,
   isProfileFetching: false,
+  isPasswordRecovery: false,
 
   initAuth: async () => {
     try {
@@ -107,9 +110,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setLoading: (isLoading) => set({ isLoading }),
   setProfileFetching: (isProfileFetching) => set({ isProfileFetching }),
+  setPasswordRecovery: (isPasswordRecovery) => set({ isPasswordRecovery }),
 
   resetAuthStore: () => {
-    set({ session: null, user: null, profile: null, isLoading: false, isProfileFetching: false });
+    set({ session: null, user: null, profile: null, isLoading: false, isProfileFetching: false, isPasswordRecovery: false });
     AsyncStorage.multiRemove([AUTH_SESSION_STORAGE_KEY, CACHED_PROFILE_STORAGE_KEY]).catch(() => {});
   },
 }));

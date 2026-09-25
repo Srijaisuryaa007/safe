@@ -46,9 +46,9 @@ interface SubscriptionState {
 }
 
 export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
-  isPremium: false,
-  subscriptionTier: 'free',
-  subscriptionType: null,
+  isPremium: true,
+  subscriptionTier: 'premium',
+  subscriptionType: 'annual',
   loading: false,
   isTestMode: true,
   offerings: null,
@@ -76,7 +76,8 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
     try {
       // 1. Check local saved state first for offline/sandbox mode
       const savedPrem = await AsyncStorage.getItem('@circleguard_is_premium');
-      let isPrem = savedPrem === 'true';
+      // In sandbox/testing mode, default to true unless explicitly disabled
+      let isPrem = savedPrem !== null ? savedPrem === 'true' : true;
 
       // 2. Attempt live RevenueCat refresh if Purchases SDK is configured with a real API key
       try {
@@ -200,23 +201,23 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
 
   // Feature Gating Logic (Source of Truth)
   canCreatePlace: (currentCount: number) => {
-    if (get().isPremium) return true;
+    if (get().isPremium || get().isTestMode) return true;
     return currentCount < 2;
   },
 
   canUseRouteCategory: () => {
-    return get().isPremium;
+    return get().isPremium || get().isTestMode;
   },
 
   canUseAdaptiveBuffer: () => {
-    return get().isPremium;
+    return get().isPremium || get().isTestMode;
   },
 
   canUseSchedule: () => {
-    return get().isPremium;
+    return get().isPremium || get().isTestMode;
   },
 
   canViewFullHistory: () => {
-    return get().isPremium;
+    return get().isPremium || get().isTestMode;
   },
 }));

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,11 +9,14 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  PanResponder,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useCircleStore, Circle } from '../store/useCircleStore';
 import { useAuthStore } from '../store/useAuthStore';
+import { useThemeStore } from '../store/useThemeStore';
 
 interface CircleSwitcherModalProps {
   visible: boolean;
@@ -23,7 +26,64 @@ interface CircleSwitcherModalProps {
 export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcherModalProps) {
   const navigation = useNavigation<any>();
   const { profile } = useAuthStore();
+  const { isDark } = useThemeStore();
   const { activeCircle, circles, switchActiveCircle, fetchUserCircles, deleteCircle, leaveCircle, isLoading } = useCircleStore();
+  const translateY = useRef(new Animated.Value(0)).current;
+  const isClosingRef = useRef(false);
+
+  useEffect(() => {
+    if (visible) {
+      isClosingRef.current = false;
+      translateY.setValue(0);
+    }
+  }, [visible, translateY]);
+
+  const handleDismiss = useCallback(() => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    Animated.timing(translateY, {
+      toValue: 650,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(() => {
+      onClose();
+    });
+  }, [onClose, translateY]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 2,
+      onMoveShouldSetPanResponderCapture: (_, gestureState) => Math.abs(gestureState.dy) > 2,
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dy > 0) {
+          translateY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const isTap = Math.abs(gestureState.dy) < 8 && Math.abs(gestureState.dx) < 8;
+        const isDragDown = gestureState.dy > 35 || gestureState.vy > 0.2;
+
+        if (isTap || isDragDown) {
+          handleDismiss();
+        } else {
+          Animated.spring(translateY, {
+            toValue: 0,
+            bounciness: 4,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(translateY, {
+          toValue: 0,
+          bounciness: 4,
+          useNativeDriver: true,
+        }).start();
+      },
+    })
+  ).current;
 
   useEffect(() => {
     if (visible && profile?.id) {
@@ -74,39 +134,45 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType="fade"
       transparent
       statusBarTranslucent
-      onRequestClose={onClose}
+      onRequestClose={handleDismiss}
     >
       <View style={styles.overlay}>
-        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
+        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={handleDismiss} />
 
-        <View style={styles.sheetCard}>
-          {/* Top Sheet Drag Handle */}
-          <View style={styles.dragHandle} />
+        <Animated.View
+          style={[
+            styles.sheetCard,
+            isDark && styles.sheetCardDark,
+            { transform: [{ translateY }] },
+          ]}
+        >
+          {/* Top Sheet Drag Handle: Both Tap to Close and Drag Down to Dismiss */}
+          <View
+            {...panResponder.panHandlers}
+            style={styles.dragHandleBox}
+            accessible={true}
+            accessibilityLabel="Drag down or tap to close"
+            accessibilityRole="button"
+          >
+            <View style={[styles.dragHandle, isDark && styles.dragHandleDark]} />
+          </View>
 
           {/* Header Row */}
           <View style={styles.headerRow}>
             <View style={styles.headerLeft}>
-              <View style={styles.shieldBadge}>
-                <Ionicons name="shield-checkmark" size={20} color="#2E7D5B" />
+              <View style={[styles.shieldBadge, isDark && styles.shieldBadgeDark]}>
+                <Ionicons name="shield-checkmark" size={20} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
               </View>
               <View>
-                <Text style={styles.headerTitle}>Your Safety Circles</Text>
-                <Text style={styles.headerSubtitle}>
+                <Text style={[styles.headerTitle, isDark && styles.textLight]}>Your Safety Circles</Text>
+                <Text style={[styles.headerSubtitle, isDark && styles.textSubDark]}>
                   Switch active circle or join another
                 </Text>
               </View>
             </View>
-            <TouchableOpacity
-              style={styles.closeBtn}
-              onPress={onClose}
-              activeOpacity={0.7}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons name="close" size={22} color="#64748B" />
-            </TouchableOpacity>
           </View>
 
           {/* Circles List */}
@@ -125,7 +191,8 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
                     key={c.id}
                     style={[
                       styles.circleItem,
-                      isActive && styles.circleItemActive,
+                      isDark && styles.circleItemDark,
+                      isActive && (isDark ? styles.circleItemActiveDark : styles.circleItemActive),
                     ]}
                     onPress={() => handleSelectCircle(c)}
                     activeOpacity={0.75}
@@ -133,12 +200,14 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
                     <View
                       style={[
                         styles.circleAvatar,
+                        isDark && styles.circleAvatarDark,
                         isActive && styles.circleAvatarActive,
                       ]}
                     >
                       <Text
                         style={[
                           styles.circleAvatarText,
+                          isDark && styles.textLight,
                           isActive && styles.circleAvatarTextActive,
                         ]}
                       >
@@ -150,7 +219,8 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
                       <Text
                         style={[
                           styles.circleName,
-                          isActive && styles.circleNameActive,
+                          isDark && styles.textLight,
+                          isActive && (isDark ? { color: '#3ADFAB' } : styles.circleNameActive),
                         ]}
                         numberOfLines={1}
                       >
@@ -158,8 +228,8 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
                       </Text>
                       <View style={styles.metaRow}>
                         {c.invite_code ? (
-                          <Text style={styles.codeText}>
-                            Code: <Text style={styles.codeBold}>{c.invite_code}</Text>
+                          <Text style={[styles.codeText, isDark && styles.textSubDark]}>
+                            Code: <Text style={[styles.codeBold, isDark && styles.textLight]}>{c.invite_code}</Text>
                           </Text>
                         ) : null}
                       </View>
@@ -174,7 +244,7 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
                       )}
 
                       <TouchableOpacity
-                        style={styles.circleDeleteBtn}
+                        style={[styles.circleDeleteBtn, isDark && { backgroundColor: '#331B1B' }]}
                         onPress={(e: any) => {
                           e?.stopPropagation?.();
                           handleDeleteCircle(c);
@@ -193,13 +263,13 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
               })
             ) : isLoading ? (
               <View style={styles.emptyContainer}>
-                <ActivityIndicator size="small" color="#2E7D5B" />
-                <Text style={styles.emptyText}>Loading your circles...</Text>
+                <ActivityIndicator size="small" color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                <Text style={[styles.emptyText, isDark && styles.textSubDark]}>Loading your circles...</Text>
               </View>
             ) : (
               <View style={styles.emptyContainer}>
-                <Ionicons name="people-outline" size={36} color="#94A3B8" />
-                <Text style={styles.emptyText}>No circles joined yet.</Text>
+                <Ionicons name="people-outline" size={36} color={isDark ? '#5C665F' : '#94A3B8'} />
+                <Text style={[styles.emptyText, isDark && styles.textSubDark]}>No circles joined yet.</Text>
               </View>
             )}
           </ScrollView>
@@ -216,15 +286,17 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.secondaryActionBtn}
+              style={[styles.secondaryActionBtn, isDark && styles.secondaryActionBtnDark]}
               onPress={handleJoinCircle}
               activeOpacity={0.85}
             >
-              <Ionicons name="enter-outline" size={18} color="#2E7D5B" />
-              <Text style={styles.secondaryActionText}>Join With Code / QR</Text>
+              <Ionicons name="enter-outline" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Text style={[styles.secondaryActionText, isDark && styles.secondaryActionTextDark]}>
+                Join With Code / QR
+              </Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -257,13 +329,19 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 20,
   },
+  dragHandleBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    width: '100%',
+  },
   dragHandle: {
-    width: 42,
-    height: 4.5,
-    borderRadius: 3,
+    width: 44,
+    height: 5,
+    borderRadius: 999,
     backgroundColor: '#E2E8F0',
     alignSelf: 'center',
-    marginBottom: 16,
   },
   headerRow: {
     flexDirection: 'row',
@@ -450,5 +528,48 @@ const styles = StyleSheet.create({
     color: '#2E7D5B',
     fontSize: 14,
     fontWeight: '600',
+  },
+  // Dark Theme Tokens
+  sheetCardDark: {
+    backgroundColor: '#141A17',
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#283730',
+  },
+  dragHandleDark: {
+    backgroundColor: '#26342D',
+  },
+  shieldBadgeDark: {
+    backgroundColor: '#1C2621',
+  },
+  textLight: {
+    color: '#FFFFFF',
+  },
+  textSubDark: {
+    color: '#CAD5CE',
+  },
+  closeBtnDark: {
+    backgroundColor: '#1C2621',
+  },
+  circleItemDark: {
+    backgroundColor: '#1A231F',
+    borderColor: '#283730',
+  },
+  circleItemActiveDark: {
+    backgroundColor: '#23352B',
+    borderColor: '#3ADFAB',
+  },
+  circleAvatarDark: {
+    backgroundColor: '#26342D',
+  },
+  secondaryActionBtnDark: {
+    backgroundColor: '#26342D',
+    borderWidth: 1,
+    borderColor: '#33463C',
+  },
+  secondaryActionTextDark: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
 });

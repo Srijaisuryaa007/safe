@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getSafeTopInset } from '../utils/safeArea';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
@@ -11,6 +13,8 @@ import { ValidationSchema } from '../lib/validationSchema';
 import { handleServiceError } from '../lib/errorHandler';
 
 export default function CreateCircleScreen() {
+  const insets = useSafeAreaInsets();
+  const topInset = getSafeTopInset(insets.top);
   const { colors } = useThemeStore();
   const [name, setName] = useState('');
   const [trackingMode, setTrackingMode] = useState<'continuous' | 'privacy'>('continuous');
@@ -85,7 +89,7 @@ export default function CreateCircleScreen() {
   };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={[styles.content, { paddingTop: topInset + 14 }]}>
       <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
         <Ionicons name="arrow-back" size={24} color={colors.foreground} />
       </TouchableOpacity>

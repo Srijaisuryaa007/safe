@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,37 +10,62 @@ import {
   Platform,
   RefreshControl,
   StatusBar,
+  Linking,
+  Modal,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
-import { supabase } from '../lib/supabase';
-import { sendInstantLocationPing } from '../services/LocationBackgroundService';
-import { sendExpoPushNotification } from '../services/PushNotificationService';
+import { useThemeStore } from '../store/useThemeStore';
+import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
+import JellyRadio from './JellyRadio';
+import {
+  ActivityEvent,
+  fetchCircleActivities,
+  broadcastCheckIn,
+  broadcastCheckInRequest,
+} from '../services/ActivityService';
+import { getSafeTopInset } from '../utils/safeArea';
+import { navigationRef } from '../navigation/AppNavigator';
+
+interface TimelineViewProps {
+  onRefreshActivities?: () => void;
+}
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-interface ActivityEvent {
-  id: string;
-  type: 'GEOFENCE' | 'SOS' | 'MESSAGE' | 'CHECKIN';
-  title: string;
-  message: string;
-  time: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  color: string;
-  memberName: string;
-  avatarUrl?: string | null;
-  timestamp: number;
-}
-
-export default function BillionDollarTimelineView() {
+export default function BillionDollarTimelineView({ onRefreshActivities }: TimelineViewProps) {
   const insets = useSafeAreaInsets();
-  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 38) : 24);
+  const topInset = getSafeTopInset(insets.top);
   const navigation = useNavigation<any>();
+
+  const navigateToScreen = React.useCallback((screenName: string, params?: any) => {
+    try {
+      if (navigationRef.isReady()) {
+        (navigationRef as any).navigate(screenName, params);
+        return;
+      }
+    } catch (_) {}
+    try {
+      const parent = navigation.getParent?.();
+      if (parent && typeof parent.navigate === 'function') {
+        parent.navigate(screenName, params);
+        return;
+      }
+    } catch (_) {}
+    try {
+      navigation.navigate(screenName, params);
+    } catch (e) {
+      console.warn('[TimelineView] nav error:', e);
+    }
+  }, [navigation]);
   const { profile } = useAuthStore();
-  const { activeCircle, members } = useCircleStore();
+  const { activeCircle, members, places } = useCircleStore();
+  const { isDark } = useThemeStore();
 
   const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'week'>('today');
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'checkins' | 'arrivals' | 'alerts'>('all');
@@ -56,6 +81,48 @@ export default function BillionDollarTimelineView() {
     }, 2500);
   };
 
+  const [selectedEvent, setSelectedEvent] = useState<ActivityEvent | null>(null);
+
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (selectedEvent) {
+      translateY.setValue(0);
+    }
+  }, [selectedEvent]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 4,
+        onPanResponderMove: (_, gestureState) => {
+          if (gestureState.dy > 0) {
+            translateY.setValue(gestureState.dy);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > 80 || gestureState.vy > 0.5) {
+            Animated.timing(translateY, {
+              toValue: 600,
+              duration: 180,
+              useNativeDriver: true,
+            }).start(() => {
+              setSelectedEvent(null);
+              translateY.setValue(0);
+            });
+          } else {
+            Animated.spring(translateY, {
+              toValue: 0,
+              bounciness: 4,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+      }),
+    [setSelectedEvent, translateY]
+  );
+
   const fetchTimelineEvents = async () => {
     if (!activeCircle?.id) {
       setActivities([]);
@@ -63,99 +130,16 @@ export default function BillionDollarTimelineView() {
     }
 
     try {
-      const cutoffTime = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const memberUserIds = (members || []).map((m) => m.user_id);
-
-      let placeEventsQuery = supabase
-        .from('place_events')
-        .select('id, occurred_at, event_type, place_id, user_id, places(name), profiles(full_name, avatar_url)')
-        .gte('occurred_at', cutoffTime)
-        .order('occurred_at', { ascending: false })
-        .limit(20);
-
-      if (memberUserIds.length > 0) {
-        placeEventsQuery = placeEventsQuery.in('user_id', memberUserIds);
+      // Automatically evaluate all circle members against safe places in real-time
+      if (members.length > 0 && places.length > 0) {
+        try {
+          const { evaluateCircleMembersGeofences } = require('../services/GeofenceEngine');
+          await evaluateCircleMembersGeofences(members, places);
+        } catch (e) {}
       }
 
-      const [sosRes, msgRes, placeEventsRes] = await Promise.all([
-        supabase
-          .from('sos_alerts')
-          .select('id, created_at, status, user_id, profiles(full_name, avatar_url)')
-          .eq('circle_id', activeCircle.id)
-          .gte('created_at', cutoffTime)
-          .order('created_at', { ascending: false })
-          .limit(10),
-        supabase
-          .from('circle_messages')
-          .select('id, created_at, content, sender_id, profiles:sender_id(full_name, avatar_url)')
-          .eq('circle_id', activeCircle.id)
-          .gte('created_at', cutoffTime)
-          .order('created_at', { ascending: false })
-          .limit(10),
-        placeEventsQuery,
-      ]);
-
-      const sosEvents: ActivityEvent[] = (sosRes.data || []).map((item: any) => {
-        const prof = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
-        const name = prof?.full_name || 'A circle member';
-        return {
-          id: item.id,
-          type: 'SOS',
-          title: `${name} triggered Emergency SOS!`,
-          message: `Priority emergency distress signal dispatched. Status: ${item.status}`,
-          time: new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          icon: 'warning',
-          color: '#AE041B',
-          memberName: name,
-          avatarUrl: prof?.avatar_url,
-          timestamp: new Date(item.created_at).getTime(),
-        };
-      });
-
-      const msgEvents: ActivityEvent[] = (msgRes.data || []).map((item: any) => {
-        const prof = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
-        const name = prof?.full_name || 'A circle member';
-        return {
-          id: item.id,
-          type: 'MESSAGE',
-          title: `${name} checked in`,
-          message: item.content || 'Safe check-in broadcasted to circle.',
-          time: new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          icon: 'chatbubble-ellipses',
-          color: '#006C4F',
-          memberName: name,
-          avatarUrl: prof?.avatar_url,
-          timestamp: new Date(item.created_at).getTime(),
-        };
-      });
-
-      const geofenceEvents: ActivityEvent[] = (placeEventsRes.data || []).map((item: any) => {
-        const prof = Array.isArray(item.profiles) ? item.profiles[0] : item.profiles;
-        const name = prof?.full_name || 'Member';
-        const place = Array.isArray(item.places) ? item.places[0] : item.places;
-        const placeName = place?.name || 'Safe Zone';
-        const isArrival = item.event_type === 'arrival';
-
-        return {
-          id: item.id,
-          type: 'GEOFENCE',
-          title: isArrival ? `${name} arrived at ${placeName}` : `${name} departed ${placeName}`,
-          message: isArrival
-            ? `All-clear automated notice: entered boundary safely.`
-            : `Notice: departed recognized sanctuary.`,
-          time: new Date(item.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          icon: isArrival ? 'location' : 'walk-outline',
-          color: isArrival ? '#006C4F' : '#183CE6',
-          memberName: name,
-          avatarUrl: prof?.avatar_url,
-          timestamp: new Date(item.occurred_at).getTime(),
-        };
-      });
-
-      const combined = [...sosEvents, ...msgEvents, ...geofenceEvents].sort(
-        (a, b) => b.timestamp - a.timestamp
-      );
-      setActivities(combined);
+      const list = await fetchCircleActivities(activeCircle.id, members, places);
+      setActivities(list);
     } catch (e) {
       console.warn('Error fetching timeline events:', e);
     }
@@ -163,7 +147,7 @@ export default function BillionDollarTimelineView() {
 
   useEffect(() => {
     fetchTimelineEvents();
-  }, [activeCircle?.id]);
+  }, [activeCircle?.id, members.length]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -174,28 +158,22 @@ export default function BillionDollarTimelineView() {
   const handleQuickSafeHome = async () => {
     setSafeHomeCheckedIn(true);
     try {
-      await sendInstantLocationPing();
-      if (activeCircle?.id && profile?.id) {
-        await supabase.from('circle_messages').insert({
-          circle_id: activeCircle.id,
-          sender_id: profile.id,
-          content: `${profile?.full_name || 'I'} checked in safely as "Safe & Sound".`,
-          message_type: 'CHECKIN',
-        });
-        const otherMemberIds = members
-          .filter((m) => m.user_id !== profile?.id)
-          .map((m) => m.user_id);
-        if (otherMemberIds.length > 0) {
-          sendExpoPushNotification(
-            otherMemberIds,
-            '✅ Safety Check-In',
-            `${profile?.full_name || 'A circle member'} checked in: Safe & Sound!`,
-            { type: 'CHECKIN' }
-          ).catch(() => {});
-        }
-      }
+      const otherMemberIds = members
+        .filter((m) => m.user_id !== profile?.id)
+        .map((m) => m.user_id);
+
+      const res = await broadcastCheckIn({
+        circleId: activeCircle?.id || '',
+        circleName: activeCircle?.name,
+        userId: profile?.id || '',
+        userName: profile?.full_name || 'Member',
+        userAvatar: profile?.avatar_url,
+        otherMemberIds,
+        customMessage: `${profile?.full_name || 'I'} checked in safely as "Safe & Sound".`,
+      });
+
+      setActivities((prev) => [res.event, ...prev.filter((e) => e.id !== res.event.id)]);
       showToast(`Shared safe status with ${circleName}!`);
-      await fetchTimelineEvents();
     } catch (e) {
       showToast(`Check-in broadcasted to ${circleName}`);
     }
@@ -216,23 +194,17 @@ export default function BillionDollarTimelineView() {
 
     showToast(`Requesting check-in from ${otherMemberIds.length} members...`);
     try {
-      if (activeCircle?.id && profile?.id) {
-        await supabase.from('circle_messages').insert({
-          circle_id: activeCircle.id,
-          sender_id: profile.id,
-          content: `${profile?.full_name || 'A circle member'} requested an instant safety check-in.`,
-          message_type: 'CHECKIN_REQUEST',
-        });
-      }
-
-      await sendExpoPushNotification(
+      const res = await broadcastCheckInRequest({
+        circleId: activeCircle?.id || '',
+        circleName: activeCircle?.name,
+        userId: profile?.id || '',
+        userName: profile?.full_name || 'Member',
+        userAvatar: profile?.avatar_url,
         otherMemberIds,
-        '📍 Safety Check-In Request',
-        `${profile?.full_name || 'A family member'} requested an instant safety check-in from everyone in ${circleName}!`,
-        { type: 'CHECKIN_REQUEST' }
-      );
+      });
+
+      setActivities((prev) => [res.event, ...prev.filter((e) => e.id !== res.event.id)]);
       showToast(`Check-in request sent to ${otherMemberIds.length} members!`);
-      await fetchTimelineEvents();
     } catch (e) {
       showToast('Check-in request dispatched to circle!');
     }
@@ -265,28 +237,36 @@ export default function BillionDollarTimelineView() {
   }, [activities, dateFilter, categoryFilter]);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isDark && styles.containerDark]}>
       {/* Header Bar */}
-      <View style={[styles.header, { paddingTop: topInset, height: 56 + topInset }]}>
+      <View
+        style={[
+          styles.header,
+          { paddingTop: topInset, height: 56 + topInset },
+          isDark && styles.headerDark,
+        ]}
+      >
         <View style={styles.headerLeft}>
-          <View style={styles.logoBadge}>
-            <Ionicons name="shield-checkmark" size={19} color="#2E7D5B" />
-          </View>
+          <OrbitalGoldenLogoBadge
+            size={34}
+            onPress={() => navigation.navigate('Home')}
+            accessibilityLabel="CircleGuard Logo"
+          />
           <TouchableOpacity
-            style={styles.circleSelectorBtn}
+            style={[styles.circleSelectorBtn, isDark && styles.circleSelectorBtnDark]}
             onPress={() => navigation.navigate('Circle')}
             activeOpacity={0.7}
           >
-            <Text style={styles.circleSelectorText} numberOfLines={1}>
+            <Text style={[styles.circleSelectorText, isDark && styles.textLight]} numberOfLines={1}>
               {circleName}
             </Text>
-            <Ionicons name="chevron-down" size={15} color="#5C665F" />
+            <Ionicons name="chevron-down" size={15} color={isDark ? '#8C9B91' : '#5C665F'} />
           </TouchableOpacity>
         </View>
 
         <View style={styles.headerRight}>
           <TouchableOpacity
-            style={styles.headerIconButton}
+            style={[styles.headerIconButton, isDark && styles.headerIconButtonDark]}
             onPress={() => navigation.navigate('Chat')}
             activeOpacity={0.7}
           >
@@ -294,11 +274,11 @@ export default function BillionDollarTimelineView() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.headerIconButton}
+            style={[styles.headerIconButton, isDark && styles.headerIconButtonDark]}
             onPress={onRefresh}
             activeOpacity={0.7}
           >
-            <Ionicons name="refresh-outline" size={19} color="#5C665F" />
+            <Ionicons name="refresh-outline" size={19} color={isDark ? '#8C9B91' : '#5C665F'} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -331,10 +311,10 @@ export default function BillionDollarTimelineView() {
         <View style={styles.titleSection}>
           <View>
             <Text style={styles.taglineText}>Circle Activity</Text>
-            <Text style={styles.pageTitle}>Timeline & Logs</Text>
+            <Text style={[styles.pageTitle, isDark && styles.textLight]}>Timeline & Logs</Text>
           </View>
           <TouchableOpacity
-            style={styles.calendarFilterBtn}
+            style={[styles.calendarFilterBtn, isDark && styles.calendarFilterBtnDark]}
             onPress={onRefresh}
             activeOpacity={0.8}
           >
@@ -343,118 +323,106 @@ export default function BillionDollarTimelineView() {
           </TouchableOpacity>
         </View>
 
-        {/* Date Segmented Chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.dateChipsScroll}
-        >
-          <TouchableOpacity
-            style={[styles.dateChip, dateFilter === 'today' && styles.dateChipActive]}
-            onPress={() => setDateFilter('today')}
-            activeOpacity={0.8}
-          >
-            <Text
-              style={[styles.dateChipText, dateFilter === 'today' && styles.dateChipTextActive]}
-            >
-              Today
-            </Text>
-          </TouchableOpacity>
+        {/* Date Segmented JellyRadio */}
+        <View style={{ marginBottom: 10 }}>
+          <JellyRadio
+            items={[
+              { value: 'today', label: 'Today' },
+              { value: 'yesterday', label: 'Yesterday' },
+              { value: 'week', label: 'Past 7 Days' },
+            ]}
+            value={dateFilter}
+            onChange={(val) => setDateFilter(val as any)}
+            chipColor={isDark ? '#1C2621' : '#F0EFEA'}
+            activeColor="#2E7D5B"
+            textColor={isDark ? '#8E9E95' : '#64748B'}
+            activeTextColor="#FFFFFF"
+            size="sm"
+            gap={6}
+            radius={16}
+            swell={0.12}
+            bounce={0.2}
+          />
+        </View>
 
-          <TouchableOpacity
-            style={[styles.dateChip, dateFilter === 'yesterday' && styles.dateChipActive]}
-            onPress={() => setDateFilter('yesterday')}
-            activeOpacity={0.8}
-          >
-            <Text
-              style={[styles.dateChipText, dateFilter === 'yesterday' && styles.dateChipTextActive]}
-            >
-              Yesterday
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.dateChip, dateFilter === 'week' && styles.dateChipActive]}
-            onPress={() => setDateFilter('week')}
-            activeOpacity={0.8}
-          >
-            <Text
-              style={[styles.dateChipText, dateFilter === 'week' && styles.dateChipTextActive]}
-            >
-              Past 7 Days
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
-
-        {/* Filter Categories */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.categoryChipsScroll}
-        >
-          <TouchableOpacity
-            style={[styles.catChip, categoryFilter === 'all' && styles.catChipActive]}
-            onPress={() => setCategoryFilter('all')}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.catChipText, categoryFilter === 'all' && styles.catChipTextActive]}>
-              All Events
-            </Text>
-            <View style={styles.catCountBadge}>
-              <Text style={styles.catCountText}>{activities.length}</Text>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.catChip, categoryFilter === 'checkins' && styles.catChipActive]}
-            onPress={() => setCategoryFilter('checkins')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="checkmark-circle" size={14} color="#006C4F" />
-            <Text style={[styles.catChipText, categoryFilter === 'checkins' && styles.catChipTextActive]}>
-              Check-ins
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.catChip, categoryFilter === 'arrivals' && styles.catChipActive]}
-            onPress={() => setCategoryFilter('arrivals')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="walk-outline" size={14} color="#183CE6" />
-            <Text style={[styles.catChipText, categoryFilter === 'arrivals' && styles.catChipTextActive]}>
-              Arrivals / Departures
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.catChip, categoryFilter === 'alerts' && styles.catChipActive]}
-            onPress={() => setCategoryFilter('alerts')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="warning-outline" size={14} color="#AE041B" />
-            <Text style={[styles.catChipText, categoryFilter === 'alerts' && styles.catChipTextActive]}>
-              Alerts
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
+        {/* Category Segmented JellyRadio */}
+        <View style={{ marginBottom: 16 }}>
+          <JellyRadio
+            items={[
+              {
+                value: 'all',
+                label: `All Events (${activities.length})`,
+              },
+              {
+                value: 'checkins',
+                label: 'Check-ins',
+                icon: (
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={14}
+                    color={categoryFilter === 'checkins' ? (isDark ? '#002116' : '#FFFFFF') : (isDark ? '#3ADFAB' : '#2E7D5B')}
+                  />
+                ),
+              },
+              {
+                value: 'arrivals',
+                label: 'Arrivals / Departures',
+                icon: (
+                  <Ionicons
+                    name="walk-outline"
+                    size={14}
+                    color={categoryFilter === 'arrivals' ? (isDark ? '#002116' : '#FFFFFF') : (isDark ? '#60A5FA' : '#183CE6')}
+                  />
+                ),
+              },
+              {
+                value: 'alerts',
+                label: 'Alerts',
+                icon: (
+                  <Ionicons
+                    name="warning-outline"
+                    size={14}
+                    color={categoryFilter === 'alerts' ? (isDark ? '#002116' : '#FFFFFF') : '#DC2626'}
+                  />
+                ),
+              },
+            ]}
+            value={categoryFilter}
+            onChange={(val) => setCategoryFilter(val as any)}
+            chipColor={isDark ? '#141E18' : '#FFFFFF'}
+            activeColor={isDark ? '#3ADFAB' : '#2E7D5B'}
+            textColor={isDark ? '#CAD5CE' : '#4A5568'}
+            activeTextColor={isDark ? '#002116' : '#FFFFFF'}
+            size="md"
+            gap={8}
+            radius={18}
+            swell={0.16}
+            barge={4}
+            bounce={0.25}
+          />
+        </View>
 
         {/* Quick Check-in Reassurance Banner */}
-        <View style={styles.reassuranceBanner}>
+        <View style={[styles.reassuranceBanner, isDark && styles.reassuranceBannerDark]}>
           <View style={styles.reassuranceTop}>
-            <View style={styles.reassuranceIconBox}>
-              <Ionicons name="home" size={22} color="#006C4F" />
+            <View style={[styles.reassuranceIconBox, isDark && { backgroundColor: '#23352B' }]}>
+              <Ionicons name="home" size={22} color={isDark ? '#3ADFAB' : '#006C4F'} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.reassuranceTitle}>Instant Circle Check-in</Text>
-              <Text style={styles.reassuranceSub}>Broadcast your current safe location to all members</Text>
+              <Text style={[styles.reassuranceTitle, isDark && styles.textLight]}>
+                Instant Circle Check-in
+              </Text>
+              <Text style={[styles.reassuranceSub, isDark && styles.textSubDark]}>
+                Broadcast your current safe location to all members
+              </Text>
             </View>
           </View>
 
           <TouchableOpacity
             style={[
               styles.broadcastSafeBtn,
-              safeHomeCheckedIn && { backgroundColor: '#3ADFAB' },
+              isDark && { backgroundColor: '#2E7D5B', borderWidth: 1, borderColor: '#3ADFAB' },
+              safeHomeCheckedIn && { backgroundColor: '#3ADFAB', borderColor: '#3ADFAB' },
             ]}
             onPress={handleQuickSafeHome}
             activeOpacity={0.85}
@@ -477,25 +445,19 @@ export default function BillionDollarTimelineView() {
 
         {/* Chronological Feed Stream with Vertical Connecting Line */}
         <View style={styles.feedContainer}>
-          {filteredActivities.length > 0 && <View style={styles.verticalTrackLine} />}
+          {filteredActivities.length > 0 && (
+            <View style={[styles.verticalTrackLine, isDark && styles.verticalTrackLineDark]} />
+          )}
 
           {filteredActivities.length > 0 ? (
             filteredActivities.map((event) => (
               <TouchableOpacity
                 key={event.id}
                 style={styles.timelineItem}
-                onPress={() => {
-                  if (event.type === 'SOS') {
-                    navigation.navigate('SOSAlert');
-                  } else if (event.type === 'GEOFENCE') {
-                    navigation.navigate('SafePlaces');
-                  } else {
-                    navigation.navigate('Chat');
-                  }
-                }}
+                onPress={() => setSelectedEvent(event)}
                 activeOpacity={0.75}
               >
-                <View style={styles.timelineAvatarContainer}>
+                <View style={[styles.timelineAvatarContainer, isDark && styles.timelineAvatarContainerDark]}>
                   {event.avatarUrl ? (
                     <Image source={{ uri: event.avatarUrl }} style={styles.timelineAvatar} />
                   ) : (
@@ -506,26 +468,61 @@ export default function BillionDollarTimelineView() {
                     </View>
                   )}
                   <View style={[styles.timelineBadgeDot, { backgroundColor: event.color }]}>
-                    <Ionicons name={event.icon} size={10} color="#FFFFFF" />
+                    <Ionicons name={event.icon as any || 'information'} size={10} color="#FFFFFF" />
                   </View>
                 </View>
 
-                <View style={styles.timelineCard}>
+                <View style={[styles.timelineCard, isDark && styles.timelineCardDark]}>
                   <View style={styles.cardHeaderRow}>
-                    <Text style={styles.cardItemTitle} numberOfLines={1}>
-                      {event.title}
-                    </Text>
-                    <Text style={styles.cardItemTime}>{event.time}</Text>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      {event.type === 'GEOFENCE' && (
+                        <View style={styles.geofenceTagRow}>
+                          <View
+                            style={[
+                              styles.geofenceStatusTag,
+                              { backgroundColor: event.eventType === 'arrival' ? '#E8F5EE' : '#FEF3C7' },
+                            ]}
+                          >
+                            <Ionicons
+                              name={event.eventType === 'arrival' ? 'location-sharp' : 'walk-outline'}
+                              size={10}
+                              color={event.eventType === 'arrival' ? '#2E7D5B' : '#B45309'}
+                            />
+                            <Text
+                              style={[
+                                styles.geofenceStatusTagText,
+                                { color: event.eventType === 'arrival' ? '#2E7D5B' : '#B45309' },
+                              ]}
+                            >
+                              {event.eventType === 'arrival' ? 'ARRIVED' : 'DEPARTED'}
+                            </Text>
+                          </View>
+                          {event.dwellDurationText ? (
+                            <Text style={styles.dwellDurationBadge}>
+                              {event.dwellDurationText}
+                            </Text>
+                          ) : null}
+                        </View>
+                      )}
+                      <Text style={[styles.cardItemTitle, isDark && styles.textLight]} numberOfLines={1}>
+                        {event.title}
+                      </Text>
+                    </View>
+                    <Text style={[styles.cardItemTime, isDark && styles.textSubDark]}>{event.time}</Text>
                   </View>
-                  <Text style={styles.cardItemSub}>{event.message}</Text>
+                  <Text style={[styles.cardItemSub, isDark && styles.textSubDark]}>{event.message}</Text>
+                  <View style={styles.cardActionHintRow}>
+                    <Text style={styles.cardActionHintText}>Tap for actions & map</Text>
+                    <Ionicons name="chevron-forward" size={12} color="#2E7D5B" />
+                  </View>
                 </View>
               </TouchableOpacity>
             ))
           ) : (
-            <View style={styles.emptyFeedBox}>
-              <Ionicons name="calendar-outline" size={32} color="#183CE6" />
-              <Text style={styles.emptyFeedTitle}>No Events Recorded</Text>
-              <Text style={styles.emptyFeedSub}>
+            <View style={[styles.emptyFeedBox, isDark && styles.emptyFeedBoxDark]}>
+              <Ionicons name="calendar-outline" size={32} color="#2E7D5B" />
+              <Text style={[styles.emptyFeedTitle, isDark && styles.textLight]}>No Events Recorded</Text>
+              <Text style={[styles.emptyFeedSub, isDark && styles.textSubDark]}>
                 Arrivals, departures, check-ins, and safety alerts will automatically populate here as your circle stays connected.
               </Text>
             </View>
@@ -534,25 +531,342 @@ export default function BillionDollarTimelineView() {
 
         {/* Floating Context Action: Request Check-In */}
         <TouchableOpacity
-          style={styles.floatingRequestCheckInBtn}
+          style={[
+            styles.floatingRequestCheckInBtn,
+            isDark && {
+              backgroundColor: '#1C2E24',
+              borderWidth: 1,
+              borderColor: '#3ADFAB',
+            },
+          ]}
           onPress={handleRequestCheckIn}
           activeOpacity={0.85}
         >
-          <Ionicons name="notifications-outline" size={18} color="#FFFFFF" />
-          <Text style={styles.floatingRequestCheckInText}>Request Check-in</Text>
+          <Ionicons name="notifications-outline" size={18} color={isDark ? '#3ADFAB' : '#FFFFFF'} />
+          <Text style={[styles.floatingRequestCheckInText, isDark && { color: '#3ADFAB' }]}>Request Check-in</Text>
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Floating Emergency SOS Action Button */}
-      <TouchableOpacity
-        style={styles.floatingSOSButton}
-        onPress={() => navigation.navigate('SOSAlert')}
-        activeOpacity={0.85}
+      {/* Activity Event Details Modal */}
+      <Modal
+        visible={!!selectedEvent}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedEvent(null)}
       >
-        <View style={styles.sosPulseAura} />
-        <Ionicons name="warning" size={18} color="#FFFFFF" />
-        <Text style={styles.floatingSOSText}>SOS</Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setSelectedEvent(null)}
+        >
+          <Animated.View
+            style={[
+              styles.modalCard,
+              isDark && styles.modalCardDark,
+              {
+                transform: [
+                  {
+                    translateY: translateY.interpolate({
+                      inputRange: [-50, 0, 600],
+                      outputRange: [0, 0, 600],
+                      extrapolate: 'clamp',
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            {/* Top Interactive Drag-to-Dismiss / Tap-to-Close Handle */}
+            <TouchableOpacity
+              style={styles.handleContainer}
+              onPress={() => setSelectedEvent(null)}
+              activeOpacity={0.7}
+              {...panResponder.panHandlers}
+              accessibilityLabel="Drag down or tap to close event details"
+            >
+              <View style={[styles.handleBar, { backgroundColor: isDark ? '#26342D' : '#D1D5DB' }]} />
+            </TouchableOpacity>
+
+            {/* Modal Header */}
+            {(() => {
+              const isDeparture = selectedEvent?.type === 'GEOFENCE' && (
+                selectedEvent.eventType === 'departure' ||
+                selectedEvent.title?.toLowerCase().includes('depart') ||
+                selectedEvent.title?.toLowerCase().includes('left') ||
+                selectedEvent.title?.toLowerCase().includes('exit')
+              );
+              const isGeofenceBreach = selectedEvent?.title?.toLowerCase().includes('breach');
+              const headerBadgeColor = (isDeparture || isGeofenceBreach) ? '#F59E0B' : (selectedEvent?.color || '#2E7D5B');
+              const headerIconName = (isDeparture || isGeofenceBreach) ? 'navigate' : ((selectedEvent?.icon as any) || 'information-circle');
+              const tagLabel = selectedEvent?.type === 'CHECKIN'
+                ? 'SAFETY CHECK-IN'
+                : isGeofenceBreach
+                ? 'GEOFENCE PERIMETER BREACH'
+                : isDeparture
+                ? 'SAFE PLACE DEPARTURE'
+                : selectedEvent?.type === 'GEOFENCE'
+                ? 'SAFE PLACE ARRIVAL'
+                : selectedEvent?.type === 'SOS'
+                ? 'EMERGENCY SOS ALERT'
+                : 'CIRCLE UPDATE';
+
+              return (
+                <>
+                  <View style={styles.modalHeaderRow}>
+                    <View style={[styles.modalHeaderBadge, isDark && styles.modalHeaderBadgeDark, { backgroundColor: `${headerBadgeColor}18` }]}>
+                      <Ionicons
+                        name={headerIconName}
+                        size={20}
+                        color={headerBadgeColor}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.modalMemberName, isDark && styles.textLight]}>
+                        {selectedEvent?.memberName}
+                      </Text>
+                      <Text style={[styles.modalTimestamp, isDark && styles.textSubDark]}>
+                        {selectedEvent?.time}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Event Category Tag */}
+                  <View style={styles.modalTagRow}>
+                    <View
+                      style={[
+                        styles.modalCategoryPill,
+                        { backgroundColor: `${headerBadgeColor}18` },
+                      ]}
+                    >
+                      <View style={[styles.modalCategoryDot, { backgroundColor: headerBadgeColor }]} />
+                      <Text
+                        style={[
+                          styles.modalCategoryPillText,
+                          { color: headerBadgeColor },
+                        ]}
+                      >
+                        {tagLabel}
+                      </Text>
+                    </View>
+                  </View>
+                </>
+              );
+            })()}
+
+            {/* Arrival & Departure Telemetry Details Card */}
+            {selectedEvent?.type === 'GEOFENCE' ? (
+              <View style={[styles.telemetryCard, isDark && styles.telemetryCardDark]}>
+                <View style={styles.telemetryHeaderRow}>
+                  <View style={[styles.telemetryCategoryIconBox, { backgroundColor: selectedEvent.eventType === 'arrival' ? '#E8F5EE' : '#FEF3C7' }]}>
+                    <Ionicons
+                      name={
+                        selectedEvent.placeCategory === 'home'
+                          ? 'home'
+                          : selectedEvent.placeCategory === 'work'
+                          ? 'briefcase'
+                          : selectedEvent.placeCategory === 'school'
+                          ? 'school'
+                          : selectedEvent.eventType === 'arrival'
+                          ? 'location'
+                          : 'walk'
+                      }
+                      size={20}
+                      color={selectedEvent.eventType === 'arrival' ? '#2E7D5B' : '#B45309'}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.telemetryPlaceTitle, isDark && styles.textLight]} numberOfLines={1}>
+                      {selectedEvent.placeName || 'Safe Zone'}
+                    </Text>
+                    <Text style={[styles.telemetryPlaceSub, isDark && styles.textSubDark]}>
+                      {selectedEvent.eventType === 'arrival' ? 'Verified Zone Arrival' : 'Verified Zone Departure'}
+                    </Text>
+                  </View>
+                  <View style={[styles.telemetryStatusPill, { backgroundColor: selectedEvent.eventType === 'arrival' ? '#E8F5EE' : '#FEF3C7' }]}>
+                    <Text style={[styles.telemetryStatusText, { color: selectedEvent.eventType === 'arrival' ? '#2E7D5B' : '#B45309' }]}>
+                      {selectedEvent.eventType === 'arrival' ? 'ARRIVED' : 'DEPARTED'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.telemetryGrid}>
+                  <View style={[styles.telemetryStatBox, isDark && styles.telemetryStatBoxDark]}>
+                    <Text style={[styles.telemetryStatLabel, isDark && styles.textSubDark]}>EVENT TIME</Text>
+                    <Text style={[styles.telemetryStatValue, isDark && styles.textLight]}>{selectedEvent.time}</Text>
+                  </View>
+                  <View style={[styles.telemetryStatBox, isDark && styles.telemetryStatBoxDark]}>
+                    <Text style={[styles.telemetryStatLabel, isDark && styles.textSubDark]}>
+                      {selectedEvent.eventType === 'arrival' ? 'PERIMETER' : 'STAY DURATION'}
+                    </Text>
+                    <Text style={[styles.telemetryStatValue, isDark && styles.textLight]}>
+                      {selectedEvent.eventType === 'arrival' ? `${selectedEvent.radiusMeters || 150}m Radius` : selectedEvent.dwellDurationText || 'Safe transition'}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={[styles.telemetryExplanation, isDark && styles.textSubDark]}>
+                  {selectedEvent.message}
+                </Text>
+              </View>
+            ) : (
+              /* Standard Event Message Box */
+              <View style={[styles.modalMessageBox, isDark && styles.modalMessageBoxDark]}>
+                <Text style={[styles.modalMessageTitle, isDark && styles.textLight]}>
+                  {selectedEvent?.title}
+                </Text>
+                <Text style={[styles.modalMessageBody, isDark && styles.textSubDark]}>
+                  {selectedEvent?.message}
+                </Text>
+              </View>
+            )}
+
+            {/* Action Buttons */}
+            {(() => {
+              const targetMember = members.find((m) => m.user_id === selectedEvent?.userId || (m as any).id === selectedEvent?.userId);
+              const targetUserId = selectedEvent?.userId || targetMember?.user_id || (targetMember as any)?.id || profile?.id;
+              const targetName = selectedEvent?.memberName || targetMember?.profile?.full_name || 'Member';
+              const targetPhone = selectedEvent?.phone || targetMember?.profile?.phone;
+              const hasCoordinates = Boolean(targetMember?.latitude && targetMember?.longitude);
+              const isSelf = Boolean(targetUserId && profile?.id && targetUserId === profile.id);
+              const cleanPhone = typeof targetPhone === 'string' ? targetPhone.trim() : '';
+              const canCall = !isSelf && cleanPhone.length > 0;
+
+              return (
+                <View style={styles.modalActions}>
+                  {/* Primary: Live Map Centered on This Member */}
+                  <TouchableOpacity
+                    style={styles.modalActionPrimary}
+                    onPress={() => {
+                      setSelectedEvent(null);
+                      navigation.navigate('Map', {
+                        focusUserId: targetUserId,
+                        focusLat: targetMember?.latitude,
+                        focusLng: targetMember?.longitude,
+                        focusUserName: targetName,
+                      });
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="map-outline" size={18} color="#FFFFFF" />
+                    <Text style={styles.modalActionPrimaryText}>
+                      {hasCoordinates ? `Locate ${targetName.split(' ')[0]} on Map` : 'View on Live Map'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Secondary Row 1: Route History & Driving Report */}
+                  <View style={styles.modalSecondaryRow}>
+                    <TouchableOpacity
+                      style={[styles.modalActionSecondary, isDark && styles.modalActionSecondaryDark]}
+                      onPress={() => {
+                        setSelectedEvent(null);
+                        navigateToScreen('LocationHistory', {
+                          member: targetMember,
+                          memberId: targetUserId,
+                          circleId: activeCircle?.id,
+                          memberName: targetName,
+                        });
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="trail-sign-outline" size={16} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                      <Text style={[styles.modalActionSecondaryText, isDark && styles.textLight]}>
+                        Route History
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.modalActionSecondary, isDark && styles.modalActionSecondaryDark]}
+                      onPress={() => {
+                        setSelectedEvent(null);
+                        navigateToScreen('DrivingReports', {
+                          member: targetMember,
+                          memberId: targetUserId,
+                          circleId: activeCircle?.id,
+                          memberName: targetName,
+                        });
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="speedometer-outline" size={16} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                      <Text style={[styles.modalActionSecondaryText, isDark && styles.textLight]}>
+                        Driving Report
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Secondary Row 2: Chat & Safe Places */}
+                  <View style={styles.modalSecondaryRow}>
+                    <TouchableOpacity
+                      style={[styles.modalActionSecondary, isDark && styles.modalActionSecondaryDark]}
+                      onPress={() => {
+                        setSelectedEvent(null);
+                        navigation.navigate('Chat', {
+                          memberId: targetUserId,
+                          memberName: targetName,
+                          filterMemberId: targetUserId,
+                        });
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="chatbubbles-outline" size={16} color="#183CE6" />
+                      <Text style={[styles.modalActionSecondaryText, isDark && styles.textLight]}>
+                        Chat ({targetName.split(' ')[0]})
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.modalActionSecondary, isDark && styles.modalActionSecondaryDark]}
+                      onPress={() => {
+                        setSelectedEvent(null);
+                        navigation.navigate('SafePlaces', {
+                          memberId: targetUserId,
+                          memberName: targetName,
+                        });
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="location-outline" size={16} color="#2E7D5B" />
+                      <Text style={[styles.modalActionSecondaryText, isDark && styles.textLight]}>
+                        Safe Places
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Optional Row 3: Call Member (Only for other members with valid phone) or SOS Alert Details */}
+                  {canCall ? (
+                    <TouchableOpacity
+                      style={[styles.modalCallBtn, isDark && styles.modalCallBtnDark]}
+                      onPress={() => {
+                        Linking.openURL(`tel:${cleanPhone}`);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="call" size={17} color={isDark ? '#3ADFAB' : '#165D40'} />
+                      <Text style={[styles.modalCallBtnText, isDark && { color: '#3ADFAB' }]}>
+                        Call {targetName.split(' ')[0]} ({cleanPhone})
+                      </Text>
+                    </TouchableOpacity>
+                  ) : selectedEvent?.type === 'SOS' ? (
+                    <TouchableOpacity
+                      style={[styles.modalSOSBtn, isDark && styles.modalSOSBtnDark]}
+                      onPress={() => {
+                        setSelectedEvent(null);
+                        navigation.navigate('SOSAlert');
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="warning" size={17} color="#DC2626" />
+                      <Text style={styles.modalSOSBtnText}>
+                        View Emergency SOS Details
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              );
+            })()}
+          </Animated.View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Toast */}
       {toastMessage && (
@@ -563,6 +877,8 @@ export default function BillionDollarTimelineView() {
     </View>
   );
 }
+
+const SANS_FONT = Platform.OS === 'web' ? 'sans-serif' : undefined;
 
 const styles = StyleSheet.create({
   container: {
@@ -604,7 +920,7 @@ const styles = StyleSheet.create({
     maxWidth: SCREEN_WIDTH * 0.5,
   },
   circleSelectorText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontFamily: SANS_FONT,
     fontSize: 14,
     fontWeight: '700',
     color: '#1F2A24',
@@ -658,7 +974,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   taglineText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontFamily: SANS_FONT,
     fontSize: 11,
     fontWeight: '700',
     color: '#2E7D5B',
@@ -666,7 +982,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   pageTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontFamily: SANS_FONT,
     fontSize: 22,
     fontWeight: '800',
     color: '#1F2A24',
@@ -682,7 +998,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   calendarFilterText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontFamily: SANS_FONT,
     fontSize: 12,
     fontWeight: '600',
     color: '#2E7D5B',
@@ -701,7 +1017,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2E7D5B',
   },
   dateChipText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontFamily: SANS_FONT,
     fontSize: 12,
     fontWeight: '600',
     color: '#5C665F',
@@ -726,7 +1042,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8F5EE',
   },
   catChipText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontFamily: SANS_FONT,
     fontSize: 12,
     fontWeight: '600',
     color: '#5C665F',
@@ -772,13 +1088,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   reassuranceTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontFamily: SANS_FONT,
     fontSize: 14,
     fontWeight: '700',
     color: '#151C27',
   },
   reassuranceSub: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontFamily: SANS_FONT,
     fontSize: 12,
     color: '#444656',
     marginTop: 2,
@@ -793,7 +1109,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   broadcastSafeBtnText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontFamily: SANS_FONT,
     fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
@@ -906,14 +1222,14 @@ const styles = StyleSheet.create({
   },
   floatingRequestCheckInBtn: {
     alignSelf: 'center',
-    backgroundColor: '#183CE6',
+    backgroundColor: '#2E7D5B',
     paddingHorizontal: 22,
     height: 44,
     borderRadius: 22,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    shadowColor: '#183CE6',
+    shadowColor: '#2E7D5B',
     shadowOpacity: 0.35,
     shadowRadius: 10,
     marginTop: 14,
@@ -924,41 +1240,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
-  },
-  floatingSOSButton: {
-    position: 'absolute',
-    right: 18,
-    bottom: 30,
-    backgroundColor: '#AE041B',
-    paddingHorizontal: 20,
-    height: 48,
-    borderRadius: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    shadowColor: '#AE041B',
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 8,
-    zIndex: 50,
-  },
-  sosPulseAura: {
-    position: 'absolute',
-    top: -4,
-    left: -4,
-    right: -4,
-    bottom: -4,
-    borderRadius: 28,
-    borderWidth: 1.5,
-    borderColor: '#AE041B',
-    opacity: 0.4,
-  },
-  floatingSOSText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.8,
   },
   toastContainer: {
     position: 'absolute',
@@ -978,5 +1259,418 @@ const styles = StyleSheet.create({
     color: '#EBF1FF',
     fontSize: 12,
     fontWeight: '600',
+  },
+  cardActionHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+  },
+  cardActionHintText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#2E7D5B',
+  },
+  // Dark Theme Tokens
+  containerDark: {
+    backgroundColor: '#0F1411',
+  },
+  headerDark: {
+    backgroundColor: '#141A17',
+    borderBottomColor: '#212C26',
+  },
+  logoBadgeDark: {
+    backgroundColor: '#1C2621',
+  },
+  circleSelectorBtnDark: {
+    backgroundColor: '#1C2621',
+  },
+  headerIconButtonDark: {
+    backgroundColor: '#1C2621',
+  },
+  textLight: {
+    color: '#FFFFFF',
+  },
+  textSubDark: {
+    color: '#CAD5CE',
+  },
+  calendarFilterBtnDark: {
+    backgroundColor: '#1C2621',
+  },
+  dateChipDark: {
+    backgroundColor: '#1C2621',
+    borderWidth: 1,
+    borderColor: '#2A3A32',
+  },
+  dateChipTextDark: {
+    color: '#CAD5CE',
+  },
+  catChipDark: {
+    backgroundColor: '#1C2621',
+    borderWidth: 1,
+    borderColor: '#2A3A32',
+  },
+  catChipTextDark: {
+    color: '#CAD5CE',
+  },
+  catChipActiveDark: {
+    backgroundColor: '#2E7D5B',
+    borderColor: '#3ADFAB',
+  },
+  catChipTextActiveDark: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  catCountBadgeDark: {
+    backgroundColor: '#28362F',
+  },
+  reassuranceBannerDark: {
+    backgroundColor: '#1A231F',
+    borderColor: '#283730',
+  },
+  verticalTrackLineDark: {
+    backgroundColor: '#283730',
+  },
+  timelineAvatarContainerDark: {
+    backgroundColor: '#1C2621',
+  },
+  timelineCardDark: {
+    backgroundColor: '#1A231F',
+    borderColor: '#283730',
+  },
+  emptyFeedBoxDark: {
+    backgroundColor: '#1A231F',
+    borderColor: '#283730',
+  },
+  // Activity Details Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 20,
+  },
+  handleContainer: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  handleBar: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+  },
+  modalCardDark: {
+    backgroundColor: '#141A17',
+    borderWidth: 1,
+    borderColor: '#283730',
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  modalHeaderBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#E8F5EE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalHeaderBadgeDark: {
+    backgroundColor: '#1C2621',
+  },
+  modalMemberName: {
+    fontFamily: SANS_FONT,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2A24',
+  },
+  modalTimestamp: {
+    fontFamily: SANS_FONT,
+    fontSize: 12,
+    color: '#5C665F',
+    marginTop: 2,
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F0EFEA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseBtnDark: {
+    backgroundColor: '#1C2621',
+  },
+  modalTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  modalCategoryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4.5,
+    borderRadius: 8,
+  },
+  modalCategoryDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  modalCategoryPillText: {
+    fontFamily: SANS_FONT,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  modalMessageBox: {
+    backgroundColor: '#F8F7F4',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#EDEBE6',
+    marginBottom: 18,
+  },
+  modalMessageBoxDark: {
+    backgroundColor: '#0F1411',
+    borderColor: '#283730',
+  },
+  modalMessageTitle: {
+    fontFamily: SANS_FONT,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1F2A24',
+    marginBottom: 4,
+  },
+  modalMessageBody: {
+    fontFamily: SANS_FONT,
+    fontSize: 13,
+    color: '#5C665F',
+    lineHeight: 18,
+  },
+  modalActions: {
+    gap: 10,
+  },
+  modalActionPrimary: {
+    backgroundColor: '#2E7D5B',
+    borderRadius: 14,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#2E7D5B',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  modalActionPrimaryText: {
+    fontFamily: SANS_FONT,
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+  },
+  modalSecondaryRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  modalActionSecondary: {
+    flex: 1,
+    backgroundColor: '#F0EFEA',
+    borderRadius: 12,
+    paddingVertical: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  modalActionSecondaryDark: {
+    backgroundColor: '#1E2923',
+    borderWidth: 1,
+    borderColor: '#2F4037',
+  },
+  modalActionSecondaryText: {
+    fontFamily: SANS_FONT,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F2A24',
+  },
+  modalCallBtn: {
+    width: '100%',
+    backgroundColor: '#E8F5EE',
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: '#A3D9C0',
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 2,
+  },
+  modalCallBtnDark: {
+    backgroundColor: 'rgba(58, 223, 171, 0.12)',
+    borderColor: 'rgba(58, 223, 171, 0.32)',
+  },
+  modalCallBtnText: {
+    fontFamily: SANS_FONT,
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#165D40',
+    letterSpacing: 0.2,
+  },
+  modalSOSBtn: {
+    width: '100%',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: '#FECACA',
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 2,
+  },
+  modalSOSBtnDark: {
+    backgroundColor: 'rgba(239, 68, 68, 0.16)',
+    borderColor: 'rgba(239, 68, 68, 0.38)',
+  },
+  modalSOSBtnText: {
+    fontFamily: SANS_FONT,
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#DC2626',
+    letterSpacing: 0.2,
+  },
+  geofenceTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  geofenceStatusTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 5,
+  },
+  geofenceStatusTagText: {
+    fontFamily: SANS_FONT,
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  dwellDurationBadge: {
+    fontFamily: SANS_FONT,
+    fontSize: 10,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  telemetryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1.2,
+    borderColor: '#ECEAE4',
+    padding: 14,
+    marginBottom: 16,
+  },
+  telemetryCardDark: {
+    backgroundColor: '#1E2923',
+    borderColor: '#2F4037',
+  },
+  telemetryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  telemetryCategoryIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  telemetryPlaceTitle: {
+    fontFamily: SANS_FONT,
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1F2A24',
+  },
+  telemetryPlaceSub: {
+    fontFamily: SANS_FONT,
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  telemetryStatusPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  telemetryStatusText: {
+    fontFamily: SANS_FONT,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  telemetryGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 10,
+  },
+  telemetryStatBox: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 9,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  telemetryStatBoxDark: {
+    backgroundColor: '#16201B',
+    borderColor: '#23322A',
+  },
+  telemetryStatLabel: {
+    fontFamily: SANS_FONT,
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
+  telemetryStatValue: {
+    fontFamily: SANS_FONT,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1F2A24',
+    marginTop: 2,
+  },
+  telemetryExplanation: {
+    fontFamily: SANS_FONT,
+    fontSize: 12,
+    color: '#5C665F',
+    lineHeight: 16.5,
   },
 });

@@ -11,10 +11,12 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getSafeTopInset } from '../utils/safeArea';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from '../lib/supabase';
-import { useCircleStore } from '../store/useCircleStore';
+import { useCircleStore, CircleMember } from '../store/useCircleStore';
 import LeaderApprovalModal from './LeaderApprovalModal';
 import { useLuxuryAlert } from './LuxuryAlertModal';
 import PrivacyPolicyModal from './PrivacyPolicyModal';
@@ -34,6 +36,8 @@ const KEYS = {
 };
 
 export default function PrivacySecurityModal({ visible, onClose }: PrivacySecurityModalProps) {
+  const insets = useSafeAreaInsets();
+  const topInset = getSafeTopInset(insets.top);
   const { profile } = useAuthStore();
   const { showAlert, showConfirm } = useLuxuryAlert();
 
@@ -102,9 +106,12 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
   };
 
   const toggleSetting = async (key: string, value: boolean, setter: (val: boolean) => void) => {
+    const { activeCircle } = useCircleStore.getState();
+    const isStrictContinuousCircle = Boolean(activeCircle && activeCircle.tracking_mode === 'continuous');
     const isLeader = isUserCircleLeader();
 
-    if ((key === KEYS.GHOST_MODE || key === KEYS.HIDE_ONLINE) && value && !isLeader) {
+    // Only require leader authorization if actively inside a continuous 24/7 tracked circle where user is NOT owner
+    if ((key === KEYS.GHOST_MODE || key === KEYS.HIDE_ONLINE) && value && isStrictContinuousCircle && !isLeader) {
       const featureKey = key === KEYS.GHOST_MODE ? 'ghost_mode' : 'hide_online';
       setApprovalFeature(featureKey);
       setApprovalModalVisible(true);
@@ -116,8 +123,36 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
 
     if (key === KEYS.GHOST_MODE && profile?.id) {
       try {
+        await AsyncStorage.setItem('@circleguard_ghost_mode', value.toString());
         await supabase.from('profiles').update({ is_ghost_mode: value }).eq('id', profile.id);
         useAuthStore.getState().setProfile({ ...profile, is_ghost_mode: value });
+
+        // Propagate immediately to in-memory circle members list
+        const curMembers = useCircleStore.getState().members;
+        const updated: CircleMember[] = curMembers.map((m) => {
+          if (m.user_id === profile.id) {
+            return {
+              ...m,
+              isGhost: value,
+              isOnline: value ? false : m.isOnline,
+              lastSeenText: value ? 'Ghost Mode (Location Hidden)' : m.lastSeenText,
+              profile: {
+                ...m.profile,
+                full_name: m.profile?.full_name || profile.full_name || 'Member',
+                avatar_url: m.profile?.avatar_url ?? profile.avatar_url ?? null,
+                phone: m.profile?.phone ?? profile.phone ?? null,
+                is_ghost_mode: value,
+              },
+            };
+          }
+          return m;
+        });
+        useCircleStore.setState({ members: updated });
+
+        try {
+          const { updateBackgroundSessionCache } = require('../services/LocationBackgroundService');
+          await updateBackgroundSessionCache({ isGhostMode: value });
+        } catch (_) {}
       } catch (err) {
         console.warn('Failed to sync ghost mode to cloud:', err);
       }
@@ -125,8 +160,30 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
 
     if (key === KEYS.HIDE_ONLINE && profile?.id) {
       try {
+        await AsyncStorage.setItem('@circleguard_hide_online', value.toString());
         await supabase.from('profiles').update({ hide_online_presence: value }).eq('id', profile.id);
         useAuthStore.getState().setProfile({ ...profile, hide_online_presence: value });
+
+        // Propagate immediately to in-memory circle members list
+        const curMembers = useCircleStore.getState().members;
+        const updated: CircleMember[] = curMembers.map((m) => {
+          if (m.user_id === profile.id) {
+            return {
+              ...m,
+              isOnline: value ? false : true,
+              lastSeenText: value ? 'Offline' : 'Online now',
+              profile: {
+                ...m.profile,
+                full_name: m.profile?.full_name || profile.full_name || 'Member',
+                avatar_url: m.profile?.avatar_url ?? profile.avatar_url ?? null,
+                phone: m.profile?.phone ?? profile.phone ?? null,
+                hide_online_presence: value,
+              },
+            };
+          }
+          return m;
+        });
+        useCircleStore.setState({ members: updated });
       } catch (err) {
         console.warn('Failed to sync hide online presence to cloud:', err);
       }
@@ -171,10 +228,10 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={false}>
+    <Modal visible={visible} animationType="slide" transparent={false} statusBarTranslucent={true}>
       <View style={styles.container}>
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: topInset + 8 }]}>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.8}>
             <Ionicons name="close" size={20} color="#1F2A24" />
           </TouchableOpacity>
@@ -251,7 +308,7 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
                 <View style={styles.textWrapper}>
                   <Text style={styles.rowTitle}>Biometric App Lock</Text>
                   <Text style={styles.rowDesc}>
-                    Require FaceID / TouchID to unlock CircleGuard on launch
+                    Require biometric verification (Face ID or Fingerprint) to unlock on launch
                   </Text>
                 </View>
               </View>

@@ -1,6 +1,7 @@
 import './global.css';
 import React, { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as Linking from 'expo-linking';
 
 import { supabase } from './src/lib/supabase';
 import { useAuthStore } from './src/store/useAuthStore';
@@ -12,7 +13,12 @@ import { useThemeStore } from './src/store/useThemeStore';
 import { useCountryStore } from './src/store/useCountryStore';
 import { RevenueCatService } from './src/services/RevenueCatService';
 
+import { StatusBar } from 'expo-status-bar';
+import { LogBox } from 'react-native';
 import { LuxuryAlertProvider } from './src/components/LuxuryAlertModal';
+
+// Silence LogBox banner overlays in development so custom luxury in-app messages are prioritized
+LogBox.ignoreAllLogs(true);
 
 function App() {
   const { setSession, setProfile, setLoading } = useAuthStore();
@@ -86,12 +92,86 @@ function App() {
         useAuthStore.getState().resetAuthStore();
         useCircleStore.getState().resetCircleStore();
         useThemeStore.getState().resetThemeToDefault();
+      } else if (event === 'PASSWORD_RECOVERY') {
+        if (session) {
+          setSession(session);
+        }
+        useAuthStore.getState().setPasswordRecovery(true);
       } else if (event === 'USER_UPDATED') {
         if (session) {
           setSession(session);
         }
       }
     });
+
+    // 4. Handle incoming deep links (for recovery email callback)
+    const handleDeepLink = async (url: string | null) => {
+      if (!url || !isMounted) return;
+      try {
+        console.log('[App] Received deep link:', url);
+
+        // If the deep link is related to password recovery or reset callback, immediately trigger recovery modal
+        const isResetFlow = url.includes('reset') || url.includes('recovery');
+        if (isResetFlow) {
+          useAuthStore.getState().setPasswordRecovery(true);
+        }
+
+        const hashIdx = url.indexOf('#');
+        const queryIdx = url.indexOf('?');
+        const params: Record<string, string> = {};
+
+        if (hashIdx !== -1) {
+          const hashStr = url.substring(hashIdx + 1);
+          hashStr.split('&').forEach((p) => {
+            const eqIdx = p.indexOf('=');
+            if (eqIdx !== -1) {
+              const k = p.substring(0, eqIdx);
+              const v = p.substring(eqIdx + 1);
+              params[decodeURIComponent(k)] = decodeURIComponent(v);
+            }
+          });
+        }
+        if (queryIdx !== -1) {
+          const queryStr = hashIdx !== -1 && hashIdx > queryIdx ? url.substring(queryIdx + 1, hashIdx) : url.substring(queryIdx + 1);
+          queryStr.split('&').forEach((p) => {
+            const eqIdx = p.indexOf('=');
+            if (eqIdx !== -1) {
+              const k = p.substring(0, eqIdx);
+              const v = p.substring(eqIdx + 1);
+              params[decodeURIComponent(k)] = decodeURIComponent(v);
+            }
+          });
+        }
+
+        if (params.access_token && params.refresh_token) {
+          const { data, error } = await supabase.auth.setSession({
+            access_token: params.access_token,
+            refresh_token: params.refresh_token,
+          });
+          if (!error && isResetFlow) {
+            useAuthStore.getState().setPasswordRecovery(true);
+          }
+        } else if (params.code) {
+          const { data, error } = await supabase.auth.exchangeCodeForSession(params.code);
+          if (!error && isResetFlow) {
+            useAuthStore.getState().setPasswordRecovery(true);
+          }
+        } else if (params.token) {
+          const { data, error } = await supabase.auth.verifyOtp({
+            token_hash: params.token,
+            type: 'recovery',
+          });
+          if (!error && isResetFlow) {
+            useAuthStore.getState().setPasswordRecovery(true);
+          }
+        }
+      } catch (err) {
+        console.warn('[App] Deep link parse error:', err);
+      }
+    };
+
+    Linking.getInitialURL().then(handleDeepLink);
+    const linkingSub = Linking.addEventListener('url', (e) => handleDeepLink(e.url));
 
     // Safety fallback timer to prevent infinite loading if everything stalls
     const authTimeout = setTimeout(() => {
@@ -105,6 +185,7 @@ function App() {
       isMounted = false;
       clearTimeout(authTimeout);
       subscription.unsubscribe();
+      linkingSub.remove();
     };
   }, []);
 
@@ -172,6 +253,7 @@ function App() {
 
   return (
     <SafeAreaProvider>
+      <StatusBar style="auto" />
       <LuxuryAlertProvider>
         <AppNavigator />
       </LuxuryAlertProvider>

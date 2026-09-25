@@ -18,12 +18,14 @@ import * as Contacts from 'expo-contacts/legacy';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCountryStore } from '../store/useCountryStore';
+import { useThemeStore } from '../store/useThemeStore';
 import {
   validateAndNormalizePhone,
   COUNTRY_PHONE_RULES,
   DEFAULT_PHONE_RULE,
 } from '../lib/phoneValidation';
 import { useLuxuryAlert } from './LuxuryAlertModal';
+import { getSafeTopInset } from '../utils/safeArea';
 
 export interface EmergencyContact {
   id: string;
@@ -40,10 +42,11 @@ interface EmergencyContactsModalProps {
 
 export default function EmergencyContactsModal({ visible, onClose, onContactsUpdated }: EmergencyContactsModalProps) {
   const insets = useSafeAreaInsets();
-  const topInset = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 38) : 24);
+  const topInset = getSafeTopInset(insets.top);
 
   const { profile } = useAuthStore();
   const { country } = useCountryStore();
+  const { colors, isDark } = useThemeStore();
   const { showAlert, showConfirm } = useLuxuryAlert();
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [primaryPhone, setPrimaryPhone] = useState<string | null>(null);
@@ -342,19 +345,21 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
-      <View style={styles.container}>
-        {/* Header Bar */}
-        <View style={[styles.header, { paddingTop: topInset + 6 }]}>
-          <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.7}>
-            <Ionicons name="close" size={20} color="#334155" />
+    <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose} statusBarTranslucent={true}>
+      <View style={[styles.container, { backgroundColor: isDark ? colors.background : '#FAF9F6' }]}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+
+        {/* Clean Header Bar */}
+        <View style={[styles.header, { paddingTop: topInset + 6, backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+          <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: isDark ? '#262930' : '#F1F5F9' }]} activeOpacity={0.7}>
+            <Ionicons name="close" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <View style={styles.headerTitleBox}>
             <View style={styles.headerBadge}>
               <View style={styles.headerDot} />
               <Text style={styles.overline}>EMERGENCY DIRECTORY</Text>
             </View>
-            <Text style={styles.title}>Emergency Contacts</Text>
+            <Text style={[styles.title, { color: colors.foreground }]}>Emergency Contacts</Text>
           </View>
         </View>
 
@@ -363,55 +368,68 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
-          {/* Info Banner */}
-          <View style={styles.infoBanner}>
-            <View style={styles.infoIconBox}>
-              <Ionicons name="shield-checkmark" size={20} color="#2E7D5B" />
+          {/* Subtle Sage Dispatch Info Card */}
+          <View style={[styles.infoBanner, { backgroundColor: isDark ? 'rgba(46,125,91,0.15)' : '#E8F5EE', borderColor: isDark ? 'rgba(46,125,91,0.3)' : '#C6E7D6' }]}>
+            <View style={[styles.infoIconBox, { backgroundColor: colors.surface }]}>
+              <Ionicons name="shield-checkmark" size={19} color="#2E7D5B" />
             </View>
-            <Text style={styles.infoBannerText}>
+            <Text style={[styles.infoBannerText, { color: isDark ? '#A7F3D0' : '#1B4D3E' }]}>
               These trusted contacts are immediately dispatched with your live GPS location during any SOS alert.
             </Text>
           </View>
 
-          {/* Add Contact Action Buttons */}
+          {/* Clean Add Contact Action Cards */}
           {!isAdding ? (
-            <View style={styles.addActionsContainer}>
+            <View style={styles.addActionsRow}>
               <TouchableOpacity
-                style={styles.primaryAddBtn}
+                style={styles.primaryActionCard}
                 onPress={handlePickPhoneContact}
                 activeOpacity={0.85}
               >
-                <Ionicons name="person-add" size={18} color="#FFFFFF" />
-                <Text style={styles.primaryAddBtnText}>Select From Phone Contacts</Text>
+                <View style={styles.primaryIconCircle}>
+                  <Ionicons name="person-add" size={16} color="#2E7D5B" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.primaryCardTitle} numberOfLines={1}>Import Contact</Text>
+                  <Text style={styles.primaryCardSub} numberOfLines={1}>From address book</Text>
+                </View>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.secondaryAddBtn}
+                style={[styles.secondaryActionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
                 onPress={() => setIsAdding(true)}
                 activeOpacity={0.8}
               >
-                <Ionicons name="add-circle-outline" size={19} color="#2E7D5B" />
-                <Text style={styles.secondaryAddBtnText}>Enter Contact Manually</Text>
+                <View style={[styles.secondaryIconCircle, { backgroundColor: isDark ? '#262930' : '#F1F5F9' }]}>
+                  <Ionicons name="create-outline" size={16} color="#2E7D5B" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.secondaryCardTitle, { color: colors.foreground }]} numberOfLines={1}>Add Manually</Text>
+                  <Text style={styles.secondaryCardSub} numberOfLines={1}>Enter details</Text>
+                </View>
               </TouchableOpacity>
             </View>
           ) : (
             /* Modern Manual Add Form Card */
-            <View style={styles.formCard}>
+            <View style={[styles.formCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.formHeader}>
                 <View style={styles.formIconBox}>
                   <Ionicons name="person-add" size={18} color="#2E7D5B" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.formTitle}>New Emergency Contact</Text>
-                  <Text style={styles.formSubtitle}>Enter name, relationship & mobile number</Text>
+                  <Text style={[styles.formTitle, { color: colors.foreground }]}>New Emergency Contact</Text>
+                  <Text style={styles.formSubtitle}>Enter name, relationship & phone</Text>
                 </View>
+                <TouchableOpacity onPress={() => setIsAdding(false)} style={styles.formCloseBtn}>
+                  <Ionicons name="close" size={18} color={colors.textMuted} />
+                </TouchableOpacity>
               </View>
 
               <Text style={styles.fieldLabel}>FULL NAME</Text>
               <TextInput
-                style={styles.inputField}
-                placeholder="e.g. John Doe, Mom, Dad"
-                placeholderTextColor="#94A3B8"
+                style={[styles.inputField, { backgroundColor: isDark ? '#1C1F26' : '#F8FAFC', borderColor: isDark ? '#333742' : '#E2E8F0', color: colors.foreground }]}
+                placeholder="e.g. Mom, Dad, John Doe"
+                placeholderTextColor={colors.textMuted}
                 value={name}
                 onChangeText={setName}
               />
@@ -427,7 +445,11 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
                   return (
                     <TouchableOpacity
                       key={r}
-                      style={[styles.relChip, isSelected && styles.relChipActive]}
+                      style={[
+                        styles.relChip,
+                        { backgroundColor: isDark ? '#1C1F26' : '#F8FAFC', borderColor: isDark ? '#333742' : '#E2E8F0' },
+                        isSelected && styles.relChipActive
+                      ]}
                       onPress={() => setRelationship(r)}
                       activeOpacity={0.75}
                     >
@@ -443,18 +465,19 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
               <View
                 style={[
                   styles.phoneInputBox,
+                  { backgroundColor: isDark ? '#1C1F26' : '#F8FAFC', borderColor: isDark ? '#333742' : '#E2E8F0' },
                   isLengthMatched && styles.phoneInputSuccess,
                   isOverflow && styles.phoneInputError,
                 ]}
               >
-                <View style={styles.countryCodeBadge}>
+                <View style={[styles.countryCodeBadge, { borderRightColor: isDark ? '#333742' : '#E2E8F0' }]}>
                   <Text style={{ fontSize: 16 }}>{country.flag}</Text>
-                  <Text style={styles.countryCodeText}>{phoneRule.dialCode}</Text>
+                  <Text style={[styles.countryCodeText, { color: colors.foreground }]}>{phoneRule.dialCode}</Text>
                 </View>
                 <TextInput
-                  style={styles.phoneInputField}
+                  style={[styles.phoneInputField, { color: colors.foreground }]}
                   placeholder={phoneRule.placeholder}
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor={colors.textMuted}
                   value={phone}
                   onChangeText={setPhone}
                   keyboardType="phone-pad"
@@ -474,6 +497,7 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
                 <View
                   style={[
                     styles.lengthBadge,
+                    { backgroundColor: isDark ? '#1C1F26' : '#F8FAFC', borderColor: isDark ? '#333742' : '#E2E8F0' },
                     isLengthMatched && { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
                     isOverflow && { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
                   ]}
@@ -492,7 +516,7 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
 
               <View style={styles.formActionRow}>
                 <TouchableOpacity
-                  style={styles.cancelBtn}
+                  style={[styles.cancelBtn, { backgroundColor: isDark ? '#262930' : '#F8FAFC', borderColor: isDark ? '#333742' : '#E2E8F0' }]}
                   onPress={() => setIsAdding(false)}
                   activeOpacity={0.7}
                 >
@@ -513,8 +537,8 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
 
           {/* Contacts List Header */}
           <View style={styles.listSectionHeader}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={styles.listSectionTitle}>Saved Contacts</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+              <Text style={[styles.listSectionTitle, { color: colors.foreground }]}>Saved Contacts</Text>
               <View style={styles.contactsCountBadge}>
                 <Text style={styles.contactsCountText}>{contacts.length}</Text>
               </View>
@@ -525,11 +549,11 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
           </View>
 
           {contacts.length === 0 && !isAdding ? (
-            <View style={styles.emptyCard}>
+            <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.emptyIconBox}>
-                <Ionicons name="people-outline" size={32} color="#2E7D5B" />
+                <Ionicons name="people-outline" size={28} color="#2E7D5B" />
               </View>
-              <Text style={styles.emptyTitle}>No Emergency Contacts Added</Text>
+              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No Emergency Contacts Added</Text>
               <Text style={styles.emptySub}>
                 Add trusted family members or guardians so they can be alerted immediately with your location when SOS is activated.
               </Text>
@@ -543,48 +567,62 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
                 return (
                   <View
                     key={c.id}
-                    style={[styles.contactCard, isPrimary && styles.contactCardPrimary]}
+                    style={[
+                      styles.contactCard,
+                      { backgroundColor: colors.surface, borderColor: colors.border },
+                      isPrimary && styles.contactCardPrimary,
+                    ]}
                   >
-                    <View style={styles.cardLeft}>
-                      <View style={[styles.avatarCircle, isPrimary && styles.avatarCirclePrimary]}>
-                        <Text style={[styles.avatarInitial, isPrimary && styles.avatarInitialPrimary]}>
-                          {initial}
+                    {/* Left: Avatar Circle */}
+                    <View style={[styles.avatarCircle, isPrimary && styles.avatarCirclePrimary]}>
+                      <Text style={[styles.avatarInitial, isPrimary && styles.avatarInitialPrimary]}>
+                        {initial}
+                      </Text>
+                    </View>
+
+                    {/* Middle: Clean Hierarchy Info (No Overlap) */}
+                    <View style={styles.cardInfoContainer}>
+                      {/* Name & Primary Star Tag */}
+                      <View style={styles.cardNameRow}>
+                        <Text style={[styles.cardName, { color: colors.foreground }]} numberOfLines={1} ellipsizeMode="tail">
+                          {c.name}
                         </Text>
+                        {isPrimary && (
+                          <View style={styles.primaryBadge}>
+                            <Ionicons name="star" size={9} color="#B45309" />
+                            <Text style={styles.primaryBadgeText}>PRIMARY</Text>
+                          </View>
+                        )}
                       </View>
 
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          <Text style={styles.cardName} numberOfLines={1}>
-                            {c.name}
+                      {/* Relationship Pill */}
+                      <View style={styles.relBadgeRow}>
+                        <View style={[styles.relBadge, { backgroundColor: isDark ? '#262930' : '#F1F5F9' }]}>
+                          <Text style={styles.relBadgeText}>
+                            {c.relationship.toUpperCase()}
                           </Text>
-                          {isPrimary && (
-                            <View style={styles.primaryBadge}>
-                              <Ionicons name="star" size={10} color="#D97706" />
-                              <Text style={styles.primaryBadgeText}>PRIMARY</Text>
-                            </View>
-                          )}
                         </View>
+                      </View>
 
-                        <View style={styles.cardMetaRow}>
-                          <View style={styles.relBadge}>
-                            <Text style={styles.relBadgeText}>
-                              {c.relationship.toUpperCase()}
-                            </Text>
-                          </View>
-                          <Text style={styles.cardPhone}>{c.phone}</Text>
-                        </View>
+                      {/* Phone Number on its own clean row */}
+                      <View style={styles.phoneDisplayRow}>
+                        <Ionicons name="call-outline" size={11} color="#5C665F" style={{ marginRight: 4 }} />
+                        <Text style={styles.cardPhone} numberOfLines={1} ellipsizeMode="tail">
+                          {c.phone}
+                        </Text>
                       </View>
                     </View>
 
+                    {/* Right: Dedicated Action Buttons */}
                     <View style={styles.cardActions}>
                       {!isPrimary && (
                         <TouchableOpacity
-                          style={styles.starActionBtn}
+                          style={[styles.starActionBtn, { backgroundColor: isDark ? '#262930' : '#F8FAFC', borderColor: isDark ? '#333742' : '#E2E8F0' }]}
                           onPress={() => handleSetPrimary(c)}
                           activeOpacity={0.7}
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
-                          <Ionicons name="star-outline" size={18} color="#94A3B8" />
+                          <Ionicons name="star-outline" size={16} color="#94A3B8" />
                         </TouchableOpacity>
                       )}
 
@@ -593,7 +631,7 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
                         onPress={() => handleCall(c.phone)}
                         activeOpacity={0.8}
                       >
-                        <Ionicons name="call" size={15} color="#059669" />
+                        <Ionicons name="call" size={15} color="#2E7D5B" />
                       </TouchableOpacity>
 
                       <TouchableOpacity
@@ -613,11 +651,11 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
           {/* Official National Emergency Numbers Section */}
           <View style={styles.hotlinesContainer}>
             <View style={styles.hotlinesHeader}>
-              <View style={styles.hotlineFlagBadge}>
+              <View style={[styles.hotlineFlagBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <Text style={{ fontSize: 14 }}>{country.flag}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.hotlinesTitle}>
+                <Text style={[styles.hotlinesTitle, { color: colors.foreground }]}>
                   {country.name.toUpperCase()} EMERGENCY HOTLINES
                 </Text>
                 <Text style={styles.hotlinesSub}>National toll-free dispatch services</Text>
@@ -628,15 +666,15 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
               {country.services.map((srv) => (
                 <TouchableOpacity
                   key={srv.id}
-                  style={styles.hotlineCard}
+                  style={[styles.hotlineCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
                   onPress={() => handleCall(srv.number)}
                   activeOpacity={0.75}
                 >
                   <View style={styles.hotlineIconBox}>
-                    <Ionicons name={(srv.icon || 'call') as any} size={18} color="#2E7D5B" />
+                    <Ionicons name={(srv.icon || 'call') as any} size={17} color="#2E7D5B" />
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.hotlineName}>{srv.name}</Text>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={[styles.hotlineName, { color: colors.foreground }]} numberOfLines={1}>{srv.name}</Text>
                     <Text style={styles.hotlineDesc} numberOfLines={1}>
                       {srv.description}
                     </Text>
@@ -644,7 +682,7 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
 
                   <View style={styles.hotlineDialBtn}>
                     <Text style={styles.hotlineNumberText}>{srv.number}</Text>
-                    <Ionicons name="call" size={13} color="#2E7D5B" />
+                    <Ionicons name="call" size={12} color="#2E7D5B" />
                   </View>
                 </TouchableOpacity>
               ))}
@@ -659,22 +697,18 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAF9F6',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingBottom: 14,
-    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#ECEAE4',
   },
   closeBtn: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -702,7 +736,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 19,
     fontWeight: '800',
-    color: '#0F172A',
     marginTop: 1,
   },
   scrollArea: {
@@ -716,73 +749,97 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#E8F5EE',
     borderRadius: 16,
-    padding: 14,
+    padding: 13,
     borderWidth: 1,
-    borderColor: '#C6E7D6',
     marginBottom: 16,
   },
   infoIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   infoBannerText: {
-    fontSize: 12.5,
-    color: '#1B4D3E',
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 17,
     flex: 1,
     fontWeight: '500',
   },
-  addActionsContainer: {
+  addActionsRow: {
+    flexDirection: 'row',
     gap: 10,
     marginBottom: 20,
   },
-  primaryAddBtn: {
+  primaryActionCard: {
+    flex: 1,
     flexDirection: 'row',
-    height: 48,
+    alignItems: 'center',
+    gap: 9,
+    height: 52,
     backgroundColor: '#2E7D5B',
     borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
+    paddingHorizontal: 12,
     shadowColor: '#2E7D5B',
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 6,
+    shadowRadius: 5,
     elevation: 3,
   },
-  primaryAddBtnText: {
+  primaryIconCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryCardTitle: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 12.5,
     fontWeight: '700',
   },
-  secondaryAddBtn: {
+  primaryCardSub: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 10.5,
+    fontWeight: '500',
+  },
+  secondaryActionCard: {
+    flex: 1,
     flexDirection: 'row',
-    height: 48,
-    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    gap: 9,
+    height: 52,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
+    paddingHorizontal: 12,
   },
-  secondaryAddBtnText: {
-    color: '#2E7D5B',
-    fontSize: 14,
+  secondaryIconCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryCardTitle: {
+    fontSize: 12.5,
     fontWeight: '700',
   },
+  secondaryCardSub: {
+    color: '#64748B',
+    fontSize: 10.5,
+    fontWeight: '500',
+  },
   formCard: {
-    backgroundColor: '#FFFFFF',
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    padding: 18,
-    borderRadius: 20,
+    padding: 16,
+    borderRadius: 18,
     marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -794,65 +851,62 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   formIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: '#E8F5EE',
     alignItems: 'center',
     justifyContent: 'center',
   },
   formTitle: {
-    fontSize: 15,
+    fontSize: 14.5,
     fontWeight: '800',
-    color: '#0F172A',
   },
   formSubtitle: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: '#64748B',
     marginTop: 1,
+  },
+  formCloseBtn: {
+    padding: 6,
   },
   fieldLabel: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#475569',
-    letterSpacing: 1,
+    color: '#64748B',
+    letterSpacing: 0.8,
     marginBottom: 6,
-    marginTop: 10,
+    marginTop: 8,
   },
   inputField: {
-    height: 46,
-    backgroundColor: '#F8FAFC',
+    height: 44,
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
     borderRadius: 12,
-    paddingHorizontal: 14,
-    fontSize: 14,
-    color: '#0F172A',
+    paddingHorizontal: 12,
+    fontSize: 13.5,
     fontWeight: '600',
   },
   relChipsRow: {
-    gap: 8,
-    paddingVertical: 4,
+    gap: 7,
+    paddingVertical: 3,
   },
   relChip: {
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#F8FAFC',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 9,
   },
   relChipActive: {
     borderColor: '#2E7D5B',
     backgroundColor: '#2E7D5B',
   },
   relChipText: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
-    color: '#475569',
+    color: '#64748B',
   },
   relChipTextActive: {
     color: '#FFFFFF',
@@ -861,10 +915,8 @@ const styles = StyleSheet.create({
   phoneInputBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 46,
-    backgroundColor: '#F8FAFC',
+    height: 44,
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
     borderRadius: 12,
     paddingHorizontal: 12,
     marginTop: 2,
@@ -881,20 +933,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingRight: 10,
+    paddingRight: 8,
     borderRightWidth: 1,
-    borderRightColor: '#E2E8F0',
-    marginRight: 10,
+    marginRight: 8,
   },
   countryCodeText: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '700',
-    color: '#0F172A',
   },
   phoneInputField: {
     flex: 1,
-    fontSize: 14,
-    color: '#0F172A',
+    fontSize: 13.5,
     fontWeight: '600',
   },
   phoneHintRow: {
@@ -911,50 +960,46 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   lengthBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 5,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#F8FAFC',
   },
   lengthBadgeText: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: '800',
     color: '#64748B',
   },
   formActionRow: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 20,
+    marginTop: 16,
   },
   cancelBtn: {
     flex: 1,
-    height: 44,
+    height: 42,
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
+    borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
   },
   cancelBtnText: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#64748B',
   },
   saveBtn: {
     flex: 1.4,
-    height: 44,
+    height: 42,
     backgroundColor: '#2E7D5B',
-    borderRadius: 12,
+    borderRadius: 11,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 6,
   },
   saveBtnText: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#FFFFFF',
   },
@@ -962,17 +1007,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 10,
+    marginTop: 4,
   },
   listSectionTitle: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#0F172A',
   },
   contactsCountBadge: {
     backgroundColor: '#E8F5EE',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingHorizontal: 7,
+    paddingVertical: 1.5,
     borderRadius: 10,
   },
   contactsCountText: {
@@ -986,35 +1031,32 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   emptyCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#ECEAE4',
-    padding: 24,
+    padding: 22,
     alignItems: 'center',
     gap: 8,
     marginBottom: 20,
   },
   emptyIconBox: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: '#E8F5EE',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   emptyTitle: {
-    fontSize: 15,
+    fontSize: 14.5,
     fontWeight: '800',
-    color: '#0F172A',
   },
   emptySub: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: '#64748B',
     textAlign: 'center',
-    lineHeight: 18,
-    paddingHorizontal: 12,
+    lineHeight: 17,
+    paddingHorizontal: 8,
   },
   contactsList: {
     gap: 10,
@@ -1022,34 +1064,27 @@ const styles = StyleSheet.create({
   },
   contactCard: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECEAE4',
+    borderWidth: 1.5,
     borderRadius: 16,
-    padding: 14,
+    padding: 13,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
     elevation: 1,
   },
   contactCardPrimary: {
-    borderColor: '#2E7D5B',
-    backgroundColor: '#F0FDF4',
-  },
-  cardLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
+    borderColor: '#C6E7D5',
+    backgroundColor: '#F7FCF9',
+    borderLeftWidth: 4,
+    borderLeftColor: '#2E7D5B',
   },
   avatarCircle: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#E8F5EE',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1059,75 +1094,87 @@ const styles = StyleSheet.create({
   avatarInitial: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#334155',
+    color: '#2E7D5B',
   },
   avatarInitialPrimary: {
     color: '#FFFFFF',
   },
+  cardInfoContainer: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 8,
+  },
+  cardNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   cardName: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#0F172A',
+    flexShrink: 1,
   },
   primaryBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
     backgroundColor: '#FEF3C7',
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     paddingVertical: 1.5,
-    borderRadius: 6,
+    borderRadius: 5,
   },
   primaryBadgeText: {
-    fontSize: 9,
+    fontSize: 8.5,
     fontWeight: '800',
     color: '#B45309',
     letterSpacing: 0.5,
   },
-  cardMetaRow: {
+  relBadgeRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 3,
+    marginTop: 2.5,
   },
   relBadge: {
-    backgroundColor: '#F1F5F9',
     paddingHorizontal: 6,
     paddingVertical: 1.5,
-    borderRadius: 6,
+    borderRadius: 5,
   },
   relBadgeText: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: '700',
     color: '#475569',
+    letterSpacing: 0.3,
+  },
+  phoneDisplayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3.5,
   },
   cardPhone: {
     fontSize: 12,
-    color: '#64748B',
-    fontWeight: '500',
+    color: '#5C665F',
+    fontWeight: '600',
+    flexShrink: 1,
   },
   cardActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 7,
   },
   starActionBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#F8FAFC',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
   },
   callActionBtn: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#ECFDF5',
+    backgroundColor: '#E8F5EE',
     borderWidth: 1,
-    borderColor: '#A7F3D0',
+    borderColor: '#C6E7D5',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1142,34 +1189,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   hotlinesContainer: {
-    marginTop: 8,
+    marginTop: 4,
   },
   hotlinesHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 12,
+    gap: 9,
+    marginBottom: 10,
   },
   hotlineFlagBadge: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#FFFFFF',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
   },
   hotlinesTitle: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '800',
-    color: '#0F172A',
     letterSpacing: 0.8,
   },
   hotlinesSub: {
-    fontSize: 11,
+    fontSize: 10.5,
     color: '#64748B',
-    marginTop: 1,
+    marginTop: 0.5,
   },
   hotlinesList: {
     gap: 8,
@@ -1177,28 +1221,25 @@ const styles = StyleSheet.create({
   hotlineCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#ECEAE4',
     borderRadius: 14,
-    padding: 12,
-    gap: 12,
+    padding: 11,
+    gap: 10,
   },
   hotlineIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: '#E8F5EE',
     alignItems: 'center',
     justifyContent: 'center',
   },
   hotlineName: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '700',
-    color: '#0F172A',
   },
   hotlineDesc: {
-    fontSize: 11.5,
+    fontSize: 11,
     color: '#64748B',
     marginTop: 1,
   },
@@ -1209,12 +1250,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8F5EE',
     borderWidth: 1,
     borderColor: '#C6E7D6',
-    paddingHorizontal: 10,
+    paddingHorizontal: 9,
     paddingVertical: 5,
-    borderRadius: 10,
+    borderRadius: 9,
   },
   hotlineNumberText: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '800',
     color: '#2E7D5B',
   },

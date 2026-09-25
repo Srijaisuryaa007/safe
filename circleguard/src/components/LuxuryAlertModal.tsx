@@ -1,7 +1,22 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, Alert } from 'react-native';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Modal,
+  TouchableOpacity,
+  Alert,
+  Platform,
+  Animated,
+  Easing,
+  PanResponder,
+  Vibration,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
+
+const SANS_FONT = Platform.OS === 'web' ? 'sans-serif' : undefined;
 
 export type AlertType = 'success' | 'warning' | 'error' | 'info';
 
@@ -10,7 +25,9 @@ export interface AlertOptions {
   message: string;
   type?: AlertType;
   buttonText?: string;
+  secondaryButtonText?: string;
   onPress?: () => void;
+  onSecondaryPress?: () => void;
 }
 
 export interface ConfirmOptions {
@@ -32,32 +49,62 @@ export interface PrivacyRequestOptions {
   onDecline?: () => void;
 }
 
+export interface InAppMessageOptions {
+  title?: string;
+  message: string;
+  type?: AlertType;
+  actionText?: string;
+  onAction?: () => void;
+  duration?: number;
+}
+
 interface LuxuryAlertContextType {
   showAlert: (options: AlertOptions) => void;
   showConfirm: (options: ConfirmOptions) => void;
   showPrivacyRequest: (options: PrivacyRequestOptions) => void;
+  showToast: (message: string, type?: AlertType, title?: string) => void;
+  showInAppMessage: (options: InAppMessageOptions) => void;
   hideAlert: () => void;
+  hideToast: () => void;
 }
 
 const LuxuryAlertContext = createContext<LuxuryAlertContextType>({
   showAlert: () => {},
   showConfirm: () => {},
   showPrivacyRequest: () => {},
+  showToast: () => {},
+  showInAppMessage: () => {},
   hideAlert: () => {},
+  hideToast: () => {},
 });
 
 export const useLuxuryAlert = () => useContext(LuxuryAlertContext);
 
 export function LuxuryAlertProvider({ children }: { children: React.ReactNode }) {
   const { colors, isDark } = useThemeStore();
+  const insets = useSafeAreaInsets();
   const [visible, setVisible] = useState(false);
   const [modalMode, setModalMode] = useState<'alert' | 'confirm' | 'privacy'>('alert');
+
+  // Animation values for bottom sheet
+  const slideAnim = useRef(new Animated.Value(340)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  // Floating in-app message & toast state
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastTitle, setToastTitle] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<AlertType>('info');
+  const [toastAction, setToastAction] = useState<{ text: string; onAction: () => void } | null>(null);
+
+  const toastAnim = useRef(new Animated.Value(-120)).current;
+  const toastFade = useRef(new Animated.Value(0)).current;
+  const toastTimerRef = useRef<any>(null);
 
   const [alertConfig, setAlertConfig] = useState<AlertOptions>({
     title: '',
     message: '',
     type: 'info',
-    buttonText: 'OK',
+    buttonText: 'Understood',
   });
 
   const [confirmConfig, setConfirmConfig] = useState<ConfirmOptions>({
@@ -75,11 +122,93 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
     circleId: '',
   });
 
+  useEffect(() => {
+    if (visible) {
+      slideAnim.setValue(340);
+      fadeAnim.setValue(0);
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 220,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          tension: 68,
+          friction: 9,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible]);
+
+  const hideToast = () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    Animated.parallel([
+      Animated.timing(toastAnim, {
+        toValue: -120,
+        duration: 220,
+        easing: Easing.in(Easing.ease),
+        useNativeDriver: true,
+      }),
+      Animated.timing(toastFade, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setToastMessage(null);
+      setToastTitle(null);
+      setToastAction(null);
+    });
+  };
+
+  const showInAppMessage = (options: InAppMessageOptions) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToastTitle(options.title || null);
+    setToastMessage(options.message);
+    setToastType(options.type || 'info');
+    setToastAction(options.actionText && options.onAction ? { text: options.actionText, onAction: options.onAction } : null);
+
+    if (Platform.OS !== 'web') {
+      try {
+        Vibration.vibrate(40);
+      } catch (_) {}
+    }
+
+    toastAnim.setValue(-100);
+    toastFade.setValue(0);
+
+    Animated.parallel([
+      Animated.spring(toastAnim, {
+        toValue: 0,
+        tension: 72,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+      Animated.timing(toastFade, {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    const duration = options.duration || (options.title ? 4200 : 3500);
+    toastTimerRef.current = setTimeout(() => {
+      hideToast();
+    }, duration);
+  };
+
+  const showToast = (message: string, type: AlertType = 'info', title?: string) => {
+    showInAppMessage({ message, type, title });
+  };
+
   const showAlert = (options: AlertOptions) => {
     setModalMode('alert');
     setAlertConfig({
       type: 'info',
-      buttonText: 'OK',
+      buttonText: 'Understood',
       ...options,
     });
     setVisible(true);
@@ -103,10 +232,24 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
   };
 
   const hideAlert = () => {
-    setVisible(false);
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 340,
+        duration: 180,
+        easing: Easing.in(Easing.ease),
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setVisible(false);
+    });
   };
 
-  // Global Alert.alert polyfill: intercepts any raw Alert.alert calls across the app
+  // Intercept standard Alert.alert across the app
   useEffect(() => {
     const originalAlert = Alert.alert;
     Alert.alert = (title: string, message?: string, buttons?: any[]) => {
@@ -125,20 +268,22 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
       } else {
         const singleBtn = buttons && buttons.length === 1 ? buttons[0] : null;
         const lowTitle = (title || '').toLowerCase();
+        const lowMsg = (message || '').toLowerCase();
         let alertType: AlertType = 'info';
-        if (lowTitle.includes('error') || lowTitle.includes('failed') || lowTitle.includes('denied')) {
+
+        if (lowTitle.includes('error') || lowTitle.includes('failed') || lowTitle.includes('denied') || lowMsg.includes('error') || lowMsg.includes('failed')) {
           alertType = 'error';
-        } else if (lowTitle.includes('warning') || lowTitle.includes('caution')) {
+        } else if (lowTitle.includes('warning') || lowTitle.includes('caution') || lowTitle.includes('limit') || lowMsg.includes('limit') || lowMsg.includes('free tier')) {
           alertType = 'warning';
         } else if (lowTitle.includes('created') || lowTitle.includes('success') || lowTitle.includes('joined') || lowTitle.includes('saved') || lowTitle.includes('copied')) {
           alertType = 'success';
         }
 
         showAlert({
-          title: title || 'Notice',
+          title: title || 'CircleGuard Notice',
           message: message || '',
           type: alertType,
-          buttonText: singleBtn?.text || 'OK',
+          buttonText: singleBtn?.text || 'Understood',
           onPress: singleBtn?.onPress,
         });
       }
@@ -152,6 +297,11 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
   const handleAlertPress = () => {
     hideAlert();
     if (alertConfig.onPress) alertConfig.onPress();
+  };
+
+  const handleAlertSecondaryPress = () => {
+    hideAlert();
+    if (alertConfig.onSecondaryPress) alertConfig.onSecondaryPress();
   };
 
   const handleConfirmPress = () => {
@@ -174,172 +324,417 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
     if (privacyConfig.onDecline) privacyConfig.onDecline();
   };
 
+  // Plan Limit Detection
+  const isPlanLimit =
+    (alertConfig.message || '').toLowerCase().includes('free tier') ||
+    (alertConfig.message || '').toLowerCase().includes('limit') ||
+    (alertConfig.title || '').toLowerCase().includes('limit') ||
+    (alertConfig.message || '').toLowerCase().includes('circle guard plus');
+
   const getAlertIcon = () => {
+    if (isPlanLimit) {
+      return {
+        name: 'sparkles' as const,
+        color: isDark ? '#FBBF24' : '#D97706',
+        bg: isDark ? 'rgba(251, 191, 36, 0.16)' : '#FEF3C7',
+        tag: '• PLAN LIMIT REACHED',
+      };
+    }
+
     switch (alertConfig.type) {
       case 'success':
-        return { name: 'checkmark-circle' as const, color: '#2E7D5B', bg: isDark ? 'rgba(46, 125, 91, 0.2)' : '#E8F5EE' };
+        return {
+          name: 'checkmark-circle-outline' as const,
+          color: isDark ? '#3ADFAB' : '#2E7D5B',
+          bg: isDark ? 'rgba(58, 223, 171, 0.15)' : '#E8F5EE',
+          tag: '• VERIFIED SUCCESS',
+        };
       case 'warning':
-        return { name: 'alert-circle' as const, color: '#E07A5F', bg: isDark ? 'rgba(224, 122, 95, 0.2)' : '#FFF3EB' };
+        return {
+          name: 'warning-outline' as const,
+          color: isDark ? '#FBBF24' : '#D97706',
+          bg: isDark ? 'rgba(251, 191, 36, 0.15)' : '#FEF3C7',
+          tag: '• ATTENTION',
+        };
       case 'error':
-        return { name: 'close-circle' as const, color: '#DC2626', bg: isDark ? 'rgba(220, 38, 38, 0.2)' : '#FEE2E2' };
+        return {
+          name: 'shield-outline' as const,
+          color: isDark ? '#F87171' : '#DC2626',
+          bg: isDark ? 'rgba(248, 113, 113, 0.15)' : '#FEE2E2',
+          tag: '• SYSTEM NOTICE',
+        };
+      case 'info':
       default:
-        return { name: 'information-circle' as const, color: '#2E7D5B', bg: isDark ? 'rgba(46, 125, 91, 0.2)' : '#E8F5EE' };
+        return {
+          name: 'information-circle-outline' as const,
+          color: isDark ? '#38BDF8' : '#0284C7',
+          bg: isDark ? 'rgba(56, 189, 248, 0.15)' : '#E0F2FE',
+          tag: '• CIRCLE NOTICE',
+        };
     }
   };
 
   const iconInfo = getAlertIcon();
 
+  const primaryBtnColor = () => {
+    if (isPlanLimit) return isDark ? '#2E7D5B' : '#2E7D5B';
+    if (alertConfig.type === 'success') return isDark ? '#2E7D5B' : '#2E7D5B';
+    if (alertConfig.type === 'error') return isDark ? '#2E7D5B' : '#1F2A24';
+    if (alertConfig.type === 'warning') return isDark ? '#2E7D5B' : '#1F2A24';
+    return isDark ? '#2E7D5B' : '#1F2A24';
+  };
+
+  const getToastIconInfo = (type: AlertType) => {
+    switch (type) {
+      case 'success':
+        return { name: 'checkmark-circle' as const, color: '#10B981', bg: isDark ? 'rgba(16, 185, 129, 0.16)' : '#E8F5EE' };
+      case 'error':
+        return { name: 'alert-circle' as const, color: '#EF4444', bg: isDark ? 'rgba(239, 68, 68, 0.16)' : '#FEE2E2' };
+      case 'warning':
+        return { name: 'warning' as const, color: '#F59E0B', bg: isDark ? 'rgba(245, 158, 11, 0.16)' : '#FEF3C7' };
+      case 'info':
+      default:
+        return { name: 'information-circle' as const, color: '#38BDF8', bg: isDark ? 'rgba(56, 189, 248, 0.16)' : '#E0F2FE' };
+    }
+  };
+
+  const toastIconMeta = getToastIconInfo(toastType);
+
   return (
-    <LuxuryAlertContext.Provider value={{ showAlert, showConfirm, showPrivacyRequest, hideAlert }}>
+    <LuxuryAlertContext.Provider
+      value={{ showAlert, showConfirm, showPrivacyRequest, showToast, showInAppMessage, hideAlert, hideToast }}
+    >
       {children}
-      <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={hideAlert}>
-        <View style={styles.overlay}>
-          {modalMode === 'alert' ? (
-            /* Modern Enterprise Alert Dialog */
-            <View
-              style={[
-                styles.card,
-                {
-                  backgroundColor: isDark ? '#141619' : '#FFFFFF',
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#ECEAE4',
-                },
-              ]}
-            >
-              <View style={[styles.iconBox, { backgroundColor: iconInfo.bg }]}>
-                <Ionicons name={iconInfo.name} size={32} color={iconInfo.color} />
-              </View>
 
-              <Text style={[styles.title, { color: isDark ? '#F8FAFC' : '#1F2A24' }]}>
-                {alertConfig.title}
-              </Text>
-              <Text style={[styles.message, { color: isDark ? '#94A3B8' : '#5C665F' }]}>
-                {alertConfig.message}
-              </Text>
-
-              <TouchableOpacity
-                style={[
-                  styles.primaryBtn,
-                  { backgroundColor: '#2E7D5B' },
-                ]}
-                onPress={handleAlertPress}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.primaryBtnText, { color: '#FFFFFF' }]}>
-                  {alertConfig.buttonText || 'OK'}
-                </Text>
-              </TouchableOpacity>
+      {/* Floating In-App Dynamic Island Notification Toast */}
+      {toastMessage && (
+        <Animated.View
+          style={[
+            styles.floatingToast,
+            {
+              top: Math.max(insets.top, 14) + 6,
+              opacity: toastFade,
+              transform: [{ translateY: toastAnim }],
+              backgroundColor: isDark ? '#141A17' : '#FFFFFF',
+              borderColor: isDark ? 'rgba(58, 223, 171, 0.25)' : '#EDEBE6',
+            },
+          ]}
+          pointerEvents="box-none"
+        >
+          <TouchableOpacity
+            style={styles.toastInner}
+            onPress={() => {
+              if (toastAction) {
+                toastAction.onAction();
+              }
+              hideToast();
+            }}
+            activeOpacity={0.9}
+          >
+            {/* Left Squircle Icon */}
+            <View style={[styles.toastIconSquircle, { backgroundColor: toastIconMeta.bg }]}>
+              <Ionicons name={toastIconMeta.name} size={18} color={toastIconMeta.color} />
             </View>
-          ) : modalMode === 'confirm' ? (
-            /* Modern Enterprise Confirmation Dialog */
-            <View
-              style={[
-                styles.card,
-                {
-                  backgroundColor: isDark ? '#141619' : '#FFFFFF',
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#ECEAE4',
-                },
-              ]}
-            >
-              <View
+
+            {/* Middle Content */}
+            <View style={{ flex: 1, marginRight: 8 }}>
+              {toastTitle ? (
+                <Text style={[styles.toastTitleText, { color: isDark ? '#FFFFFF' : '#1F2A24' }]} numberOfLines={1}>
+                  {toastTitle}
+                </Text>
+              ) : null}
+              <Text
                 style={[
-                  styles.iconBox,
+                  styles.toastMessageText,
                   {
-                    backgroundColor: confirmConfig.isDestructive
-                      ? (isDark ? 'rgba(220, 38, 38, 0.2)' : '#FEE2E2')
-                      : (isDark ? 'rgba(46, 125, 91, 0.2)' : '#E8F5EE'),
+                    color: toastTitle ? (isDark ? '#CAD5CE' : '#4E5F55') : (isDark ? '#FFFFFF' : '#1F2A24'),
+                    fontWeight: toastTitle ? '500' : '700',
                   },
                 ]}
+                numberOfLines={2}
               >
-                <Ionicons
-                  name={confirmConfig.isDestructive ? 'trash-outline' : 'help-circle-outline'}
-                  size={32}
-                  color={confirmConfig.isDestructive ? '#DC2626' : '#2E7D5B'}
-                />
-              </View>
-
-              <Text style={[styles.title, { color: isDark ? '#F8FAFC' : '#1F2A24' }]}>
-                {confirmConfig.title}
+                {toastMessage}
               </Text>
-              <Text style={[styles.message, { color: isDark ? '#94A3B8' : '#5C665F' }]}>
-                {confirmConfig.message}
-              </Text>
+            </View>
 
-              <View style={styles.btnRow}>
-                <TouchableOpacity
+            {/* Action Chip or Close */}
+            {toastAction ? (
+              <TouchableOpacity
+                style={[styles.toastActionChip, { backgroundColor: isDark ? '#2E7D5B' : '#1F2A24' }]}
+                onPress={() => {
+                  toastAction.onAction();
+                  hideToast();
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.toastActionChipText}>{toastAction.text}</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            <TouchableOpacity onPress={hideToast} style={styles.toastCloseBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close" size={16} color={isDark ? '#88988E' : '#9EACA3'} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
+      {/* Native Bottom Sheet Alert Dialog */}
+      <Modal visible={visible} transparent animationType="none" statusBarTranslucent onRequestClose={hideAlert}>
+        <View style={styles.overlay}>
+          {/* Backdrop Tap to Dismiss */}
+          <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} onPress={hideAlert} activeOpacity={1} />
+          </Animated.View>
+
+          <Animated.View
+            style={[
+              styles.sheetCard,
+              {
+                backgroundColor: isDark ? '#141A17' : '#FFFFFF',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#EDEBE6',
+                transform: [{ translateY: slideAnim }],
+                paddingBottom: Math.max(insets.bottom, 16) + 12,
+              },
+            ]}
+          >
+            {/* Pill Drag Handle */}
+            <View style={[styles.dragHandle, { backgroundColor: isDark ? '#2E3D35' : '#D8D6CE' }]} />
+
+            {modalMode === 'alert' ? (
+              /* Authentic Alert View */
+              <View style={styles.contentWrap}>
+                {/* Header Row: Icon Squircle + Tag */}
+                <View style={styles.headerRow}>
+                  <View style={[styles.iconSquircle, { backgroundColor: iconInfo.bg }]}>
+                    <Ionicons name={iconInfo.name} size={24} color={iconInfo.color} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.categoryTag, { color: iconInfo.color }]}>
+                      {iconInfo.tag}
+                    </Text>
+                    <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#1F2A24' }]} numberOfLines={2}>
+                      {alertConfig.title}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={hideAlert}
+                    style={[styles.closeCircleBtn, isDark && { backgroundColor: '#26342D' }]}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={17} color={isDark ? '#D8E2DC' : '#5C665F'} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Message Body Box */}
+                <View
                   style={[
-                    styles.cancelBtn,
+                    styles.messageBox,
                     {
-                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F0EFEA',
-                      borderWidth: 1,
-                      borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#ECEAE4',
+                      backgroundColor: isDark ? '#0F1411' : '#F7F6F2',
+                      borderColor: isDark ? '#233029' : '#EDEBE6',
                     },
                   ]}
-                  onPress={handleCancelPress}
-                  activeOpacity={0.8}
                 >
-                  <Text style={[styles.cancelBtnText, { color: isDark ? '#F8FAFC' : '#1F2A24' }]}>
-                    {confirmConfig.cancelText || 'Cancel'}
+                  <Text style={[styles.messageText, { color: isDark ? '#CAD5CE' : '#4E5F55' }]}>
+                    {alertConfig.message}
                   </Text>
-                </TouchableOpacity>
+                </View>
 
-                <TouchableOpacity
+                {/* Action Buttons */}
+                {isPlanLimit || alertConfig.secondaryButtonText ? (
+                  <View style={styles.actionBtnRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.secondaryActionBtn,
+                        {
+                          backgroundColor: isDark ? '#1C2621' : '#F0EFEA',
+                          borderColor: isDark ? '#2D3D35' : '#E2E0D8',
+                        },
+                      ]}
+                      onPress={handleAlertSecondaryPress}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.secondaryActionBtnText, { color: isDark ? '#D8E2DC' : '#4A5750' }]}>
+                        {alertConfig.secondaryButtonText || 'Dismiss'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.confirmActionBtn, { backgroundColor: primaryBtnColor() }]}
+                      onPress={handleAlertPress}
+                      activeOpacity={0.84}
+                    >
+                      <Text style={styles.primaryActionBtnText}>
+                        {alertConfig.buttonText || (isPlanLimit ? 'Explore Plus' : 'Understood')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.primaryActionBtn, { backgroundColor: primaryBtnColor() }]}
+                    onPress={handleAlertPress}
+                    activeOpacity={0.84}
+                  >
+                    <Text style={styles.primaryActionBtnText}>{alertConfig.buttonText || 'Understood'}</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : modalMode === 'confirm' ? (
+              /* Authentic Confirmation View */
+              <View style={styles.contentWrap}>
+                <View style={styles.headerRow}>
+                  <View
+                    style={[
+                      styles.iconSquircle,
+                      {
+                        backgroundColor: confirmConfig.isDestructive
+                          ? (isDark ? 'rgba(239, 68, 68, 0.16)' : '#FEE2E2')
+                          : (isDark ? 'rgba(58, 223, 171, 0.15)' : '#E8F5EE'),
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={confirmConfig.isDestructive ? 'trash-outline' : 'help-circle-outline'}
+                      size={24}
+                      color={confirmConfig.isDestructive ? '#EF4444' : (isDark ? '#3ADFAB' : '#2E7D5B')}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[
+                        styles.categoryTag,
+                        { color: confirmConfig.isDestructive ? '#EF4444' : (isDark ? '#3ADFAB' : '#2E7D5B') },
+                      ]}
+                    >
+                      {confirmConfig.isDestructive ? '• ACTION REQUIRED' : '• CONFIRMATION'}
+                    </Text>
+                    <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#1F2A24' }]} numberOfLines={2}>
+                      {confirmConfig.title}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={handleCancelPress}
+                    style={[styles.closeCircleBtn, isDark && { backgroundColor: '#26342D' }]}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={17} color={isDark ? '#D8E2DC' : '#5C665F'} />
+                  </TouchableOpacity>
+                </View>
+
+                <View
                   style={[
-                    styles.confirmBtn,
-                    { backgroundColor: confirmConfig.isDestructive ? '#DC2626' : '#2E7D5B' },
+                    styles.messageBox,
+                    {
+                      backgroundColor: isDark ? '#0F1411' : '#F7F6F2',
+                      borderColor: isDark ? '#233029' : '#EDEBE6',
+                    },
                   ]}
-                  onPress={handleConfirmPress}
-                  activeOpacity={0.8}
                 >
-                  <Text style={styles.confirmBtnText}>
-                    {confirmConfig.confirmText || 'Confirm'}
+                  <Text style={[styles.messageText, { color: isDark ? '#CAD5CE' : '#4E5F55' }]}>
+                    {confirmConfig.message}
                   </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : (
-            /* Modern Enterprise Privacy Request Modal */
-            <View
-              style={[
-                styles.card,
-                {
-                  backgroundColor: isDark ? '#141619' : '#FFFFFF',
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
-                },
-              ]}
-            >
-              <View style={[styles.iconBox, { backgroundColor: isDark ? 'rgba(56, 189, 248, 0.16)' : 'rgba(56, 189, 248, 0.12)' }]}>
-                <Ionicons name="shield-half" size={32} color="#38BDF8" />
-              </View>
+                </View>
 
-              <Text style={[styles.title, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>
-                Privacy Request
-              </Text>
-              <Text style={[styles.message, { color: isDark ? '#94A3B8' : '#64748B' }]}>
-                {privacyConfig.requesterName} requested permission to enable {privacyConfig.featureName}. As Circle Leader, do you authorize this?
-              </Text>
+                <View style={styles.actionBtnRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.secondaryActionBtn,
+                      {
+                        backgroundColor: isDark ? '#1C2621' : '#F0EFEA',
+                        borderColor: isDark ? '#2D3D35' : '#E2E0D8',
+                      },
+                    ]}
+                    onPress={handleCancelPress}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.secondaryActionBtnText, { color: isDark ? '#D8E2DC' : '#4A5750' }]}>
+                      {confirmConfig.cancelText || 'Cancel'}
+                    </Text>
+                  </TouchableOpacity>
 
-              <View style={styles.btnRow}>
-                <TouchableOpacity
+                  <TouchableOpacity
+                    style={[
+                      styles.confirmActionBtn,
+                      {
+                        backgroundColor: confirmConfig.isDestructive
+                          ? '#DC2626'
+                          : (isDark ? '#2E7D5B' : '#1F2A24'),
+                      },
+                    ]}
+                    onPress={handleConfirmPress}
+                    activeOpacity={0.84}
+                  >
+                    <Text style={styles.primaryActionBtnText}>{confirmConfig.confirmText || 'Confirm'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              /* Authentic Privacy Request View */
+              <View style={styles.contentWrap}>
+                <View style={styles.headerRow}>
+                  <View style={[styles.iconSquircle, { backgroundColor: isDark ? 'rgba(56, 189, 248, 0.16)' : '#E0F2FE' }]}>
+                    <Ionicons name="shield-checkmark-outline" size={24} color={isDark ? '#38BDF8' : '#0284C7'} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.categoryTag, { color: '#0284C7' }]}>• PRIVACY PERMISSION</Text>
+                    <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#1F2A24' }]}>Authorization Request</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={handlePrivacyDecline}
+                    style={[styles.closeCircleBtn, isDark && { backgroundColor: '#26342D' }]}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={17} color={isDark ? '#D8E2DC' : '#5C665F'} />
+                  </TouchableOpacity>
+                </View>
+
+                <View
                   style={[
-                    styles.cancelBtn,
-                    { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.12)' : '#FEE2E2' },
+                    styles.messageBox,
+                    {
+                      backgroundColor: isDark ? '#0F1411' : '#F7F6F2',
+                      borderColor: isDark ? '#233029' : '#EDEBE6',
+                    },
                   ]}
-                  onPress={handlePrivacyDecline}
-                  activeOpacity={0.8}
                 >
-                  <Text style={[styles.cancelBtnText, { color: '#EF4444' }]}>DECLINE</Text>
-                </TouchableOpacity>
+                  <Text style={[styles.messageText, { color: isDark ? '#CAD5CE' : '#4E5F55' }]}>
+                    <Text style={{ fontWeight: '700', color: isDark ? '#FFFFFF' : '#1F2A24' }}>
+                      {privacyConfig.requesterName}
+                    </Text>{' '}
+                    requested authorization to activate{' '}
+                    <Text style={{ fontWeight: '700', color: isDark ? '#FFFFFF' : '#1F2A24' }}>
+                      {privacyConfig.featureName}
+                    </Text>
+                    . As Circle Leader, do you authorize this permission?
+                  </Text>
+                </View>
 
-                <TouchableOpacity
-                  style={[styles.confirmBtn, { backgroundColor: '#10B981' }]}
-                  onPress={handlePrivacyApprove}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.confirmBtnText}>AUTHORIZE</Text>
-                </TouchableOpacity>
+                <View style={styles.actionBtnRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.secondaryActionBtn,
+                      {
+                        backgroundColor: isDark ? '#2A1818' : '#FEE2E2',
+                        borderColor: isDark ? '#4A2323' : '#FECACA',
+                      },
+                    ]}
+                    onPress={handlePrivacyDecline}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.secondaryActionBtnText, { color: '#EF4444' }]}>Decline</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.confirmActionBtn, { backgroundColor: isDark ? '#2E7D5B' : '#2E7D5B' }]}
+                    onPress={handlePrivacyApprove}
+                    activeOpacity={0.84}
+                  >
+                    <Text style={styles.primaryActionBtnText}>Authorize</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-          )}
+            )}
+          </Animated.View>
         </View>
       </Modal>
     </LuxuryAlertContext.Provider>
@@ -349,85 +744,190 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.72)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
+    justifyContent: 'flex-end',
+    zIndex: 999999,
   },
-  card: {
+  backdrop: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(10, 16, 13, 0.62)',
+  },
+  sheetCard: {
     width: '100%',
-    maxWidth: 330,
-    borderRadius: 24,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     borderWidth: 1,
-    padding: 24,
-    alignItems: 'center',
+    borderBottomWidth: 0,
+    paddingHorizontal: 22,
+    paddingTop: 12,
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.35,
-    shadowRadius: 28,
-    elevation: 14,
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 20,
+    elevation: 24,
   },
-  iconBox: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    alignItems: 'center',
-    justifyContent: 'center',
+  dragHandle: {
+    width: 38,
+    height: 4.5,
+    borderRadius: 3,
+    alignSelf: 'center',
     marginBottom: 16,
   },
-  title: {
-    fontSize: 18,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 8,
-    letterSpacing: -0.3,
-  },
-  message: {
-    fontSize: 13.5,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  primaryBtn: {
+  contentWrap: {
     width: '100%',
-    height: 48,
-    borderRadius: 14,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  iconSquircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  primaryBtnText: {
-    fontSize: 13,
+  categoryTag: {
+    fontFamily: SANS_FONT,
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 1,
+    letterSpacing: 0.6,
+    marginBottom: 2,
   },
-  btnRow: {
+  title: {
+    fontFamily: SANS_FONT,
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    lineHeight: 22,
+  },
+  closeCircleBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F0EFEA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  messageBox: {
+    width: '100%',
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 18,
+  },
+  messageText: {
+    fontFamily: SANS_FONT,
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 21,
+  },
+  primaryActionBtn: {
+    width: '100%',
+    height: 50,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  primaryActionBtnText: {
+    fontFamily: SANS_FONT,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+  },
+  actionBtnRow: {
     flexDirection: 'row',
     gap: 10,
     width: '100%',
   },
-  cancelBtn: {
+  secondaryActionBtn: {
     flex: 1,
-    height: 48,
-    borderRadius: 14,
+    height: 50,
+    borderRadius: 15,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cancelBtnText: {
-    fontSize: 13,
+  secondaryActionBtnText: {
+    fontFamily: SANS_FONT,
+    fontSize: 14,
     fontWeight: '700',
-    letterSpacing: 0.8,
+    letterSpacing: 0.4,
   },
-  confirmBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 14,
+  confirmActionBtn: {
+    flex: 1.2,
+    height: 50,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  confirmBtnText: {
-    color: '#FFFFFF',
-    fontSize: 13,
+  floatingToast: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    zIndex: 9999999,
+    borderRadius: 20,
+    borderWidth: 1,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    elevation: 14,
+  },
+  toastInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  toastIconSquircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+  toastTitleText: {
+    fontFamily: SANS_FONT,
+    fontSize: 13.5,
     fontWeight: '800',
-    letterSpacing: 0.8,
+    letterSpacing: -0.1,
+    marginBottom: 1,
+  },
+  toastMessageText: {
+    fontFamily: SANS_FONT,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  toastActionChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    marginRight: 8,
+  },
+  toastActionChipText: {
+    fontFamily: SANS_FONT,
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+  toastCloseBtn: {
+    padding: 4,
+    marginLeft: 4,
   },
 });

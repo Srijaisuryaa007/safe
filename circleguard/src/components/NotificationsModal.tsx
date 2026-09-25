@@ -12,6 +12,8 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getSafeTopInset } from '../utils/safeArea';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from '../lib/supabase';
@@ -36,6 +38,8 @@ const KEYS = {
 };
 
 export default function NotificationsModal({ visible, onClose }: NotificationsModalProps) {
+  const insets = useSafeAreaInsets();
+  const topInset = getSafeTopInset(insets.top);
   const { profile, setProfile } = useAuthStore();
   const { country, countryCode } = useCountryStore();
   const { showAlert } = useLuxuryAlert();
@@ -158,10 +162,10 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={false}>
+    <Modal visible={visible} animationType="slide" transparent={false} statusBarTranslucent={true}>
       <View style={styles.container}>
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: topInset + 8 }]}>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.8}>
             <Ionicons name="close" size={20} color="#1F2A24" />
           </TouchableOpacity>

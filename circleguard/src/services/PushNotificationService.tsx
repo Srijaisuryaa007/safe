@@ -333,7 +333,7 @@ export async function sendPushAlertToCircleMembers(
 
 /**
  * Trigger Instant Native Mobile Pop-Up System Notification Banner with Sound & Vibration
- * Uses Apple-minimalist styling with custom funny emojis
+ * Uses clean Apple-minimalist styling for system notifications
  */
 export async function scheduleLocalNotification(title: string, body: string, data: Record<string, any> = {}) {
   if (Platform.OS === 'web') return;
@@ -343,7 +343,7 @@ export async function scheduleLocalNotification(title: string, body: string, dat
   try {
     Vibration.vibrate([0, 200, 100, 200]);
     
-    // Ensure Android Notification Channel is set to Apple Minimalist Dark Monochrome
+    // Ensure Android Notification Channel is set to Apple Minimalist Dark Monochrome with MAX importance
     if (Platform.OS === 'android' && Notifications.setNotificationChannelAsync) {
       await Notifications.setNotificationChannelAsync('default', {
         name: 'CircleGuard Radar',
@@ -351,15 +351,21 @@ export async function scheduleLocalNotification(title: string, body: string, dat
         vibrationPattern: [0, 200, 100, 200],
         lightColor: '#1C1C1E',
         sound: 'default',
+        enableLights: true,
+        enableVibrate: true,
+        showBadge: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        bypassDnd: false,
       });
     }
 
     await Notifications.scheduleNotificationAsync({
       content: {
+        channelId: 'default',
         title,
         body,
         sound: 'default',
-        priority: 'high',
+        priority: Notifications.AndroidNotificationPriority?.MAX || 'max',
         categoryIdentifier: 'radar',
         color: '#1C1C1E', // Minimalist Apple-like dark color
         data,

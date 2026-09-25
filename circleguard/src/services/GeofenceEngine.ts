@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { isValidUuid } from '../lib/utils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 
 export interface GeofencePlace {
   id: string;
@@ -145,14 +146,110 @@ interface CandidateTransition {
 
 const confirmedStates = new Map<string, 'inside' | 'outside'>();
 const candidateTransitions = new Map<string, CandidateTransition>();
-const lastAlertTimestamps = new Map<string, number>();
 
 // Enterprise Geofence Constants
-const GEOFENCE_TRANSITION_COOLDOWN_MS = 180000; // 3 minutes anti-flapping cooldown
+export const GEOFENCE_TRANSITION_COOLDOWN_MS = 180000; // 3 minutes anti-flapping cooldown
 const REQUIRED_EXIT_CONSECUTIVE_SAMPLES = 3;     // 3 consecutive fixes outside required
 const REQUIRED_EXIT_DWELL_MS = 25000;            // 25s sustained outside dwell
 const REQUIRED_ENTRY_CONSECUTIVE_SAMPLES = 2;    // 2 consecutive fixes inside required
 const REQUIRED_ENTRY_DWELL_MS = 8000;            // 8s sustained inside dwell
+
+export interface GeofenceAlertRecord {
+  lastEventType: 'entry' | 'exit';
+  lastAlertTime: number;
+}
+
+const inMemoryAlertState = new Map<string, GeofenceAlertRecord>();
+const inFlightAlertLocks = new Set<string>();
+
+export type GeofenceBreachListener = (breach: GeofenceBreachEvent) => void;
+const inAppBreachListeners = new Set<GeofenceBreachListener>();
+
+export function addInAppGeofenceBreachListener(listener: GeofenceBreachListener): () => void {
+  inAppBreachListeners.add(listener);
+  return () => {
+    inAppBreachListeners.delete(listener);
+  };
+}
+
+export function notifyInAppGeofenceBreach(breach: GeofenceBreachEvent) {
+  inAppBreachListeners.forEach(listener => {
+    try {
+      listener(breach);
+    } catch (e) {
+      console.warn('[GeofenceEngine] In-app breach listener error:', e);
+    }
+  });
+}
+
+/**
+ * Authoritative, persistent cross-task deduplication coordinator.
+ * Prevents multiple notifications when entering or exiting safe zones.
+ * Rules enforced:
+ * 1. Strict State Alternation: An 'exit' cannot fire if the last alerted state was already 'exit'.
+ *    An 'entry' cannot fire if the last alerted state was already 'entry'.
+ * 2. Minimum Transition Cooldown: At least 3 minutes between opposite state transitions to prevent boundary flapping.
+ * 3. Atomic In-flight Mutex: Concurrent tasks (native geofence + location updates) cannot race.
+ */
+export async function canAndRecordGeofenceAlert(
+  userId: string,
+  placeId: string,
+  targetType: 'entry' | 'exit'
+): Promise<boolean> {
+  const alertKey = `${userId}_${placeId}`;
+  const now = Date.now();
+
+  // 1. In-flight concurrency lock (stops simultaneous tasks executing within milliseconds)
+  if (inFlightAlertLocks.has(alertKey)) {
+    return false;
+  }
+  inFlightAlertLocks.add(alertKey);
+
+  try {
+    // 2. Read persistent alert record (Memory first, then AsyncStorage)
+    let record = inMemoryAlertState.get(alertKey);
+    if (!record) {
+      try {
+        const stored = await AsyncStorage.getItem(`@circleguard_geofence_alert_${alertKey}`);
+        if (stored) {
+          record = JSON.parse(stored);
+        }
+      } catch (e) {}
+    }
+
+    if (record) {
+      // RULE 1: STRICT STATE ALTERNATION
+      // If we already alerted for this exact transition, reject duplicate alert immediately
+      if (record.lastEventType === targetType) {
+        return false;
+      }
+
+      // RULE 2: ANTI-FLAPPING TRANSITION COOLDOWN
+      // Require at least 3 minutes between opposite state transitions
+      if (now - record.lastAlertTime < GEOFENCE_TRANSITION_COOLDOWN_MS) {
+        return false;
+      }
+    }
+
+    // Record the newly approved transition state persistently
+    const newRecord: GeofenceAlertRecord = {
+      lastEventType: targetType,
+      lastAlertTime: now,
+    };
+    inMemoryAlertState.set(alertKey, newRecord);
+
+    try {
+      await AsyncStorage.setItem(
+        `@circleguard_geofence_alert_${alertKey}`,
+        JSON.stringify(newRecord)
+      );
+    } catch (e) {}
+
+    return true;
+  } finally {
+    inFlightAlertLocks.delete(alertKey);
+  }
+}
 
 export async function evaluateGeofenceBreaches(
   userLoc: UserLocation,
@@ -345,31 +442,37 @@ export async function evaluateGeofenceBreaches(
         continue;
       }
 
-      // Within safe boundary: evaluate multi-sample entry confirmation
-      let candidate = candidateTransitions.get(trackingKey);
-      if (!candidate || candidate.targetState !== 'inside') {
-        candidateTransitions.set(trackingKey, {
-          targetState: 'inside',
-          consecutiveCount: 1,
-          firstCandidateTime: now,
-          lastCandidateTime: now,
-          distances: [distMeters],
-        });
-        continue; // Wait for consecutive confirmation
+      // Within safe boundary:
+      // High-confidence GPS fix (accuracy <= 40m or distance comfortably inside perimeter)
+      // triggers IMMEDIATE entry confirmation! This ensures background/closed-app notifications
+      // fire without being dropped by OS background execution limits or multi-sample latency.
+      const isHighConfidenceEntry = accuracy <= 40 || distMeters <= radius * 0.85;
+
+      if (isHighConfidenceEntry) {
+        candidateState = 'inside';
+        candidateTransitions.delete(trackingKey);
+      } else {
+        // Marginal accuracy fix: require 2 samples or fast confirmation
+        let candidate = candidateTransitions.get(trackingKey);
+        if (!candidate || candidate.targetState !== 'inside') {
+          candidateTransitions.set(trackingKey, {
+            targetState: 'inside',
+            consecutiveCount: 1,
+            firstCandidateTime: now,
+            lastCandidateTime: now,
+            distances: [distMeters],
+          });
+          continue; // Wait for consecutive confirmation
+        }
+
+        candidate.consecutiveCount += 1;
+        candidate.lastCandidateTime = now;
+        candidate.distances.push(distMeters);
+
+        // Fully confirmed entry
+        candidateState = 'inside';
+        candidateTransitions.delete(trackingKey);
       }
-
-      candidate.consecutiveCount += 1;
-      candidate.lastCandidateTime = now;
-      candidate.distances.push(distMeters);
-
-      const dwellDurationMs = now - candidate.firstCandidateTime;
-      if (candidate.consecutiveCount < REQUIRED_ENTRY_CONSECUTIVE_SAMPLES || dwellDurationMs < REQUIRED_ENTRY_DWELL_MS) {
-        continue; // Still pending dwell confirmation
-      }
-
-      // Fully confirmed entry
-      candidateState = 'inside';
-      candidateTransitions.delete(trackingKey);
     }
 
     if (candidateState === null) {
@@ -382,16 +485,14 @@ export async function evaluateGeofenceBreaches(
       await AsyncStorage.setItem(`@circleguard_geofence_state_${trackingKey}`, candidateState);
     } catch (e) {}
 
-    // Layer 6: Anti-Flapping Transition Cooldown (3 minutes)
-    const lastAlertTime = lastAlertTimestamps.get(trackingKey) || 0;
-    const inCooldown = now - lastAlertTime < GEOFENCE_TRANSITION_COOLDOWN_MS;
+    const isExit = candidateState === 'outside';
+    const targetEventType: 'entry' | 'exit' = isExit ? 'exit' : 'entry';
 
-    if (inCooldown) {
+    // Layer 6: Authoritative Anti-Flapping Transition Cooldown & Deduplication
+    const allowed = await canAndRecordGeofenceAlert(userLoc.user_id, place.id, targetEventType);
+    if (!allowed) {
       continue;
     }
-
-    lastAlertTimestamps.set(trackingKey, now);
-    const isExit = candidateState === 'outside';
     const formattedDist =
       distMeters >= 1000
         ? `${(distMeters / 1000).toFixed(1)} km`
@@ -593,11 +694,20 @@ export async function dispatchGeofencePushAlert(breach: GeofenceBreachEvent, pla
     const title = template.title;
     const body = template.body;
 
-    await scheduleLocalNotification(title, body, {
-      screen: 'Map',
-      userId: breach.userId,
-      placeId: breach.placeId,
-    });
+    // Check if user is actively in the app or outside
+    const isAppActive = AppState.currentState === 'active';
+
+    if (isAppActive) {
+      // IN-APP: Notify in-app notification listeners once without popping external OS banners over active UI
+      notifyInAppGeofenceBreach(breach);
+    } else {
+      // OUTSIDE APP: Deliver exactly ONE local OS push notification popup banner
+      await scheduleLocalNotification(title, body, {
+        screen: 'Map',
+        userId: breach.userId,
+        placeId: breach.placeId,
+      });
+    }
 
     if (tokens.length > 0) {
       await sendExpoPushNotification(tokens, title, body, {
@@ -700,4 +810,43 @@ export async function fetchCirclePlacesWithMembers(circleId: string): Promise<Ge
     console.error('Error fetching circle places with members:', e);
     return [];
   }
+}
+
+/**
+ * Automatically evaluates all active circle members against the circle's safe places
+ * to accurately collect and record arrival and departure events when members leave and arrive.
+ */
+export async function evaluateCircleMembersGeofences(
+  members: any[],
+  places: GeofencePlace[]
+): Promise<GeofenceBreachEvent[]> {
+  if (!members || members.length === 0 || !places || places.length === 0) return [];
+  const allBreaches: GeofenceBreachEvent[] = [];
+
+  for (const m of members) {
+    const lat = typeof m.latitude === 'number' ? m.latitude : parseFloat(m.latitude);
+    const lng = typeof m.longitude === 'number' ? m.longitude : parseFloat(m.longitude);
+
+    if (lat && lng && !isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0)) {
+      const userLoc: UserLocation = {
+        user_id: m.user_id || m.id,
+        latitude: lat,
+        longitude: lng,
+        speed_mps: m.isDriving ? 8 : (m.speed_mps || 0),
+        accuracy_m: 12,
+        updated_at: new Date().toISOString(),
+      };
+      const name = m.profile?.full_name || m.name || 'Member';
+      try {
+        const breaches = await evaluateGeofenceBreaches(userLoc, name, places);
+        if (breaches && breaches.length > 0) {
+          allBreaches.push(...breaches);
+        }
+      } catch (err) {
+        console.warn(`[GeofenceEngine] Error evaluating member ${m.user_id || m.id}:`, err);
+      }
+    }
+  }
+
+  return allBreaches;
 }

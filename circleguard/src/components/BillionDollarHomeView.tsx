@@ -30,6 +30,7 @@ import CurrentAddressModal from './CurrentAddressModal';
 import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
 import { getSafeTopInset } from '../utils/safeArea';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { navigationRef } from '../navigation/AppNavigator';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const LAST_USER_LOC_STORAGE_KEY = '@circleguard_last_user_location';
@@ -38,6 +39,27 @@ export default function BillionDollarHomeView() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const topInset = getSafeTopInset(insets.top);
+
+  const navigateToScreen = React.useCallback((screenName: string, params?: any) => {
+    try {
+      if (navigationRef.isReady()) {
+        (navigationRef as any).navigate(screenName, params);
+        return;
+      }
+    } catch (_) {}
+    try {
+      const parent = navigation.getParent?.();
+      if (parent && typeof parent.navigate === 'function') {
+        parent.navigate(screenName, params);
+        return;
+      }
+    } catch (_) {}
+    try {
+      navigation.navigate(screenName, params);
+    } catch (e) {
+      console.warn('[HomeView] nav error:', e);
+    }
+  }, [navigation]);
 
   const { profile } = useAuthStore();
   const { activeCircle, members, places, fetchMembers, fetchPlaces } = useCircleStore();
@@ -293,7 +315,7 @@ export default function BillionDollarHomeView() {
     const lat = target.latitude;
     const lng = target.longitude;
     if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
-      navigation.navigate('LocationHistory', { member: target, circleId: activeCircle?.id });
+      navigateToScreen('LocationHistory', { member: target, circleId: activeCircle?.id });
       return;
     }
     scrollViewRef.current?.scrollTo({ y: 0, animated: true });
@@ -1456,7 +1478,7 @@ export default function BillionDollarHomeView() {
                   ? { backgroundColor: '#16201B', borderColor: '#23322A' }
                   : { backgroundColor: '#FFFFFF', borderColor: '#E5E8E5' },
               ]}
-              onPress={() => navigation.navigate('DrivingReports')}
+              onPress={() => navigateToScreen('DrivingReports')}
               activeOpacity={0.8}
             >
               <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(224, 122, 95, 0.18)' : '#FDF2EE' }]}>
@@ -1473,7 +1495,7 @@ export default function BillionDollarHomeView() {
                   ? { backgroundColor: '#16201B', borderColor: '#23322A' }
                   : { backgroundColor: '#FFFFFF', borderColor: '#E5E8E5' },
               ]}
-              onPress={() => navigation.navigate('LocationHistory')}
+              onPress={() => navigateToScreen('LocationHistory')}
               activeOpacity={0.8}
             >
               <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E8F5EE' }]}>
@@ -1490,7 +1512,7 @@ export default function BillionDollarHomeView() {
                   ? { backgroundColor: '#16201B', borderColor: '#23322A' }
                   : { backgroundColor: '#FFFFFF', borderColor: '#E5E8E5' },
               ]}
-              onPress={() => navigation.navigate('SafePlaces')}
+              onPress={() => navigateToScreen('SafePlaces')}
               activeOpacity={0.8}
             >
               <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(99, 102, 241, 0.16)' : '#EEF2FF' }]}>
@@ -1531,7 +1553,7 @@ export default function BillionDollarHomeView() {
                       } else if (member.latitude && member.longitude) {
                         focusMemberOnMap(member);
                       } else {
-                        navigation.navigate('LocationHistory', { member, circleId: activeCircle?.id });
+                        navigateToScreen('LocationHistory', { member, circleId: activeCircle?.id });
                       }
                     }}
                     activeOpacity={0.85}

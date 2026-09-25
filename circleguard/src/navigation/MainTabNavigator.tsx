@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Platform, Animated, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, Platform, Animated, useWindowDimensions } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,17 +7,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import HomeScreen from '../screens/HomeScreen';
 import MapScreen from '../screens/MapScreen';
 import DashboardScreen from '../screens/DashboardScreen';
-import ProfileScreen from '../screens/ProfileScreen';
 import ActivityScreen from '../screens/ActivityScreen';
+import SOSAlertScreen from '../screens/SOSAlertScreen';
 import { useThemeStore } from '../store/useThemeStore';
 
 export type MainTabParamList = {
   Home: undefined;
   Map: undefined;
-  SOS: undefined;
-  Circle: undefined;
   Activity: undefined;
-  Profile: undefined;
+  Circle: undefined;
+  SOS: undefined;
+  Profile?: undefined;
 };
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -34,10 +34,10 @@ interface ThreeDTabIconProps {
   activeIcon: keyof typeof Ionicons.glyphMap;
   inactiveIcon: keyof typeof Ionicons.glyphMap;
   isDark: boolean;
-  type: 'home' | 'map' | 'circle' | 'profile';
+  type: 'home' | 'map' | 'circle' | 'activity' | 'profile' | 'sos';
 }
 
-const ThreeDTabIcon: React.FC<ThreeDTabIconProps> = ({
+const ThreeDTabIcon: React.FC<ThreeDTabIconProps> = React.memo(({
   focused,
   color,
   activeTintColor,
@@ -47,10 +47,6 @@ const ThreeDTabIcon: React.FC<ThreeDTabIconProps> = ({
   type,
 }) => {
   const scaleAnim = useRef(new Animated.Value(focused ? 1.08 : 1)).current;
-  const floatAnim = useRef(new Animated.Value(0)).current;
-  const rotYAnim = useRef(new Animated.Value(0)).current;
-  const rotXAnim = useRef(new Animated.Value(0)).current;
-  const flipAnim = useRef(new Animated.Value(0)).current;
   const bgOpacityAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
   const dotScaleAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
 
@@ -58,36 +54,22 @@ const ThreeDTabIcon: React.FC<ThreeDTabIconProps> = ({
     const useNative = Platform.OS !== 'web';
 
     if (focused) {
-      // 1. Initial 3D spring pop & 360 flip on focus
-      flipAnim.setValue(0);
       Animated.parallel([
-        Animated.timing(flipAnim, {
-          toValue: 1,
-          duration: 380,
+        Animated.spring(scaleAnim, {
+          toValue: 1.08,
+          friction: 6,
+          tension: 300,
           useNativeDriver: useNative,
         }),
-        Animated.sequence([
-          Animated.timing(scaleAnim, {
-            toValue: 1.18,
-            duration: 130,
-            useNativeDriver: useNative,
-          }),
-          Animated.spring(scaleAnim, {
-            toValue: 1.08,
-            friction: 4.5,
-            tension: 220,
-            useNativeDriver: useNative,
-          }),
-        ]),
         Animated.timing(bgOpacityAnim, {
           toValue: 1,
-          duration: 160,
+          duration: 140,
           useNativeDriver: useNative,
         }),
         Animated.spring(dotScaleAnim, {
           toValue: 1,
-          friction: 4,
-          tension: 240,
+          friction: 6,
+          tension: 300,
           useNativeDriver: useNative,
         }),
       ]).start();
@@ -95,118 +77,54 @@ const ThreeDTabIcon: React.FC<ThreeDTabIconProps> = ({
       Animated.parallel([
         Animated.spring(scaleAnim, {
           toValue: 1,
-          friction: 6,
-          tension: 200,
+          friction: 7,
+          tension: 250,
           useNativeDriver: useNative,
         }),
         Animated.timing(bgOpacityAnim, {
           toValue: 0,
-          duration: 120,
+          duration: 100,
           useNativeDriver: useNative,
         }),
         Animated.spring(dotScaleAnim, {
           toValue: 0,
-          friction: 6,
+          friction: 7,
           tension: 250,
           useNativeDriver: useNative,
         }),
       ]).start();
     }
+  }, [focused]);
 
-    // 2. Continuous 3D moving oscillation tailored to each icon (both focused & idle)
-    // Focused tab has pronounced 3D amplitude, idle tabs maintain elegant breathing 3D float
-    let baseDuration = 2400;
-    if (type === 'home') baseDuration = 2400;
-    else if (type === 'map') baseDuration = 2800;
-    else if (type === 'circle') baseDuration = 2600;
-    else if (type === 'profile') baseDuration = 3000;
-
-    const targetRotY = focused ? 1 : 0.45;
-    const targetRotX = focused ? 1 : 0.35;
-    const targetFloat = focused ? -2.5 : -1.2;
-    const returnFloat = focused ? 0.5 : 0.3;
-
-    const motionLoop = Animated.loop(
-      Animated.sequence([
-        Animated.parallel([
-          Animated.timing(rotYAnim, {
-            toValue: targetRotY,
-            duration: baseDuration / 2,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(rotXAnim, {
-            toValue: -targetRotX,
-            duration: baseDuration / 2,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(floatAnim, {
-            toValue: targetFloat,
-            duration: baseDuration / 2,
-            useNativeDriver: useNative,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(rotYAnim, {
-            toValue: -targetRotY,
-            duration: baseDuration / 2,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(rotXAnim, {
-            toValue: targetRotX,
-            duration: baseDuration / 2,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(floatAnim, {
-            toValue: returnFloat,
-            duration: baseDuration / 2,
-            useNativeDriver: useNative,
-          }),
-        ]),
-      ])
-    );
-
-    motionLoop.start();
-    return () => motionLoop.stop();
-  }, [focused, type]);
-
-  const rotYDeg = rotYAnim.interpolate({
-    inputRange: [-1, 0, 1],
-    outputRange: type === 'map' ? ['-22deg', '0deg', '22deg'] : ['-16deg', '0deg', '16deg'],
-  });
-
-  const rotXDeg = rotXAnim.interpolate({
-    inputRange: [-1, 0, 1],
-    outputRange: ['-12deg', '0deg', '12deg'],
-  });
-
-  const flipDeg = flipAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-
+  const isSos = type === 'sos';
   const isBillion = activeTintColor === '#2E7D5B' || activeTintColor === '#183CE6';
   const isGreen = activeTintColor === '#3DBE6C';
-  const pillBg = isBillion
+  const pillBg = isSos
+    ? (isDark ? 'rgba(239, 68, 68, 0.20)' : 'rgba(239, 68, 68, 0.14)')
+    : isBillion
     ? 'rgba(46, 125, 91, 0.14)'
     : isGreen
     ? (isDark ? 'rgba(61, 190, 108, 0.16)' : 'rgba(61, 190, 108, 0.12)')
     : (isDark ? 'rgba(212, 175, 55, 0.16)' : 'rgba(212, 175, 55, 0.12)');
-  const pillBorder = isBillion
+  const pillBorder = isSos
+    ? (isDark ? 'rgba(239, 68, 68, 0.42)' : 'rgba(239, 68, 68, 0.28)')
+    : isBillion
     ? 'rgba(46, 125, 91, 0.25)'
     : isGreen
     ? (isDark ? 'rgba(61, 190, 108, 0.32)' : 'rgba(61, 190, 108, 0.22)')
     : (isDark ? 'rgba(212, 175, 55, 0.32)' : 'rgba(212, 175, 55, 0.22)');
+
+  const iconColor = isSos
+    ? (focused ? '#EF4444' : (isDark ? '#F87171' : '#DC2626'))
+    : color;
+  const dotColor = isSos ? '#EF4444' : activeTintColor;
 
   return (
     <Animated.View
       style={[
         styles.iconWrapper,
         {
-          transform: [
-            { perspective: 850 },
-            { translateY: floatAnim },
-            { scale: scaleAnim },
-          ],
+          transform: [{ scale: scaleAnim }],
         },
       ]}
     >
@@ -222,184 +140,34 @@ const ThreeDTabIcon: React.FC<ThreeDTabIconProps> = ({
         ]}
       />
 
-      <Animated.View
-        style={[
-          styles.inner3DIconContainer,
-          {
-            transform: [
-              { perspective: 850 },
-              { rotateY: rotYDeg },
-              { rotateX: rotXDeg },
-              { rotateZ: flipDeg },
-            ],
-          },
-        ]}
-      >
+      <View style={styles.inner3DIconContainer}>
         <Ionicons
           name={focused ? activeIcon : inactiveIcon}
           size={focused ? 19 : 17.5}
-          color={color}
+          color={iconColor}
         />
-      </Animated.View>
+      </View>
 
       <Animated.View
         style={[
           styles.activeDot,
           {
-            backgroundColor: activeTintColor,
-            transform: [
-              { scale: dotScaleAnim },
-              { translateY: floatAnim },
-            ],
+            backgroundColor: dotColor,
+            transform: [{ scale: dotScaleAnim }],
           },
         ]}
       />
     </Animated.View>
   );
-};
-
-const ThreeDSosIcon: React.FC<{ focused: boolean }> = ({ focused }) => {
-  const rotYAnim = useRef(new Animated.Value(0)).current;
-  const rotXAnim = useRef(new Animated.Value(0)).current;
-  const pulseScale = useRef(new Animated.Value(1)).current;
-  const ringScale = useRef(new Animated.Value(1)).current;
-  const ringOpacity = useRef(new Animated.Value(0.35)).current;
-  const floatAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const useNative = Platform.OS !== 'web';
-
-    const sosLoop = Animated.loop(
-      Animated.sequence([
-        Animated.parallel([
-          Animated.timing(pulseScale, {
-            toValue: 1.10,
-            duration: 850,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(ringScale, {
-            toValue: 1.34,
-            duration: 850,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(ringOpacity, {
-            toValue: 0.8,
-            duration: 850,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(rotYAnim, {
-            toValue: 1,
-            duration: 850,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(rotXAnim, {
-            toValue: -1,
-            duration: 850,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(floatAnim, {
-            toValue: -2.5,
-            duration: 850,
-            useNativeDriver: useNative,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(pulseScale, {
-            toValue: 1,
-            duration: 850,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(ringScale, {
-            toValue: 1,
-            duration: 850,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(ringOpacity, {
-            toValue: 0.25,
-            duration: 850,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(rotYAnim, {
-            toValue: -1,
-            duration: 850,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(rotXAnim, {
-            toValue: 1,
-            duration: 850,
-            useNativeDriver: useNative,
-          }),
-          Animated.timing(floatAnim, {
-            toValue: 0.5,
-            duration: 850,
-            useNativeDriver: useNative,
-          }),
-        ]),
-      ])
-    );
-
-    sosLoop.start();
-    return () => sosLoop.stop();
-  }, []);
-
-  const rotYDeg = rotYAnim.interpolate({
-    inputRange: [-1, 0, 1],
-    outputRange: ['-18deg', '0deg', '18deg'],
-  });
-
-  const rotXDeg = rotXAnim.interpolate({
-    inputRange: [-1, 0, 1],
-    outputRange: ['-14deg', '0deg', '14deg'],
-  });
-
-  return (
-    <Animated.View
-      style={[
-        styles.sosOuterGlow,
-        {
-          transform: [
-            { perspective: 850 },
-            { scale: pulseScale },
-            { translateY: floatAnim },
-            { rotateY: rotYDeg },
-            { rotateX: rotXDeg },
-          ],
-        },
-      ]}
-    >
-      <Animated.View
-        style={[
-          styles.sosPulseHalo,
-          {
-            opacity: ringOpacity,
-            transform: [{ scale: ringScale }],
-          },
-        ]}
-      />
-      <View style={styles.sosCenterBadge}>
-        <Ionicons name="shield" size={15} color="#EF4444" />
-      </View>
-    </Animated.View>
-  );
-};
+});
 
 export default function MainTabNavigator() {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const { colors, themeMode, isDark } = useThemeStore();
 
-  const activeTintColor =
-    themeMode === 'billion_dollar'
-      ? '#2E7D5B'
-      : themeMode === 'brand_green'
-      ? '#3DBE6C'
-      : colors.accentGold;
-  const inactiveTintColor =
-    themeMode === 'billion_dollar'
-      ? '#717871'
-      : isDark
-      ? '#7E8B9B'
-      : '#8C96A5';
+  const activeTintColor = isDark ? '#3ADFAB' : '#2E7D5B';
+  const inactiveTintColor = isDark ? '#CAD5CE' : '#717871';
 
   // Floating pill dock geometry:
   // Guarantee identical gaps on both left and right sides so the 'C' curves float
@@ -414,20 +182,20 @@ export default function MainTabNavigator() {
 
   return (
     <Tab.Navigator
+      detachInactiveScreens={true}
       screenOptions={{
         headerShown: false,
-        animation: 'fade',
+        animation: 'none',
+        freezeOnBlur: true,
+        lazy: true,
+        tabBarHideOnKeyboard: true,
         tabBarActiveTintColor: activeTintColor,
         tabBarInactiveTintColor: inactiveTintColor,
         tabBarStyle: [
           styles.tabBar,
           {
-            backgroundColor: themeMode === 'billion_dollar'
-              ? (isDark ? 'rgba(23, 26, 24, 0.97)' : 'rgba(255, 255, 255, 0.97)')
-              : (isDark ? 'rgba(26, 29, 36, 0.97)' : 'rgba(255, 255, 255, 0.97)'),
-            borderColor: themeMode === 'billion_dollar'
-              ? '#E2E8E2'
-              : (isDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(0, 0, 0, 0.08)'),
+            backgroundColor: isDark ? '#141A17' : 'rgba(255, 255, 255, 0.97)',
+            borderColor: isDark ? '#26342D' : '#EDEBE6',
             bottom: bottomOffset,
             height: barHeight,
             left: sideGap,
@@ -518,19 +286,34 @@ export default function MainTabNavigator() {
       />
 
       <Tab.Screen
-        name="Profile"
-        component={ProfileScreen}
+        name="SOS"
+        component={SOSAlertScreen}
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            e.preventDefault();
+            (navigation as any).navigate('SOSAlert');
+          },
+        })}
         options={{
-          tabBarLabel: 'Profile',
-          tabBarIcon: ({ color, focused }) => (
+          tabBarLabel: ({ focused }) => (
+            <Text
+              style={[
+                styles.tabBarLabel,
+                { color: focused ? '#EF4444' : (isDark ? '#F87171' : '#DC2626') },
+              ]}
+            >
+              SOS
+            </Text>
+          ),
+          tabBarIcon: ({ focused }) => (
             <ThreeDTabIcon
               focused={focused}
-              color={color}
-              activeTintColor={activeTintColor}
-              activeIcon="person"
-              inactiveIcon="person-outline"
+              color={focused ? '#EF4444' : (isDark ? '#F87171' : '#DC2626')}
+              activeTintColor="#EF4444"
+              activeIcon="warning"
+              inactiveIcon="warning-outline"
               isDark={isDark}
-              type="profile"
+              type="sos"
             />
           ),
         }}
