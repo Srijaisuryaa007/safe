@@ -489,6 +489,9 @@ const LEAFLET_HTML = `
       };
 
       window.clearAllMapLayers = function() {
+        if (window.clearMemberRoute) {
+          try { window.clearMemberRoute(); } catch(e) {}
+        }
         if (memberMarkers) {
           Object.keys(memberMarkers).forEach(function(k) {
             try { map.removeLayer(memberMarkers[k]); } catch(e) {}
@@ -499,6 +502,16 @@ const LEAFLET_HTML = `
           Object.keys(placeCircles).forEach(function(k) {
             try { map.removeLayer(placeCircles[k]); } catch(e) {}
             delete placeCircles[k];
+          });
+        }
+        if (window.searchedPlaceMarker) {
+          try { map.removeLayer(window.searchedPlaceMarker); } catch(e) {}
+          window.searchedPlaceMarker = null;
+        }
+        if (window.poiMarkers) {
+          Object.keys(window.poiMarkers).forEach(function(k) {
+            try { map.removeLayer(window.poiMarkers[k]); } catch(e) {}
+            delete window.poiMarkers[k];
           });
         }
       };
@@ -727,6 +740,7 @@ const LEAFLET_HTML = `
           });
           window.activeMemberRouteLayers = [];
         }
+        window.lastRouteBounds = null;
       };
 
       window.drawMultipleRoadRoutes = function(routes, activeIndex) {
@@ -1470,7 +1484,7 @@ export default function MapScreen() {
 
   const { colors, isDark, themeMode, mapStyle: mapStyleSetting, setMapStyle: setMapStyleSetting } = useThemeStore();
   const { profile } = useAuthStore();
-  const { activeCircle, members, places, circleFetched, fetchActiveCircle, fetchMembers, fetchPlaces, deletePlace, isLoading: circleLoading } = useCircleStore();
+  const { activeCircle, members, places, circleFetched, isSwitchingCircle, fetchActiveCircle, fetchMembers, fetchPlaces, deletePlace, isLoading: circleLoading } = useCircleStore();
   const { showAlert, showConfirm } = useLuxuryAlert();
   const insets = useSafeAreaInsets();
   const topInset = getSafeTopInset(insets.top);
@@ -1612,18 +1626,18 @@ export default function MapScreen() {
     setMemberRoadInfo(null);
     setAvailableRoutes([]);
     setSelectedRouteIndex(0);
-    if (webViewRef.current) {
-      webViewRef.current.injectJavaScript(`
-        if (window.clearMemberRoute) { window.clearMemberRoute(); }
-        true;
-      `);
-    }
+    executeMapScript(`
+      if (window.clearMemberRoute) { window.clearMemberRoute(); }
+      true;
+    `);
     if (navigation && (navigation as any).setParams) {
       (navigation as any).setParams({
         focusUserId: undefined,
         focusLat: undefined,
         focusLng: undefined,
         focusUserName: undefined,
+        targetMember: undefined,
+        timestamp: undefined,
       });
     }
   };
@@ -2075,6 +2089,10 @@ export default function MapScreen() {
       setMemberRoadInfo(null);
       setAvailableRoutes([]);
       setSelectedRouteIndex(0);
+      executeMapScript(`
+        if (window.clearMemberRoute) { window.clearMemberRoute(); }
+        true;
+      `);
       return;
     }
     const isSelf = String(selectedMember.user_id).toLowerCase() === String(profile?.id).toLowerCase();
@@ -2082,6 +2100,10 @@ export default function MapScreen() {
       setMemberRoadInfo({ distText: 'Your Location' });
       setAvailableRoutes([]);
       setSelectedRouteIndex(0);
+      executeMapScript(`
+        if (window.clearMemberRoute) { window.clearMemberRoute(); }
+        true;
+      `);
       return;
     }
     const memberLoc = locations.find(l => l.user_id === selectedMember.user_id);
@@ -2728,12 +2750,55 @@ export default function MapScreen() {
     };
   }, [profile, isFollowUserActive]);
 
+  const lastActiveCircleIdRef = useRef<string | null>(activeCircle?.id || null);
+
+  // STRICT CIRCLE ISOLATION: Dismiss selected member, road routes, and layers on circle switch
+  useEffect(() => {
+    const currentId = activeCircle?.id || null;
+    if (isSwitchingCircle || (lastActiveCircleIdRef.current !== null && lastActiveCircleIdRef.current !== currentId)) {
+      handleCloseMemberCard();
+      setSelectedPlace(null);
+      setSelectedPoi(null);
+      setSearchQuery('');
+      setSearchResults({ members: [], places: [], pois: [], locations: [] });
+      lastHandledFocusKeyRef.current = null;
+      pendingFocusRef.current = null;
+
+      executeMapScript(`
+        if (window.clearMemberRoute) { window.clearMemberRoute(); }
+        if (window.clearAllMapLayers) { window.clearAllMapLayers(); }
+        if (window.showSearchedPlace) { window.showSearchedPlace(null, null, null); }
+        true;
+      `);
+    }
+    lastActiveCircleIdRef.current = currentId;
+  }, [activeCircle?.id, isSwitchingCircle]);
+
+  // Safety guard: If selectedMember is not in the active circle's members, immediately close the card and remove the route
+  useEffect(() => {
+    if (selectedMember && activeCircle?.id) {
+      const isSelf = String(selectedMember.user_id).toLowerCase() === String(profile?.id).toLowerCase();
+      if (!isSelf && members.length > 0) {
+        const belongsToCircle = members.some(
+          m => String(m.user_id).toLowerCase() === String(selectedMember.user_id).toLowerCase()
+        );
+        if (!belongsToCircle) {
+          handleCloseMemberCard();
+        }
+      }
+    }
+  }, [members, activeCircle?.id, selectedMember?.user_id, profile?.id]);
+
   // Realtime Supabase Channels & Instant Marker Purging
   useEffect(() => {
     if (!activeCircle) return;
     
-    // Clear previous circle markers and zones immediately from Leaflet
-    webViewRef.current?.injectJavaScript(`if (window.clearAllMapLayers) { window.clearAllMapLayers(); } true;`);
+    // Clear previous circle markers, zones, and road routes immediately from Leaflet
+    executeMapScript(`
+      if (window.clearAllMapLayers) { window.clearAllMapLayers(); }
+      if (window.clearMemberRoute) { window.clearMemberRoute(); }
+      true;
+    `);
 
     fetchMembers(activeCircle.id).then(freshMembers => {
       const uids = (freshMembers || []).map(m => m.user_id);
@@ -2839,6 +2904,14 @@ export default function MapScreen() {
             fetchPlaces(activeCircle.id),
             fetchLocations(uids),
           ]);
+          if (selectedMember && String(selectedMember.user_id).toLowerCase() !== String(profile?.id).toLowerCase()) {
+            const inCircle = (freshMembers || []).some(
+              m => String(m.user_id).toLowerCase() === String(selectedMember.user_id).toLowerCase()
+            );
+            if (!inCircle) {
+              handleCloseMemberCard();
+            }
+          }
         }
         if (isMounted) {
           executeMapScript('if (window.map && typeof window.map.invalidateSize === "function") { window.map.invalidateSize(); } true;');
@@ -2849,7 +2922,7 @@ export default function MapScreen() {
       return () => {
         isMounted = false;
       };
-    }, [activeCircle?.id, profile?.id])
+    }, [activeCircle?.id, profile?.id, selectedMember])
   );
 
   const fetchLocations = async (overrideMemberIds?: string[]) => {
