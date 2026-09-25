@@ -31,6 +31,73 @@ export interface ActivityEvent {
 
 const getActivityStorageKey = (circleId: string) => `@circleguard_local_activity_events_${circleId}`;
 
+// Standard 7-day retention period (silent automatic background purge without mentioning in UI)
+export const ACTIVITY_RETENTION_DAYS = 7;
+export const ACTIVITY_RETENTION_MS = ACTIVITY_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+/**
+ * Formats a clean date/time label for chronological activity items
+ */
+export const formatEventDisplayTime = (timestamp: number, rawIso?: string): string => {
+  const date = timestamp ? new Date(timestamp) : (rawIso ? new Date(rawIso) : new Date());
+  if (isNaN(date.getTime())) return 'Recently';
+
+  const now = new Date();
+  const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  if (now.toDateString() === date.toDateString()) {
+    return timeStr;
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (yesterday.toDateString() === date.toDateString()) {
+    return `Yesterday, ${timeStr}`;
+  }
+
+  const month = date.toLocaleString('default', { month: 'short' });
+  const day = date.getDate();
+  return `${month} ${day}, ${timeStr}`;
+};
+
+/**
+ * Silently deletes/purges expired events older than the retention period
+ * (Executed in the background; does not show any deletion alerts or UI mentions)
+ */
+export const purgeExpiredActivities = async (circleId: string): Promise<void> => {
+  if (!circleId) return;
+  try {
+    const cutoffIso = new Date(Date.now() - ACTIVITY_RETENTION_MS).toISOString();
+
+    // 1. Silently prune expired local AsyncStorage events
+    const key = getActivityStorageKey(circleId);
+    const localStr = await AsyncStorage.getItem(key);
+    if (localStr) {
+      const localList: ActivityEvent[] = JSON.parse(localStr);
+      const unexpiredList = localList.filter((e) => (Date.now() - e.timestamp) <= ACTIVITY_RETENTION_MS);
+      if (unexpiredList.length !== localList.length) {
+        await AsyncStorage.setItem(key, JSON.stringify(unexpiredList));
+      }
+    }
+
+    // 2. Silently delete expired place_events from Supabase
+    await supabase
+      .from('place_events')
+      .delete()
+      .lt('occurred_at', cutoffIso);
+
+    // 3. Silently delete expired resolved SOS alerts from Supabase
+    await supabase
+      .from('sos_alerts')
+      .delete()
+      .eq('circle_id', circleId)
+      .eq('status', 'RESOLVED')
+      .lt('created_at', cutoffIso);
+  } catch (e) {
+    // Silent background execution
+  }
+};
+
 /**
  * Persists an activity event locally in AsyncStorage for instant retrieval
  */
@@ -39,8 +106,9 @@ export const saveLocalActivityEvent = async (circleId: string, event: ActivityEv
     const key = getActivityStorageKey(circleId);
     const existingStr = await AsyncStorage.getItem(key);
     let list: ActivityEvent[] = existingStr ? JSON.parse(existingStr) : [];
-    // Prepend and cap at 50 events
-    list = [event, ...list.filter((e) => e.id !== event.id)].slice(0, 50);
+    const now = Date.now();
+    // Prepend, prune expired items older than retention period, and cap at 100 events
+    list = [event, ...list.filter((e) => e.id !== event.id && (now - e.timestamp) <= ACTIVITY_RETENTION_MS)].slice(0, 100);
     await AsyncStorage.setItem(key, JSON.stringify(list));
   } catch (e) {
     console.warn('Error saving local activity event:', e);
@@ -48,13 +116,16 @@ export const saveLocalActivityEvent = async (circleId: string, event: ActivityEv
 };
 
 /**
- * Loads cached activity events for the circle
+ * Loads cached activity events for the circle, filtering out expired ones
  */
 export const getLocalActivityEvents = async (circleId: string): Promise<ActivityEvent[]> => {
   try {
     const key = getActivityStorageKey(circleId);
     const existingStr = await AsyncStorage.getItem(key);
-    return existingStr ? JSON.parse(existingStr) : [];
+    if (!existingStr) return [];
+    const list: ActivityEvent[] = JSON.parse(existingStr);
+    const now = Date.now();
+    return list.filter((e) => (now - e.timestamp) <= ACTIVITY_RETENTION_MS);
   } catch (e) {
     return [];
   }
@@ -218,7 +289,10 @@ export const fetchCircleActivities = async (
   members: CircleMember[] = [],
   places: any[] = []
 ): Promise<ActivityEvent[]> => {
-  const cutoffTime = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  // Silently purge expired activities in the background (no UI notification or deletion notice)
+  purgeExpiredActivities(circleId).catch(() => {});
+
+  const cutoffTime = new Date(Date.now() - ACTIVITY_RETENTION_MS).toISOString();
   const memberMap = new Map<string, CircleMember>();
   members.forEach((m) => memberMap.set(m.user_id, m));
 
@@ -236,7 +310,7 @@ export const fetchCircleActivities = async (
       .eq('circle_id', circleId)
       .gte('created_at', cutoffTime)
       .order('created_at', { ascending: false })
-      .limit(30);
+      .limit(60);
 
     if (!error && Array.isArray(data)) {
       msgEvents = data.map((item: any) => {
@@ -273,6 +347,7 @@ export const fetchCircleActivities = async (
           avatarUrl: member?.profile?.avatar_url,
           userId: item.sender_id,
           timestamp: new Date(item.created_at).getTime(),
+          occurredAtIso: item.created_at,
         };
       });
     }
@@ -287,7 +362,7 @@ export const fetchCircleActivities = async (
       .eq('circle_id', circleId)
       .gte('created_at', cutoffTime)
       .order('created_at', { ascending: false })
-      .limit(15);
+      .limit(30);
 
     if (!error && Array.isArray(data)) {
       sosEvents = data.map((item: any) => {
@@ -305,6 +380,7 @@ export const fetchCircleActivities = async (
           avatarUrl: member?.profile?.avatar_url,
           userId: item.user_id,
           timestamp: new Date(item.created_at).getTime(),
+          occurredAtIso: item.created_at,
         };
       });
     }
@@ -330,7 +406,7 @@ export const fetchCircleActivities = async (
         .in('user_id', memberUserIds)
         .gte('occurred_at', cutoffTime)
         .order('occurred_at', { ascending: false })
-        .limit(40);
+        .limit(100);
 
       if (!resWithRel.error && Array.isArray(resWithRel.data)) {
         rawPlaceEvents = resWithRel.data;
@@ -342,7 +418,7 @@ export const fetchCircleActivities = async (
           .in('user_id', memberUserIds)
           .gte('occurred_at', cutoffTime)
           .order('occurred_at', { ascending: false })
-          .limit(40);
+          .limit(100);
 
         if (fallbackData) rawPlaceEvents = fallbackData;
       }

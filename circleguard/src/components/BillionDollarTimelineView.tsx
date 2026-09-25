@@ -28,6 +28,7 @@ import {
   fetchCircleActivities,
   broadcastCheckIn,
   broadcastCheckInRequest,
+  formatEventDisplayTime,
 } from '../services/ActivityService';
 import { getSafeTopInset } from '../utils/safeArea';
 import { navigationRef } from '../navigation/AppNavigator';
@@ -67,7 +68,8 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
   const { activeCircle, members, places } = useCircleStore();
   const { isDark } = useThemeStore();
 
-  const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'week'>('today');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week'>('all');
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'checkins' | 'arrivals' | 'alerts'>('all');
   const [safeHomeCheckedIn, setSafeHomeCheckedIn] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -223,6 +225,8 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
       list = list.filter((a) => now - a.timestamp <= oneDayMs);
     } else if (dateFilter === 'yesterday') {
       list = list.filter((a) => now - a.timestamp > oneDayMs && now - a.timestamp <= 2 * oneDayMs);
+    } else if (dateFilter === 'week') {
+      list = list.filter((a) => now - a.timestamp <= 7 * oneDayMs);
     }
 
     if (categoryFilter === 'checkins') {
@@ -235,6 +239,23 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
 
     return list;
   }, [activities, dateFilter, categoryFilter]);
+
+  const checkinCount = useMemo(
+    () => activities.filter((a) => a.type === 'MESSAGE' || a.type === 'CHECKIN').length,
+    [activities]
+  );
+  const arrivalCount = useMemo(
+    () => activities.filter((a) => a.type === 'GEOFENCE').length,
+    [activities]
+  );
+  const alertCount = useMemo(
+    () => activities.filter((a) => a.type === 'SOS').length,
+    [activities]
+  );
+
+  const INITIAL_DISPLAY_LIMIT = 5;
+  const displayActivities = isExpanded ? filteredActivities : filteredActivities.slice(0, INITIAL_DISPLAY_LIMIT);
+  const hasMoreToExpand = filteredActivities.length > INITIAL_DISPLAY_LIMIT;
 
   return (
     <View style={[styles.container, isDark && styles.containerDark]}>
@@ -327,6 +348,7 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
         <View style={{ marginBottom: 10 }}>
           <JellyRadio
             items={[
+              { value: 'all', label: 'All Dates' },
               { value: 'today', label: 'Today' },
               { value: 'yesterday', label: 'Yesterday' },
               { value: 'week', label: 'Past 7 Days' },
@@ -355,7 +377,7 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
               },
               {
                 value: 'checkins',
-                label: 'Check-ins',
+                label: `Check-ins (${checkinCount})`,
                 icon: (
                   <Ionicons
                     name="checkmark-circle"
@@ -366,7 +388,7 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
               },
               {
                 value: 'arrivals',
-                label: 'Arrivals / Departures',
+                label: `Arrivals (${arrivalCount})`,
                 icon: (
                   <Ionicons
                     name="walk-outline"
@@ -377,7 +399,7 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
               },
               {
                 value: 'alerts',
-                label: 'Alerts',
+                label: `Alerts (${alertCount})`,
                 icon: (
                   <Ionicons
                     name="warning-outline"
@@ -401,6 +423,25 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
             bounce={0.25}
           />
         </View>
+
+        {/* Quick Date Scope Switcher if filtered and more exist */}
+        {dateFilter !== 'all' && activities.length > filteredActivities.length && (
+          <TouchableOpacity
+            style={[styles.allEventsPromptCard, isDark && styles.allEventsPromptCardDark]}
+            onPress={() => {
+              setDateFilter('all');
+              setIsExpanded(true);
+            }}
+            activeOpacity={0.8}
+            accessibilityLabel={`Showing ${filteredActivities.length}. Tap to view all ${activities.length} events`}
+          >
+            <Ionicons name="sparkles" size={15} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+            <Text style={[styles.allEventsPromptText, isDark && styles.allEventsPromptTextDark]}>
+              Showing {filteredActivities.length} for {dateFilter}. Tap to view all {activities.length} events across all dates
+            </Text>
+            <Ionicons name="chevron-forward" size={14} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+          </TouchableOpacity>
+        )}
 
         {/* Quick Check-in Reassurance Banner */}
         <View style={[styles.reassuranceBanner, isDark && styles.reassuranceBannerDark]}>
@@ -445,12 +486,12 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
 
         {/* Chronological Feed Stream with Vertical Connecting Line */}
         <View style={styles.feedContainer}>
-          {filteredActivities.length > 0 && (
+          {displayActivities.length > 0 && (
             <View style={[styles.verticalTrackLine, isDark && styles.verticalTrackLineDark]} />
           )}
 
-          {filteredActivities.length > 0 ? (
-            filteredActivities.map((event) => (
+          {displayActivities.length > 0 ? (
+            displayActivities.map((event) => (
               <TouchableOpacity
                 key={event.id}
                 style={styles.timelineItem}
@@ -508,7 +549,9 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
                         {event.title}
                       </Text>
                     </View>
-                    <Text style={[styles.cardItemTime, isDark && styles.textSubDark]}>{event.time}</Text>
+                    <Text style={[styles.cardItemTime, isDark && styles.textSubDark]}>
+                      {formatEventDisplayTime(event.timestamp, event.occurredAtIso)}
+                    </Text>
                   </View>
                   <Text style={[styles.cardItemSub, isDark && styles.textSubDark]}>{event.message}</Text>
                   <View style={styles.cardActionHintRow}>
@@ -526,6 +569,48 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
                 Arrivals, departures, check-ins, and safety alerts will automatically populate here as your circle stays connected.
               </Text>
             </View>
+          )}
+
+          {/* Expand to View All Events button */}
+          {hasMoreToExpand && !isExpanded && (
+            <TouchableOpacity
+              style={[styles.expandFeedBtn, isDark && styles.expandFeedBtnDark]}
+              onPress={() => setIsExpanded(true)}
+              activeOpacity={0.8}
+              accessibilityLabel={`View all ${filteredActivities.length} events`}
+            >
+              <View style={[styles.expandFeedBadge, isDark && styles.expandFeedBadgeDark]}>
+                <Text style={[styles.expandFeedBadgeText, isDark && styles.expandFeedBadgeTextDark]}>
+                  {filteredActivities.length}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.expandFeedBtnTitle, isDark && styles.textLight]}>
+                  View All {filteredActivities.length} Events ▾
+                </Text>
+                <Text style={[styles.expandFeedBtnSub, isDark && styles.textSubDark]}>
+                  Tap to expand complete activity history
+                </Text>
+              </View>
+              <View style={[styles.expandIconCircle, isDark && styles.expandIconCircleDark]}>
+                <Ionicons name="chevron-down" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {/* Collapse Feed button */}
+          {hasMoreToExpand && isExpanded && (
+            <TouchableOpacity
+              style={[styles.collapseFeedBtn, isDark && styles.collapseFeedBtnDark]}
+              onPress={() => setIsExpanded(false)}
+              activeOpacity={0.8}
+              accessibilityLabel="Show less events"
+            >
+              <Ionicons name="chevron-up" size={16} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Text style={[styles.collapseFeedBtnText, isDark && { color: '#3ADFAB' }]}>
+                Show Less (Collapse Feed)
+              </Text>
+            </TouchableOpacity>
           )}
         </View>
 
@@ -625,7 +710,7 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
                         {selectedEvent?.memberName}
                       </Text>
                       <Text style={[styles.modalTimestamp, isDark && styles.textSubDark]}>
-                        {selectedEvent?.time}
+                        {selectedEvent ? formatEventDisplayTime(selectedEvent.timestamp, selectedEvent.occurredAtIso) : ''}
                       </Text>
                     </View>
                   </View>
@@ -692,7 +777,9 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
                 <View style={styles.telemetryGrid}>
                   <View style={[styles.telemetryStatBox, isDark && styles.telemetryStatBoxDark]}>
                     <Text style={[styles.telemetryStatLabel, isDark && styles.textSubDark]}>EVENT TIME</Text>
-                    <Text style={[styles.telemetryStatValue, isDark && styles.textLight]}>{selectedEvent.time}</Text>
+                    <Text style={[styles.telemetryStatValue, isDark && styles.textLight]}>
+                      {selectedEvent ? formatEventDisplayTime(selectedEvent.timestamp, selectedEvent.occurredAtIso) : ''}
+                    </Text>
                   </View>
                   <View style={[styles.telemetryStatBox, isDark && styles.telemetryStatBoxDark]}>
                     <Text style={[styles.telemetryStatLabel, isDark && styles.textSubDark]}>
@@ -1672,5 +1759,118 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#5C665F',
     lineHeight: 16.5,
+  },
+  expandFeedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#D4E2D9',
+    marginTop: 8,
+    marginBottom: 14,
+    shadowColor: '#2E7D5B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  expandFeedBtnDark: {
+    backgroundColor: '#18241D',
+    borderColor: '#2D4537',
+    shadowOpacity: 0.2,
+  },
+  expandFeedBadge: {
+    backgroundColor: '#2E7D5B',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  expandFeedBadgeDark: {
+    backgroundColor: '#3ADFAB',
+  },
+  expandFeedBadgeText: {
+    fontFamily: SANS_FONT,
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  expandFeedBadgeTextDark: {
+    color: '#002116',
+  },
+  expandFeedBtnTitle: {
+    fontFamily: SANS_FONT,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1F2A24',
+  },
+  expandFeedBtnSub: {
+    fontFamily: SANS_FONT,
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  expandIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#E8F5EE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  expandIconCircleDark: {
+    backgroundColor: '#23352B',
+  },
+  collapseFeedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    backgroundColor: '#F0EFEA',
+    marginTop: 6,
+    marginBottom: 14,
+    gap: 6,
+  },
+  collapseFeedBtnDark: {
+    backgroundColor: '#1E2923',
+  },
+  collapseFeedBtnText: {
+    fontFamily: SANS_FONT,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2E7D5B',
+  },
+  allEventsPromptCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5EE',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#C8E6D5',
+  },
+  allEventsPromptCardDark: {
+    backgroundColor: '#16281F',
+    borderColor: '#244534',
+  },
+  allEventsPromptText: {
+    flex: 1,
+    fontFamily: SANS_FONT,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2E7D5B',
+  },
+  allEventsPromptTextDark: {
+    color: '#3ADFAB',
   },
 });
