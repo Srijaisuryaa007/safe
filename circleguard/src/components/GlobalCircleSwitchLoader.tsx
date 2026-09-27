@@ -1,7 +1,6 @@
-import React from 'react';
-import { View, StyleSheet, Modal, Platform } from 'react-native';
+import React, { useRef, useEffect } from 'react';
+import { View, StyleSheet, Modal, Platform, Animated } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { MotiView } from 'moti';
 import CircleGuardGlobeLoader from './CircleGuardGlobeLoader';
 import { useCircleStore } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
@@ -9,6 +8,17 @@ import { useThemeStore } from '../store/useThemeStore';
 export default function GlobalCircleSwitchLoader() {
   const { isSwitchingCircle, switchingTargetName, switchingStepText } = useCircleStore();
   const { isDark } = useThemeStore();
+  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (isSwitchingCircle) {
+      Animated.parallel([
+        Animated.timing(opacityAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
+        Animated.spring(scaleAnim, { toValue: 1, friction: 8, tension: 100, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [isSwitchingCircle]);
 
   if (!isSwitchingCircle) return null;
 
@@ -36,15 +46,8 @@ export default function GlobalCircleSwitchLoader() {
           />
         )}
 
-        <MotiView
-          from={{ opacity: 0, scale: 0.88 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{
-            type: 'spring',
-            damping: 18,
-            stiffness: 140,
-          } as any}
-          style={styles.cardContainer}
+        <Animated.View
+          style={[styles.cardContainer, { opacity: opacityAnim, transform: [{ scale: scaleAnim }] }]}
         >
           <CircleGuardGlobeLoader
             size={160}
@@ -52,7 +55,7 @@ export default function GlobalCircleSwitchLoader() {
             subLabel={switchingStepText || 'Synchronizing members & live telemetry'}
             fullscreen={false}
           />
-        </MotiView>
+        </Animated.View>
       </View>
     </Modal>
   );
