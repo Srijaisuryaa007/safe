@@ -68,7 +68,16 @@
       ],
       "expo-status-bar",
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": false,
+            "extraProguardRules": "-keep class androidx.work.impl.WorkDatabase { *; }\n-keep class androidx.work.impl.WorkDatabase_Impl { *; }\n-keep class androidx.work.impl.** { *; }\n-keep class androidx.work.** { *; }\n-keep class * extends androidx.room.RoomDatabase { *; }\n-keep class androidx.startup.** { *; }\n-dontwarn androidx.work.**\n-dontwarn androidx.work.impl.**\n-dontwarn androidx.startup.**"
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {
