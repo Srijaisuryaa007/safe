@@ -7,19 +7,12 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "notification": {
-      "icon": "./assets/icon.png",
-      "color": "#1C1C1E",
-      "androidMode": "default"
-    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "CircleGuard requires location access to display your live position to family members.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "CircleGuard tracks your location continuously in the background to monitor safety geofences even when the app is closed.",
-        "NSLocationAlwaysUsageDescription": "CircleGuard needs continuous location access to alert your circle when entering or leaving geofence zones."
-      },
-      "infoPlistKeys": {
+        "NSLocationAlwaysUsageDescription": "CircleGuard needs continuous location access to alert your circle when entering or leaving geofence zones.",
         "UIBackgroundModes": [
           "location",
           "fetch"

@@ -16,6 +16,7 @@ import { RevenueCatService } from './src/services/RevenueCatService';
 import { StatusBar } from 'expo-status-bar';
 import { LogBox } from 'react-native';
 import { LuxuryAlertProvider } from './src/components/LuxuryAlertModal';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 
 // Silence LogBox banner overlays in development so custom luxury in-app messages are prioritized
 LogBox.ignoreAllLogs(true);
@@ -254,9 +255,11 @@ function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="auto" />
-      <LuxuryAlertProvider>
-        <AppNavigator />
-      </LuxuryAlertProvider>
+      <ErrorBoundary>
+        <LuxuryAlertProvider>
+          <AppNavigator />
+        </LuxuryAlertProvider>
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }
