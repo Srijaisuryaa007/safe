@@ -21,6 +21,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
+import { supabase } from '../lib/supabase';
 import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
 import JellyRadio from './JellyRadio';
 import {
@@ -70,7 +71,7 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
 
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week'>('all');
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
-  const [categoryFilter, setCategoryFilter] = useState<'all' | 'checkins' | 'arrivals' | 'alerts'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'checkins' | 'arrivals' | 'departures' | 'alerts'>('all');
   const [safeHomeCheckedIn, setSafeHomeCheckedIn] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
@@ -150,6 +151,41 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
   useEffect(() => {
     fetchTimelineEvents();
   }, [activeCircle?.id, members.length]);
+
+  // Realtime subscription for instant activity updates
+  useEffect(() => {
+    if (!activeCircle?.id) return;
+
+    const channelUid = Math.random().toString(36).substring(2, 8);
+    const channel = supabase
+      .channel(`timeline_rt_${activeCircle.id}_${channelUid}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'place_events' },
+        () => {
+          fetchTimelineEvents();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'circle_messages', filter: `circle_id=eq.${activeCircle.id}` },
+        () => {
+          fetchTimelineEvents();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'sos_alerts', filter: `circle_id=eq.${activeCircle.id}` },
+        () => {
+          fetchTimelineEvents();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeCircle?.id]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -232,7 +268,9 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
     if (categoryFilter === 'checkins') {
       list = list.filter((a) => a.type === 'MESSAGE' || a.type === 'CHECKIN');
     } else if (categoryFilter === 'arrivals') {
-      list = list.filter((a) => a.type === 'GEOFENCE');
+      list = list.filter((a) => a.type === 'GEOFENCE' && a.eventType === 'arrival');
+    } else if (categoryFilter === 'departures') {
+      list = list.filter((a) => a.type === 'GEOFENCE' && a.eventType === 'departure');
     } else if (categoryFilter === 'alerts') {
       list = list.filter((a) => a.type === 'SOS');
     }
@@ -245,7 +283,11 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
     [activities]
   );
   const arrivalCount = useMemo(
-    () => activities.filter((a) => a.type === 'GEOFENCE').length,
+    () => activities.filter((a) => a.type === 'GEOFENCE' && a.eventType === 'arrival').length,
+    [activities]
+  );
+  const departureCount = useMemo(
+    () => activities.filter((a) => a.type === 'GEOFENCE' && a.eventType === 'departure').length,
     [activities]
   );
   const alertCount = useMemo(
@@ -391,9 +433,20 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
                 label: `Arrivals (${arrivalCount})`,
                 icon: (
                   <Ionicons
+                    name="location-sharp"
+                    size={14}
+                    color={categoryFilter === 'arrivals' ? (isDark ? '#002116' : '#FFFFFF') : (isDark ? '#3ADFAB' : '#2E7D5B')}
+                  />
+                ),
+              },
+              {
+                value: 'departures',
+                label: `Departures (${departureCount})`,
+                icon: (
+                  <Ionicons
                     name="walk-outline"
                     size={14}
-                    color={categoryFilter === 'arrivals' ? (isDark ? '#002116' : '#FFFFFF') : (isDark ? '#60A5FA' : '#183CE6')}
+                    color={categoryFilter === 'departures' ? (isDark ? '#002116' : '#FFFFFF') : '#F59E0B'}
                   />
                 ),
               },

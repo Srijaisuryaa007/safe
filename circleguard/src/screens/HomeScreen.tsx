@@ -239,6 +239,15 @@ export default function HomeScreen() {
           useCircleStore.getState().fetchMembers(activeCircle.id);
         }
       )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'place_events' },
+        () => {
+          if (activeCircle?.id) {
+            fetchCircleActivity(activeCircle.id);
+          }
+        }
+      )
       .subscribe();
 
     return () => {

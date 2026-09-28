@@ -403,35 +403,46 @@ export async function evaluateGeofenceBreaches(
         continue;
       }
 
-      // Layer 5: Temporal Dwell & Multi-Sample Exit Verification
-      let candidate = candidateTransitions.get(trackingKey);
-      if (!candidate || candidate.targetState !== 'outside') {
-        candidateTransitions.set(trackingKey, {
-          targetState: 'outside',
-          consecutiveCount: 1,
-          firstCandidateTime: now,
-          lastCandidateTime: now,
-          distances: [distMeters],
-        });
-        continue; // Wait for consecutive confirmation
+      // HIGH-CONFIDENCE EXIT:
+      // If GPS accuracy is reliable (<=40m) and distance exceeds exitThreshold + 30m,
+      // or if distance is clearly beyond the perimeter (>= radius * 1.5):
+      // Trigger IMMEDIATE exit confirmation without waiting for multi-sample latency!
+      const isHighConfidenceExit = (accuracy <= 40 && distMeters >= exitThreshold + 30) || distMeters >= radius * 1.5;
+
+      if (isHighConfidenceExit) {
+        candidateState = 'outside';
+        candidateTransitions.delete(trackingKey);
+      } else {
+        // Layer 5: Temporal Dwell & Multi-Sample Exit Verification
+        let candidate = candidateTransitions.get(trackingKey);
+        if (!candidate || candidate.targetState !== 'outside') {
+          candidateTransitions.set(trackingKey, {
+            targetState: 'outside',
+            consecutiveCount: 1,
+            firstCandidateTime: now,
+            lastCandidateTime: now,
+            distances: [distMeters],
+          });
+          continue; // Wait for consecutive confirmation
+        }
+
+        candidate.consecutiveCount += 1;
+        candidate.lastCandidateTime = now;
+        candidate.distances.push(distMeters);
+
+        const dwellDurationMs = now - candidate.firstCandidateTime;
+        const isFastVehicle = rawSpeed >= 4.0; // >= 14.4 km/h
+        const requiredCount = isFastVehicle ? 2 : REQUIRED_EXIT_CONSECUTIVE_SAMPLES;
+        const requiredDwell = isFastVehicle ? 10000 : REQUIRED_EXIT_DWELL_MS;
+
+        if (candidate.consecutiveCount < requiredCount || dwellDurationMs < requiredDwell) {
+          continue; // Still pending dwell confirmation
+        }
+
+        // Fully confirmed exit
+        candidateState = 'outside';
+        candidateTransitions.delete(trackingKey);
       }
-
-      candidate.consecutiveCount += 1;
-      candidate.lastCandidateTime = now;
-      candidate.distances.push(distMeters);
-
-      const dwellDurationMs = now - candidate.firstCandidateTime;
-      const isFastVehicle = rawSpeed >= 4.0; // >= 14.4 km/h
-      const requiredCount = isFastVehicle ? 2 : REQUIRED_EXIT_CONSECUTIVE_SAMPLES;
-      const requiredDwell = isFastVehicle ? 10000 : REQUIRED_EXIT_DWELL_MS;
-
-      if (candidate.consecutiveCount < requiredCount || dwellDurationMs < requiredDwell) {
-        continue; // Still pending dwell confirmation
-      }
-
-      // Fully confirmed exit
-      candidateState = 'outside';
-      candidateTransitions.delete(trackingKey);
 
     } else if (currentState === 'outside') {
       if (distMeters > entryThreshold) {
@@ -694,20 +705,16 @@ export async function dispatchGeofencePushAlert(breach: GeofenceBreachEvent, pla
     const title = template.title;
     const body = template.body;
 
-    // Check if user is actively in the app or outside
-    const isAppActive = AppState.currentState === 'active';
+    // Deliver local pop-up notification and notify in-app listeners
+    notifyInAppGeofenceBreach(breach);
 
-    if (isAppActive) {
-      // IN-APP: Notify in-app notification listeners once without popping external OS banners over active UI
-      notifyInAppGeofenceBreach(breach);
-    } else {
-      // OUTSIDE APP: Deliver exactly ONE local OS push notification popup banner
-      await scheduleLocalNotification(title, body, {
-        screen: 'Map',
-        userId: breach.userId,
-        placeId: breach.placeId,
-      });
-    }
+    await scheduleLocalNotification(title, body, {
+      screen: 'Activity',
+      type: 'GEOFENCE',
+      eventType: breach.type === 'exit' ? 'departure' : 'arrival',
+      userId: breach.userId,
+      placeId: breach.placeId,
+    });
 
     if (tokens.length > 0) {
       await sendExpoPushNotification(tokens, title, body, {

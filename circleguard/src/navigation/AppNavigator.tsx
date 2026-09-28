@@ -258,7 +258,10 @@ function GlobalChatNotificationListener() {
 
 function GlobalGeofenceNotificationListener() {
   const { showToast } = useLuxuryAlert();
+  const { activeCircle } = useCircleStore();
+  const { profile } = useAuthStore();
 
+  // 1. In-app breach listener (for local engine evaluations)
   React.useEffect(() => {
     const unsubscribe = addInAppGeofenceBreachListener((breach) => {
       // If MapScreen is active, MapScreen displays its own rich interactive breach modal
@@ -268,14 +271,161 @@ function GlobalGeofenceNotificationListener() {
       const isExit = breach.type === 'exit';
       showToast(
         isExit
-          ? `${breach.userName} departed ${breach.placeName}`
-          : `${breach.userName} arrived at ${breach.placeName}`,
+          ? `🚶 ${breach.userName} departed ${breach.placeName}`
+          : `📍 ${breach.userName} arrived at ${breach.placeName}`,
         isExit ? 'warning' : 'success'
       );
     });
 
     return unsubscribe;
   }, [showToast]);
+
+  // 2. Realtime subscription to `place_events` across all circle members
+  React.useEffect(() => {
+    if (!activeCircle?.id) return;
+
+    const handledEvents = new Set<string>();
+    const channelUid = Math.random().toString(36).substring(2, 8);
+
+    const channel = supabase
+      .channel(`global_geofence_rt_${activeCircle.id}_${channelUid}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'place_events' },
+        async (payload: any) => {
+          const newEv = payload?.new;
+          if (!newEv || !newEv.id) return;
+          const evId = String(newEv.id);
+          if (handledEvents.has(evId)) return;
+          handledEvents.add(evId);
+
+          const currentMembers = useCircleStore.getState().members || [];
+          const currentPlaces = useCircleStore.getState().places || [];
+
+          const isMember = currentMembers.some((m) => m.user_id === newEv.user_id);
+          const isPlace = currentPlaces.some((p) => p.id === newEv.place_id);
+
+          // If event does not belong to active circle, ignore
+          if (!isMember && !isPlace) return;
+
+          const member = currentMembers.find((m) => m.user_id === newEv.user_id);
+          let memberName = member?.profile?.full_name;
+          if (!memberName) {
+            try {
+              const { data: pData } = await supabase
+                .from('profiles')
+                .select('full_name')
+                .eq('id', newEv.user_id)
+                .single();
+              memberName = pData?.full_name || 'Circle Member';
+            } catch (_) {
+              memberName = 'Circle Member';
+            }
+          }
+
+          const place = currentPlaces.find((p) => p.id === newEv.place_id);
+          let placeName = place?.name;
+          if (!placeName) {
+            try {
+              const { data: plData } = await supabase
+                .from('places')
+                .select('name')
+                .eq('id', newEv.place_id)
+                .single();
+              placeName = plData?.name || 'Safe Zone';
+            } catch (_) {
+              placeName = 'Safe Zone';
+            }
+          }
+
+          const isExit = newEv.event_type === 'departure';
+          const isSelf = profile?.id === newEv.user_id;
+
+          const title = isExit
+            ? (isSelf ? `You departed ${placeName}` : `${memberName} departed ${placeName}`)
+            : (isSelf ? `You arrived at ${placeName}` : `${memberName} arrived at ${placeName}`);
+
+          const body = isExit
+            ? `${isSelf ? 'You have' : `${memberName} has`} departed the ${placeName} safe boundary. Tap to view activity.`
+            : `${isSelf ? 'You have' : `${memberName} has`} safely arrived at ${placeName}.`;
+
+          // A. Native OS Notification Banner with sound and vibration
+          try {
+            const notifEnabled = await AsyncStorage.getItem('@circleguard_notif_geofence');
+            if (notifEnabled !== 'false') {
+              await scheduleLocalNotification(title, body, {
+                screen: 'Activity',
+                type: 'GEOFENCE',
+                eventType: newEv.event_type,
+                placeId: newEv.place_id,
+                userId: newEv.user_id,
+              });
+            }
+          } catch (e) {
+            console.warn('[GlobalGeofence] scheduleLocalNotification note:', e);
+          }
+
+          // B. Show in-app toast banner
+          showToast(
+            isExit ? `🚶 ${title}` : `📍 ${title}`,
+            isExit ? 'warning' : 'success'
+          );
+
+          // C. Notify in-app breach listeners (for Map animations)
+          try {
+            const { notifyInAppGeofenceBreach } = require('../services/GeofenceEngine');
+            notifyInAppGeofenceBreach({
+              id: evId,
+              type: isExit ? 'exit' : 'entry',
+              placeId: newEv.place_id,
+              placeName,
+              userId: newEv.user_id,
+              userName: memberName,
+              distanceMeters: place?.radius_m || 150,
+              formattedDistance: `${place?.radius_m || 150}m`,
+              timestamp: newEv.occurred_at || new Date().toISOString(),
+              latitude: place?.latitude || 0,
+              longitude: place?.longitude || 0,
+            });
+          } catch (_) {}
+
+          // D. Cache in local storage for instant Activity timeline rendering
+          try {
+            const { saveLocalActivityEvent } = require('../services/ActivityService');
+            saveLocalActivityEvent(activeCircle.id, {
+              id: evId,
+              type: 'GEOFENCE',
+              eventType: isExit ? 'departure' : 'arrival',
+              title,
+              message: body,
+              time: new Date(newEv.occurred_at || Date.now()).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+              icon: isExit ? 'walk-outline' : 'location',
+              color: isExit ? '#F59E0B' : '#2E7D5B',
+              memberName,
+              avatarUrl: member?.profile?.avatar_url,
+              phone: member?.profile?.phone,
+              userId: newEv.user_id,
+              timestamp: new Date(newEv.occurred_at || Date.now()).getTime(),
+              placeName,
+              placeId: newEv.place_id,
+              radiusMeters: place?.radius_m || 150,
+              occurredAtIso: newEv.occurred_at || new Date().toISOString(),
+              latitude: place?.latitude,
+              longitude: place?.longitude,
+              batteryPct: member?.batteryPct,
+            });
+          } catch (_) {}
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeCircle?.id, profile?.id, showToast]);
 
   return null;
 }
@@ -291,6 +441,33 @@ export default function AppNavigator() {
       registerForPushNotificationsAsync(profile.id);
     }
   }, [profile?.id]);
+
+  // Handle OS Notification taps to route directly into target screens (Activity / Timeline)
+  React.useEffect(() => {
+    let subscription: any;
+    try {
+      const Notifications = require('expo-notifications');
+      if (Notifications && Notifications.addNotificationResponseReceivedListener) {
+        subscription = Notifications.addNotificationResponseReceivedListener((response: any) => {
+          const data = response?.notification?.request?.content?.data;
+          const targetScreen = data?.screen || (data?.type === 'GEOFENCE' ? 'Activity' : undefined);
+          if (targetScreen) {
+            try {
+              if (navigationRef.isReady()) {
+                (navigationRef as any).navigate(targetScreen, data);
+              }
+            } catch (err) {
+              console.warn('[NotificationTap] Navigation error:', err);
+            }
+          }
+        });
+      }
+    } catch (_) {}
+
+    return () => {
+      subscription?.remove?.();
+    };
+  }, []);
 
   if (showSplash) {
     return <SplashScreen onFinish={() => setShowSplash(false)} />;
