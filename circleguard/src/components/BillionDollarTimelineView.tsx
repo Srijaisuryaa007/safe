@@ -30,6 +30,8 @@ import {
   broadcastCheckIn,
   broadcastCheckInRequest,
   formatEventDisplayTime,
+  formatPreciseTime,
+  formatFullPreciseDateTime,
 } from '../services/ActivityService';
 import { getSafeTopInset } from '../utils/safeArea';
 import { navigationRef } from '../navigation/AppNavigator';
@@ -591,6 +593,12 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
                               {event.eventType === 'arrival' ? 'ARRIVED' : 'DEPARTED'}
                             </Text>
                           </View>
+                          <View style={[styles.preciseTimeTag, isDark && styles.preciseTimeTagDark]}>
+                            <Ionicons name="time-outline" size={10} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                            <Text style={[styles.preciseTimeTagText, isDark && { color: '#3ADFAB' }]}>
+                              {event.preciseTime || formatPreciseTime(event.timestamp, event.occurredAtIso)}
+                            </Text>
+                          </View>
                           {event.dwellDurationText ? (
                             <Text style={styles.dwellDurationBadge}>
                               {event.dwellDurationText}
@@ -763,7 +771,7 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
                         {selectedEvent?.memberName}
                       </Text>
                       <Text style={[styles.modalTimestamp, isDark && styles.textSubDark]}>
-                        {selectedEvent ? formatEventDisplayTime(selectedEvent.timestamp, selectedEvent.occurredAtIso) : ''}
+                        {selectedEvent ? formatFullPreciseDateTime(selectedEvent.timestamp, selectedEvent.occurredAtIso) : ''}
                       </Text>
                     </View>
                   </View>
@@ -829,9 +837,9 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
 
                 <View style={styles.telemetryGrid}>
                   <View style={[styles.telemetryStatBox, isDark && styles.telemetryStatBoxDark]}>
-                    <Text style={[styles.telemetryStatLabel, isDark && styles.textSubDark]}>EVENT TIME</Text>
+                    <Text style={[styles.telemetryStatLabel, isDark && styles.textSubDark]}>EXACT TIME</Text>
                     <Text style={[styles.telemetryStatValue, isDark && styles.textLight]}>
-                      {selectedEvent ? formatEventDisplayTime(selectedEvent.timestamp, selectedEvent.occurredAtIso) : ''}
+                      {selectedEvent ? formatFullPreciseDateTime(selectedEvent.timestamp, selectedEvent.occurredAtIso) : ''}
                     </Text>
                   </View>
                   <View style={[styles.telemetryStatBox, isDark && styles.telemetryStatBoxDark]}>
@@ -1727,6 +1735,27 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#64748B',
     fontWeight: '600',
+  },
+  preciseTimeTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 5,
+    borderWidth: 0.5,
+    borderColor: '#E2E8F0',
+  },
+  preciseTimeTagDark: {
+    backgroundColor: '#1E2D24',
+    borderColor: '#2D4537',
+  },
+  preciseTimeTagText: {
+    fontFamily: SANS_FONT,
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#2E7D5B',
   },
   telemetryCard: {
     backgroundColor: '#FFFFFF',

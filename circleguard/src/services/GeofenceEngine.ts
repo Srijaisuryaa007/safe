@@ -697,13 +697,22 @@ export async function dispatchGeofencePushAlert(breach: GeofenceBreachEvent, pla
     const tokens = Array.from(tokenSet);
     const isExit = breach.type === 'exit';
     const placeName = place.name || 'Safe Zone';
+    const eventDate = breach.timestamp ? new Date(breach.timestamp) : new Date();
+    const preciseTimeStr = !isNaN(eventDate.getTime())
+      ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })
+      : 'Just now';
+    const shortTimeStr = !isNaN(eventDate.getTime())
+      ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+      : 'Just now';
     
     const template = isExit 
-      ? CREATIVE_NOTIFICATION_TEMPLATES.departure(breach.userName, placeName)
-      : CREATIVE_NOTIFICATION_TEMPLATES.arrival(breach.userName, placeName);
+      ? CREATIVE_NOTIFICATION_TEMPLATES.departure(breach.userName, placeName, undefined, shortTimeStr)
+      : CREATIVE_NOTIFICATION_TEMPLATES.arrival(breach.userName, placeName, shortTimeStr);
 
     const title = template.title;
-    const body = template.body;
+    const body = isExit
+      ? `${breach.userName} departed ${placeName} safe boundary at ${preciseTimeStr}. Tap to view activity.`
+      : `${breach.userName} safely entered ${placeName} at ${preciseTimeStr}. Status verified.`;
 
     // Deliver local pop-up notification and notify in-app listeners
     notifyInAppGeofenceBreach(breach);
@@ -714,6 +723,7 @@ export async function dispatchGeofencePushAlert(breach: GeofenceBreachEvent, pla
       eventType: breach.type === 'exit' ? 'departure' : 'arrival',
       userId: breach.userId,
       placeId: breach.placeId,
+      preciseTime: preciseTimeStr,
     });
 
     if (tokens.length > 0) {

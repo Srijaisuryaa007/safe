@@ -395,12 +395,22 @@ export default function HomeScreen() {
           placeName = Array.isArray(item.places) ? item.places[0]?.name : item.places?.name;
         }
         const isArrival = item.event_type === 'arrival';
+        const eventDate = new Date(item.occurred_at);
+        const shortTime = !isNaN(eventDate.getTime())
+          ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+          : 'Recently';
+        const preciseTime = !isNaN(eventDate.getTime())
+          ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })
+          : 'Recently';
+
         return {
           id: String(item.id),
-          title: isArrival ? `${name || 'Member'} arrived at ${placeName}` : `${name || 'Member'} departed ${placeName}`,
-          badgeText: isArrival ? 'ZONE ARRIVAL' : 'ZONE DEPARTURE',
+          title: isArrival
+            ? `${name || 'Member'} arrived at ${placeName} • ${shortTime}`
+            : `${name || 'Member'} left ${placeName} • ${shortTime}`,
+          badgeText: isArrival ? `ZONE ARRIVAL • ${preciseTime}` : `ZONE DEPARTURE • ${preciseTime}`,
           icon: isArrival ? 'location' : 'exit-outline',
-          time: new Date(item.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          time: preciseTime,
           color: isArrival ? '#10B981' : '#F5A623',
           timestamp: new Date(item.occurred_at).getTime(),
         };

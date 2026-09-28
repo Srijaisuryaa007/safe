@@ -338,16 +338,24 @@ function GlobalGeofenceNotificationListener() {
             }
           }
 
+          const eventDate = newEv.occurred_at ? new Date(newEv.occurred_at) : new Date();
+          const preciseTimeStr = !isNaN(eventDate.getTime())
+            ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })
+            : 'Just now';
+          const shortTimeStr = !isNaN(eventDate.getTime())
+            ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+            : 'Just now';
+
           const isExit = newEv.event_type === 'departure';
           const isSelf = profile?.id === newEv.user_id;
 
           const title = isExit
-            ? (isSelf ? `You departed ${placeName}` : `${memberName} departed ${placeName}`)
-            : (isSelf ? `You arrived at ${placeName}` : `${memberName} arrived at ${placeName}`);
+            ? (isSelf ? `You left ${placeName} • ${shortTimeStr}` : `${memberName} left ${placeName} • ${shortTimeStr}`)
+            : (isSelf ? `You arrived at ${placeName} • ${shortTimeStr}` : `${memberName} arrived at ${placeName} • ${shortTimeStr}`);
 
           const body = isExit
-            ? `${isSelf ? 'You have' : `${memberName} has`} departed the ${placeName} safe boundary. Tap to view activity.`
-            : `${isSelf ? 'You have' : `${memberName} has`} safely arrived at ${placeName}.`;
+            ? `${isSelf ? 'You departed' : `${memberName} departed`} ${placeName} safe boundary at ${preciseTimeStr}. Tap to view activity.`
+            : `${isSelf ? 'You safely entered' : `${memberName} safely entered`} ${placeName} at ${preciseTimeStr}.`;
 
           // A. Native OS Notification Banner with sound and vibration
           try {
@@ -359,6 +367,7 @@ function GlobalGeofenceNotificationListener() {
                 eventType: newEv.event_type,
                 placeId: newEv.place_id,
                 userId: newEv.user_id,
+                preciseTime: preciseTimeStr,
               });
             }
           } catch (e) {
@@ -398,10 +407,8 @@ function GlobalGeofenceNotificationListener() {
               eventType: isExit ? 'departure' : 'arrival',
               title,
               message: body,
-              time: new Date(newEv.occurred_at || Date.now()).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              }),
+              time: shortTimeStr,
+              preciseTime: preciseTimeStr,
               icon: isExit ? 'walk-outline' : 'location',
               color: isExit ? '#F59E0B' : '#2E7D5B',
               memberName,

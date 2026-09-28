@@ -45,35 +45,37 @@ export interface PushMessagePayload {
  * Precise, restrained, and executive security product microcopy.
  */
 export const CREATIVE_NOTIFICATION_TEMPLATES = {
-  arrival: (name: string, placeName: string) => {
+  arrival: (name: string, placeName: string, timeStr?: string) => {
+    const tStr = timeStr || new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
     const templates = [
       {
-        title: `${name} arrived at ${placeName}`,
-        body: `Location confirmed within designated geofence perimeter.`,
+        title: `${name} arrived at ${placeName} • ${tStr}`,
+        body: `Safely arrived at ${placeName} at ${tStr}. Status confirmed within designated perimeter.`,
       },
       {
-        title: `Geofence Entry: ${placeName}`,
-        body: `${name} has checked into ${placeName}. Tap to view live telemetry.`,
+        title: `Geofence Entry: ${placeName} (${tStr})`,
+        body: `${name} has checked into ${placeName} at ${tStr}. Tap to view live telemetry.`,
       },
       {
-        title: `Perimeter Check: ${name}`,
-        body: `Safely arrived at ${placeName}. Status and battery level verified.`,
+        title: `Perimeter Check: ${name} • ${tStr}`,
+        body: `Safely arrived at ${placeName} at ${tStr}. Status and battery level verified.`,
       },
     ];
     return templates[Math.floor(Math.random() * templates.length)];
   },
 
-  departure: (name: string, placeName: string, speedKmh?: number) => {
+  departure: (name: string, placeName: string, speedKmh?: number, timeStr?: string) => {
+    const tStr = timeStr || new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
     const templates = [
       {
-        title: `${name} departed ${placeName}`,
+        title: `${name} left ${placeName} • ${tStr}`,
         body: speedKmh && speedKmh > 20
-          ? `In transit at ${speedKmh} km/h. Tap to monitor live route.`
-          : `Departed ${placeName}. Tap to monitor live location on map.`,
+          ? `Departed ${placeName} at ${tStr} in transit at ${speedKmh} km/h. Tap to monitor live route.`
+          : `Departed ${placeName} safe boundary at ${tStr}. Tap to monitor live location on map.`,
       },
       {
-        title: `Geofence Exit: ${placeName}`,
-        body: `${name} has left ${placeName}. Real-time tracking is active.`,
+        title: `Geofence Exit: ${placeName} (${tStr})`,
+        body: `${name} has left ${placeName} at ${tStr}. Real-time tracking is active.`,
       },
     ];
     return templates[Math.floor(Math.random() * templates.length)];

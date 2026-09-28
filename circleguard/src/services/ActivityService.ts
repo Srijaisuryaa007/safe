@@ -24,6 +24,7 @@ export interface ActivityEvent {
   radiusMeters?: number;
   dwellDurationText?: string;
   occurredAtIso?: string;
+  preciseTime?: string;
   latitude?: number;
   longitude?: number;
   batteryPct?: number;
@@ -58,6 +59,40 @@ export const formatEventDisplayTime = (timestamp: number, rawIso?: string): stri
   const month = date.toLocaleString('default', { month: 'short' });
   const day = date.getDate();
   return `${month} ${day}, ${timeStr}`;
+};
+
+/**
+ * Formats precise time including seconds (e.g., 10:48:32 AM)
+ */
+export const formatPreciseTime = (timestamp: number, rawIso?: string): string => {
+  const date = timestamp ? new Date(timestamp) : (rawIso ? new Date(rawIso) : new Date());
+  if (isNaN(date.getTime())) return 'Recently';
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+};
+
+/**
+ * Formats full precise date and time with seconds (e.g., Today at 10:48:32 AM or Sep 28 at 10:48:32 AM)
+ */
+export const formatFullPreciseDateTime = (timestamp: number, rawIso?: string): string => {
+  const date = timestamp ? new Date(timestamp) : (rawIso ? new Date(rawIso) : new Date());
+  if (isNaN(date.getTime())) return 'Recently';
+
+  const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+  const now = new Date();
+
+  if (now.toDateString() === date.toDateString()) {
+    return `Today at ${timeStr}`;
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (yesterday.toDateString() === date.toDateString()) {
+    return `Yesterday at ${timeStr}`;
+  }
+
+  const month = date.toLocaleString('default', { month: 'short' });
+  const day = date.getDate();
+  return `${month} ${day} at ${timeStr}`;
 };
 
 /**
@@ -465,20 +500,28 @@ export const fetchCircleActivities = async (
             dwellDurationText = 'Just arrived';
           }
 
-          const formattedTime = new Date(item.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const dateObj = new Date(item.occurred_at);
+          const shortTime = !isNaN(dateObj.getTime())
+            ? dateObj.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+            : 'Recently';
+          const preciseTime = !isNaN(dateObj.getTime())
+            ? dateObj.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })
+            : 'Recently';
+
           const subtitle = isArrival
-            ? `Safely entered ${radiusM}m safe boundary at ${formattedTime}.`
+            ? `Safely entered ${radiusM}m safe boundary at ${preciseTime}.`
             : dwellDurationText
-            ? `Departed safe zone after staying ${dwellDurationText}.`
-            : `Departed ${placeName} safe boundary.`;
+            ? `Departed safe zone at ${preciseTime} (stayed ${dwellDurationText}).`
+            : `Departed ${placeName} safe boundary at ${preciseTime}.`;
 
           return {
             id: String(item.id),
             type: 'GEOFENCE' as const,
             eventType: item.event_type as 'arrival' | 'departure',
-            title: isArrival ? `${name} arrived at ${placeName}` : `${name} departed ${placeName}`,
+            title: isArrival ? `${name} arrived at ${placeName} • ${shortTime}` : `${name} left ${placeName} • ${shortTime}`,
             message: subtitle,
-            time: formattedTime,
+            time: shortTime,
+            preciseTime,
             icon: isArrival ? 'location' : 'walk-outline',
             color: isArrival ? '#2E7D5B' : '#F59E0B',
             memberName: name,
