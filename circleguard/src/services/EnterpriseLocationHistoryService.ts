@@ -34,6 +34,7 @@ import {
   calculateHaversineDistanceMeters,
   smoothTrajectoryPoints,
   filterGpsSpikesAndOutliers,
+  applyKinematicKalmanFilter,
 } from './LocationSmoothingService';
 import {
   intelligentRouteReconstruction,
@@ -100,6 +101,7 @@ export interface EnterpriseTripLeg {
   isTransit?: boolean;
   transitType?: 'road' | 'metro' | 'rail';
   points: EnterpriseHistoryPoint[];
+  isOutbound?: boolean;
 }
 
 export interface EnterpriseTimelineEvent {
@@ -249,7 +251,9 @@ export async function processEnterpriseLocationHistory(
     rawTimeMs: p.timeMs,
   }));
   const deSpiked = filterGpsSpikesAndOutliers(formattedForFilter);
-  const deduplicated: RawTelemetryPoint[] = deSpiked.map(p => ({
+  // Apply 2D Kinematic Kalman Filter for industry-standard position & velocity smoothing
+  const kalmanFiltered = applyKinematicKalmanFilter(deSpiked);
+  const deduplicated: RawTelemetryPoint[] = kalmanFiltered.map(p => ({
     id: p.id,
     lat: p.latitude,
     lng: p.longitude,
@@ -476,7 +480,7 @@ export async function processEnterpriseLocationHistory(
   if (smoothedPoints.length >= 2) {
     try {
       const reconPromise = intelligentRouteReconstruction(smoothedPoints, targetUserId);
-      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 1500));
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 5000));
       const recon: any = await Promise.race([reconPromise, timeoutPromise]);
       if (recon && recon.reconstructedPoints && recon.reconstructedPoints.length >= smoothedPoints.length) {
         smoothedPoints = recon.reconstructedPoints as EnterpriseHistoryPoint[];
@@ -485,24 +489,28 @@ export async function processEnterpriseLocationHistory(
     } catch (_) {}
   }
 
-  // Step 6: Trip Leg Segmentation (Moving segments between stationary stops)
+  // Step 6: Industry-Standard Trip Leg Segmentation
+  // A trip leg only begins when moving away from a stationary stop, and only ends upon arriving
+  // at the next stationary dwell stop (>= 3 mins within 40m, or recognized Safe Place).
+  // Red lights, stop signs, and traffic jams are NOT trip breaks!
   const tripLegs: EnterpriseTripLeg[] = [];
   let currentLegPoints: EnterpriseHistoryPoint[] = [];
 
   for (let i = 0; i < smoothedPoints.length; i++) {
     const pt = smoothedPoints[i];
-    const isStopPt = pt.isStationary || pt.speedKmh <= 1.5;
+    const isStopAnchor = !!pt.isStationary;
+    const isExtendedGap = i > 0 && (pt.rawTimeMs - smoothedPoints[i - 1].rawTimeMs) > 12 * 60 * 1000;
 
-    if (!isStopPt) {
-      // Connect to preceding stationary anchor for clean start
+    if (!isStopAnchor && !isExtendedGap) {
+      // In transit: moving, crawling in traffic, or waiting at red lights
       if (currentLegPoints.length === 0 && i > 0) {
-        currentLegPoints.push(smoothedPoints[i - 1]);
+        currentLegPoints.push(smoothedPoints[i - 1]); // Anchor departure point
       }
       currentLegPoints.push(pt);
     } else {
+      // Arrived at a true stationary dwell stop or extended gap
       if (currentLegPoints.length >= 2) {
-        // Connect to this arrival anchor
-        currentLegPoints.push(pt);
+        currentLegPoints.push(pt); // Anchor arrival point
         const leg = compileTripLeg(currentLegPoints, tripLegs.length);
         tripLegs.push(leg);
         currentLegPoints = [];
@@ -553,8 +561,8 @@ export async function processEnterpriseLocationHistory(
         if (matchRes && matchRes.roadCoords && matchRes.roadCoords.length >= 2 && matchRes.isMapMatched) {
           const rawLegKm = leg.distanceKm;
           const matchKm = matchRes.totalDistanceKm || 0;
-          // Valid road route check: allow natural urban road curves (up to 2.2x raw line or +1.2km)
-          const isReasonable = rawLegKm <= 0.2 || (matchKm <= Math.max(rawLegKm * 2.4, rawLegKm + 1.2) && matchKm >= rawLegKm * 0.45);
+          // Valid road route check: allow natural urban road curves (up to 2.8x raw line or +1.8km)
+          const isReasonable = rawLegKm <= 0.2 || (matchKm <= Math.max(rawLegKm * 2.8, rawLegKm + 1.8) && matchKm >= rawLegKm * 0.40);
           if (isReasonable) {
             leg.roadCoords = matchRes.roadCoords;
             leg.bearings = matchRes.bearings || [];
@@ -599,7 +607,14 @@ export async function processEnterpriseLocationHistory(
     leg.roadCoords = densified;
 
     if (allRoadCoords.length > 0) {
-      allRoadCoords.push(...densified.slice(1));
+      const prevEnd = allRoadCoords[allRoadCoords.length - 1];
+      const newStart = densified[0];
+      const stitchDist = calculateHaversineKm(prevEnd[0], prevEnd[1], newStart[0], newStart[1]) * 1000;
+      if (stitchDist < 15) {
+        allRoadCoords.push(...densified.slice(1));
+      } else {
+        allRoadCoords.push(...densified);
+      }
     } else {
       allRoadCoords.push(...densified);
     }
@@ -883,5 +898,6 @@ function compileTripLeg(points: EnterpriseHistoryPoint[], legIdx: number): Enter
     bearings: [bearing],
     cardinalDirection: cardDir,
     points,
+    isOutbound: legIdx % 2 === 0,
   };
 }

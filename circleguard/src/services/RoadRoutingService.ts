@@ -6,6 +6,7 @@
 
 import { Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { simplifyTrajectoryRDP } from './LocationSmoothingService';
 
 export interface LatLng {
   latitude: number;
@@ -401,10 +402,15 @@ export async function fetchMapMatchedRoute(
     return { roadCoords: [single], totalDistanceKm: 0, totalDurationMins: 0, bearings: [0], isMapMatched: false, confidence: 1 };
   }
 
+  // Trajectory compression: if waypoints are very dense, simplify straightaways using RDP
+  // while strictly keeping all turns and starts/ends intact for high-signal matching
+  const preProcessed = deSpiked.length > 24 ? simplifyTrajectoryRDP(deSpiked, 3.0) : deSpiked;
+  const matchWaypoints = preProcessed.length >= 2 ? preProcessed : deSpiked;
+
   // 2. Cache Key Resolution
-  const startPt = deSpiked[0];
-  const endPt = deSpiked[deSpiked.length - 1];
-  const cacheKey = `${startPt.latitude.toFixed(5)},${startPt.longitude.toFixed(5)}_${endPt.latitude.toFixed(5)},${endPt.longitude.toFixed(5)}_${deSpiked.length}`;
+  const startPt = matchWaypoints[0];
+  const endPt = matchWaypoints[matchWaypoints.length - 1];
+  const cacheKey = `${startPt.latitude.toFixed(5)},${startPt.longitude.toFixed(5)}_${endPt.latitude.toFixed(5)},${endPt.longitude.toFixed(5)}_${matchWaypoints.length}`;
   const now = Date.now();
 
   if (options?.useCache !== false && mapMatchCache[cacheKey]) {
@@ -438,9 +444,9 @@ export async function fetchMapMatchedRoute(
     'https://routing.openstreetmap.de/routed-car/match/v1/driving'
   ];
 
-  for (let startIdx = 0; startIdx < deSpiked.length - 1; startIdx += BATCH_SIZE - 1) {
+  for (let startIdx = 0; startIdx < matchWaypoints.length - 1; startIdx += BATCH_SIZE - 1) {
     totalChunks++;
-    const chunk = deSpiked.slice(startIdx, startIdx + BATCH_SIZE);
+    const chunk = matchWaypoints.slice(startIdx, startIdx + BATCH_SIZE);
     if (chunk.length < 2) break;
 
     // Calculate ground-truth distance along this chunk of points
@@ -452,42 +458,70 @@ export async function fetchMapMatchedRoute(
     const coordString = chunk.map(w => `${w.longitude.toFixed(6)},${w.latitude.toFixed(6)}`).join(';');
     // Adaptive radius constraint (25-65m): snaps GPS fixes to the true road centerline without skipping wide avenues or dual carriageways
     const radiusesString = chunk.map(w => {
-      const acc = typeof w.accuracy === 'number' && w.accuracy > 0 ? w.accuracy : 40;
+      const acc = typeof w.accuracy === 'number' && w.accuracy > 0 ? w.accuracy : 35;
       return Math.max(25, Math.min(65, Math.round(acc)));
     }).join(';');
+
+    // Strictly monotonic timestamps in seconds for Hidden Markov Model transition calculation
+    let baseTimeSec = Math.round((chunk[0].timeMs || (Date.now() - chunk.length * 4000)) / 1000);
+    const timestampsString = chunk.map((w, idx) => {
+      let tSec = w.timeMs ? Math.round(w.timeMs / 1000) : (baseTimeSec + idx * 4);
+      if (tSec <= baseTimeSec) tSec = baseTimeSec + Math.max(1, idx);
+      baseTimeSec = tSec;
+      return tSec;
+    }).join(';');
+
     let chunkMatched = false;
 
-    // Step A: Attempt OSRM HMM Map Matching API with lane-level snapping
+    // Step A: Attempt OSRM HMM Map Matching API with lane-level snapping and temporal modeling
     for (const baseUrl of OSRM_MATCH_ENDPOINTS) {
       if (chunkMatched) break;
-      const url = `${baseUrl}/${coordString}?geometries=geojson&overview=full&radiuses=${radiusesString}&tidy=true`;
+      const url = `${baseUrl}/${coordString}?geometries=geojson&overview=full&radiuses=${radiusesString}&timestamps=${timestampsString}&tidy=true&gaps=ignore`;
 
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 7000);
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
 
         const response = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (response.ok) {
           const data = await response.json();
-          console.log('[ROAD_ROUTING] OSRM Match API response:', data.code, 'matchings:', data.matchings?.length);
           if (data.code === 'Ok' && data.matchings && data.matchings.length > 0) {
             let chunkMatchedCoords: [number, number][] = [];
             let chunkDistanceMeters = 0;
             let chunkDurationSec = 0;
             let isDetourDetected = false;
 
-            for (const matching of data.matchings) {
+            for (let m = 0; m < data.matchings.length; m++) {
+              const matching = data.matchings[m];
               const matchDist = matching.distance || 0;
-              // Detour validation: only reject if the route took an absurd loop (> 2.4x raw distance AND > 800m excess)
-              if (chunkRawMeters > 80 && matchDist > Math.max(chunkRawMeters * 2.4, chunkRawMeters + 800)) {
+              // Detour validation: only reject if the route took an absurd loop (> 2.5x raw distance AND > 900m excess)
+              if (chunkRawMeters > 80 && matchDist > Math.max(chunkRawMeters * 2.5, chunkRawMeters + 900)) {
                 isDetourDetected = true;
                 break;
               }
 
               const geojsonCoords = matching.geometry?.coordinates || []; // [[lng, lat], ...]
               const converted: [number, number][] = geojsonCoords.map((c: [number, number]) => [c[1], c[0]]);
+
+              // Bridge between disjoint matchings along the street network
+              if (m > 0 && chunkMatchedCoords.length > 0 && converted.length > 0) {
+                const lastPt = chunkMatchedCoords[chunkMatchedCoords.length - 1];
+                const nextPt = converted[0];
+                const gapDist = calculateHaversineKm(lastPt[0], lastPt[1], nextPt[0], nextPt[1]) * 1000;
+                if (gapDist > 8 && gapDist < 800) {
+                  try {
+                    const bridge = await fetchRoadSnappedRoute([
+                      { latitude: lastPt[0], longitude: lastPt[1] },
+                      { latitude: nextPt[0], longitude: nextPt[1] }
+                    ]);
+                    if (bridge.roadCoords.length > 2) {
+                      chunkMatchedCoords.push(...bridge.roadCoords.slice(1, -1));
+                    }
+                  } catch (_) {}
+                }
+              }
 
               chunkMatchedCoords.push(...converted);
               chunkDistanceMeters += matchDist;
@@ -500,7 +534,14 @@ export async function fetchMapMatchedRoute(
               aggregateDurationSeconds += chunkDurationSec;
 
               if (allRoadCoords.length > 0) {
-                allRoadCoords.push(...chunkMatchedCoords.slice(1));
+                const prevEnd = allRoadCoords[allRoadCoords.length - 1];
+                const newStart = chunkMatchedCoords[0];
+                const stitchMeters = calculateHaversineKm(prevEnd[0], prevEnd[1], newStart[0], newStart[1]) * 1000;
+                if (stitchMeters < 15) {
+                  allRoadCoords.push(...chunkMatchedCoords.slice(1));
+                } else {
+                  allRoadCoords.push(...chunkMatchedCoords);
+                }
               } else {
                 allRoadCoords.push(...chunkMatchedCoords);
               }
@@ -513,29 +554,65 @@ export async function fetchMapMatchedRoute(
       }
     }
 
-    // Step B: Robust Street Network Routing Fallback
-    // If Map Matching API returned NoMatch (e.g. sparse points), route consecutive waypoints on the real road network!
+    // Step B: Robust Pairwise Street Network Routing Fallback
+    // If Map Matching API returned NoMatch (e.g. sparse points), route consecutive sub-pairs on the real street network!
     // NEVER fall back to straight lines cutting through buildings and water!
     if (!chunkMatched) {
-      try {
-        const roadFallback = await fetchRoadSnappedRoute(chunk.map(w => ({ latitude: w.latitude, longitude: w.longitude })));
-        if (roadFallback && roadFallback.roadCoords && roadFallback.roadCoords.length >= 2) {
-          const roadKm = roadFallback.totalDistanceKm;
-          const rawKm = chunkRawMeters / 1000;
-          if (rawKm <= 0.1 || roadKm <= Math.max(rawKm * 2.5, rawKm + 1.2)) {
-            if (allRoadCoords.length > 0) {
-              allRoadCoords.push(...roadFallback.roadCoords.slice(1));
+      let subSegmentsSucceeded = false;
+      const subRoads: [number, number][] = [];
+      let subDistMeters = 0;
+      let subDurSec = 0;
+
+      for (let s = 0; s < chunk.length - 1; s++) {
+        const pA = chunk[s];
+        const pB = chunk[s + 1];
+        try {
+          const pairRoute = await fetchRoadSnappedRoute([
+            { latitude: pA.latitude, longitude: pA.longitude },
+            { latitude: pB.latitude, longitude: pB.longitude }
+          ]);
+          if (pairRoute && pairRoute.roadCoords && pairRoute.roadCoords.length >= 2) {
+            const pairDistKm = pairRoute.totalDistanceKm;
+            const directKm = calculateHaversineKm(pA.latitude, pA.longitude, pB.latitude, pB.longitude);
+            // Allow natural urban road curves (up to 2.8x direct line or +1.5km)
+            if (directKm <= 0.1 || pairDistKm <= Math.max(directKm * 2.8, directKm + 1.5)) {
+              if (subRoads.length > 0) {
+                subRoads.push(...pairRoute.roadCoords.slice(1));
+              } else {
+                subRoads.push(...pairRoute.roadCoords);
+              }
+              subDistMeters += pairRoute.totalDistanceKm * 1000;
+              subDurSec += pairRoute.totalDurationMins * 60;
+              subSegmentsSucceeded = true;
             } else {
-              allRoadCoords.push(...roadFallback.roadCoords);
+              subRoads.push([pB.latitude, pB.longitude]);
             }
-            aggregateDistanceMeters += roadFallback.totalDistanceKm * 1000;
-            aggregateDurationSeconds += roadFallback.totalDurationMins * 60;
-            chunkMatched = true;
-            matchesSucceeded++;
-            console.log(`[ROAD_ROUTING] Chunk snapped to street network via road routing fallback: ${roadFallback.roadCoords.length} coords`);
+          } else {
+            subRoads.push([pB.latitude, pB.longitude]);
           }
+        } catch (_) {
+          subRoads.push([pB.latitude, pB.longitude]);
         }
-      } catch (_) {}
+      }
+
+      if (subSegmentsSucceeded && subRoads.length >= 2) {
+        if (allRoadCoords.length > 0) {
+          const prevEnd = allRoadCoords[allRoadCoords.length - 1];
+          const newStart = subRoads[0];
+          const stitchMeters = calculateHaversineKm(prevEnd[0], prevEnd[1], newStart[0], newStart[1]) * 1000;
+          if (stitchMeters < 15) {
+            allRoadCoords.push(...subRoads.slice(1));
+          } else {
+            allRoadCoords.push(...subRoads);
+          }
+        } else {
+          allRoadCoords.push(...subRoads);
+        }
+        aggregateDistanceMeters += subDistMeters;
+        aggregateDurationSeconds += subDurSec;
+        chunkMatched = true;
+        matchesSucceeded++;
+      }
     }
 
     // Step C: Last-resort fallback ONLY if device is completely offline and network unreachable

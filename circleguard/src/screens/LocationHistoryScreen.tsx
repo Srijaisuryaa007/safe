@@ -504,7 +504,7 @@ export default function LocationHistoryScreen() {
       }
 
       // 0. Instant Cache-First Hydration for sub-300ms instant view
-      const cacheKey = `@circleguard_history_cache_v3_${targetUserId}_${selectedDate}`;
+      const cacheKey = `@circleguard_history_cache_v4_${targetUserId}_${selectedDate}`;
       try {
         const cachedRaw = await AsyncStorage.getItem(cacheKey);
         if (cachedRaw) {
