@@ -26,6 +26,7 @@ import { usePaywall } from '../hooks/usePaywall';
 import PaywallModal from '../components/PaywallModal';
 import HeatlineAreaChart from '../components/charts/HeatlineAreaChart';
 import SafetyRadarChart from '../components/charts/SafetyRadarChart';
+import TelematicsBarChart from '../components/charts/TelematicsBarChart';
 
 import { reverseGeocodeLive } from '../services/GeocodingService';
 
@@ -1001,6 +1002,28 @@ export default function DrivingReportsScreen() {
                 <Text style={[styles.metricLbl, { color: colors.textMuted }]}>AVG SPEED</Text>
               </View>
             </View>
+
+            {/* Mobility & Mileage Bar Chart */}
+            {trips.length > 0 ? (
+              <TelematicsBarChart
+                data={trips.map((t, idx) => ({
+                  label: `T${idx + 1}`,
+                  value: t.distanceKm || 1,
+                  secondaryValue: t.topSpeedKmh,
+                  subLabel: `${t.startTime} • ${formatDurationText(t.durationMins)}`,
+                  badge: `${t.score} pts`,
+                }))}
+                isDark={isDark}
+                title={`TRIP DISTANCES & PEAK SPEEDS (${trips.length} TRIPS)`}
+                unit="km"
+                secondaryUnit="km/h"
+                onBarPress={(item, idx) => {
+                  if (trips[idx]) {
+                    setSelectedTrip(trips[idx]);
+                  }
+                }}
+              />
+            ) : null}
 
             {/* Trips List Header */}
             <View style={styles.sectionHeaderRow}>
