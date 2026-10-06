@@ -13,6 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSafeTopInset } from '../utils/safeArea';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../lib/supabase';
+import { useAuthStore } from '../store/useAuthStore';
 import { startBatteryOptimizedBackgroundLocation } from '../services/LocationBackgroundService';
 import { useLuxuryAlert } from './LuxuryAlertModal';
 import BatteryOptimizationGuideModal from './BatteryOptimizationGuideModal';
@@ -32,6 +34,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
   const insets = useSafeAreaInsets();
   const topInset = getSafeTopInset(insets.top);
   const { showAlert, showConfirm } = useLuxuryAlert();
+  const profile = useAuthStore((s) => s.profile);
 
   const [unit, setUnit] = useState<'km' | 'mi'>('km');
   const [syncRate, setSyncRate] = useState<'balanced' | 'high' | 'saver'>('balanced');
@@ -67,6 +70,13 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
   const handleSelectSyncRate = async (newRate: 'balanced' | 'high' | 'saver') => {
     setSyncRate(newRate);
     await AsyncStorage.setItem(KEYS.GPS_SYNC_RATE, newRate);
+    const uid = profile?.id;
+    if (uid) {
+      try {
+        await supabase.from('profiles').update({ gps_frequency: newRate }).eq('id', uid);
+        useAuthStore.getState().updateProfileFields({ gps_frequency: newRate });
+      } catch (_) {}
+    }
     await startBatteryOptimizedBackgroundLocation();
   };
 

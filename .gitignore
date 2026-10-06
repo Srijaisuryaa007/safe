@@ -13,7 +13,14 @@ dist/
 .DS_Store
 .agent/
 .agents/
+.claude/
+agent/
+skills-lock.json
 *.log
 scratch/
 playwright_screenshots/
 tests/*.png
+.gradle/
+**/.gradle/
+**/build/
+*.lock

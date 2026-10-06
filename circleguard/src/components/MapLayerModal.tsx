@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Animated, PanResponder } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeStore } from '../store/useThemeStore';
 
 export type MapStyleType = 'vector' | 'satellite' | 'dark' | 'terrain';
@@ -18,6 +19,7 @@ export default function MapLayerModal({
   selectedStyle,
   onSelectStyle,
 }: MapLayerModalProps) {
+  const insets = useSafeAreaInsets();
   const { colors } = useThemeStore();
 
   const translateY = useRef(new Animated.Value(0)).current;
@@ -110,7 +112,7 @@ export default function MapLayerModal({
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent={true}>
       <View style={styles.overlay}>
         <Animated.View
           style={[
@@ -118,6 +120,7 @@ export default function MapLayerModal({
             {
               backgroundColor: colors.surface,
               borderColor: colors.border,
+              paddingBottom: Math.max(insets.bottom, 16) + 14,
               transform: [
                 {
                   translateY: translateY.interpolate({
@@ -210,11 +213,16 @@ const styles = StyleSheet.create({
   modalSheet: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    borderWidth: 1,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 0,
     paddingHorizontal: 24,
     paddingTop: 10,
-    paddingBottom: 24,
     maxHeight: '75%',
+    width: '100%',
   },
   handleContainer: {
     width: '100%',

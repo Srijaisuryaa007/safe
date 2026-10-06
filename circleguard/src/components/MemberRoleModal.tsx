@@ -136,11 +136,14 @@ export default function MemberRoleModal({
 
   if (!visible || !member) return null;
 
-  const currentRole = activeRole || member.role || 'member';
+  const trueLeaderId = activeCircle?.owner_id || members?.find((m) => m.role === 'owner')?.user_id;
+  const isTargetOwner = member.user_id === trueLeaderId;
+  const currentRole = isTargetOwner
+    ? 'owner'
+    : (activeRole === 'owner' ? 'co_leader' : (activeRole || member.role || 'member'));
   const name = member.profile?.full_name || 'Circle Member';
   const avatarUrl = member.profile?.avatar_url;
   const initial = name.charAt(0).toUpperCase() || 'M';
-  const isTargetOwner = currentRole === 'owner';
 
   const roleOptions: Array<{
     id: CircleRole;
@@ -309,7 +312,7 @@ export default function MemberRoleModal({
   const currentRoleBadge = getRoleBadgeData(currentRole);
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={handleDismiss}>
+    <Modal visible={visible} animationType="fade" transparent statusBarTranslucent={true} onRequestClose={handleDismiss}>
       <View style={styles.overlay}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={handleDismiss} />
         <Animated.View
@@ -493,11 +496,13 @@ export default function MemberRoleModal({
                         },
                       ]}
                       onPress={() => {
-                        const liveMember = members.find((m) => m.user_id === member.user_id) || member;
-                        onClose();
-                        setTimeout(() => {
-                          if (onAssignGuardian) onAssignGuardian(liveMember);
-                        }, 220);
+                        const targetId = member.user_id || (member as any).id;
+                        const liveMember = members.find((m) => (m.user_id || (m as any).id) === targetId) || member;
+                        if (onAssignGuardian) {
+                          onAssignGuardian(liveMember);
+                        } else {
+                          onClose();
+                        }
                       }}
                       activeOpacity={0.8}
                     >
@@ -514,8 +519,19 @@ export default function MemberRoleModal({
               )}
 
               {/* Roles Selection */}
-              <Text style={[styles.sectionHeading, { color: isDark ? '#BDCABC' : '#5C665F' }]}>
-                ASSIGN ROLE & PRIVILEGES
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text style={[styles.sectionHeading, { color: isDark ? '#BDCABC' : '#5C665F', marginBottom: 0 }]}>
+                  ASSIGN ROLE & PRIVILEGES
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Ionicons name="sparkles" size={11} color="#D97706" />
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#D97706', letterSpacing: 0.4 }}>
+                    1 LEADER • UNLIMITED CO-LEADERS
+                  </Text>
+                </View>
+              </View>
+              <Text style={{ fontSize: 12, color: isDark ? '#94A3B8' : '#64748B', marginBottom: 12, lineHeight: 16 }}>
+                Every circle has exactly 1 Leader. As the Leader, you can designate any number of Co-Leaders and Guardians.
               </Text>
 
               {roleOptions.map((opt) => {
@@ -686,9 +702,15 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheetContainer: {
+    width: '100%',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    borderWidth: 1,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 0,
     paddingTop: 8,
     paddingHorizontal: 20,
     maxHeight: '88%',

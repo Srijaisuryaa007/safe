@@ -10,6 +10,7 @@ import {
   Linking,
   Platform,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,12 +27,14 @@ import {
 } from '../lib/phoneValidation';
 import { useLuxuryAlert } from './LuxuryAlertModal';
 import { getSafeTopInset } from '../utils/safeArea';
+import { EmergencyMedicalService, getPrimaryContactStorageKey } from '../services/EmergencyMedicalService';
 
 export interface EmergencyContact {
   id: string;
   name: string;
   relationship: string;
   phone: string;
+  sort_order?: number;
 }
 
 interface EmergencyContactsModalProps {
@@ -51,6 +54,8 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [primaryPhone, setPrimaryPhone] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPendingSync, setIsPendingSync] = useState(false);
 
   // Form State
   const [name, setName] = useState('');
@@ -69,58 +74,22 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
     : cleanDigits.length >= phoneRule.minLen && cleanDigits.length <= phoneRule.maxLen;
   const isOverflow = cleanDigits.length > phoneRule.maxLen;
 
-  const getStorageKey = () => profile?.id ? `@circleguard_emergency_contacts_${profile.id}` : '@circleguard_emergency_contacts';
-  const getPrimaryStorageKey = () => profile?.id ? `@circleguard_primary_emergency_contact_${profile.id}` : '@circleguard_primary_emergency_contact';
-
   useEffect(() => {
-    if (visible) {
+    if (visible && profile?.id) {
       loadContacts();
     }
   }, [visible, profile?.id]);
 
   const loadContacts = async () => {
+    if (!profile?.id) return;
     try {
-      // 1. Check if profile already has cloud-persisted emergency contacts
-      const cloudContacts = (profile as any)?.emergency_contacts;
-      let loaded: EmergencyContact[] = [];
-
-      if (Array.isArray(cloudContacts) && cloudContacts.length > 0) {
-        loaded = cloudContacts;
-        await AsyncStorage.setItem(getStorageKey(), JSON.stringify(cloudContacts));
-        await AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(cloudContacts));
-      } else {
-        // 2. Check user-scoped AsyncStorage
-        const saved = await AsyncStorage.getItem(getStorageKey());
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          loaded = parsed;
-          if (profile?.id && Array.isArray(parsed) && parsed.length > 0) {
-            useAuthStore.getState().setProfile({ ...profile, emergency_contacts: parsed });
-            try {
-              await supabase.from('profiles').update({ emergency_contacts: parsed }).eq('id', profile.id);
-            } catch (e) {}
-          }
-        } else {
-          // 3. Fallback to resilient global AsyncStorage key
-          const fallbackSaved = await AsyncStorage.getItem('@circleguard_emergency_contacts');
-          if (fallbackSaved) {
-            const parsedFallback = JSON.parse(fallbackSaved);
-            loaded = parsedFallback;
-            if (profile?.id && Array.isArray(parsedFallback) && parsedFallback.length > 0) {
-              await AsyncStorage.setItem(getStorageKey(), fallbackSaved);
-              useAuthStore.getState().setProfile({ ...profile, emergency_contacts: parsedFallback });
-              try {
-                await supabase.from('profiles').update({ emergency_contacts: parsedFallback }).eq('id', profile.id);
-              } catch (e) {}
-            }
-          }
-        }
-      }
-
+      const res = await EmergencyMedicalService.fetchEmergencyContacts(profile.id);
+      const loaded: EmergencyContact[] = res.data || [];
       setContacts(loaded);
+      setIsPendingSync(Boolean(res.pendingSync));
 
-      // Load primary contact phone
-      const primarySaved = await AsyncStorage.getItem(getPrimaryStorageKey());
+      // Load primary contact phone from user-scoped storage or top contact
+      const primarySaved = await AsyncStorage.getItem(getPrimaryContactStorageKey(profile.id));
       if (primarySaved) {
         try {
           const parsed = JSON.parse(primarySaved);
@@ -130,7 +99,7 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
         setPrimaryPhone(loaded[0].phone);
       }
     } catch (e) {
-      console.error('Error loading emergency contacts:', e);
+      console.error('[EmergencyContactsModal] Error loading emergency contacts:', e);
     }
   };
 
@@ -179,53 +148,63 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
       return;
     }
 
-    const newContact: EmergencyContact = {
-      id: Date.now().toString(),
-      name: name.trim(),
-      relationship,
-      phone: validation.formattedDisplay,
-    };
-
-    const updated = [...contacts, newContact];
-    setContacts(updated);
-
-    // Save to dual-tier AsyncStorage
-    await AsyncStorage.setItem(getStorageKey(), JSON.stringify(updated));
-    await AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(updated));
-
-    if (!primaryPhone || contacts.length === 0) {
-      setPrimaryPhone(validation.formattedDisplay);
-      await AsyncStorage.setItem(getPrimaryStorageKey(), JSON.stringify({ name: name.trim(), phone: validation.formattedDisplay }));
-      await AsyncStorage.setItem('@circleguard_primary_emergency_contact', JSON.stringify({ name: name.trim(), phone: validation.formattedDisplay }));
+    if (!profile?.id) {
+      showAlert({
+        title: 'Sign In Required',
+        message: 'Please sign in to add emergency contacts.',
+        type: 'warning',
+      });
+      return;
     }
 
-    // Persist to Supabase cloud profile
-    if (profile?.id) {
-      useAuthStore.getState().setProfile({ ...profile, emergency_contacts: updated });
-      try {
-        await supabase.from('profiles').update({ emergency_contacts: updated }).eq('id', profile.id);
-      } catch (err) {
-        console.warn('Failed saving emergency contacts to cloud profile:', err);
+    setIsSaving(true);
+    try {
+      const res = await EmergencyMedicalService.addEmergencyContact(profile.id, {
+        name: name.trim(),
+        phone: validation.formattedDisplay,
+        relationship,
+        sort_order: contacts.length,
+      });
+
+      if (res.success || res.pendingSync) {
+        setName('');
+        setPhone('');
+        setRelationship('Father');
+        setIsAdding(false);
+        await loadContacts();
+        onContactsUpdated?.();
+
+        showAlert({
+          title: res.success ? 'Contact Saved' : 'Saved Offline',
+          message: res.success
+            ? `${name.trim()} has been saved to your emergency directory.`
+            : `${name.trim()} saved offline and will sync once network is restored.`,
+          type: 'success',
+        });
+      } else {
+        // Keep form input intact on failure
+        showAlert({
+          title: 'Unable to Save Contact',
+          message: res.error || 'Failed to save contact to database. Your input was preserved.',
+          type: 'error',
+        });
       }
+    } catch (err: any) {
+      showAlert({
+        title: 'Save Failed',
+        message: err?.message || 'Something went wrong while saving.',
+        type: 'error',
+      });
+    } finally {
+      setIsSaving(false);
     }
-
-    setName('');
-    setPhone('');
-    setRelationship('Father');
-    setIsAdding(false);
-    onContactsUpdated?.();
-
-    showAlert({
-      title: 'Contact Saved',
-      message: `${newContact.name} has been added to your emergency directory.`,
-      type: 'success',
-    });
   };
 
   const handleSetPrimary = async (c: EmergencyContact) => {
     setPrimaryPhone(c.phone);
-    await AsyncStorage.setItem(getPrimaryStorageKey(), JSON.stringify({ name: c.name, phone: c.phone }));
-    await AsyncStorage.setItem('@circleguard_primary_emergency_contact', JSON.stringify({ name: c.name, phone: c.phone }));
+    if (profile?.id) {
+      await AsyncStorage.setItem(getPrimaryContactStorageKey(profile.id), JSON.stringify({ name: c.name, phone: c.phone }));
+    }
     onContactsUpdated?.();
     showAlert({
       title: 'Primary Contact Set',
@@ -243,33 +222,23 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
       cancelText: 'CANCEL',
       isDestructive: true,
       onConfirm: async () => {
-        const updated = contacts.filter((c) => c.id !== id);
-        setContacts(updated);
-        await AsyncStorage.setItem(getStorageKey(), JSON.stringify(updated));
-        await AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(updated));
-
-        // If removed contact was primary, fall back to next contact or null
-        if (contactToDelete && primaryPhone === contactToDelete.phone) {
-          const next = updated[0];
-          if (next) {
-            setPrimaryPhone(next.phone);
-            await AsyncStorage.setItem(getPrimaryStorageKey(), JSON.stringify({ name: next.name, phone: next.phone }));
-            await AsyncStorage.setItem('@circleguard_primary_emergency_contact', JSON.stringify({ name: next.name, phone: next.phone }));
-          } else {
+        if (!profile?.id) return;
+        const res = await EmergencyMedicalService.deleteEmergencyContact(profile.id, id);
+        if (res.success || res.pendingSync) {
+          // If removed contact was primary, clean up primary key
+          if (contactToDelete && primaryPhone === contactToDelete.phone) {
             setPrimaryPhone(null);
-            await AsyncStorage.removeItem(getPrimaryStorageKey());
-            await AsyncStorage.removeItem('@circleguard_primary_emergency_contact');
+            await AsyncStorage.removeItem(getPrimaryContactStorageKey(profile.id));
           }
+          await loadContacts();
+          onContactsUpdated?.();
+        } else {
+          showAlert({
+            title: 'Delete Failed',
+            message: res.error || 'Could not remove contact from database.',
+            type: 'error',
+          });
         }
-
-        if (profile?.id) {
-          useAuthStore.getState().setProfile({ ...profile, emergency_contacts: updated });
-          try {
-            await supabase.from('profiles').update({ emergency_contacts: updated }).eq('id', profile.id);
-          } catch (err) {}
-        }
-
-        onContactsUpdated?.();
       },
     });
   };
@@ -283,9 +252,9 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
       const { status } = await Contacts.requestPermissionsAsync();
       if (status !== 'granted') {
         showAlert({
-          title: 'Permission Denied',
-          message: 'Contacts permission is required to import an emergency contact from your address book.',
-          type: 'warning',
+          title: 'Contacts Access Needed',
+          message: 'To choose an emergency contact directly from your address book, please enable contacts access in your device settings.',
+          type: 'info',
         });
         return;
       }
@@ -303,42 +272,61 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
 
         if (!phoneNumber) {
           showAlert({
-            title: 'No Phone Number',
-            message: `${contactName} does not have a registered phone number.`,
+            title: 'Phone Number Needed',
+            message: `${contactName} does not have a phone number saved. Please select a contact with a valid phone number.`,
             type: 'info',
           });
           return;
         }
 
-        const newContact: EmergencyContact = {
-          id: Date.now().toString(),
+        if (!profile?.id) return;
+
+        const res = await EmergencyMedicalService.addEmergencyContact(profile.id, {
           name: contactName,
-          relationship: 'Emergency Contact',
           phone: phoneNumber,
-        };
+          relationship: 'Emergency Contact',
+          sort_order: contacts.length,
+        });
 
-        const updated = [...contacts, newContact];
-        setContacts(updated);
-        await AsyncStorage.setItem(getStorageKey(), JSON.stringify(updated));
-        await AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(updated));
-
-        if (!primaryPhone || contacts.length === 0) {
-          setPrimaryPhone(phoneNumber);
-          await AsyncStorage.setItem(getPrimaryStorageKey(), JSON.stringify({ name: contactName, phone: phoneNumber }));
-          await AsyncStorage.setItem('@circleguard_primary_emergency_contact', JSON.stringify({ name: contactName, phone: phoneNumber }));
+        if (res.success || res.pendingSync) {
+          await loadContacts();
+          onContactsUpdated?.();
+          showAlert({
+            title: res.success ? 'Contact Added' : 'Saved Offline',
+            message: res.success
+              ? `${contactName} has been added from your phone contacts.`
+              : `${contactName} saved offline.`,
+            type: 'success',
+          });
+        } else {
+          showAlert({
+            title: 'Unable to Save Contact',
+            message: res.error || 'Failed to save contact.',
+            type: 'error',
+          });
         }
-
-        if (profile?.id) {
-          useAuthStore.getState().setProfile({ ...profile, emergency_contacts: updated });
-          try {
-            await supabase.from('profiles').update({ emergency_contacts: updated }).eq('id', profile.id);
-          } catch (err) {}
-        }
-
-        onContactsUpdated?.();
       }
     } catch (e: any) {
       console.error('Error picking phone contact:', e);
+      const rawMsg = (e?.message || '').toLowerCase();
+      const isStorageIssue =
+        rawMsg.includes('disk') ||
+        rawMsg.includes('sqlite') ||
+        rawMsg.includes('full') ||
+        rawMsg.includes('storage') ||
+        rawMsg.includes('code 13') ||
+        rawMsg.includes('enospc');
+
+      showAlert({
+        title: isStorageIssue ? 'Device Storage Is Low' : 'Unable to Access Contacts',
+        message: isStorageIssue
+          ? 'Your phone is currently low on storage space, so we could not open your address book. You can easily type their name and phone number below.'
+          : 'We could not open your address book right now. You can easily type their name and phone number below.',
+        type: 'info',
+        tag: isStorageIssue ? '• STORAGE NOTICE' : '• CONTACTS NOTICE',
+        buttonText: 'Type Manually',
+        onPress: () => setIsAdding(true),
+      });
     }
   };
 
@@ -377,6 +365,15 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
               These trusted contacts are immediately dispatched with your live GPS location during any SOS alert.
             </Text>
           </View>
+
+          {isPendingSync && (
+            <View style={[styles.pendingSyncBanner, { backgroundColor: isDark ? '#2E2211' : '#FEF3C7', borderColor: isDark ? '#78350F' : '#FDE68A' }]}>
+              <Ionicons name="cloud-offline-outline" size={16} color={isDark ? '#F59E0B' : '#B45309'} />
+              <Text style={[styles.pendingSyncBannerText, { color: isDark ? '#F59E0B' : '#B45309' }]}>
+                Offline contacts saved — changes will sync once connection is restored
+              </Text>
+            </View>
+          )}
 
           {/* Clean Add Contact Action Cards */}
           {!isAdding ? (
@@ -519,17 +516,25 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
                   style={[styles.cancelBtn, { backgroundColor: isDark ? '#262930' : '#F8FAFC', borderColor: isDark ? '#333742' : '#E2E8F0' }]}
                   onPress={() => setIsAdding(false)}
                   activeOpacity={0.7}
+                  disabled={isSaving}
                 >
                   <Text style={styles.cancelBtnText}>Cancel</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.saveBtn}
+                  style={[styles.saveBtn, isSaving && { opacity: 0.7 }]}
                   onPress={handleSaveContact}
                   activeOpacity={0.85}
+                  disabled={isSaving}
                 >
-                  <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
-                  <Text style={styles.saveBtnText}>Save Contact</Text>
+                  {isSaving ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
+                      <Text style={styles.saveBtnText}>Save Contact</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
@@ -1259,4 +1264,20 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#2E7D5B',
   },
+  pendingSyncBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  pendingSyncBannerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
 });
+

@@ -12,6 +12,8 @@ import { useThemeStore } from '../store/useThemeStore';
 import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBorderStyles } from '../constants/theme';
 import { validateImageUpload } from '../lib/fileUploadSecurity';
 import { handleServiceError } from '../lib/errorHandler';
+import { EmergencyMedicalService, getPrimaryContactStorageKey } from '../services/EmergencyMedicalService';
+
 
 // Modals
 import EmergencyContactsModal from '../components/EmergencyContactsModal';
@@ -85,47 +87,34 @@ export default function ProfileScreen() {
   }, [profile?.id, profile]);
 
   const loadPrimaryEmergencyContact = React.useCallback(async () => {
-    // 1. Check cloud profile
-    const cloudContacts = (profile as any)?.emergency_contacts;
+    if (!profile?.id) {
+      setEmergencyContact(null);
+      return;
+    }
+
+    // 1. Check profile in auth store
+    const cloudContacts = profile?.emergency_contacts;
     if (Array.isArray(cloudContacts) && cloudContacts.length > 0) {
       setEmergencyContact({ name: cloudContacts[0].name, phone: cloudContacts[0].phone });
       return;
     }
 
-    if (!profile?.id) {
-      const globalSaved = await AsyncStorage.getItem('@circleguard_primary_emergency_contact');
-      if (globalSaved) {
-        try {
-          setEmergencyContact(JSON.parse(globalSaved));
-        } catch (e) {}
-      }
-      return;
-    }
-
     try {
-      const saved = await AsyncStorage.getItem(getPrimaryContactKey(profile.id));
-      if (saved) {
-        setEmergencyContact(JSON.parse(saved));
+      const res = await EmergencyMedicalService.fetchEmergencyContacts(profile.id);
+      if (res.data && res.data.length > 0) {
+        setEmergencyContact({ name: res.data[0].name, phone: res.data[0].phone });
       } else {
-        const savedList = await AsyncStorage.getItem(getContactsListKey(profile.id));
-        if (savedList) {
-          const list = JSON.parse(savedList);
-          if (list && list.length > 0) {
-            setEmergencyContact({ name: list[0].name, phone: list[0].phone });
-          } else {
-            setEmergencyContact(null);
-          }
+        const saved = await AsyncStorage.getItem(getPrimaryContactStorageKey(profile.id));
+        if (saved) {
+          setEmergencyContact(JSON.parse(saved));
         } else {
-          const globalSaved = await AsyncStorage.getItem('@circleguard_primary_emergency_contact');
-          if (globalSaved) {
-            setEmergencyContact(JSON.parse(globalSaved));
-          } else {
-            setEmergencyContact(null);
-          }
+          setEmergencyContact(null);
         }
       }
-    } catch (e) {}
-  }, [profile?.id, profile]);
+    } catch (e) {
+      setEmergencyContact(null);
+    }
+  }, [profile?.id, profile?.emergency_contacts]);
 
   React.useEffect(() => {
     loadPrimaryEmergencyContact();
@@ -144,9 +133,9 @@ export default function ProfileScreen() {
       const { status } = await Contacts.requestPermissionsAsync();
       if (status !== 'granted') {
         showAlert({
-          title: 'Permission Denied',
-          message: 'Permission to access contacts is required to select an emergency contact from your phone.',
-          type: 'warning',
+          title: 'Contacts Access Needed',
+          message: 'To choose an emergency responder directly from your phone, please enable contacts access in your device settings.',
+          type: 'info',
         });
         return;
       }
@@ -165,9 +154,9 @@ export default function ProfileScreen() {
 
         if (!phoneNumber) {
           showAlert({
-            title: 'No Phone Number',
-            message: `${contactName} does not have a valid phone number in your contacts.`,
-            type: 'warning',
+            title: 'Phone Number Needed',
+            message: `${contactName} doesn't have a phone number saved. Please select a contact with a valid phone number.`,
+            type: 'info',
           });
           return;
         }
@@ -178,37 +167,44 @@ export default function ProfileScreen() {
         };
 
         setEmergencyContact(item);
-        await AsyncStorage.setItem('@circleguard_primary_emergency_contact', JSON.stringify(item));
-        if (profile?.id) {
-          await AsyncStorage.setItem(getPrimaryContactKey(profile.id), JSON.stringify(item));
 
-          // Synchronize with the emergency contacts list and cloud profile
+        if (profile?.id) {
           try {
-            const savedList = await AsyncStorage.getItem(getContactsListKey(profile.id));
-            let currentList: any[] = savedList ? JSON.parse(savedList) : [];
-            if (!currentList.some((c: any) => c.phone === phoneNumber)) {
-              currentList.push({
-                id: Date.now().toString(),
-                name: contactName,
-                phone: phoneNumber,
-                relationship: 'Emergency Contact',
-              });
-              await AsyncStorage.setItem(getContactsListKey(profile.id), JSON.stringify(currentList));
-              await AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(currentList));
-              useAuthStore.getState().setProfile({ ...profile, emergency_contacts: currentList });
-              await supabase.from('profiles').update({ emergency_contacts: currentList }).eq('id', profile.id);
-            }
-          } catch (e) {}
+            await AsyncStorage.setItem(getPrimaryContactStorageKey(profile.id), JSON.stringify(item));
+            await EmergencyMedicalService.addEmergencyContact(profile.id, {
+              name: contactName,
+              phone: phoneNumber,
+              relationship: 'Emergency Contact',
+              sort_order: 0,
+            });
+          } catch (storageErr) {
+            console.warn('[ProfileScreen] Contact persist error:', storageErr);
+          }
         }
 
-        triggerToast('Emergency contact number added successfully');
+        triggerToast('Emergency contact added successfully');
       }
     } catch (err: any) {
       console.error('Error selecting contact:', err);
+      const rawMsg = (err?.message || '').toLowerCase();
+      const isStorageIssue =
+        rawMsg.includes('disk') ||
+        rawMsg.includes('sqlite') ||
+        rawMsg.includes('full') ||
+        rawMsg.includes('storage') ||
+        rawMsg.includes('code 13') ||
+        rawMsg.includes('enospc');
+
       showAlert({
-        title: 'Contact Picker Error',
-        message: err.message || 'Unable to open phone contacts.',
-        type: 'error',
+        title: isStorageIssue ? 'Device Storage Is Low' : 'Unable to Open Contacts',
+        message: isStorageIssue
+          ? 'Your phone is currently low on storage space, so we could not open your contacts. Please free up a little space on your device, or you can manage your emergency contacts directly in the directory.'
+          : 'We were unable to open your contacts list right now. You can try again in a moment, or add your emergency responder directly in the directory.',
+        type: 'info',
+        tag: isStorageIssue ? '• STORAGE NOTICE' : '• CONTACTS NOTICE',
+        buttonText: 'Got It',
+        secondaryButtonText: 'Open Directory',
+        onSecondaryPress: () => setContactsModalVisible(true),
       });
     }
   };
@@ -216,29 +212,26 @@ export default function ProfileScreen() {
   const handleDeletePrimaryContact = () => {
     showConfirm({
       title: 'Remove Emergency Contact',
-      message: `Remove ${emergencyContact?.name || 'this contact'} as your primary emergency contact?`,
-      confirmText: 'REMOVE',
-      cancelText: 'CANCEL',
+      message: `Would you like to remove ${emergencyContact?.name || 'this contact'} as your primary emergency contact?`,
+      confirmText: 'Remove',
+      cancelText: 'Keep',
       isDestructive: true,
       onConfirm: async () => {
         const removedPhone = emergencyContact?.phone;
         setEmergencyContact(null);
-        await AsyncStorage.removeItem('@circleguard_primary_emergency_contact');
         if (profile?.id) {
-          await AsyncStorage.removeItem(getPrimaryContactKey(profile.id));
           try {
-            const savedList = await AsyncStorage.getItem(getContactsListKey(profile.id));
-            if (savedList) {
-              let currentList: any[] = JSON.parse(savedList);
-              currentList = currentList.filter((c: any) => c.phone !== removedPhone);
-              await AsyncStorage.setItem(getContactsListKey(profile.id), JSON.stringify(currentList));
-              await AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(currentList));
-              useAuthStore.getState().setProfile({ ...profile, emergency_contacts: currentList });
-              await supabase.from('profiles').update({ emergency_contacts: currentList }).eq('id', profile.id);
+            await AsyncStorage.removeItem(getPrimaryContactStorageKey(profile.id));
+            const currentList = profile.emergency_contacts || [];
+            const found = currentList.find((c: any) => c.phone === removedPhone);
+            if (found?.id) {
+              await EmergencyMedicalService.deleteEmergencyContact(profile.id, found.id);
             }
-          } catch (e) {}
+          } catch (storageErr) {
+            console.warn('[ProfileScreen] Removing contact error:', storageErr);
+          }
         }
-        triggerToast('Emergency contact removed successfully');
+        triggerToast('Emergency contact removed');
       },
     });
   };
@@ -249,6 +242,12 @@ export default function ProfileScreen() {
       try {
         const { data } = await supabase.from('profiles').select('*').eq('id', profile.id).single();
         if (data) setProfile(data);
+        await Promise.all([
+          EmergencyMedicalService.fetchMedicalInfo(profile.id),
+          EmergencyMedicalService.fetchEmergencyContacts(profile.id),
+          EmergencyMedicalService.syncPendingQueues(profile.id),
+        ]);
+        await loadPrimaryEmergencyContact();
       } catch(e) {}
       setRefreshing(false);
     }
@@ -273,9 +272,9 @@ export default function ProfileScreen() {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         showAlert({
-          title: 'Permission Required',
-          message: 'Permission to access media library is required to update profile picture.',
-          type: 'warning',
+          title: 'Photo Access Needed',
+          message: 'Please allow access to your photos in settings so you can choose a profile picture.',
+          type: 'info',
         });
         return;
       }
@@ -306,9 +305,9 @@ export default function ProfileScreen() {
 
       if (!validation.valid || !validation.sanitizedPath) {
         showAlert({
-          title: 'Invalid Image',
-          message: validation.error || 'Please select a valid JPEG, PNG, or WebP image under 5MB.',
-          type: 'warning',
+          title: 'Photo Selection',
+          message: validation.error || 'Please select a photo in JPEG, PNG, or WebP format under 5MB.',
+          type: 'info',
         });
         setUploading(false);
         return;
@@ -340,15 +339,15 @@ export default function ProfileScreen() {
       setProfile({ ...profile, avatar_url: avatarUrl });
       showAlert({
         title: 'Profile Updated',
-        message: 'Your profile details have been saved.',
+        message: 'Your new profile photo has been saved.',
         type: 'success',
       });
     } catch (err: any) {
-      const cleanMessage = handleServiceError('ProfileScreen:uploadAvatar', err, 'Failed to update profile picture. Please try again.');
+      const cleanMessage = handleServiceError('ProfileScreen:uploadAvatar', err, 'We could not update your profile photo right now. Please try again in a moment.');
       showAlert({
-        title: 'Upload Failed',
+        title: 'Upload Incomplete',
         message: cleanMessage,
-        type: 'error',
+        type: 'info',
       });
     } finally {
       setUploading(false);
@@ -485,6 +484,7 @@ export default function ProfileScreen() {
         <MedicalInfoModal 
           visible={medicalModalVisible} 
           onClose={() => setMedicalModalVisible(false)} 
+          onSaved={() => triggerToast('Medical profile updated successfully')}
         />
         <AppearanceModal 
           visible={appearanceModalVisible} 

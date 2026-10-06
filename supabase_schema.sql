@@ -16,6 +16,9 @@ create table if not exists public.profiles (
   push_token text,
   is_ghost_mode boolean default false,
   hide_online_presence boolean default false,
+  gps_frequency text default 'high' check (gps_frequency in ('high', 'balanced', 'saver')),
+  shake_sos_enabled boolean default false,
+  app_lock_enabled boolean default false,
   is_premium boolean default false,
   created_at timestamptz default now()
 );
@@ -65,6 +68,9 @@ create table if not exists public.location_history (
   recorded_at timestamptz default now()
 );
 create index if not exists location_history_geom_idx on public.location_history using gist (geom);
+create index if not exists idx_location_history_user_recorded_at on public.location_history (user_id, recorded_at asc);
+create index if not exists idx_circle_members_user_id on public.circle_members (user_id);
+create index if not exists idx_locations_user_id_updated on public.locations (user_id, updated_at desc);
 
 -- Places (Home, School, Work, Route geofences)
 create table if not exists public.places (
@@ -1204,4 +1210,707 @@ create policy "User-isolated Avatar Deletion"
     bucket_id = 'avatars' and
     (storage.foldername(name))[1] = auth.uid()::text
   );
+
+-- Link user accounts to "Test app" circle: strictly 1 leader ('owner') and 1 co-leader ('co_leader')
+insert into public.circle_members (circle_id, user_id, role)
+values 
+  ('af00325e-7e26-4b5d-856d-907085b326d2', '03ca6af3-b0f7-46a1-9e70-2bb96befb67c', 'owner'),
+  ('af00325e-7e26-4b5d-856d-907085b326d2', '2875720f-904b-4559-a436-512286054510', 'co_leader')
+on conflict (circle_id, user_id) do update set role = excluded.role;
+
+-- Enforce strictly 1 Leader ('owner') per circle via trigger and unique partial index
+create or replace function public.enforce_single_circle_leader()
+returns trigger as $$
+begin
+  if new.role = 'owner' then
+    if exists (
+      select 1 from public.circle_members
+      where circle_id = new.circle_id
+        and role = 'owner'
+        and user_id <> new.user_id
+    ) then
+      new.role := 'co_leader';
+    end if;
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_enforce_single_circle_leader on public.circle_members;
+create trigger trg_enforce_single_circle_leader
+  before insert or update of role on public.circle_members
+  for each row execute function public.enforce_single_circle_leader();
+
+drop index if exists public.idx_circle_members_single_owner;
+create unique index idx_circle_members_single_owner 
+  on public.circle_members (circle_id) 
+  where role = 'owner';
+
+-- ============================================================================
+-- SAFE ZONE TRANSITIONS, PUSH TOKENS & IDEMPOTENT REPORTING RPC
+-- ============================================================================
+
+-- Push Tokens Table (Supports multiple device tokens and IANA recipient timezone)
+create table if not exists public.push_tokens (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  expo_push_token text not null,
+  platform text not null default 'unknown',
+  timezone text not null default 'UTC',
+  updated_at timestamptz not null default now(),
+  constraint uq_user_push_token unique (user_id, expo_push_token)
+);
+
+create index if not exists idx_push_tokens_user_id on public.push_tokens(user_id);
+create index if not exists idx_push_tokens_token on public.push_tokens(expo_push_token);
+
+-- Member Zone State Table (Tracks currently inside/outside per safe zone)
+create table if not exists public.member_zone_state (
+  member_id uuid references public.profiles(id) on delete cascade not null,
+  zone_id uuid references public.places(id) on delete cascade not null,
+  inside boolean not null default false,
+  last_transition_at timestamptz not null,
+  updated_at timestamptz not null default now(),
+  primary key (member_id, zone_id)
+);
+
+create index if not exists idx_member_zone_state_lookup on public.member_zone_state(member_id, zone_id);
+
+-- Zone Events Table (Authoritative immutable log of transitions)
+create table if not exists public.zone_events (
+  id uuid primary key default gen_random_uuid(),
+  circle_id uuid references public.circles(id) on delete cascade not null,
+  member_id uuid references public.profiles(id) on delete cascade not null,
+  zone_id uuid references public.places(id) on delete cascade not null,
+  type text not null check (type in ('EXIT', 'ENTER')),
+  occurred_at timestamptz not null,
+  received_at timestamptz not null default now(),
+  lat float,
+  lng float,
+  accuracy float
+);
+
+create index if not exists idx_zone_events_circle on public.zone_events(circle_id, occurred_at desc);
+create index if not exists idx_zone_events_member on public.zone_events(member_id, occurred_at desc);
+create index if not exists idx_zone_events_zone on public.zone_events(zone_id, occurred_at desc);
+
+-- Idempotent Transition Reporting RPC
+create or replace function public.report_zone_transition(
+  p_member_id uuid,
+  p_zone_id uuid,
+  p_type text,
+  p_occurred_at timestamptz,
+  p_lat float default null,
+  p_lng float default null,
+  p_accuracy float default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_circle_id uuid;
+  v_is_inside boolean;
+  v_current_state record;
+  v_clamped_occurred_at timestamptz;
+  v_event_id uuid;
+begin
+  if p_type not in ('EXIT', 'ENTER') then
+    raise exception 'Invalid transition type: %, must be EXIT or ENTER', p_type;
+  end if;
+
+  if auth.uid() is not null and auth.uid() != p_member_id then
+    raise exception 'Unauthorized: members can only report transitions for themselves';
+  end if;
+
+  if p_occurred_at > (now() + interval '1 minute') then
+    v_clamped_occurred_at := now() + interval '1 minute';
+  else
+    v_clamped_occurred_at := p_occurred_at;
+  end if;
+
+  select circle_id into v_circle_id
+  from public.places
+  where id = p_zone_id;
+
+  if v_circle_id is null then
+    raise exception 'Safe zone with id % not found', p_zone_id;
+  end if;
+
+  v_is_inside := (p_type = 'ENTER');
+
+  select inside, last_transition_at
+  into v_current_state
+  from public.member_zone_state
+  where member_id = p_member_id and zone_id = p_zone_id
+  for update;
+
+  if found then
+    if v_current_state.inside = v_is_inside then
+      return jsonb_build_object(
+        'status', 'ignored',
+        'reason', 'state_unchanged',
+        'current_inside', v_current_state.inside,
+        'last_transition_at', v_current_state.last_transition_at
+      );
+    end if;
+
+    if v_clamped_occurred_at <= v_current_state.last_transition_at then
+      return jsonb_build_object(
+        'status', 'ignored',
+        'reason', 'stale_transition',
+        'last_transition_at', v_current_state.last_transition_at
+      );
+    end if;
+
+    update public.member_zone_state
+    set inside = v_is_inside,
+        last_transition_at = v_clamped_occurred_at,
+        updated_at = now()
+    where member_id = p_member_id and zone_id = p_zone_id;
+  else
+    insert into public.member_zone_state (member_id, zone_id, inside, last_transition_at, updated_at)
+    values (p_member_id, p_zone_id, v_is_inside, v_clamped_occurred_at, now());
+  end if;
+
+  insert into public.zone_events (
+    circle_id,
+    member_id,
+    zone_id,
+    type,
+    occurred_at,
+    received_at,
+    lat,
+    lng,
+    accuracy
+  ) values (
+    v_circle_id,
+    p_member_id,
+    p_zone_id,
+    p_type,
+    v_clamped_occurred_at,
+    now(),
+    p_lat,
+    p_lng,
+    p_accuracy
+  )
+  returning id into v_event_id;
+
+  insert into public.place_events (
+    place_id,
+    user_id,
+    event_type,
+    occurred_at
+  ) values (
+    p_zone_id,
+    p_member_id,
+    case when p_type = 'ENTER' then 'arrival' else 'departure' end,
+    v_clamped_occurred_at
+  );
+
+  return jsonb_build_object(
+    'status', 'recorded',
+    'event_id', v_event_id,
+    'circle_id', v_circle_id,
+    'member_id', p_member_id,
+    'zone_id', p_zone_id,
+    'type', p_type,
+    'occurred_at', v_clamped_occurred_at
+  );
+end;
+$$;
+
+alter table public.zone_events enable row level security;
+alter table public.member_zone_state enable row level security;
+alter table public.push_tokens enable row level security;
+
+drop policy if exists "Circle members can read circle zone events" on public.zone_events;
+create policy "Circle members can read circle zone events"
+on public.zone_events for select
+using (
+  exists (
+    select 1 from public.circle_members cm
+    where cm.circle_id = zone_events.circle_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "Members can insert their own zone events" on public.zone_events;
+create policy "Members can insert their own zone events"
+on public.zone_events for insert
+with check (
+  member_id = auth.uid()
+);
+
+drop policy if exists "Circle members can view member zone states" on public.member_zone_state;
+create policy "Circle members can view member zone states"
+on public.member_zone_state for select
+using (
+  exists (
+    select 1 from public.places p
+    join public.circle_members cm on cm.circle_id = p.circle_id
+    where p.id = member_zone_state.zone_id
+      and cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists "Members can manage their own zone state" on public.member_zone_state;
+create policy "Members can manage their own zone state"
+on public.member_zone_state for all
+using (member_id = auth.uid())
+with check (member_id = auth.uid());
+
+drop policy if exists "Users can manage their own push tokens" on public.push_tokens;
+create policy "Users can manage their own push tokens"
+on public.push_tokens for all
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'zone_events') then
+    alter publication supabase_realtime add table public.zone_events;
+  end if;
+end $$;
+
+-- ============================================================================
+-- 18. DEDICATED EMERGENCY CONTACTS & MEDICAL INFO RELATIONAL TABLES
+-- ============================================================================
+
+create table if not exists public.medical_info (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  blood_type text default 'O+',
+  allergies text default '',
+  conditions text default '',
+  medications text default '',
+  notes text default '',
+  updated_at timestamptz default now()
+);
+
+create table if not exists public.emergency_contacts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  name text not null,
+  phone text not null,
+  relationship text not null default 'Guardian',
+  sort_order int not null default 0,
+  updated_at timestamptz default now()
+);
+
+create index if not exists emergency_contacts_user_id_idx on public.emergency_contacts (user_id, sort_order);
+
+alter table public.medical_info enable row level security;
+alter table public.emergency_contacts enable row level security;
+
+drop policy if exists "Users can manage their own medical_info" on public.medical_info;
+create policy "Users can manage their own medical_info" 
+  on public.medical_info 
+  for all 
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Circle members can view peer medical_info" on public.medical_info;
+create policy "Circle members can view peer medical_info" 
+  on public.medical_info 
+  for select 
+  using (
+    auth.uid() = user_id
+    or exists (
+      select 1 from public.circle_members cm_viewer
+      join public.circle_members cm_owner on cm_owner.circle_id = cm_viewer.circle_id
+      where cm_viewer.user_id = auth.uid()
+      and cm_owner.user_id = medical_info.user_id
+    )
+  );
+
+drop policy if exists "Users can manage their own emergency_contacts" on public.emergency_contacts;
+create policy "Users can manage their own emergency_contacts" 
+  on public.emergency_contacts 
+  for all 
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Circle members can view peer emergency_contacts" on public.emergency_contacts;
+create policy "Circle members can view peer emergency_contacts" 
+  on public.emergency_contacts 
+  for select 
+  using (
+    auth.uid() = user_id
+    or exists (
+      select 1 from public.circle_members cm_viewer
+      join public.circle_members cm_owner on cm_owner.circle_id = cm_viewer.circle_id
+      where cm_viewer.user_id = auth.uid()
+      and cm_owner.user_id = emergency_contacts.user_id
+    )
+  );
+
+-- ============================================================================
+-- 18. Server-Triggered Location Requests (Ping Location with 30s Timeout)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.location_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  requester_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  target_user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  circle_id UUID REFERENCES public.circles(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'fulfilled', 'timed_out', 'failed')) DEFAULT 'pending',
+  requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '30 seconds'),
+  fulfilled_at TIMESTAMPTZ,
+  fulfilled_latitude DOUBLE PRECISION,
+  fulfilled_longitude DOUBLE PRECISION,
+  fulfilled_accuracy DOUBLE PRECISION,
+  last_known_latitude DOUBLE PRECISION,
+  last_known_longitude DOUBLE PRECISION,
+  last_known_updated_at TIMESTAMPTZ,
+  failure_reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_location_requests_target_status ON public.location_requests (target_user_id, status);
+CREATE INDEX IF NOT EXISTS idx_location_requests_requester_time ON public.location_requests (requester_id, requested_at DESC);
+CREATE INDEX IF NOT EXISTS idx_location_requests_expires ON public.location_requests (expires_at) WHERE status = 'pending';
+
+ALTER TABLE public.location_requests ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view location requests they sent or received" ON public.location_requests;
+CREATE POLICY "Users can view location requests they sent or received"
+  ON public.location_requests FOR SELECT
+  USING (auth.uid() = requester_id OR auth.uid() = target_user_id);
+
+DROP POLICY IF EXISTS "Users can create location requests for their circle members" ON public.location_requests;
+CREATE POLICY "Users can create location requests for their circle members"
+  ON public.location_requests FOR INSERT
+  WITH CHECK (
+    auth.uid() = requester_id AND
+    EXISTS (
+      SELECT 1 FROM public.circle_members cm1
+      JOIN public.circle_members cm2 ON cm1.circle_id = cm2.circle_id
+      WHERE cm1.user_id = auth.uid() AND cm2.user_id = target_user_id
+    )
+  );
+
+DROP POLICY IF EXISTS "Target users can update their location requests" ON public.location_requests;
+CREATE POLICY "Target users can update their location requests"
+  ON public.location_requests FOR UPDATE
+  USING (auth.uid() = target_user_id)
+  WITH CHECK (auth.uid() = target_user_id);
+
+-- ============================================================================
+-- 19. Granular Location Sharing Permissions & Pause Sharing Controls
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.location_sharing_permissions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  target_id UUID NOT NULL,
+  target_type TEXT NOT NULL CHECK (target_type IN ('circle', 'user')) DEFAULT 'circle',
+  is_enabled BOOLEAN NOT NULL DEFAULT true,
+  paused_until TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_user_target UNIQUE (user_id, target_id, target_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sharing_perms_lookup ON public.location_sharing_permissions (user_id, target_id);
+ALTER TABLE public.location_sharing_permissions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users manage their own location sharing permissions" ON public.location_sharing_permissions;
+CREATE POLICY "Users manage their own location sharing permissions"
+  ON public.location_sharing_permissions FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Circle members can inspect if sharing is enabled for them" ON public.location_sharing_permissions;
+CREATE POLICY "Circle members can inspect if sharing is enabled for them"
+  ON public.location_sharing_permissions FOR SELECT
+  USING (
+    target_type = 'user' AND target_id = auth.uid() OR
+    target_type = 'circle' AND EXISTS (
+      SELECT 1 FROM public.circle_members WHERE circle_id = target_id AND user_id = auth.uid()
+    )
+  );
+
+-- ============================================================================
+-- 20. DPDP Act (India) & Global Privacy Consent Audit Logs
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.user_consents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  consent_type TEXT NOT NULL CHECK (consent_type IN ('background_location', 'motion_telematics', 'emergency_contacts', 'data_retention')),
+  version TEXT NOT NULL DEFAULT '1.0',
+  status TEXT NOT NULL CHECK (status IN ('granted', 'withdrawn', 'refused')) DEFAULT 'granted',
+  purpose_disclosure TEXT NOT NULL,
+  ip_address TEXT,
+  device_info TEXT,
+  granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  withdrawn_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_consents_lookup ON public.user_consents (user_id, consent_type, status);
+ALTER TABLE public.user_consents ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view and record their own legal consents" ON public.user_consents;
+CREATE POLICY "Users can view and record their own legal consents"
+  ON public.user_consents FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- ============================================================================
+-- 21. 30-Day Automated Data Retention Policy & Right-to-be-Forgotten Purge
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.purge_expired_location_telemetry()
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  deleted_history_count INT := 0;
+  deleted_requests_count INT := 0;
+  deleted_events_count INT := 0;
+BEGIN
+  DELETE FROM public.location_history WHERE recorded_at < (now() - interval '30 days');
+  GET DIAGNOSTICS deleted_history_count = ROW_COUNT;
+
+  DELETE FROM public.location_requests WHERE requested_at < (now() - interval '7 days');
+  GET DIAGNOSTICS deleted_requests_count = ROW_COUNT;
+
+  DELETE FROM public.place_events WHERE occurred_at < (now() - interval '60 days');
+  GET DIAGNOSTICS deleted_events_count = ROW_COUNT;
+
+  RETURN json_build_object(
+    'success', true,
+    'deleted_history_records', deleted_history_count,
+    'deleted_location_requests', deleted_requests_count,
+    'deleted_place_events', deleted_events_count,
+    'purged_at', now()
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.delete_user_telemetry_data(target_user_id UUID)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  calling_user UUID;
+BEGIN
+  calling_user := auth.uid();
+  IF calling_user IS NULL OR calling_user <> target_user_id THEN
+    RAISE EXCEPTION 'Unauthorized: You can only delete your own telemetry data.';
+  END IF;
+
+  DELETE FROM public.location_history WHERE user_id = target_user_id;
+  DELETE FROM public.locations WHERE user_id = target_user_id;
+  DELETE FROM public.location_requests WHERE requester_id = target_user_id OR target_user_id = target_user_id;
+  DELETE FROM public.place_events WHERE member_id = target_user_id;
+  DELETE FROM public.sos_alerts WHERE user_id = target_user_id;
+
+  RETURN json_build_object('success', true, 'user_id', target_user_id, 'erased_at', now());
+END;
+$$;
+
+-- ============================================================================
+-- SAFE ZONE TELEMETRY & INCIDENT ACTIVITY LOGS (zone_events & place_events)
+-- ============================================================================
+
+-- 1. Member Zone Current State
+CREATE TABLE IF NOT EXISTS public.member_zone_state (
+  member_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  zone_id UUID REFERENCES public.places(id) ON DELETE CASCADE NOT NULL,
+  inside BOOLEAN NOT NULL DEFAULT false,
+  last_transition_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (member_id, zone_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_member_zone_state_lookup ON public.member_zone_state(member_id, zone_id);
+
+-- 2. Zone Events Table (Authoritative immutable log of arrivals and departures)
+CREATE TABLE IF NOT EXISTS public.zone_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  circle_id UUID REFERENCES public.circles(id) ON DELETE CASCADE NOT NULL,
+  member_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  zone_id UUID REFERENCES public.places(id) ON DELETE CASCADE NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('EXIT', 'ENTER')),
+  occurred_at TIMESTAMPTZ NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  lat FLOAT,
+  lng FLOAT,
+  accuracy FLOAT
+);
+
+CREATE INDEX IF NOT EXISTS idx_zone_events_circle ON public.zone_events(circle_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_zone_events_member ON public.zone_events(member_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_zone_events_zone ON public.zone_events(zone_id, occurred_at DESC);
+
+-- 3. Legacy Place Events Table
+CREATE TABLE IF NOT EXISTS public.place_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  place_id UUID REFERENCES public.places(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  member_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL,
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_place_events_user ON public.place_events(user_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_place_events_place ON public.place_events(place_id, occurred_at DESC);
+
+-- 4. Enable Row Level Security & Policies
+ALTER TABLE public.zone_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.place_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.member_zone_state ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Circle members can read circle zone events" ON public.zone_events;
+CREATE POLICY "Circle members can read circle zone events"
+ON public.zone_events FOR SELECT
+USING (
+  EXISTS (
+    SELECT 1 FROM public.circle_members cm
+    WHERE cm.circle_id = zone_events.circle_id
+      AND cm.user_id = auth.uid()
+  )
+);
+
+DROP POLICY IF EXISTS "Members can insert zone events" ON public.zone_events;
+CREATE POLICY "Members can insert zone events"
+ON public.zone_events FOR INSERT
+WITH CHECK (
+  auth.uid() IS NULL OR auth.uid() = member_id
+);
+
+DROP POLICY IF EXISTS "Users can read place events" ON public.place_events;
+CREATE POLICY "Users can read place events"
+ON public.place_events FOR SELECT
+USING (true);
+
+DROP POLICY IF EXISTS "Users can insert place events" ON public.place_events;
+CREATE POLICY "Users can insert place events"
+ON public.place_events FOR INSERT
+WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Users can read member zone state" ON public.member_zone_state;
+CREATE POLICY "Users can read member zone state"
+ON public.member_zone_state FOR SELECT
+USING (true);
+
+DROP POLICY IF EXISTS "Users can upsert member zone state" ON public.member_zone_state;
+CREATE POLICY "Users can upsert member zone state"
+ON public.member_zone_state FOR ALL
+USING (true);
+
+-- 5. Idempotent Transition Reporting RPC
+CREATE OR REPLACE FUNCTION public.report_zone_transition(
+  p_member_id UUID,
+  p_zone_id UUID,
+  p_type TEXT,
+  p_occurred_at TIMESTAMPTZ,
+  p_lat FLOAT DEFAULT NULL,
+  p_lng FLOAT DEFAULT NULL,
+  p_accuracy FLOAT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_circle_id UUID;
+  v_is_inside BOOLEAN;
+  v_current_state RECORD;
+  v_clamped_occurred_at TIMESTAMPTZ;
+  v_event_id UUID;
+BEGIN
+  IF p_type NOT IN ('EXIT', 'ENTER') THEN
+    RAISE EXCEPTION 'Invalid transition type: %, must be EXIT or ENTER', p_type;
+  END IF;
+
+  IF p_occurred_at > (now() + interval '1 minute') THEN
+    v_clamped_occurred_at := now() + interval '1 minute';
+  ELSE
+    v_clamped_occurred_at := p_occurred_at;
+  END IF;
+
+  SELECT circle_id INTO v_circle_id
+  FROM public.places
+  WHERE id = p_zone_id;
+
+  IF v_circle_id IS NULL THEN
+    RAISE EXCEPTION 'Safe zone with id % not found', p_zone_id;
+  END IF;
+
+  v_is_inside := (p_type = 'ENTER');
+
+  SELECT inside, last_transition_at
+  INTO v_current_state
+  FROM public.member_zone_state
+  WHERE member_id = p_member_id AND zone_id = p_zone_id
+  FOR UPDATE;
+
+  IF FOUND THEN
+    IF v_current_state.inside = v_is_inside AND (now() - v_current_state.last_transition_at) < interval '3 minutes' THEN
+      RETURN jsonb_build_object(
+        'status', 'ignored',
+        'reason', 'state_unchanged_recent',
+        'current_inside', v_current_state.inside
+      );
+    END IF;
+
+    UPDATE public.member_zone_state
+    SET inside = v_is_inside,
+        last_transition_at = v_clamped_occurred_at,
+        updated_at = now()
+    where member_id = p_member_id and zone_id = p_zone_id;
+  ELSE
+    INSERT INTO public.member_zone_state (member_id, zone_id, inside, last_transition_at, updated_at)
+    VALUES (p_member_id, p_zone_id, v_is_inside, v_clamped_occurred_at, now());
+  END IF;
+
+  INSERT INTO public.zone_events (
+    circle_id,
+    member_id,
+    zone_id,
+    type,
+    occurred_at,
+    received_at,
+    lat,
+    lng,
+    accuracy
+  ) VALUES (
+    v_circle_id,
+    p_member_id,
+    p_zone_id,
+    p_type,
+    v_clamped_occurred_at,
+    now(),
+    p_lat,
+    p_lng,
+    p_accuracy
+  ) RETURNING id INTO v_event_id;
+
+  INSERT INTO public.place_events (
+    place_id,
+    user_id,
+    member_id,
+    event_type,
+    occurred_at
+  ) VALUES (
+    p_zone_id,
+    p_member_id,
+    p_member_id,
+    CASE WHEN p_type = 'EXIT' THEN 'departure' ELSE 'arrival' END,
+    v_clamped_occurred_at
+  );
+
+  RETURN jsonb_build_object(
+    'status', 'recorded',
+    'event_id', v_event_id,
+    'circle_id', v_circle_id,
+    'type', p_type,
+    'occurred_at', v_clamped_occurred_at
+  );
+END;
+$$;
+
 

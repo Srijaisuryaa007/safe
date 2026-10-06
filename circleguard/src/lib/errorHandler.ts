@@ -1,9 +1,9 @@
 /**
- * CircleGuard Secure Error Handler
+ * CircleGuard Secure Error Handler & User-Facing Message Humanizer
  * 
- * Prevents information leakage (stack traces, internal file paths,
- * raw database schema names, constraint details) to the end user,
- * while ensuring full diagnostic logging for internal/server-side debugging.
+ * Prevents technical jargon, database error codes, and sensitive traces
+ * from leaking to end users, replacing them with warm, gentle, reassuring,
+ * and intuitive messages that are easy to understand.
  */
 
 interface ErrorDetails {
@@ -12,6 +12,14 @@ interface ErrorDetails {
   details?: string;
   hint?: string;
   stack?: string;
+}
+
+export interface HumanizedAlert {
+  title: string;
+  message: string;
+  tag?: string;
+  isStorageIssue?: boolean;
+  isNetworkIssue?: boolean;
 }
 
 /**
@@ -28,15 +36,39 @@ const SENSITIVE_PATTERNS = [
   /\b(?:syntax error at or near|column "[^"]+" does not exist|relation "[^"]+" does not exist)\b/i,
   /\b(?:PGRST\d{3}|SQLSTATE\s*\[\w+\]|PostgREST)\b/i,
   /\b(?:pg_stat|pg_catalog|information_schema)\b/i,
+  /\b(?:sqlite_\w+|SQLite\w+|code \d+|code 13)\b/i,
   // Node / OS system errors
-  /\b(?:ENOENT|EACCES|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH)\b/
+  /\b(?:ENOENT|EACCES|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENOSPC)\b/,
+  // JavaScript runtime errors
+  /\b(?:TypeError|ReferenceError|SyntaxError|UnhandledPromiseRejection|cannot read property|undefined is not an object|null is not an object)\b/i,
+  /\b(?:status code \d{3}|HTTP \d{3})\b/i,
 ];
 
 /**
- * Known PostgreSQL constraints / Supabase Auth error patterns mapped to clean messages
+ * Known PostgreSQL constraints / SQLite / Device / Auth error patterns mapped to soft, kind messages
  */
 const KNOWN_ERROR_MAPPINGS: Array<{ test: RegExp; message: string }> = [
-  // Unique constraints
+  // Device Storage & SQLite
+  {
+    test: /database or disk is full|SQLITE_FULL|code 13|ENOSPC|no space left on device|disk.*full|storage.*full/i,
+    message: "Your phone is running low on available storage space right now. Freeing up a little space will help everything run smoothly."
+  },
+  {
+    test: /sqlite/i,
+    message: "A temporary storage issue occurred. Please restart the app or try again in a moment."
+  },
+
+  // Contact Picker & Address Book
+  {
+    test: /contact picker|presentcontactpickerasync|unable to open phone contacts|error selecting contact|error picking phone contact/i,
+    message: "We were unable to access your contacts list right now. You can try again in a moment or add your emergency responder directly in the directory."
+  },
+  {
+    test: /contacts permission/i,
+    message: "Contacts access is needed to select an emergency responder from your address book. You can enable it in your phone settings."
+  },
+
+  // Unique constraints (Phone)
   {
     test: /unique constraint.*profiles_phone/i,
     message: "This phone number is already registered to another account."
@@ -45,6 +77,12 @@ const KNOWN_ERROR_MAPPINGS: Array<{ test: RegExp; message: string }> = [
     test: /duplicate key.*phone/i,
     message: "This phone number is already registered to another account."
   },
+  {
+    test: /profiles_phone_key/i,
+    message: "This phone number is already registered to another account."
+  },
+
+  // Unique constraints (Email)
   {
     test: /unique constraint.*(?:email|users_email)/i,
     message: "An account with this email already exists."
@@ -65,7 +103,7 @@ const KNOWN_ERROR_MAPPINGS: Array<{ test: RegExp; message: string }> = [
   // Check constraints
   {
     test: /violates check constraint.*phone/i,
-    message: "Please enter a valid phone number in E.164 format (e.g. +1234567890)."
+    message: "Please enter a valid phone number with the country code (e.g. +1234567890)."
   },
   {
     test: /violates check constraint.*email/i,
@@ -73,11 +111,11 @@ const KNOWN_ERROR_MAPPINGS: Array<{ test: RegExp; message: string }> = [
   },
   {
     test: /violates check constraint.*circle_name/i,
-    message: "Circle name must be between 1 and 50 characters."
+    message: "Circle name should be between 1 and 50 characters."
   },
   {
     test: /violates check constraint.*message_content/i,
-    message: "Message must be between 1 and 2000 characters."
+    message: "Message should be between 1 and 2000 characters."
   },
   {
     test: /violates check constraint.*(?:latitude|longitude|coords)/i,
@@ -85,7 +123,7 @@ const KNOWN_ERROR_MAPPINGS: Array<{ test: RegExp; message: string }> = [
   },
   {
     test: /violates check constraint/i,
-    message: "One or more inputs failed validation rules."
+    message: "Please double-check the entered details and try again."
   },
 
   // Foreign keys & references
@@ -99,7 +137,7 @@ const KNOWN_ERROR_MAPPINGS: Array<{ test: RegExp; message: string }> = [
   },
   {
     test: /not present in table/i,
-    message: "Referenced resource does not exist."
+    message: "The requested item could not be found."
   },
 
   // Row Level Security (RLS) & Permissions
@@ -109,21 +147,21 @@ const KNOWN_ERROR_MAPPINGS: Array<{ test: RegExp; message: string }> = [
   },
   {
     test: /permission denied/i,
-    message: "You do not have permission to perform this action."
+    message: "Permission is needed to complete this action. You can update access in your device settings."
   },
 
   // Supabase Auth & JWT
   {
     test: /Invalid login credentials/i,
-    message: "Invalid email or password. Please try again."
+    message: "The email or password entered does not match our records. Please try again."
   },
   {
     test: /Email not confirmed/i,
-    message: "Please verify your email address before signing in."
+    message: "Please confirm your email address through the link sent to your inbox before signing in."
   },
   {
     test: /Password should be at least/i,
-    message: "Password is too weak. Please use at least 8 characters."
+    message: "For your security, please choose a password with at least 8 characters."
   },
   {
     test: /Token has expired or is invalid/i,
@@ -135,40 +173,46 @@ const KNOWN_ERROR_MAPPINGS: Array<{ test: RegExp; message: string }> = [
   },
   {
     test: /Invalid API key/i,
-    message: "Service connection issue. Please restart the app or check network."
+    message: "We're having trouble connecting right now. Please restart the app or check your network."
   },
   {
     test: /already registered/i,
     message: "An account with this email address already exists. Please sign in instead."
   },
   {
-    test: /rate limit/i,
-    message: "Email sending limit reached. Please wait a few minutes before trying again."
+    test: /rate limit|too many requests/i,
+    message: "Please wait a moment before trying again."
   },
   {
     test: /Database error saving new user/i,
-    message: "Unable to complete registration at this time. Please try again."
+    message: "Unable to complete registration right now. Please try again."
   },
   {
     test: /Signups not allowed|Signup is disabled/i,
-    message: "Signups are currently disabled. Please contact support."
+    message: "New registrations are temporarily unavailable. Please try again shortly."
   },
 
   // Network / Transport
   {
-    test: /Network request failed|Failed to fetch/i,
-    message: "Network error. Please check your internet connection and try again."
+    test: /Network request failed|Failed to fetch|NetworkError/i,
+    message: "It looks like your connection was interrupted. Please check your Wi-Fi or mobile data and try again."
   },
   {
     test: /timeout|timed out/i,
-    message: "Request timed out. Please check your connection and try again."
+    message: "The connection took longer than expected. Please check your network and try again."
+  },
+
+  // Location
+  {
+    test: /location provider is disabled|location request timed out|kclerrordomain/i,
+    message: "We could not determine your current location. Please ensure location services are turned on."
   }
 ];
 
 /**
  * Extracts raw string message from unknown error object
  */
-function extractRawMessage(error: unknown): string {
+export function extractRawMessage(error: unknown): string {
   if (!error) return "";
   if (typeof error === "string") return error;
   if (typeof error === "object") {
@@ -197,7 +241,7 @@ function extractRawMessage(error: unknown): string {
  */
 export function sanitizeUserErrorMessage(
   error: unknown,
-  fallbackMessage: string = "An unexpected error occurred. Please try again later."
+  fallbackMessage: string = "We could not complete this action right now. Please try again in a moment."
 ): string {
   if (!error) return fallbackMessage;
 
@@ -219,12 +263,161 @@ export function sanitizeUserErrorMessage(
   }
 
   // 3. Length cap: exceptionally long error messages typically contain raw payloads or stacks
-  if (raw.length > 200) {
+  if (raw.length > 180) {
     return fallbackMessage;
   }
 
-  // 4. Safe to display as-is if clean and concise
-  return raw.trim();
+  // 4. Clean up any trailing codes like (code 13) or [13]
+  let cleaned = raw.replace(/\s*\([a-zA-Z0-9_\s]*code\s*\d+[^)]*\)/gi, '');
+  cleaned = cleaned.replace(/\s*\(code\s*\d+\)/gi, '');
+  cleaned = cleaned.replace(/\bSQLITE_\w+/gi, '');
+  cleaned = cleaned.trim();
+
+  return cleaned || fallbackMessage;
+}
+
+/**
+ * Transforms any raw title and message into gentle, non-technical, user-friendly sentences.
+ */
+export function humanizeUserAlert(
+  rawTitle?: string,
+  rawMessage?: unknown,
+  rawType?: string
+): HumanizedAlert {
+  const msgStr = extractRawMessage(rawMessage);
+  const titleStr = rawTitle ? String(rawTitle).trim() : '';
+  const combined = `${titleStr} ${msgStr}`.toLowerCase();
+
+  // 1. Device Storage / Disk Full / SQLite Full
+  if (
+    combined.includes('disk is full') ||
+    combined.includes('sqlite_full') ||
+    combined.includes('database or disk is full') ||
+    combined.includes('code 13') ||
+    combined.includes('enospc') ||
+    combined.includes('no space left on device') ||
+    combined.includes('storage full')
+  ) {
+    return {
+      title: 'Device Storage Is Low',
+      message: 'Your phone is currently low on storage space, so this action could not be completed. Freeing up a little space on your device will help everything run smoothly.',
+      tag: '• STORAGE NOTICE',
+      isStorageIssue: true,
+    };
+  }
+
+  // 2. Contact Picker & Address Book
+  if (
+    combined.includes('contact picker') ||
+    combined.includes('presentcontactpickerasync') ||
+    combined.includes('unable to open phone contacts') ||
+    combined.includes('error selecting contact') ||
+    combined.includes('error picking phone contact')
+  ) {
+    return {
+      title: 'Unable to Open Contacts',
+      message: 'We could not open your contact list right now. You can try again in a moment, or add your emergency responder directly in the directory.',
+      tag: '• CONTACTS NOTICE',
+    };
+  }
+
+  // 3. Network & Connection
+  if (
+    combined.includes('network request failed') ||
+    combined.includes('failed to fetch') ||
+    combined.includes('networkerror') ||
+    combined.includes('econnrefused') ||
+    combined.includes('econnreset') ||
+    combined.includes('enotfound') ||
+    combined.includes('etimedout') ||
+    combined.includes('timed out') ||
+    combined.includes('offline') ||
+    combined.includes('net::err_')
+  ) {
+    return {
+      title: 'Connection Interrupted',
+      message: 'It looks like your internet connection was interrupted. Please check your Wi-Fi or mobile data and try again.',
+      tag: '• CONNECTION NOTICE',
+      isNetworkIssue: true,
+    };
+  }
+
+  // 4. Duplicate Phone or Email
+  if (
+    combined.includes('profiles_phone_key') ||
+    (combined.includes('unique constraint') && combined.includes('phone')) ||
+    (combined.includes('duplicate key') && combined.includes('phone'))
+  ) {
+    return {
+      title: 'Phone Number Registered',
+      message: 'This phone number is already registered to another account.',
+      tag: '• ACCOUNT NOTICE',
+    };
+  }
+
+  if (
+    combined.includes('users_email') ||
+    (combined.includes('unique constraint') && combined.includes('email')) ||
+    combined.includes('user already registered')
+  ) {
+    return {
+      title: 'Account Exists',
+      message: 'An account with this email address already exists. Please sign in instead.',
+      tag: '• ACCOUNT NOTICE',
+    };
+  }
+
+  // 5. Soften Harsh Titles
+  let cleanTitle = titleStr || (rawType === 'error' ? 'Notice' : 'Circle Notice');
+  const lowTitle = cleanTitle.toLowerCase();
+
+  if (
+    lowTitle === 'error' ||
+    lowTitle === 'system error' ||
+    lowTitle === 'fatal error' ||
+    lowTitle === 'critical error' ||
+    lowTitle === 'failed'
+  ) {
+    cleanTitle = 'Unable to Complete';
+  } else if (lowTitle === 'contact picker error') {
+    cleanTitle = 'Unable to Open Contacts';
+  } else if (lowTitle === 'validation error') {
+    cleanTitle = 'Please Check Details';
+  } else if (lowTitle === 'permission denied') {
+    cleanTitle = 'Permission Needed';
+  } else if (lowTitle === 'upload failed') {
+    cleanTitle = 'Upload Incomplete';
+  } else if (lowTitle === 'purchase error') {
+    cleanTitle = 'Payment Assistance';
+  } else if (lowTitle === 'restore failed') {
+    cleanTitle = 'Restore Purchases';
+  } else if (lowTitle === 'geofence error' || lowTitle === 'error deleting geofence') {
+    cleanTitle = 'Geofence Notice';
+  } else if (cleanTitle.endsWith(' Error')) {
+    cleanTitle = cleanTitle.replace(/ Error$/i, ' Notice');
+  }
+
+  // 6. Check if Message Has Technical Jargon
+  const hasTechnicalJargon = SENSITIVE_PATTERNS.some(p => p.test(msgStr));
+  let finalMessage = hasTechnicalJargon
+    ? sanitizeUserErrorMessage(rawMessage, 'We could not complete this action right now. Please try again in a moment.')
+    : (sanitizeUserErrorMessage(rawMessage, msgStr) || 'We could not complete this action right now. Please try again in a moment.');
+
+  // Clean any remaining code fragments
+  finalMessage = finalMessage.replace(/\s*\([a-zA-Z0-9_\s]*code\s*\d+[^)]*\)/gi, '');
+  finalMessage = finalMessage.replace(/\s*\(code\s*\d+\)/gi, '');
+  finalMessage = finalMessage.replace(/\bSQLITE_\w+/gi, '');
+  finalMessage = finalMessage.trim();
+
+  if (!finalMessage) {
+    finalMessage = 'We could not complete this action right now. Please try again in a moment.';
+  }
+
+  return {
+    title: cleanTitle,
+    message: finalMessage,
+    tag: rawType === 'error' ? '• HELPFUL NOTICE' : undefined,
+  };
 }
 
 /**
@@ -242,9 +435,7 @@ export function logInternalError(
 ): void {
   const timestamp = new Date().toISOString();
   const rawMessage = extractRawMessage(error);
-  const stack = error instanceof Error ? error.stack : undefined;
 
-  // In production, this can forward to Sentry / Datadog / Supabase error logs
   const isBusinessOrValidation =
     rawMessage.includes('Free tier') ||
     rawMessage.includes('limit') ||
@@ -260,7 +451,7 @@ export function logInternalError(
 }
 
 /**
- * Helper to both log full diagnostic details internally and return a safe message for the UI.
+ * Helper to both log full diagnostic details internally and return a safe, gentle message for the UI.
  * 
  * @param context Module or action name
  * @param error Original error

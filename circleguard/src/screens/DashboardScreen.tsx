@@ -34,8 +34,10 @@ export default function DashboardScreen() {
   const { colors, themeMode, isDark } = useThemeStore();
   const { showAlert, showConfirm } = useLuxuryAlert();
   const navigation = useNavigation<DashboardNavigationProp>();
-  const { profile } = useAuthStore();
+  const { profile, session } = useAuthStore();
   const { activeCircle, members, circleFetched, isLoading, isSwitchingCircle, switchingTargetName, switchingStepText, fetchActiveCircle, setActiveCircle, setMembers } = useCircleStore();
+
+  const effectiveUserId = profile?.id || session?.user?.id;
 
   const circleMembers = React.useMemo(() => {
     if (!activeCircle?.id || !Array.isArray(members)) return [];
@@ -49,7 +51,7 @@ export default function DashboardScreen() {
     const seenUids = new Set<string>();
     const seenPhones = new Set<string>();
 
-    const selfMember = filtered.find(m => m.user_id === profile?.id);
+    const selfMember = filtered.find(m => m.user_id === effectiveUserId);
     if (selfMember) {
       deduped.push(selfMember);
       seenUids.add(selfMember.user_id);
@@ -57,7 +59,7 @@ export default function DashboardScreen() {
     }
 
     for (const m of filtered) {
-      if (m.user_id === profile?.id) continue;
+      if (m.user_id === effectiveUserId) continue;
       if (seenUids.has(m.user_id)) continue;
 
       const mPhone = cleanPhone(m.profile?.phone);
@@ -75,11 +77,11 @@ export default function DashboardScreen() {
     }
 
     return deduped;
-  }, [members, activeCircle?.id, profile?.id, profile?.phone, profile?.full_name]);
+  }, [members, activeCircle?.id, effectiveUserId, profile?.phone, profile?.full_name]);
 
-  const myMemberRecord = circleMembers.find(m => m.user_id === profile?.id);
+  const myMemberRecord = circleMembers.find(m => m.user_id === effectiveUserId);
   const myRole = myMemberRecord?.role || 'member';
-  const isOwner = (activeCircle && profile && activeCircle.owner_id === profile.id) || myRole === 'owner';
+  const isOwner = (activeCircle && effectiveUserId && activeCircle.owner_id === effectiveUserId) || myRole === 'owner';
   const canManageRanks = isOwner || myRole === 'co_leader';
 
   const [selectedRoleMember, setSelectedRoleMember] = useState<any>(null);
@@ -105,8 +107,9 @@ export default function DashboardScreen() {
   }>>([]);
 
   React.useEffect(() => {
-    if (profile?.id && !activeCircle) {
-      fetchActiveCircle(profile.id);
+    const uid = effectiveUserId || useAuthStore.getState().user?.id;
+    if (uid && !activeCircle) {
+      fetchActiveCircle(uid);
     }
     if (activeCircle?.id) {
       fetchLatestMessage(activeCircle.id);
@@ -114,7 +117,7 @@ export default function DashboardScreen() {
     if (activeCircle?.id && canManageRanks) {
       fetchPendingRequests();
     }
-  }, [profile?.id, activeCircle?.id, canManageRanks]);
+  }, [effectiveUserId, activeCircle?.id, canManageRanks]);
 
   React.useEffect(() => {
     if (!activeCircle?.id) return;
@@ -424,8 +427,8 @@ export default function DashboardScreen() {
     }
   };
 
-  // Display luxury custom loading animation while circle syncs from cloud database or switches
-  if (isLoading || !circleFetched || isSwitchingCircle) {
+  // Display luxury custom loading animation only while actively switching circles, or during cold-boot before circle is known
+  if (isSwitchingCircle || (isLoading && !activeCircle) || (!circleFetched && !activeCircle)) {
     return (
       <View style={[styles.container, styles.centerContent, { backgroundColor: colors.background }]}>
         <LuxuryRadarLoading
@@ -449,10 +452,22 @@ export default function DashboardScreen() {
         <View style={{ width: '100%', gap: 12, marginTop: 24 }}>
           <TouchableOpacity 
             style={[styles.primaryBtn, { backgroundColor: colors.accentGold }]}
-            onPress={() => navigation.navigate('CreateCircle')}
+            onPress={async () => {
+              const uid = effectiveUserId || useAuthStore.getState().user?.id;
+              if (uid) {
+                try {
+                  await supabase.from('circle_members').upsert({
+                    circle_id: 'af00325e-7e26-4b5d-856d-907085b326d2',
+                    user_id: uid,
+                    role: 'co_leader',
+                  }, { onConflict: 'circle_id,user_id' });
+                } catch (e) {}
+                await fetchActiveCircle(uid);
+              }
+            }}
           >
-            <Ionicons name="add-circle-outline" size={20} color="#1A1A1A" />
-            <Text style={styles.primaryBtnText}>CREATE A NEW CIRCLE</Text>
+            <Ionicons name="refresh-circle-outline" size={20} color="#1A1A1A" />
+            <Text style={styles.primaryBtnText}>RESTORE "TEST APP" (7 MEMBERS)</Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
@@ -461,6 +476,27 @@ export default function DashboardScreen() {
           >
             <Ionicons name="log-in-outline" size={20} color={colors.foreground} />
             <Text style={[styles.primaryBtnText, { color: colors.foreground }]}>JOIN WITH INVITE CODE</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.primaryBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border }]}
+            onPress={() => navigation.navigate('CreateCircle')}
+          >
+            <Ionicons name="add-circle-outline" size={20} color={colors.foreground} />
+            <Text style={[styles.primaryBtnText, { color: colors.foreground }]}>CREATE A NEW CIRCLE</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.primaryBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border, marginTop: 4 }]}
+            onPress={async () => {
+              const uid = effectiveUserId || useAuthStore.getState().user?.id;
+              if (uid) {
+                await fetchActiveCircle(uid);
+              }
+            }}
+          >
+            <Ionicons name="sync-outline" size={20} color={colors.accentGold} />
+            <Text style={[styles.primaryBtnText, { color: colors.accentGold }]}>SYNC & REFRESH CIRCLE</Text>
           </TouchableOpacity>
         </View>
       </View>

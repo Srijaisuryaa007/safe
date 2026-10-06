@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
+import { humanizeUserAlert } from '../lib/errorHandler';
 
 const SANS_FONT = Platform.OS === 'web' ? 'sans-serif' : undefined;
 
@@ -24,6 +25,7 @@ export interface AlertOptions {
   title: string;
   message: string;
   type?: AlertType;
+  tag?: string;
   buttonText?: string;
   secondaryButtonText?: string;
   onPress?: () => void;
@@ -166,8 +168,9 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
 
   const showInAppMessage = (options: InAppMessageOptions) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setToastTitle(options.title || null);
-    setToastMessage(options.message);
+    const humanized = humanizeUserAlert(options.title, options.message, options.type);
+    setToastTitle(options.title ? humanized.title : null);
+    setToastMessage(humanized.message);
     setToastType(options.type || 'info');
     setToastAction(options.actionText && options.onAction ? { text: options.actionText, onAction: options.onAction } : null);
 
@@ -206,21 +209,28 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
 
   const showAlert = (options: AlertOptions) => {
     setModalMode('alert');
+    const humanized = humanizeUserAlert(options.title, options.message, options.type);
     setAlertConfig({
       type: 'info',
-      buttonText: 'Understood',
+      buttonText: humanized.isStorageIssue ? 'Got It' : 'Understood',
       ...options,
+      title: humanized.title,
+      message: humanized.message,
+      tag: options.tag || humanized.tag,
     });
     setVisible(true);
   };
 
   const showConfirm = (options: ConfirmOptions) => {
     setModalMode('confirm');
+    const humanized = humanizeUserAlert(options.title, options.message);
     setConfirmConfig({
       confirmText: 'Confirm',
       cancelText: 'Cancel',
       isDestructive: false,
       ...options,
+      title: humanized.title,
+      message: humanized.message,
     });
     setVisible(true);
   };
@@ -361,7 +371,7 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
           name: 'shield-outline' as const,
           color: isDark ? '#F87171' : '#DC2626',
           bg: isDark ? 'rgba(248, 113, 113, 0.15)' : '#FEE2E2',
-          tag: '• SYSTEM NOTICE',
+          tag: '• HELPFUL NOTICE',
         };
       case 'info':
       default:
@@ -510,7 +520,7 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.categoryTag, { color: iconInfo.color }]}>
-                      {iconInfo.tag}
+                      {alertConfig.tag || iconInfo.tag}
                     </Text>
                     <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#1F2A24' }]} numberOfLines={2}>
                       {alertConfig.title}

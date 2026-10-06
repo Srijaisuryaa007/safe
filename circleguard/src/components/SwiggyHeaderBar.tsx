@@ -8,6 +8,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useNavigation } from '@react-navigation/native';
 import AnimatedListDropdown, { AnimatedDropdownItem } from './AnimatedListDropdown';
+import { reverseGeocodeLive } from '../services/GeocodingService';
 
 interface SwiggyHeaderBarProps {
   onNotificationPress?: () => void;
@@ -20,15 +21,15 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
   const { activeCircle, circles, setActiveCircle, switchActiveCircle, fetchUserCircles } = useCircleStore();
   const navigation = useNavigation<any>();
 
-  const [addressTitle, setAddressTitle] = useState('GOLDEN CITY');
-  const [formattedAddress, setFormattedAddress] = useState('Thotagri Road');
+  const [addressTitle, setAddressTitle] = useState('CURRENT LOCATION');
+  const [formattedAddress, setFormattedAddress] = useState('Locating live address...');
   const [fullAddressDetails, setFullAddressDetails] = useState<any>(null);
   const [loadingAddress, setLoadingAddress] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [circleModalVisible, setCircleModalVisible] = useState(false);
   const [editMode, setEditMode] = useState(false);
-  const [customAreaInput, setCustomAreaInput] = useState('Golden City');
-  const [customRoadInput, setCustomRoadInput] = useState('Thotagri Road');
+  const [customAreaInput, setCustomAreaInput] = useState('');
+  const [customRoadInput, setCustomRoadInput] = useState('');
 
   const handleOpenCircleModal = () => {
     const uid = profile?.id || user?.id;
@@ -36,15 +37,6 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
       fetchUserCircles(uid).catch(() => {});
     }
     setCircleModalVisible(true);
-  };
-
-  const cleanAddressPart = (val?: string | null) => {
-    if (!val) return '';
-    const trimmed = val.trim();
-    if (trimmed.includes('+') || /^[A-Z0-9]{4,}\+[A-Z0-9]{2,}$/i.test(trimmed)) {
-      return '';
-    }
-    return trimmed;
   };
 
   const fetchLiveAddress = async () => {
@@ -60,132 +52,35 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
       // 1. Force High Accuracy GPS Satellite position acquisition
       let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).catch(() => null);
       if (!loc) {
-        loc = await Location.getLastKnownPositionAsync({}) || await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        loc = (await Location.getLastKnownPositionAsync({})) || (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
       }
 
       if (loc && loc.coords) {
         const lat = loc.coords.latitude;
         const lng = loc.coords.longitude;
 
-        let nativeItem: any = null;
-        try {
-          const geoPromise = Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000));
-          const geo: any = await Promise.race([geoPromise, timeoutPromise]).catch(() => null);
-          if (geo && geo.length > 0) {
-            nativeItem = geo[0];
-          }
-        } catch (_) {
-          // Native Android Geocoder is unavailable on this device/emulator; safely fallback to web geocoders below
-        }
+        const resolved = await reverseGeocodeLive(lat, lng, {
+          accuracyMeters: loc.coords.accuracy ?? undefined,
+        });
 
-        let nomItem: any = null;
-        try {
-          const nomRes = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
-            { headers: { 'User-Agent': 'CircleGuardApp/1.0' } }
-          );
-          if (nomRes.ok) {
-            const nomData = await nomRes.json();
-            if (nomData && nomData.address) {
-              nomItem = nomData.address;
-            }
-          }
-        } catch (_) {}
-
-        // Secondary fallback to Photon if needed
-        if (!nativeItem && !nomItem) {
-          try {
-            const photonRes = await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}`);
-            if (photonRes.ok) {
-              const photonData = await photonRes.json();
-              if (photonData?.features?.[0]?.properties) {
-                const p = photonData.features[0].properties;
-                nomItem = {
-                  road: p.street || p.name,
-                  suburb: p.district || p.locality,
-                  city: p.city || p.county,
-                  state: p.state,
-                  country: p.country,
-                  postcode: p.postcode,
-                };
-              }
-            }
-          } catch (_) {}
-        }
-
-        // Native Priority Parsing (Google Maps / Apple Maps on device)
-        const nativeStreetNum = cleanAddressPart(nativeItem?.streetNumber);
-        const nativeStreetName = cleanAddressPart(nativeItem?.street);
-        const nativeName = cleanAddressPart(nativeItem?.name);
-        const nativeDistrict = cleanAddressPart(nativeItem?.district);
-        const nativeSubregion = cleanAddressPart(nativeItem?.subregion);
-        const nativeCity = cleanAddressPart(nativeItem?.city);
-        const nativeRegion = cleanAddressPart(nativeItem?.region);
-
-        // OpenStreetMap Nominatim Parsing
-        const nomRoad = cleanAddressPart(nomItem?.road || nomItem?.pedestrian || nomItem?.footway || nomItem?.path);
-        const nomHouseNum = cleanAddressPart(nomItem?.house_number || nomItem?.building);
-        const nomSuburb = cleanAddressPart(nomItem?.suburb || nomItem?.neighbourhood || nomItem?.residential || nomItem?.quarter);
-        const nomDistrict = cleanAddressPart(nomItem?.city_district || nomItem?.district || nomItem?.subdistrict || nomItem?.borough);
-        const nomCity = cleanAddressPart(nomItem?.city || nomItem?.town || nomItem?.village || nomItem?.municipality || nomItem?.county);
-        const nomState = cleanAddressPart(nomItem?.state);
-
-        // Compute Street Name (Street Number + Street Name or Road)
-        let street = '';
-        if (nativeStreetName) {
-          street = nativeStreetNum ? `${nativeStreetNum} ${nativeStreetName}` : nativeStreetName;
-        } else if (nomRoad) {
-          street = nomHouseNum ? `${nomHouseNum} ${nomRoad}` : nomRoad;
-        } else if (nativeName && nativeName !== nativeDistrict && nativeName !== nativeCity) {
-          street = nativeName;
-        } else if (nomSuburb) {
-          street = nomSuburb;
-        } else {
-          street = 'Thotagri Road';
-        }
-
-        // Compute Area / Neighborhood Name
-        let areaName = '';
-        if (nativeDistrict && nativeDistrict.toLowerCase() !== (nativeCity || '').toLowerCase()) {
-          areaName = nativeDistrict;
-        } else if (nomSuburb && nomSuburb.toLowerCase() !== (nomCity || '').toLowerCase()) {
-          areaName = nomSuburb;
-        } else if (nomDistrict && nomDistrict.toLowerCase() !== (nomCity || '').toLowerCase()) {
-          areaName = nomDistrict;
-        } else if (nativeSubregion && nativeSubregion.toLowerCase() !== (nativeCity || '').toLowerCase()) {
-          areaName = nativeSubregion;
-        } else if (nativeName && nativeName !== street && nativeName !== nativeCity) {
-          areaName = nativeName;
-        } else {
-          areaName = 'Golden City';
-        }
-
-        const city = nativeCity || nomCity || '';
-        const state = nativeRegion || nomState || '';
-        const country = cleanAddressPart(nativeItem?.country || nomItem?.country || '');
-        const postalCode = nativeItem?.postalCode || nomItem?.postcode || 'N/A';
+        let finalArea = resolved.safePlaceName || resolved.neighbourhood || resolved.district || resolved.city || 'CURRENT LOCATION';
+        let finalStreet = resolved.headline || resolved.road || 'Live Position';
 
         // Check for saved custom location overrides
-        let savedArea = '';
-        let savedRoad = '';
         try {
           const a = await AsyncStorage.getItem('@circleguard_custom_area');
           const r = await AsyncStorage.getItem('@circleguard_custom_road');
-          if (a) savedArea = a;
-          if (r) savedRoad = r;
+          if (a) finalArea = a;
+          if (r) finalStreet = r;
         } catch (e) {}
-
-        const finalArea = savedArea || (areaName !== 'CURRENT LOCATION' ? areaName : 'Golden City');
-        const finalStreet = savedRoad || (street !== 'Current Location' ? street : 'Thotagri Road');
 
         setFullAddressDetails({
           areaName: finalArea,
           street: finalStreet,
-          city,
-          state,
-          country,
-          postalCode,
+          city: resolved.city || '',
+          state: resolved.state || '',
+          country: resolved.country || '',
+          postalCode: resolved.postalCode || 'N/A',
           latitude: lat,
           longitude: lng,
         });
@@ -194,10 +89,11 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
         setCustomRoadInput(finalStreet);
 
         setAddressTitle(finalArea.toUpperCase());
-        setFormattedAddress(`${finalStreet}${city ? ', ' + city : ''}`);
+        setFormattedAddress(resolved.fullAddress || `${finalStreet}, ${resolved.city || ''}`);
       }
     } catch (e) {
-      setFormattedAddress('Thotagri Road');
+      setAddressTitle('CURRENT LOCATION');
+      setFormattedAddress('Live GPS Satellite Active');
     } finally {
       setLoadingAddress(false);
     }
@@ -455,14 +351,14 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
                 <View style={styles.detailRow}>
                   <Text style={[styles.detailLabel, { color: colors.textMuted }]}>AREA / NEIGHBORHOOD</Text>
                   <Text style={[styles.detailVal, { color: colors.accentGold }]}>
-                    {fullAddressDetails.areaName || 'Golden City'}
+                    {fullAddressDetails.areaName || 'Current Location'}
                   </Text>
                 </View>
 
                 <View style={styles.detailRow}>
                   <Text style={[styles.detailLabel, { color: colors.textMuted }]}>STREET / ROAD</Text>
                   <Text style={[styles.detailVal, { color: colors.foreground }]}>
-                    {fullAddressDetails.street || 'Thotagri Road'}
+                    {fullAddressDetails.street || 'Live Position'}
                   </Text>
                 </View>
 

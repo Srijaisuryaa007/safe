@@ -41,7 +41,16 @@ export type RootStackParamList = {
   Activity: undefined;
   LocationHistory: { member?: any; memberId?: string; circleId?: string } | undefined;
   DrivingReports: { member?: any; memberId?: string; circleId?: string } | undefined;
-  Chat: undefined;
+  Chat: {
+    member?: any;
+    memberId?: string;
+    memberName?: string;
+    taggedMember?: any;
+    initialText?: string;
+    filterMemberId?: string;
+    onlyFilter?: boolean;
+    circle_id?: string;
+  } | undefined;
   Profile: undefined;
 };
 
@@ -291,6 +300,61 @@ function GlobalGeofenceNotificationListener() {
       .channel(`global_geofence_rt_${activeCircle.id}_${channelUid}`)
       .on(
         'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'zone_events', filter: `circle_id=eq.${activeCircle.id}` },
+        async (payload: any) => {
+          const newEv = payload?.new;
+          if (!newEv || !newEv.id) return;
+          const evId = String(newEv.id);
+          if (handledEvents.has(evId)) return;
+          handledEvents.add(evId);
+
+          const currentMembers = useCircleStore.getState().members || [];
+          const currentPlaces = useCircleStore.getState().places || [];
+
+          const member = currentMembers.find((m) => m.user_id === newEv.member_id);
+          let memberName = member?.profile?.full_name;
+          if (!memberName) {
+            try {
+              const { data: pData } = await supabase
+                .from('profiles')
+                .select('full_name')
+                .eq('id', newEv.member_id)
+                .single();
+              memberName = pData?.full_name || 'Circle Member';
+            } catch (_) {
+              memberName = 'Circle Member';
+            }
+          }
+
+          const place = currentPlaces.find((p) => p.id === newEv.zone_id);
+          let placeName = place?.name || 'Safe Zone';
+
+          const eventDate = newEv.occurred_at ? new Date(newEv.occurred_at) : new Date();
+          const isLiveNow = !isNaN(eventDate.getTime()) && Math.abs(Date.now() - eventDate.getTime()) < 180000;
+          const shortTimeStr = !isNaN(eventDate.getTime())
+            ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+            : 'Just now';
+
+          const isExit = newEv.type === 'EXIT';
+          const isSelf = profile?.id === newEv.member_id;
+
+          const title = isExit
+            ? (isSelf ? `You left ${placeName} • ${shortTimeStr}` : `${memberName} left ${placeName} • ${shortTimeStr}`)
+            : (isSelf ? `You arrived at ${placeName} • ${shortTimeStr}` : `${memberName} arrived at ${placeName} • ${shortTimeStr}`);
+
+          // Refresh circle members in store
+          useCircleStore.getState().fetchMembers(activeCircle.id);
+
+          if (isLiveNow) {
+            showToast(
+              isExit ? `🚶 ${title}` : `📍 ${title}`,
+              isExit ? 'warning' : 'success'
+            );
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'place_events' },
         async (payload: any) => {
           const newEv = payload?.new;
@@ -339,6 +403,7 @@ function GlobalGeofenceNotificationListener() {
           }
 
           const eventDate = newEv.occurred_at ? new Date(newEv.occurred_at) : new Date();
+          const isLiveNow = !isNaN(eventDate.getTime()) && Math.abs(Date.now() - eventDate.getTime()) < 180000;
           const preciseTimeStr = !isNaN(eventDate.getTime())
             ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })
             : 'Just now';
@@ -357,28 +422,30 @@ function GlobalGeofenceNotificationListener() {
             ? `${isSelf ? 'You departed' : `${memberName} departed`} ${placeName} safe boundary at ${preciseTimeStr}. Tap to view activity.`
             : `${isSelf ? 'You safely entered' : `${memberName} safely entered`} ${placeName} at ${preciseTimeStr}.`;
 
-          // A. Native OS Notification Banner with sound and vibration
-          try {
-            const notifEnabled = await AsyncStorage.getItem('@circleguard_notif_geofence');
-            if (notifEnabled !== 'false') {
-              await scheduleLocalNotification(title, body, {
-                screen: 'Activity',
-                type: 'GEOFENCE',
-                eventType: newEv.event_type,
-                placeId: newEv.place_id,
-                userId: newEv.user_id,
-                preciseTime: preciseTimeStr,
-              });
+          // A. Native OS Notification Banner with sound and vibration (only for live events)
+          if (isLiveNow) {
+            try {
+              const notifEnabled = await AsyncStorage.getItem('@circleguard_notif_geofence');
+              if (notifEnabled !== 'false') {
+                await scheduleLocalNotification(title, body, {
+                  screen: 'Activity',
+                  type: 'GEOFENCE',
+                  eventType: newEv.event_type,
+                  placeId: newEv.place_id,
+                  userId: newEv.user_id,
+                  preciseTime: preciseTimeStr,
+                });
+              }
+            } catch (e) {
+              console.warn('[GlobalGeofence] scheduleLocalNotification note:', e);
             }
-          } catch (e) {
-            console.warn('[GlobalGeofence] scheduleLocalNotification note:', e);
-          }
 
-          // B. Show in-app toast banner
-          showToast(
-            isExit ? `🚶 ${title}` : `📍 ${title}`,
-            isExit ? 'warning' : 'success'
-          );
+            // B. Show in-app toast banner (only for live events)
+            showToast(
+              isExit ? `🚶 ${title}` : `📍 ${title}`,
+              isExit ? 'warning' : 'success'
+            );
+          }
 
           // C. Notify in-app breach listeners (for Map animations)
           try {
@@ -457,7 +524,11 @@ export default function AppNavigator() {
       if (Notifications && Notifications.addNotificationResponseReceivedListener) {
         subscription = Notifications.addNotificationResponseReceivedListener((response: any) => {
           const data = response?.notification?.request?.content?.data;
-          const targetScreen = data?.screen || (data?.type === 'GEOFENCE' ? 'Activity' : undefined);
+          const targetScreen =
+            data?.screen ||
+            (data?.type === 'zone_exit' || data?.type === 'zone_enter' || data?.type === 'GEOFENCE'
+              ? 'Activity'
+              : undefined);
           if (targetScreen) {
             try {
               if (navigationRef.isReady()) {
@@ -483,12 +554,10 @@ export default function AppNavigator() {
   return (
     <BiometricLockGate>
       <NavigationContainer
-        ref={(r) => {
-          if (r) {
-            (navigationRef as any).current = r;
-          }
+        ref={navigationRef}
+        onReady={() => {
           if (typeof window !== 'undefined') {
-            (window as any).__navigationRef = r;
+            (window as any).__navigationRef = navigationRef.isReady() ? navigationRef : null;
           }
         }}
       >

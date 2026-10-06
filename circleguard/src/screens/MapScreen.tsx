@@ -16,6 +16,7 @@ import AlertModal from '../components/AlertModal';
 import AddPlaceModal from '../components/AddPlaceModal';
 import SearchFilterModal from '../components/SearchFilterModal';
 import MapLayerModal, { MapStyleType } from '../components/MapLayerModal';
+import CircleSwitcherModal from '../components/CircleSwitcherModal';
 import SpringTouchable from '../components/SpringTouchable';
 import { LEAFLET_JS, LEAFLET_CSS } from '../constants/leafletBundle';
 import { 
@@ -1505,6 +1506,7 @@ export default function MapScreen() {
 
   const [distanceUnit, setDistanceUnit] = useState<'km' | 'mi'>('km');
   const [showMapLayerModal, setShowMapLayerModal] = useState(false);
+  const [showCircleSwitcherModal, setShowCircleSwitcherModal] = useState(false);
   const currentMapCenterRef = useRef<{ lat: number; lng: number }>({ lat: 20.5937, lng: 78.9629 });
   const webViewRef = useRef<any>(null);
   const webIframeRef = useRef<any>(null);
@@ -2436,56 +2438,8 @@ export default function MapScreen() {
     };
   }, []);
 
-  // Geofence breach monitoring
-  useEffect(() => {
-    if (!locations || locations.length === 0 || !places || places.length === 0 || !profile?.id) return;
-
-    (async () => {
-      for (const loc of locations) {
-        if (!loc || !loc.user_id) continue;
-        // Authoritative: Only evaluate geofence transitions for the logged in user on their own device.
-        // Circle members are notified via push notifications sent by the member's own engine.
-        if (loc.user_id !== profile.id) continue;
-
-        const member = members.find(m => m.user_id === loc.user_id);
-        const name = member?.profile?.full_name || 'You';
-
-        const breaches = await evaluateGeofenceBreaches(
-          {
-            user_id: loc.user_id,
-            latitude: loc.latitude,
-            longitude: loc.longitude,
-            accuracy_m: loc.accuracy_m ?? (loc as any).accuracy,
-            speed_mps: loc.speed_mps ?? (loc as any).speed,
-            activity_state: loc.activity_state,
-          },
-          name,
-          places as any
-        );
-
-        if (breaches.length > 0) {
-          const firstBreach = breaches[0];
-          if (firstBreach.type === 'exit') {
-            const title = `Safe Zone Departure: ${firstBreach.placeName}`;
-            const msg = `${firstBreach.userName} departed from "${firstBreach.placeName}" (${firstBreach.formattedDistance} from center).`;
-            setModalTitle(title);
-            setModalMessage(msg);
-            setModalType('place');
-            setModalActionCoords({ latitude: firstBreach.latitude, longitude: firstBreach.longitude, member });
-            setModalVisible(true);
-          } else if (firstBreach.type === 'entry') {
-            const title = `Safe Zone Arrival: ${firstBreach.placeName}`;
-            const msg = `${firstBreach.userName} arrived at "${firstBreach.placeName}" (${firstBreach.formattedDistance} from center).`;
-            setModalTitle(title);
-            setModalMessage(msg);
-            setModalType('place');
-            setModalActionCoords({ latitude: firstBreach.latitude, longitude: firstBreach.longitude, member });
-            setModalVisible(true);
-          }
-        }
-      }
-    })();
-  }, [locations, places, members, profile?.id]);
+  // Note: Geofence transition detection is strictly handled by backgroundTasks.ts (OS geofence + location fallback)
+  // Opening the app NEVER creates, recomputes, or re-times exit/entry events. App open only reads zone_events.
 
   useEffect(() => {
     if (profile?.id && !activeCircle && !circleFetched) {
@@ -2627,6 +2581,33 @@ export default function MapScreen() {
             }
             return prev;
           });
+
+          // Instant Live Geofence Evaluation (detects immediate departure/arrival in foreground)
+          try {
+            const currentPlaces = useCircleStore.getState().places;
+            if (currentPlaces && currentPlaces.length > 0 && profile?.id) {
+              const formattedPlaces = currentPlaces.map((p: any) => ({
+                ...p,
+                latitude: Number(p.latitude ?? p.start_lat ?? p.lat),
+                longitude: Number(p.longitude ?? p.start_lng ?? p.lng),
+                radius_m: Number(p.radius_m || 150),
+              }));
+
+              evaluateGeofenceBreaches(
+                {
+                  user_id: profile.id,
+                  latitude: finalLat,
+                  longitude: finalLng,
+                  accuracy_m: accuracy,
+                  speed_mps: finalSpeed,
+                  activity_state: isDriving ? 'Automotive' : (isWalking ? 'Walking' : 'Stationary'),
+                  updated_at: new Date(nowMs).toISOString(),
+                },
+                profile.full_name || 'Member',
+                formattedPlaces
+              ).catch((geoErr: any) => console.warn('[MapScreen] Live geofence evaluation note:', geoErr?.message));
+            }
+          } catch (_) {}
 
           // Dynamically refresh nearby POIs as user moves (>= 100 meters displacement)
           const activePoiCats = activeFilterCategoriesRef.current.filter(c => c !== 'member' && c !== 'place');
@@ -2872,10 +2853,10 @@ export default function MapScreen() {
       )
       .subscribe();
       
-    // Fallback polling only if Supabase Realtime connection drops
+    // High-responsiveness polling to keep circle members' live positions synced
     const fallbackInterval = setInterval(() => {
       fetchLocations();
-    }, 30000);
+    }, 8000);
       
     return () => {
       supabase.removeChannel(channel);
@@ -2884,6 +2865,15 @@ export default function MapScreen() {
       clearInterval(fallbackInterval);
     };
   }, [activeCircle]);
+
+  // High-Rate Tracking for Selected Circle Member
+  useEffect(() => {
+    if (!selectedMember || selectedMember.user_id === profile?.id) return;
+    const interval = setInterval(() => {
+      fetchLocations([selectedMember.user_id]);
+    }, 4500);
+    return () => clearInterval(interval);
+  }, [selectedMember?.user_id, profile?.id]);
 
   // Focus Effect
   useFocusEffect(
@@ -3445,6 +3435,60 @@ export default function MapScreen() {
 
       {/* Top Search Bar & Members Selector */}
       <View style={[styles.searchOverlay, { top: topInset + 8 }]}>
+        {/* Top Active Circle Selector Pill & Members Count */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <TouchableOpacity
+            style={[
+              styles.circleSelectorPill,
+              { backgroundColor: colors.surface, borderColor: colors.border }
+            ]}
+            onPress={() => setShowCircleSwitcherModal(true)}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.circleSelectorDot, { backgroundColor: '#10B981' }]} />
+            <Text style={[styles.circleSelectorPillText, { color: colors.foreground }]} numberOfLines={1}>
+              {activeCircle?.name || 'My Family Circle'}
+            </Text>
+            <Ionicons name="chevron-down" size={13} color={colors.textMuted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.circleCountPill, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={() => setShowCircleSwitcherModal(true)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="people" size={13} color={colors.accentGold} />
+            <Text style={[styles.circleCountPillText, { color: colors.foreground }]}>
+              {members.length} {members.length === 1 ? 'member' : 'members'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Quick Switch Banner if on 1-person testing circle */}
+        {members.length <= 1 && useCircleStore.getState().circles.some(c => (c.id === 'af00325e-7e26-4b5d-856d-907085b326d2' || c.name?.trim().toLowerCase() === 'test app') && c.id !== activeCircle?.id) && (
+          <TouchableOpacity
+            style={[
+              styles.quickSwitchBanner,
+              { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: 'rgba(212, 175, 55, 0.3)' }
+            ]}
+            onPress={() => {
+              const target = useCircleStore.getState().circles.find(c => c.id === 'af00325e-7e26-4b5d-856d-907085b326d2' || c.name?.trim().toLowerCase() === 'test app');
+              if (target) {
+                useCircleStore.getState().switchActiveCircle(target);
+              } else {
+                setShowCircleSwitcherModal(true);
+              }
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="swap-horizontal" size={14} color="#D4AF37" />
+            <Text style={[styles.quickSwitchBannerText, { color: colors.foreground }]} numberOfLines={1}>
+              Switch to <Text style={{ fontWeight: '700', color: '#D4AF37' }}>Test app</Text> to see family members
+            </Text>
+            <Ionicons name="chevron-forward" size={13} color="#D4AF37" />
+          </TouchableOpacity>
+        )}
+
         <View style={[
           styles.searchBar,
           {
@@ -3856,7 +3900,7 @@ export default function MapScreen() {
                 </Text>
                 <View style={styles.modernStatusRow}>
                   <Text style={[styles.modernStatusSubtext, { color: colors.textMuted }]}>
-                    {selectedMember.isOnline ? 'Active now' : (selectedMember.lastSeenText || 'Offline')}
+                    {selectedMember.isOnline ? 'Active now' : (selectedMember.lastActiveShort ? `Active ${selectedMember.lastActiveShort}` : (selectedMember.lastSeenText || 'Offline'))}
                   </Text>
                   <Text style={[styles.modernStatusDot, { color: colors.textMuted }]}>•</Text>
                   <Ionicons 
@@ -3978,6 +4022,31 @@ export default function MapScreen() {
                     </Text>
                     {hasRealCoords && <Ionicons name="arrow-forward" size={15} color="rgba(255,255,255,0.7)" />}
                   </TouchableOpacity>
+
+                  {!isSelf && (
+                    <TouchableOpacity 
+                      style={[
+                        styles.modernIconActionBtn, 
+                        { 
+                          backgroundColor: isDark ? 'rgba(58, 223, 171, 0.15)' : '#E8F8EE', 
+                          borderColor: isDark ? 'rgba(58, 223, 171, 0.3)' : '#A7F3D0' 
+                        }
+                      ]} 
+                      onPress={() => {
+                        const targetName = selectedMember.profile?.full_name || 'Member';
+                        navigation.navigate('Chat' as never, {
+                          memberId: selectedMember.user_id,
+                          memberName: targetName,
+                          taggedMember: selectedMember,
+                          initialText: `@${targetName} `,
+                        } as never);
+                      }}
+                      activeOpacity={0.75}
+                      accessibilityLabel={`Chat and tag ${selectedMember.profile?.full_name || 'member'}`}
+                    >
+                      <Ionicons name="chatbubble-ellipses-outline" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                    </TouchableOpacity>
+                  )}
 
                   {selectedMember.profile?.phone ? (
                     <TouchableOpacity 
@@ -4428,6 +4497,11 @@ export default function MapScreen() {
           const js = `if (window.changeTileUrl) { window.changeTileUrl('${newTile}', '${s}'); } true;`;
           executeMapScript(js);
         }}
+      />
+
+      <CircleSwitcherModal
+        visible={showCircleSwitcherModal}
+        onClose={() => setShowCircleSwitcherModal(false)}
       />
 
       {/* Floating Map Controls */}
@@ -5265,5 +5339,64 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.2,
+  },
+  circleSelectorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1.2,
+    maxWidth: '65%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  circleSelectorDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  circleSelectorPillText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    flexShrink: 1,
+  },
+  circleCountPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1.2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  circleCountPillText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  quickSwitchBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 6,
+    gap: 8,
+  },
+  quickSwitchBannerText: {
+    flex: 1,
+    fontSize: 11.5,
+    fontWeight: '500',
   },
 });

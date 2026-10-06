@@ -1,5 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Platform, DevSettings } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 interface Props {
@@ -44,6 +44,13 @@ export class ErrorBoundary extends Component<Props, State> {
       error: null,
       errorInfo: null,
     });
+    if (Platform.OS !== 'web' && DevSettings?.reload) {
+      try {
+        DevSettings.reload();
+      } catch (e) {
+        console.warn('DevSettings reload failed:', e);
+      }
+    }
   };
 
   render() {

@@ -48,7 +48,7 @@ export default function ShareLocationModal({ visible, onClose, onSuccess }: Shar
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent={true} onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.headerRow}>

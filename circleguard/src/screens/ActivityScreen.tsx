@@ -42,18 +42,16 @@ export default function ActivityScreen() {
       const cutoffTime = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
       const memberUserIds = (useCircleStore.getState().members || []).map((m) => m.user_id);
 
-      let placeEventsQuery = supabase
-        .from('place_events')
-        .select('id, occurred_at, event_type, place_id, user_id, places(name), profiles(full_name)')
+      // 1. Authoritative: Query public.zone_events for this circle
+      let zoneEventsPromise = supabase
+        .from('zone_events')
+        .select('id, occurred_at, type, zone_id, member_id, places(name), profiles:member_id(full_name)')
+        .eq('circle_id', activeCircle.id)
         .gte('occurred_at', cutoffTime)
         .order('occurred_at', { ascending: false })
-        .limit(20);
+        .limit(25);
 
-      if (memberUserIds.length > 0) {
-        placeEventsQuery = placeEventsQuery.in('user_id', memberUserIds);
-      }
-
-      const [sosRes, msgRes, placeEventsRes] = await Promise.all([
+      const [sosRes, msgRes, zoneEventsRes] = await Promise.all([
         supabase
           .from('sos_alerts')
           .select('id, created_at, status, user_id, profiles(full_name, phone)')
@@ -68,7 +66,7 @@ export default function ActivityScreen() {
           .gte('created_at', cutoffTime)
           .order('created_at', { ascending: false })
           .limit(25),
-        placeEventsQuery,
+        zoneEventsPromise,
       ]);
 
       const sosList = (sosRes.data || []).map((item) => {
@@ -119,7 +117,8 @@ export default function ActivityScreen() {
         };
       });
 
-      const breachList = (placeEventsRes.data || []).map((item) => {
+      const rawEvents = zoneEventsRes.data || [];
+      const breachList = rawEvents.map((item: any) => {
         let name = 'Member';
         if (item.profiles) {
           const prof = Array.isArray(item.profiles) ? item.profiles[0] : (item.profiles as any);
@@ -131,17 +130,22 @@ export default function ActivityScreen() {
           placeName = p?.name || 'Safe Zone';
         }
 
-        const isArrival = item.event_type === 'arrival';
+        const isArrival = item.type ? item.type === 'ENTER' : item.event_type === 'arrival';
+        const occurredDate = new Date(item.occurred_at);
+        const formattedTime = !isNaN(occurredDate.getTime())
+          ? occurredDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+          : 'Recently';
+
         return {
           id: item.id,
           type: 'GEOFENCE',
           title: isArrival ? `${name} arrived at ${placeName}` : `${name} left ${placeName}`,
-          message: isArrival ? `Entered boundary safely.` : `Departed boundary.`,
-          time: new Date(item.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          message: isArrival ? `Entered safe boundary.` : `Departed safe boundary.`,
+          time: formattedTime,
           icon: isArrival ? 'location' : 'navigate' as const,
           color: isArrival ? '#30D158' : '#FF9F0A',
           memberName: name,
-          timestamp: new Date(item.occurred_at).getTime(),
+          timestamp: occurredDate.getTime() || Date.now(),
           actionLabel: 'View on Map',
           actionIcon: 'map',
         };

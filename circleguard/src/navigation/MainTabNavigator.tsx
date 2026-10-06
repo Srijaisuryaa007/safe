@@ -169,9 +169,7 @@ export default function MainTabNavigator() {
   const activeTintColor = isDark ? '#3ADFAB' : '#2E7D5B';
   const inactiveTintColor = isDark ? '#CAD5CE' : '#717871';
 
-  // Floating pill dock geometry:
-  // Guarantee identical gaps on both left and right sides so the 'C' curves float
-  // with the exact same margin from the phone edges, overriding React Navigation's default start/end styles.
+  // Floating capsule pill dock geometry:
   const isWide = windowWidth > 480;
   const sideGap = isWide
     ? Math.max(32, Math.round((windowWidth - 380) / 2))

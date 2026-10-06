@@ -18,7 +18,7 @@ import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuthStore } from '../store/useAuthStore';
-import { useCircleStore } from '../store/useCircleStore';
+import { useCircleStore, formatZoneArrival, formatMemberLastActive } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { sendInstantLocationPing } from '../services/LocationBackgroundService';
 import { supabase } from '../lib/supabase';
@@ -31,6 +31,7 @@ import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
 import { getSafeTopInset } from '../utils/safeArea';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { navigationRef } from '../navigation/AppNavigator';
+import SafeZonePermissionBanner from './SafeZonePermissionBanner';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const LAST_USER_LOC_STORAGE_KEY = '@circleguard_last_user_location';
@@ -71,6 +72,7 @@ export default function BillionDollarHomeView() {
   const lastFocusedMemberIndexRef = useRef<number>(-1);
 
   const [userLoc, setUserLoc] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [userAccuracy, setUserAccuracy] = useState<number | undefined>(undefined);
   const [activeFilter, setActiveFilter] = useState<'all' | 'safe' | 'moving'>('all');
   const [highlightZones, setHighlightZones] = useState(true);
   const [satelliteLayer, setSatelliteLayer] = useState(false);
@@ -94,9 +96,16 @@ export default function BillionDollarHomeView() {
     }
   };
 
-  const updateUserLocation = (coords: { latitude: number; longitude: number }, forceCenter: boolean = false) => {
+  const updateUserLocation = (
+    coords: { latitude: number; longitude: number },
+    forceCenter: boolean = false,
+    accuracy?: number
+  ) => {
     if (!coords?.latitude || !coords?.longitude || isNaN(coords.latitude) || isNaN(coords.longitude)) return;
     setUserLoc(coords);
+    if (typeof accuracy === 'number') {
+      setUserAccuracy(accuracy);
+    }
     AsyncStorage.setItem(LAST_USER_LOC_STORAGE_KEY, JSON.stringify(coords)).catch(() => {});
     if (forceCenter || !hasCenteredOnUserRef.current) {
       centerMapOnUser(coords.latitude, coords.longitude, forceCenter);
@@ -154,24 +163,104 @@ export default function BillionDollarHomeView() {
           // Instant 0ms cached location first
           const lastKnown = await Location.getLastKnownPositionAsync();
           if (isMounted && lastKnown?.coords) {
-            updateUserLocation({ latitude: lastKnown.coords.latitude, longitude: lastKnown.coords.longitude }, true);
+            updateUserLocation(
+              { latitude: lastKnown.coords.latitude, longitude: lastKnown.coords.longitude },
+              true,
+              lastKnown.coords.accuracy ?? undefined
+            );
           }
 
-          // Initial fast balanced fix
-          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+          // Initial high-precision GPS satellite fix
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
             .then((loc) => {
               if (isMounted && loc?.coords) {
-                updateUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+                updateUserLocation(
+                  { latitude: loc.coords.latitude, longitude: loc.coords.longitude },
+                  false,
+                  loc.coords.accuracy ?? undefined
+                );
               }
             })
-            .catch(() => {});
+            .catch(() => {
+              // Fallback to balanced if high precision times out
+              Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+                .then((loc) => {
+                  if (isMounted && loc?.coords) {
+                    updateUserLocation(
+                      { latitude: loc.coords.latitude, longitude: loc.coords.longitude },
+                      false,
+                      loc.coords.accuracy ?? undefined
+                    );
+                  }
+                })
+                .catch(() => {});
+            });
 
-          // Continuous live movement subscription
+          // Continuous live movement subscription with High GPS accuracy & zero-delay movement broadcaster
+          let lastBroadcastTime = 0;
+          let lastBroadcastLat = 0;
+          let lastBroadcastLng = 0;
+
           locSub = await Location.watchPositionAsync(
-            { accuracy: Location.Accuracy.Balanced, timeInterval: 3000, distanceInterval: 5 },
+            { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 3 },
             (pos) => {
               if (isMounted && pos?.coords) {
-                updateUserLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+                // Reject degraded cell tower fixes (> 65m) if we already have a better satellite lock
+                if (pos.coords.accuracy && pos.coords.accuracy > 65 && userLoc) {
+                  return;
+                }
+                updateUserLocation(
+                  { latitude: pos.coords.latitude, longitude: pos.coords.longitude },
+                  false,
+                  pos.coords.accuracy ?? undefined
+                );
+
+                // REALTIME ACTIVE MOVEMENT BROADCASTER:
+                // When in motion, transmit position to Supabase immediately so circle members experience zero lag
+                const now = Date.now();
+                const distMoved = calculateHaversineDistanceMeters(
+                  lastBroadcastLat,
+                  lastBroadcastLng,
+                  pos.coords.latitude,
+                  pos.coords.longitude
+                );
+                const isMoving = (pos.coords.speed || 0) >= 0.8 || distMoved >= 3.5;
+                const timeDiff = now - lastBroadcastTime;
+
+                if (profile?.id && (isMoving || timeDiff >= 15000) && timeDiff >= 2800) {
+                  lastBroadcastTime = now;
+                  lastBroadcastLat = pos.coords.latitude;
+                  lastBroadcastLng = pos.coords.longitude;
+
+                  const rawSpeed = pos.coords.speed || 0;
+                  const isDriving = rawSpeed > 4.5;
+                  const point = `POINT(${pos.coords.longitude} ${pos.coords.latitude})`;
+                  const currentCircleId = useCircleStore.getState().activeCircle?.id;
+
+                  supabase
+                    .from('locations')
+                    .upsert(
+                      {
+                        user_id: profile.id,
+                        circle_id: currentCircleId || null,
+                        latitude: pos.coords.latitude,
+                        longitude: pos.coords.longitude,
+                        geom: point,
+                        accuracy_m: pos.coords.accuracy ?? undefined,
+                        speed_mps: rawSpeed,
+                        is_driving: isDriving,
+                        activity_state: isDriving ? 'Traveling' : rawSpeed >= 0.8 ? 'Walking' : 'Active',
+                        updated_at: new Date().toISOString(),
+                      },
+                      { onConflict: 'user_id' }
+                    )
+                    .then(
+                      ({ error }) => {
+                        if (error) console.warn('[LiveMovementBroadcaster] Upsert warning:', error.message);
+                      },
+                      () => {}
+                    );
+                }
               }
             }
           );
@@ -232,12 +321,12 @@ export default function BillionDollarHomeView() {
         }
       }
 
-      // High-accuracy background fine-tune
-      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+      // High-accuracy background fine-tune with real GPS satellite acquisition
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
         .then((fresh) => {
           if (fresh?.coords) {
-            const { latitude, longitude } = fresh.coords;
-            updateUserLocation({ latitude, longitude });
+            const { latitude, longitude, accuracy: freshAcc } = fresh.coords;
+            updateUserLocation({ latitude, longitude }, false, freshAcc ?? undefined);
             executeMapScript(`
               if (window.recenterTo) {
                 window.recenterTo(${latitude}, ${longitude}, 16);
@@ -408,7 +497,7 @@ export default function BillionDollarHomeView() {
       .filter((z): z is NonNullable<typeof z> => z !== null);
   }, [safePlaces]);
 
-  // Precise geofence containment checker for family members
+  // Precise geofence containment checker for family members with authentic arrival times
   const getMemberSafeZoneStatus = (member: any) => {
     const isSelf = member.user_id === profile?.id;
     const lat = (isSelf && userLoc?.latitude) ? userLoc.latitude : (member.latitude || 0);
@@ -418,17 +507,24 @@ export default function BillionDollarHomeView() {
       return {
         isInZone: false,
         statusText: '🚗 Moving in vehicle',
-        color: isDark ? '#818CF8' : '#183CE6',
+        color: isDark ? '#3ADFAB' : '#2E7D5B',
         zoneName: null,
+        entryTimeStr: null,
+        sinceText: null,
       };
     }
 
     if (!lat || !lng || zoneData.length === 0) {
+      const activeSubtitle = member.isOnline
+        ? 'Active now'
+        : (member.lastActiveShort ? `Active ${member.lastActiveShort}` : 'Offline');
       return {
         isInZone: false,
-        statusText: 'Outside Safe Zones',
+        statusText: `Outside Safe Zones • ${activeSubtitle}`,
         color: isDark ? '#9EACA3' : '#718076',
         zoneName: null,
+        entryTimeStr: null,
+        sinceText: null,
       };
     }
 
@@ -438,20 +534,41 @@ export default function BillionDollarHomeView() {
         const cleanName = (zone.name || 'Safe Zone')
           .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
           .trim() || 'Safe Zone';
+
+        // Retrieve genuine entry timestamp:
+        // 1. If latest place event for this user is an arrival at this specific place, use its occurred_at
+        // 2. Otherwise fallback to the member's GPS location updated_at timestamp
+        const rawEntryTime = (member.latestPlaceEvent?.place_id === zone.id && member.latestPlaceEvent?.event_type === 'arrival')
+          ? member.latestPlaceEvent.occurred_at
+          : (member.updated_at || member.latestPlaceEvent?.occurred_at || null);
+
+        const arrivalInfo = formatZoneArrival(rawEntryTime);
+        const sinceLabel = arrivalInfo.timeStr ? arrivalInfo.sinceText : 'inside zone';
+
         return {
           isInZone: true,
-          statusText: `In ${cleanName}`,
+          statusText: `In ${cleanName} • ${sinceLabel}`,
+          shortStatusText: `In ${cleanName}`,
           color: isDark ? '#3ADFAB' : '#2E7D5B',
           zoneName: cleanName,
+          entryTimeStr: arrivalInfo.timeStr || null,
+          entryFullText: arrivalInfo.entryText,
+          sinceText: arrivalInfo.sinceText,
         };
       }
     }
 
+    const activeSubtitle = member.isOnline
+      ? 'Active now'
+      : (member.lastActiveShort ? `Active ${member.lastActiveShort}` : 'Offline');
+
     return {
       isInZone: false,
-      statusText: 'Outside Safe Zones',
+      statusText: `Outside Safe Zones • ${activeSubtitle}`,
       color: isDark ? '#9EACA3' : '#718076',
       zoneName: null,
+      entryTimeStr: null,
+      sinceText: null,
     };
   };
 
@@ -1162,6 +1279,8 @@ export default function BillionDollarHomeView() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        <SafeZonePermissionBanner />
+
         {/* 2. Interactive Map Viewport Canvas */}
         <View style={[styles.mapViewport, isDark && { backgroundColor: '#141A17' }]}>
           {Platform.OS === 'web' ? (
@@ -1429,6 +1548,31 @@ export default function BillionDollarHomeView() {
             </View>
           </View>
 
+          {/* Quick Switch Suggestion if on empty/testing circle while Test app exists */}
+          {members.length <= 1 && useCircleStore.getState().circles.some(c => (c.id === 'af00325e-7e26-4b5d-856d-907085b326d2' || c.name?.trim().toLowerCase() === 'test app') && c.id !== activeCircle?.id) && (
+            <TouchableOpacity
+              style={[
+                styles.quickSwitchBanner,
+                isDark && { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: 'rgba(212, 175, 55, 0.3)' }
+              ]}
+              onPress={() => {
+                const target = useCircleStore.getState().circles.find(c => c.id === 'af00325e-7e26-4b5d-856d-907085b326d2' || c.name?.trim().toLowerCase() === 'test app');
+                if (target) {
+                  useCircleStore.getState().switchActiveCircle(target);
+                } else {
+                  setCircleModalVisible(true);
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="swap-horizontal" size={15} color={isDark ? '#D4AF37' : '#926C15'} />
+              <Text style={[styles.quickSwitchBannerText, isDark && { color: '#E8EDE9' }]}>
+                Switch to <Text style={{ fontWeight: '700', color: isDark ? '#D4AF37' : '#926C15' }}>Test app</Text> circle to see family members
+              </Text>
+              <Ionicons name="chevron-forward" size={14} color={isDark ? '#D4AF37' : '#926C15'} />
+            </TouchableOpacity>
+          )}
+
           {/* Quick Safety Check-in Bar */}
           <View style={[styles.checkInBanner, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
             <View style={styles.checkInLeft}>
@@ -1515,8 +1659,8 @@ export default function BillionDollarHomeView() {
               onPress={() => navigateToScreen('SafePlaces')}
               activeOpacity={0.8}
             >
-              <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(99, 102, 241, 0.16)' : '#EEF2FF' }]}>
-                <Ionicons name="shield-checkmark" size={17} color={isDark ? '#818CF8' : '#4F46E5'} />
+              <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E8F5EE' }]}>
+                <Ionicons name="shield-checkmark" size={17} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
               </View>
               <Text style={[styles.featureHubTitle, isDark && { color: '#FFFFFF' }]}>Safe Zones</Text>
               <Text style={[styles.featureHubSub, isDark && { color: '#CAD5CE' }]}>{safePlaces.length} monitored</Text>
@@ -1637,11 +1781,31 @@ export default function BillionDollarHomeView() {
                         </Text>
                       </View>
                       <View style={styles.metricRow}>
-                        <Text style={[styles.metricLabel, isDark && { color: '#9EACA3' }]}>Status</Text>
-                        <Text style={[styles.metricVal, isDark && { color: '#E8EDE9' }]}>
-                          {member.isOnline !== false ? 'Online' : 'Recent'}
+                        <Text style={[styles.metricLabel, isDark && { color: '#9EACA3' }]}>Last Active</Text>
+                        <Text
+                          style={[
+                            styles.metricVal,
+                            { color: member.isOnline ? (isDark ? '#3ADFAB' : '#2E7D5B') : (isDark ? '#CAD5CE' : '#5C665F') },
+                          ]}
+                        >
+                          {member.isOnline ? '🟢 Active now' : (member.lastActiveShort || 'Recent')}
                         </Text>
                       </View>
+                      {zoneStatus.isInZone && zoneStatus.entryTimeStr ? (
+                        <View style={[styles.metricRow, { marginTop: 3, paddingTop: 3, borderTopWidth: 0.5, borderTopColor: isDark ? '#23352B' : '#E8EDE9' }]}>
+                          <Text style={[styles.metricLabel, isDark && { color: '#9EACA3' }]}>Zone Arrival</Text>
+                          <Text style={[styles.metricVal, { color: isDark ? '#3ADFAB' : '#2E7D5B', fontWeight: '700' }]} numberOfLines={1}>
+                            {zoneStatus.entryTimeStr}
+                          </Text>
+                        </View>
+                      ) : member.lastActiveTimeStr && member.lastActiveTimeStr !== 'Now' && member.lastActiveTimeStr !== 'Unknown' ? (
+                        <View style={[styles.metricRow, { marginTop: 3, paddingTop: 3, borderTopWidth: 0.5, borderTopColor: isDark ? '#23352B' : '#E8EDE9' }]}>
+                          <Text style={[styles.metricLabel, isDark && { color: '#9EACA3' }]}>Time Seen</Text>
+                          <Text style={[styles.metricVal, { color: isDark ? '#CAD5CE' : '#718076' }]} numberOfLines={1}>
+                            {member.lastActiveTimeStr}
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
                   </TouchableOpacity>
                 );
@@ -1688,6 +1852,8 @@ export default function BillionDollarHomeView() {
         onClose={() => setAddressModalVisible(false)}
         userLoc={userLoc}
         onRefreshLocation={handleRecenter}
+        safePlaces={safePlaces}
+        gpsAccuracy={userAccuracy}
       />
     </View>
   );
@@ -2095,7 +2261,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 12,
     marginRight: 10,
-    width: 220,
+    width: 236,
     borderWidth: 1,
     borderColor: '#EDEBE6',
     shadowColor: '#1F2A24',
@@ -2298,5 +2464,25 @@ const styles = StyleSheet.create({
     color: '#FAF9F6',
     fontSize: 12,
     fontWeight: '600',
+  },
+  quickSwitchBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.25)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 8,
+    marginBottom: 4,
+    gap: 8,
+  },
+  quickSwitchBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#151C27',
+    fontWeight: '500',
   },
 });

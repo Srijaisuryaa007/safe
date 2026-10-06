@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   StatusBar,
+  Vibration,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
@@ -121,18 +122,30 @@ export default function BillionDollarProfileView({
         ]}
       >
         <View style={styles.headerLeft}>
-          {canGoBack && (
-            <TouchableOpacity
-              style={[styles.backBtn, isDark && { backgroundColor: '#1C2621', borderColor: '#2E3D35' }]}
-              onPress={() => navigation.goBack()}
-              activeOpacity={0.7}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityLabel="Go back"
-              accessibilityRole="button"
-            >
-              <Ionicons name="arrow-back" size={18} color={isDark ? '#FFFFFF' : '#1F2A24'} />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={[styles.backBtn, isDark && { backgroundColor: '#1C2621', borderColor: '#2E3D35' }]}
+            onPress={() => {
+              if (Platform.OS !== 'web') {
+                try { Vibration.vibrate(10); } catch (_) {}
+              }
+              if (navigation?.canGoBack && navigation.canGoBack()) {
+                navigation.goBack();
+              } else {
+                const parent = navigation.getParent?.();
+                if (parent && typeof parent.navigate === 'function') {
+                  parent.navigate('MainTabs', { screen: 'Circle' });
+                } else if (navigation && typeof navigation.navigate === 'function') {
+                  navigation.navigate('MainTabs', { screen: 'Circle' });
+                }
+              }
+            }}
+            activeOpacity={0.7}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="Go back"
+            accessibilityRole="button"
+          >
+            <Ionicons name="arrow-back" size={18} color={isDark ? '#FFFFFF' : '#1F2A24'} />
+          </TouchableOpacity>
           <OrbitalGoldenLogoBadge
             size={34}
             accessibilityLabel="CircleGuard Logo"

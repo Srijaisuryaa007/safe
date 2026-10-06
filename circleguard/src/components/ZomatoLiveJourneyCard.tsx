@@ -173,7 +173,12 @@ export default function ZomatoLiveJourneyCard({
     if (memberPhone) {
       Linking.openURL(`tel:${memberPhone}`);
     } else {
-      navigation.navigate('MainTabs', { screen: 'Chat' });
+      navigation.navigate('Chat', {
+        memberId: activeTarget?.user_id,
+        memberName,
+        taggedMember: activeTarget,
+        initialText: `@${memberName} `,
+      });
     }
   };
 

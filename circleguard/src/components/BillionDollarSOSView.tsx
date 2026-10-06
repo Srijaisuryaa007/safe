@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -6,15 +6,14 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
-  Dimensions,
   Platform,
   Linking,
   Animated,
+  Easing,
   PanResponder,
   Vibration,
   StatusBar,
   Modal,
-  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -22,15 +21,18 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useCountryStore } from '../store/useCountryStore';
+import { useThemeStore } from '../store/useThemeStore';
 import { supabase } from '../lib/supabase';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
 import FakeCallModal from './FakeCallModal';
 import EmergencyContactsModal from './EmergencyContactsModal';
 import MedicalInfoModal from './MedicalInfoModal';
 import ShareLocationModal from './ShareLocationModal';
+import CountrySelectorModal from './CountrySelectorModal';
+import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
 import { getSafeTopInset } from '../utils/safeArea';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const FONT_SANS = Platform.OS === 'web' ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' : undefined;
 
 export default function BillionDollarSOSView() {
   const insets = useSafeAreaInsets();
@@ -39,26 +41,88 @@ export default function BillionDollarSOSView() {
   const { profile } = useAuthStore();
   const { activeCircle, members } = useCircleStore();
   const { country } = useCountryStore();
+  const { isDark } = useThemeStore();
 
   const [sosHolding, setSosHolding] = useState(false);
   const [sosSent, setSosSent] = useState(false);
   const [silentAlertSent, setSilentAlertSent] = useState(false);
+  const [isSirenActive, setIsSirenActive] = useState(false);
+
+  // Modals
   const [fakeCallVisible, setFakeCallVisible] = useState(false);
   const [emergencyMenuVisible, setEmergencyMenuVisible] = useState(false);
   const [emergencyContactsVisible, setEmergencyContactsVisible] = useState(false);
   const [medicalInfoVisible, setMedicalInfoVisible] = useState(false);
   const [shareLocationVisible, setShareLocationVisible] = useState(false);
+  const [countryModalVisible, setCountryModalVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Animation values
+  const holdProgress = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const rippleAnim1 = useRef(new Animated.Value(0)).current;
+  const rippleAnim2 = useRef(new Animated.Value(0)).current;
   const menuTranslateY = useRef(new Animated.Value(0)).current;
 
+  // Continuous subtle pulse effect for SOS hero aura
   useEffect(() => {
-    if (emergencyMenuVisible) {
-      menuTranslateY.setValue(0);
-    }
-  }, [emergencyMenuVisible]);
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.06,
+          duration: 1600,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1600,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulseLoop.start();
 
-  const menuPanResponder = React.useMemo(
+    // Staggered radar waves
+    const ripple1Loop = Animated.loop(
+      Animated.timing(rippleAnim1, {
+        toValue: 1,
+        duration: 2600,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      })
+    );
+    const ripple2Loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(1300),
+        Animated.timing(rippleAnim2, {
+          toValue: 1,
+          duration: 2600,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    ripple1Loop.start();
+    ripple2Loop.start();
+
+    return () => {
+      pulseLoop.stop();
+      ripple1Loop.stop();
+      ripple2Loop.stop();
+    };
+  }, []);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 2800);
+  };
+
+  // Drag-to-dismiss gesture for the Emergency Menu Sheet
+  const menuPanResponder = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
@@ -87,42 +151,8 @@ export default function BillionDollarSOSView() {
           }
         },
       }),
-    [setEmergencyMenuVisible, menuTranslateY]
+    [menuTranslateY]
   );
-
-  const handleTestSiren = () => {
-    if (Platform.OS !== 'web') {
-      Vibration.vibrate([100, 200, 100, 200, 100]);
-    }
-    setEmergencyMenuVisible(false);
-    showToast('🔊 Test Siren & Haptic Alert Triggered (Self-Test)');
-  };
-
-  const handleCancelActiveSos = async () => {
-    setSosSent(false);
-    setSilentAlertSent(false);
-    setEmergencyMenuVisible(false);
-    if (activeCircle?.id && profile?.id) {
-      try {
-        await supabase
-          .from('sos_alerts')
-          .update({ status: 'RESOLVED' })
-          .eq('user_id', profile.id)
-          .eq('circle_id', activeCircle.id);
-      } catch (e) {}
-    }
-    showToast('✅ Emergency Alert Cancelled & Marked Safe');
-  };
-
-  const holdProgress = useRef(new Animated.Value(0)).current;
-  const holdTimerRef = useRef<any>(null);
-
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 2800);
-  };
 
   const handleStartHold = () => {
     if (sosSent) return;
@@ -134,6 +164,7 @@ export default function BillionDollarSOSView() {
     Animated.timing(holdProgress, {
       toValue: 1,
       duration: 3000,
+      easing: Easing.linear,
       useNativeDriver: false,
     }).start(({ finished }) => {
       if (finished) {
@@ -153,10 +184,10 @@ export default function BillionDollarSOSView() {
     setSosHolding(false);
     setSosSent(true);
     if (Platform.OS !== 'web') {
-      Vibration.vibrate([200, 100, 200, 100, 400]);
+      Vibration.vibrate([0, 350, 150, 350, 150, 600]);
     }
 
-    // Persist real SOS alert to Supabase if activeCircle exists
+    // Persist real SOS alert to Supabase
     if (activeCircle?.id && profile?.id) {
       try {
         await supabase.from('sos_alerts').insert({
@@ -164,7 +195,9 @@ export default function BillionDollarSOSView() {
           user_id: profile.id,
           status: 'ACTIVE',
         });
-      } catch (e) {}
+      } catch (e) {
+        console.warn('Supabase SOS insert error:', e);
+      }
     }
 
     // Dispatch priority push notifications to circle members
@@ -181,11 +214,15 @@ export default function BillionDollarSOSView() {
       ).catch(() => {});
     }
 
-    showToast('🚨 Critical Emergency SOS dispatched to Circle & 911!');
+    showToast(`🚨 Priority SOS Dispatched to ${circleName} & Emergency Contacts!`);
   };
 
   const handleSilentAlert = async () => {
     setSilentAlertSent(true);
+    if (Platform.OS !== 'web') {
+      Vibration.vibrate(80);
+    }
+
     if (activeCircle?.id && profile?.id) {
       try {
         await supabase.from('sos_alerts').insert({
@@ -204,57 +241,166 @@ export default function BillionDollarSOSView() {
       sendExpoPushNotification(
         responderIds,
         '⚠️ Silent Safety Alert',
-        `${profile?.full_name || 'A family member'} sent a silent distress ping. Check in on them discreetly.`,
+        `${profile?.full_name || 'A family member'} sent a discreet safety ping. Please check in with them quietly.`,
         { type: 'SILENT_SOS' }
       ).catch(() => {});
     }
 
-    showToast(`Discreet silent alert dispatched to ${circleName} (No siren)`);
+    showToast(`Discreet GPS distress beacon dispatched to ${circleName} (Silent)`);
+  };
+
+  const handleTestSiren = () => {
+    setIsSirenActive(true);
+    if (Platform.OS !== 'web') {
+      Vibration.vibrate([100, 200, 100, 200, 100, 200]);
+    }
+    showToast('🔊 Acoustic Siren & Strobe Alarm Triggered (Self-Test)');
+    setTimeout(() => {
+      setIsSirenActive(false);
+    }, 4500);
+  };
+
+  const handleCancelActiveSos = async () => {
+    setSosSent(false);
+    setSilentAlertSent(false);
+    setEmergencyMenuVisible(false);
+    if (activeCircle?.id && profile?.id) {
+      try {
+        await supabase
+          .from('sos_alerts')
+          .update({ status: 'RESOLVED' })
+          .eq('user_id', profile.id)
+          .eq('circle_id', activeCircle.id);
+      } catch (e) {}
+    }
+    showToast('✅ Emergency Alert Resolved — Circle Notified You Are Safe');
   };
 
   const circleName = activeCircle?.name || 'Your Circle';
-  const emergencyNumber = country?.primaryEmergency || '911';
+  const emergencyNumber = country?.primaryEmergency || '112';
 
-  // Filter out self from responders to show actual family responders
+  // Filter out self from responders to display active circle guardians/members
   const responderMembers = members.filter((m) => m.user_id !== profile?.id);
 
+  // CircleGuard Botanical Luxury Theme Tokens
+  const bg = isDark ? '#0F1411' : '#FAF9F6';
+  const headerBg = isDark ? 'rgba(20, 26, 23, 0.98)' : 'rgba(255, 255, 255, 0.98)';
+  const headerBorder = isDark ? '#212C26' : '#EDEBE6';
+  const chipBg = isDark ? '#1C2621' : '#F1F5F9';
+  const chipBorder = isDark ? '#2B3A33' : '#E2E8F0';
+
+  const cardBg = isDark ? '#161E1A' : '#FFFFFF';
+  const cardBorder = isDark ? '#212C26' : '#EDEBE6';
+
+  const textPrimary = isDark ? '#F5FAF7' : '#1F2A24';
+  const textSecondary = isDark ? '#9EACA3' : '#5C665F';
+  const textTertiary = isDark ? '#6E7C74' : '#8A978F';
+
+  const brandGreen = isDark ? '#3ADFAB' : '#2E7D5B';
+  const brandGreenSoft = isDark ? 'rgba(58, 223, 171, 0.14)' : '#E8F5EE';
+  const brandGold = isDark ? '#E9C349' : '#D4AF37';
+  const brandGoldSoft = isDark ? 'rgba(233, 195, 73, 0.14)' : 'rgba(212, 175, 55, 0.1)';
+
+  const canGoBack = navigation.canGoBack && navigation.canGoBack();
+
   return (
-    <View style={styles.container}>
-      {/* Header Bar */}
-      <View style={[styles.header, { paddingTop: topInset, height: 56 + topInset }]}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="arrow-back" size={22} color="#151C27" />
-          </TouchableOpacity>
-          <View style={styles.logoBadge}>
-            <Ionicons name="shield-checkmark" size={18} color="#183CE6" />
-          </View>
-          <Text style={styles.headerTitle}>Emergency SOS</Text>
-        </View>
+    <View style={[styles.container, { backgroundColor: bg }]}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
-        <View style={styles.headerRight}>
-          <TouchableOpacity
-            style={styles.headerIconButton}
-            onPress={() => setEmergencyMenuVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="ellipsis-vertical" size={20} color="#444656" />
-          </TouchableOpacity>
-
-          <View style={styles.profileAvatarBox}>
-            {profile?.avatar_url ? (
-              <Image source={{ uri: profile.avatar_url }} style={styles.profileAvatarImg} />
-            ) : (
-              <View style={[styles.profileAvatarImg, styles.avatarFallback]}>
-                <Text style={styles.avatarFallbackText}>
-                  {(profile?.full_name || 'U').charAt(0).toUpperCase()}
-                </Text>
-              </View>
+      {/* Luxury Standardized Header Bar */}
+      <View
+        style={[
+          styles.header,
+          {
+            paddingTop: topInset,
+            height: 56 + topInset,
+            backgroundColor: headerBg,
+            borderBottomColor: headerBorder,
+          },
+        ]}
+      >
+        <View style={styles.headerInner}>
+          <View style={styles.headerLeft}>
+            {canGoBack && (
+              <TouchableOpacity
+                style={[
+                  styles.headerIconButton,
+                  { backgroundColor: chipBg, borderColor: chipBorder, marginRight: 2 },
+                ]}
+                onPress={() => navigation.goBack()}
+                activeOpacity={0.7}
+                accessibilityLabel="Go back"
+              >
+                <Ionicons name="arrow-back" size={18} color={textPrimary} />
+              </TouchableOpacity>
             )}
+
+            <OrbitalGoldenLogoBadge
+              size={34}
+              onPress={() => navigation.navigate('Home')}
+              accessibilityLabel="CircleGuard Logo"
+            />
+
+            <TouchableOpacity
+              style={[
+                styles.circleSelectorBtn,
+                { backgroundColor: chipBg, borderColor: chipBorder },
+              ]}
+              onPress={() => navigation.navigate('Circle')}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.circleSelectorText, { color: textPrimary }]} numberOfLines={1}>
+                {circleName}
+              </Text>
+              <Ionicons name="chevron-down" size={13} color={textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.headerRight}>
+            {/* Country Emergency Badge */}
+            <TouchableOpacity
+              style={[
+                styles.countryEmergencyBtn,
+                {
+                  backgroundColor: isDark ? 'rgba(239, 68, 68, 0.16)' : 'rgba(239, 68, 68, 0.08)',
+                  borderColor: isDark ? 'rgba(239, 68, 68, 0.35)' : 'rgba(239, 68, 68, 0.25)',
+                },
+              ]}
+              onPress={() => setCountryModalVisible(true)}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.countryFlagText}>{country?.flag || '🌐'}</Text>
+              <Text style={styles.countryEmergencyNumber}>{emergencyNumber}</Text>
+            </TouchableOpacity>
+
+            {/* Quick Options 3-Dots */}
+            <TouchableOpacity
+              style={[
+                styles.headerIconButton,
+                { backgroundColor: chipBg, borderColor: chipBorder },
+              ]}
+              onPress={() => setEmergencyMenuVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="ellipsis-vertical" size={16} color={textPrimary} />
+            </TouchableOpacity>
+
+            {/* Profile Thumbnail */}
+            <TouchableOpacity
+              style={[styles.profileAvatarBtn, { borderColor: brandGreen }]}
+              onPress={() => navigation.navigate('Profile')}
+              activeOpacity={0.75}
+            >
+              {profile?.avatar_url ? (
+                <Image source={{ uri: profile.avatar_url }} style={styles.profileAvatarImg} />
+              ) : (
+                <View style={[styles.profileAvatarImg, styles.avatarFallback, { backgroundColor: brandGreen }]}>
+                  <Text style={styles.avatarFallbackText}>
+                    {(profile?.full_name || 'U').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -264,408 +410,577 @@ export default function BillionDollarSOSView() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Top Calm Guidance Header */}
-        <View style={styles.guidanceSection}>
-          <View style={styles.statusPill}>
-            <View style={styles.redPulseDot} />
-            <Text style={styles.statusPillText}>Immediate Response Ready</Text>
-          </View>
-          <Text style={styles.guidanceTitle}>Emergency Assistance</Text>
-          <Text style={styles.guidanceSub}>
-            Press and hold for 3 seconds to alert your circle and emergency dispatch.
-          </Text>
-        </View>
-
-        {/* Central SOS Hero Trigger Area */}
-        <View style={styles.sosHeroSection}>
-          <View style={styles.auraRingOuter} />
-          <View style={styles.auraRingInner} />
-
-          <TouchableOpacity
-            style={[styles.sosMainBtn, sosSent && { backgroundColor: '#AE041B' }]}
-            onPressIn={handleStartHold}
-            onPressOut={handleCancelHold}
-            activeOpacity={0.85}
-          >
-            <MaterialCommunityIcons name="shield-alert" size={36} color="#FFFFFF" />
-            <Text style={styles.sosHeroText}>SOS</Text>
-            <Text style={styles.sosHeroHoldText}>
-              {sosSent ? 'ALERT SENT' : sosHolding ? 'HOLDING...' : 'HOLD 3S'}
-            </Text>
-
-            {/* Progress Arc Simulation Indicator */}
-            {sosHolding && (
-              <Animated.View
+        <View style={styles.contentConstrained}>
+          {/* Top Guidance & Telemetry Status Pill */}
+          <View style={styles.topStatusSection}>
+            <View
+              style={[
+                styles.statusPill,
+                {
+                  backgroundColor: sosSent
+                    ? 'rgba(239, 68, 68, 0.18)'
+                    : brandGreenSoft,
+                  borderColor: sosSent
+                    ? '#EF4444'
+                    : isDark
+                    ? 'rgba(58, 223, 171, 0.3)'
+                    : 'rgba(46, 125, 91, 0.25)',
+                },
+              ]}
+            >
+              <View
                 style={[
-                  styles.progressIndicatorRing,
-                  {
-                    transform: [
-                      {
-                        scale: holdProgress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [1, 1.25],
-                        }),
-                      },
-                    ],
-                  },
+                  styles.pulseRadarDot,
+                  { backgroundColor: sosSent ? '#EF4444' : brandGreen },
                 ]}
               />
-            )}
-          </TouchableOpacity>
-
-          <View style={styles.hapticHintRow}>
-            <Ionicons name="phone-portrait-outline" size={16} color="#AE041B" />
-            <Text style={styles.hapticHintText}>
-              {sosSent
-                ? 'Emergency dispatch in progress · Help is on the way.'
-                : sosHolding
-                ? 'Keep holding to dispatch help...'
-                : 'Haptic countdown will confirm activation.'}
-            </Text>
-          </View>
-        </View>
-
-        {/* Immediate Actions Grid */}
-        <View style={styles.sectionHeadingRow}>
-          <Text style={styles.sectionTitle}>Immediate Actions</Text>
-          <Text style={styles.sectionSub}>Tap to trigger immediately</Text>
-        </View>
-
-        {/* Priority Emergency Call Card */}
-        <TouchableOpacity
-          style={styles.actionCard}
-          onPress={() => Linking.openURL(`tel:${emergencyNumber}`)}
-          activeOpacity={0.8}
-        >
-          <View style={styles.actionCardLeft}>
-            <View style={[styles.actionIconBox, { backgroundColor: 'rgba(210, 41, 48, 0.12)' }]}>
-              <Ionicons name="call" size={24} color="#AE041B" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.actionTitle}>Call {emergencyNumber} / Local Dispatch</Text>
-              <Text style={styles.actionDesc}>
-                Connect directly to first responders ({country.name})
+              <Text
+                style={[
+                  styles.statusPillText,
+                  { color: sosSent ? '#EF4444' : brandGreen },
+                ]}
+              >
+                {sosSent
+                  ? 'EMERGENCY ALERT ACTIVE • FIRST RESPONDERS NOTIFIED'
+                  : 'GPS SATELLITE LOCKED • LIVE TELEMETRY READY'}
               </Text>
             </View>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#757688" />
-        </TouchableOpacity>
 
-        {/* Silent Discreet Alert Card */}
-        <TouchableOpacity
-          style={styles.actionCard}
-          onPress={handleSilentAlert}
-          activeOpacity={0.8}
-        >
-          <View style={styles.actionCardLeft}>
-            <View style={[styles.actionIconBox, { backgroundColor: 'rgba(96, 252, 198, 0.35)' }]}>
-              <Ionicons name="notifications-off" size={24} color="#006C4F" />
+            <Text style={[styles.pageMainTitle, { color: textPrimary }]}>
+              Emergency SOS Hub
+            </Text>
+            <Text style={[styles.pageMainSub, { color: textSecondary }]}>
+              Press and hold the central beacon for 3 seconds to broadcast live GPS distress coordinates to your circle and emergency dispatch.
+            </Text>
+          </View>
+
+          {/* Central SOS Hero Trigger Area with Concentric Radar Rings */}
+          <View style={styles.heroSection}>
+            {/* Animated Ripple Wave 1 */}
+            <Animated.View
+              style={[
+                styles.radarRing,
+                {
+                  borderColor: sosSent
+                    ? '#EF4444'
+                    : isDark
+                    ? 'rgba(239, 68, 68, 0.35)'
+                    : 'rgba(220, 38, 38, 0.25)',
+                  backgroundColor: sosSent
+                    ? 'rgba(239, 68, 68, 0.1)'
+                    : 'rgba(239, 68, 68, 0.03)',
+                  transform: [
+                    {
+                      scale: rippleAnim1.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 1.48],
+                      }),
+                    },
+                  ],
+                  opacity: rippleAnim1.interpolate({
+                    inputRange: [0, 0.85, 1],
+                    outputRange: [0.6, 0.15, 0],
+                  }),
+                },
+              ]}
+            />
+
+            {/* Animated Ripple Wave 2 */}
+            <Animated.View
+              style={[
+                styles.radarRing,
+                {
+                  borderColor: sosSent
+                    ? '#DC2626'
+                    : isDark
+                    ? 'rgba(239, 68, 68, 0.25)'
+                    : 'rgba(220, 38, 38, 0.2)',
+                  backgroundColor: sosSent
+                    ? 'rgba(239, 68, 68, 0.07)'
+                    : 'rgba(239, 68, 68, 0.02)',
+                  transform: [
+                    {
+                      scale: rippleAnim2.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 1.48],
+                      }),
+                    },
+                  ],
+                  opacity: rippleAnim2.interpolate({
+                    inputRange: [0, 0.85, 1],
+                    outputRange: [0.6, 0.15, 0],
+                  }),
+                },
+              ]}
+            />
+
+            {/* Tactile SOS Hero Trigger Button with Golden Rim */}
+            <Animated.View
+              style={{
+                transform: [{ scale: sosHolding ? 0.95 : pulseAnim }],
+              }}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.sosMainBtn,
+                  sosSent && styles.sosMainBtnActive,
+                  {
+                    borderColor: sosSent ? '#FFFFFF' : brandGold,
+                    shadowColor: sosSent ? '#DC2626' : '#EF4444',
+                  },
+                ]}
+                onPressIn={handleStartHold}
+                onPressOut={handleCancelHold}
+                activeOpacity={0.9}
+              >
+                {/* Hold Progress Track Ring */}
+                {sosHolding && (
+                  <Animated.View
+                    style={[
+                      styles.progressRing,
+                      {
+                        borderColor: '#FFFFFF',
+                        transform: [
+                          {
+                            scale: holdProgress.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [1, 1.14],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
+                  />
+                )}
+
+                <MaterialCommunityIcons
+                  name={sosSent ? 'shield-check' : 'shield-alert'}
+                  size={42}
+                  color="#FFFFFF"
+                />
+                <Text style={styles.sosButtonLabel}>
+                  {sosSent ? 'SENT' : 'SOS'}
+                </Text>
+                <Text style={styles.sosButtonSubLabel}>
+                  {sosSent ? 'ALERT ACTIVE' : sosHolding ? 'HOLDING...' : 'HOLD 3 SEC'}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
+
+            {/* Interactive Status & Cancellation */}
+            <View style={styles.heroHintRow}>
+              {sosSent ? (
+                <TouchableOpacity
+                  style={[styles.cancelActiveSosBtn, { backgroundColor: brandGreen }]}
+                  onPress={handleCancelActiveSos}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="checkmark-circle" size={17} color="#FFFFFF" />
+                  <Text style={styles.cancelActiveSosText}>I Am Safe • Cancel Alert</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.protectionHintRow}>
+                  <Ionicons name="finger-print-outline" size={15} color={isDark ? '#F87171' : '#DC2626'} />
+                  <Text style={[styles.protectionHintText, { color: textSecondary }]}>
+                    {sosHolding
+                      ? 'Keep holding to dispatch distress signal...'
+                      : 'Continuous 3s hold prevents accidental false alarms.'}
+                  </Text>
+                </View>
+              )}
             </View>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={styles.actionTitle}>Silent Discreet Alert</Text>
-                <View style={styles.noSirenTag}>
-                  <Text style={styles.noSirenText}>
-                    {silentAlertSent ? 'Dispatched' : 'No Siren'}
+          </View>
+
+          {/* Symmetrical 2x2 Emergency Actions Grid */}
+          <View style={styles.sectionHeaderRow}>
+            <View>
+              <Text style={[styles.sectionHeadingTitle, { color: textPrimary }]}>
+                Immediate Emergency Actions
+              </Text>
+              <Text style={[styles.sectionSubTitle, { color: textSecondary }]}>
+                High-priority instant response protocols
+              </Text>
+            </View>
+            <View style={[styles.badgePill, { backgroundColor: brandGoldSoft }]}>
+              <Text style={[styles.badgePillText, { color: brandGold }]}>4 MODES</Text>
+            </View>
+          </View>
+
+          <View style={styles.actionGrid}>
+            {/* Action 1: Call 112 / First Responders */}
+            <TouchableOpacity
+              style={[
+                styles.gridCard,
+                { backgroundColor: cardBg, borderColor: cardBorder },
+              ]}
+              onPress={() => Linking.openURL(`tel:${emergencyNumber}`)}
+              activeOpacity={0.8}
+            >
+              <View style={styles.gridCardTop}>
+                <View style={[styles.gridIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                  <Ionicons name="call" size={22} color="#EF4444" />
+                </View>
+                <View style={[styles.gridTag, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                  <Text style={[styles.gridTagText, { color: '#EF4444' }]}>{country?.code || 'SOS'}</Text>
+                </View>
+              </View>
+              <Text style={[styles.gridCardTitle, { color: textPrimary }]}>
+                Call {emergencyNumber}
+              </Text>
+              <Text style={[styles.gridCardSub, { color: textSecondary }]}>
+                Direct line to official emergency & police services in {country?.name || 'your region'}.
+              </Text>
+            </TouchableOpacity>
+
+            {/* Action 2: Silent Stealth Alert */}
+            <TouchableOpacity
+              style={[
+                styles.gridCard,
+                { backgroundColor: cardBg, borderColor: cardBorder },
+              ]}
+              onPress={handleSilentAlert}
+              activeOpacity={0.8}
+            >
+              <View style={styles.gridCardTop}>
+                <View style={[styles.gridIconBox, { backgroundColor: brandGreenSoft }]}>
+                  <Ionicons name="notifications-off" size={22} color={brandGreen} />
+                </View>
+                <View style={[styles.gridTag, { backgroundColor: brandGreenSoft }]}>
+                  <Text style={[styles.gridTagText, { color: brandGreen }]}>
+                    {silentAlertSent ? 'SENT' : 'NO SIREN'}
                   </Text>
                 </View>
               </View>
-              <Text style={styles.actionDesc}>Send discreet GPS ping to {circleName}</Text>
+              <Text style={[styles.gridCardTitle, { color: textPrimary }]}>
+                Silent Beacon
+              </Text>
+              <Text style={[styles.gridCardSub, { color: textSecondary }]}>
+                Discreet GPS broadcast to circle with zero audio or visual cues on device.
+              </Text>
+            </TouchableOpacity>
+
+            {/* Action 3: Safety Escort Call */}
+            <TouchableOpacity
+              style={[
+                styles.gridCard,
+                { backgroundColor: cardBg, borderColor: cardBorder },
+              ]}
+              onPress={() => setFakeCallVisible(true)}
+              activeOpacity={0.8}
+            >
+              <View style={styles.gridCardTop}>
+                <View style={[styles.gridIconBox, { backgroundColor: 'rgba(99, 102, 241, 0.12)' }]}>
+                  <Ionicons name="shield-checkmark" size={22} color="#6366F1" />
+                </View>
+                <View style={[styles.gridTag, { backgroundColor: 'rgba(99, 102, 241, 0.12)' }]}>
+                  <Text style={[styles.gridTagText, { color: '#6366F1' }]}>DETERRENT</Text>
+                </View>
+              </View>
+              <Text style={[styles.gridCardTitle, { color: textPrimary }]}>
+                Escort Call
+              </Text>
+              <Text style={[styles.gridCardSub, { color: textSecondary }]}>
+                Simulates a realistic incoming companion call to deter unwanted attention.
+              </Text>
+            </TouchableOpacity>
+
+            {/* Action 4: High-Decibel Siren */}
+            <TouchableOpacity
+              style={[
+                styles.gridCard,
+                { backgroundColor: cardBg, borderColor: cardBorder },
+              ]}
+              onPress={handleTestSiren}
+              activeOpacity={0.8}
+            >
+              <View style={styles.gridCardTop}>
+                <View style={[styles.gridIconBox, { backgroundColor: 'rgba(245, 158, 11, 0.12)' }]}>
+                  <Ionicons name="volume-high" size={22} color="#F59E0B" />
+                </View>
+                <View style={[styles.gridTag, { backgroundColor: 'rgba(245, 158, 11, 0.12)' }]}>
+                  <Text style={[styles.gridTagText, { color: '#F59E0B' }]}>
+                    {isSirenActive ? 'SOUNDING' : '110 dB'}
+                  </Text>
+                </View>
+              </View>
+              <Text style={[styles.gridCardTitle, { color: textPrimary }]}>
+                Siren Alarm
+              </Text>
+              <Text style={[styles.gridCardSub, { color: textSecondary }]}>
+                Acoustic distress alarm and haptic pulsation to summon immediate help.
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Circle Responders Section */}
+          <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>
+            <View>
+              <Text style={[styles.sectionHeadingTitle, { color: textPrimary }]}>
+                Circle First Responders
+              </Text>
+              <Text style={[styles.sectionSubTitle, { color: textSecondary }]}>
+                {responderMembers.length} {responderMembers.length === 1 ? 'member' : 'members'} in {circleName} receive instant push alarms
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.activeRespondersBadge,
+                {
+                  backgroundColor: brandGreenSoft,
+                  borderColor: isDark ? 'rgba(58, 223, 171, 0.3)' : 'rgba(46, 125, 91, 0.2)',
+                },
+              ]}
+            >
+              <View style={[styles.liveGreenDot, { backgroundColor: brandGreen }]} />
+              <Text style={[styles.activeRespondersText, { color: brandGreen }]}>
+                {responderMembers.length} Guarding
+              </Text>
             </View>
           </View>
-          <Ionicons name="chevron-forward" size={18} color="#757688" />
-        </TouchableOpacity>
 
-        {/* Safety Escort Call / Audio Deterrent Card */}
-        <TouchableOpacity
-          style={styles.actionCard}
-          onPress={() => setFakeCallVisible(true)}
-          activeOpacity={0.8}
-        >
-          <View style={styles.actionCardLeft}>
-            <View style={[styles.actionIconBox, { backgroundColor: '#DEE0FF' }]}>
-              <Ionicons name="call" size={24} color="#183CE6" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.actionTitle}>Safety Escort Call (Deterrent Call)</Text>
-              <Text style={styles.actionDesc}>Realistic voice audio to accompany you safely and deter threats</Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#757688" />
-        </TouchableOpacity>
+          {responderMembers.length > 0 ? (
+            <View style={styles.respondersList}>
+              {responderMembers.map((member) => {
+                const name = member.profile?.full_name || 'Member';
+                const phone = member.profile?.phone || (member as any)?.phone;
+                const battery = member.batteryPct;
+                const roleName = member.role ? member.role.toUpperCase() : 'MEMBER';
 
-        {/* Circle Notification Preview Grid */}
-        <View style={[styles.sectionHeadingRow, { marginTop: 14 }]}>
-          <View>
-            <Text style={styles.sectionTitle}>{circleName} Responders</Text>
-            <Text style={styles.sectionSub}>
-              {responderMembers.length} {responderMembers.length === 1 ? 'member' : 'members'} notified with real-time tracking
-            </Text>
-          </View>
-          <View style={styles.activePill}>
-            <View style={[styles.redPulseDot, { backgroundColor: '#006C4F' }]} />
-            <Text style={styles.activePillText}>{responderMembers.length} Active</Text>
-          </View>
-        </View>
-
-        {responderMembers.length > 0 ? (
-          <View style={styles.respondersGrid}>
-            {responderMembers.slice(0, 4).map((member, idx) => {
-              const name = member.profile?.full_name || 'Member';
-              const firstName = name.split(' ')[0];
-
-              return (
-                <TouchableOpacity
-                  key={member.user_id || idx}
-                  style={styles.responderCard}
-                  onPress={() => {
-                    const phone = member.profile?.phone || (member as any)?.phone;
-                    if (phone) {
-                      Linking.openURL(`tel:${phone.replace(/[^\d+]/g, '')}`).catch(() => {
-                        Alert.alert('Unable to Call', 'Device dialer could not be launched.');
-                      });
-                    } else {
-                      Alert.alert(
-                        `Emergency Contact: ${name}`,
-                        `${name} does not have a phone number on file. You can dispatch an urgent SOS alert ping or open phone dialer.`,
-                        [
-                          {
-                            text: '🚨 Send Priority SOS Ping',
-                            onPress: async () => {
-                              try {
-                                await sendExpoPushNotification(
-                                  [member.user_id],
-                                  '🚨 URGENT SOS ALERT',
-                                  `${profile?.full_name || 'A family member'} is alerting you urgently from Emergency SOS!`,
-                                  { type: 'SOS_DIRECT', senderId: profile?.id }
-                                );
-                                showToast(`🚨 Priority SOS ping dispatched to ${firstName}!`);
-                              } catch (e) {
-                                showToast(`Priority SOS ping sent to ${firstName}`);
-                              }
+                return (
+                  <View
+                    key={member.user_id}
+                    style={[
+                      styles.responderRowCard,
+                      { backgroundColor: cardBg, borderColor: cardBorder },
+                    ]}
+                  >
+                    <View style={styles.responderRowLeft}>
+                      <View style={styles.responderAvatarContainer}>
+                        {member.profile?.avatar_url ? (
+                          <Image source={{ uri: member.profile.avatar_url }} style={styles.responderImg} />
+                        ) : (
+                          <View style={[styles.responderImg, styles.avatarFallback, { backgroundColor: brandGreen }]}>
+                            <Text style={styles.avatarFallbackText}>
+                              {name.charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                        <View
+                          style={[
+                            styles.responderStatusDot,
+                            {
+                              backgroundColor: member.isOnline ? brandGreen : '#94A3B8',
+                              borderColor: cardBg,
                             },
-                          },
-                          {
-                            text: '📞 Open Phone Dialer',
-                            onPress: () => {
-                              Linking.openURL('tel:').catch(() => {});
-                            },
-                          },
-                          {
-                            text: '💬 Circle Chat',
-                            onPress: () => navigation.navigate('Chat'),
-                          },
-                          {
-                            text: 'Cancel',
-                            style: 'cancel',
-                          },
-                        ]
-                      );
-                    }
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.responderAvatarBox}>
-                    {member.profile?.avatar_url ? (
-                      <Image source={{ uri: member.profile.avatar_url }} style={styles.responderAvatar} />
-                    ) : (
-                      <View style={[styles.responderAvatar, styles.avatarFallback]}>
-                        <Text style={styles.avatarFallbackText}>{firstName.charAt(0)}</Text>
+                          ]}
+                        />
                       </View>
-                    )}
-                    <View style={styles.responderDot} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.responderName} numberOfLines={1}>
-                      {name}
-                    </Text>
-                    <Text style={styles.responderDistance} numberOfLines={1}>
-                      {member.role ? member.role.toUpperCase() : 'Circle Member'}
-                    </Text>
-                    <Text style={styles.responderAlertStatus}>
-                      {(member.profile?.phone || (member as any)?.phone) ? 'Tap to Call' : 'Tap to Call / Alert'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ) : (
-          <View style={styles.noRespondersBox}>
-            <Text style={styles.noRespondersText}>
-              Add members to your circle so they receive priority push notifications and audible sirens during an emergency.
-            </Text>
-          </View>
-        )}
 
-        {/* Safety Protection Notice */}
-        <View style={styles.protectionNoticeCard}>
-          <Ionicons name="lock-closed-outline" size={18} color="#444656" style={{ marginTop: 2 }} />
-          <Text style={styles.protectionNoticeText}>
-            <Text style={{ fontWeight: '700', color: '#151C27' }}>
-              Accidental tap protection enabled:{' '}
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={[styles.responderRowName, { color: textPrimary }]} numberOfLines={1}>
+                            {name}
+                          </Text>
+                          <View style={[styles.roleBadge, { backgroundColor: chipBg }]}>
+                            <Text style={[styles.roleBadgeText, { color: textTertiary }]}>{roleName}</Text>
+                          </View>
+                        </View>
+                        <View style={styles.responderMetaRow}>
+                          <Text style={[styles.responderMetaText, { color: textSecondary }]}>
+                            {member.lastActiveShort || member.lastSeenText || 'Active in circle'}
+                          </Text>
+                          {typeof battery === 'number' && (
+                            <View style={styles.batteryBadge}>
+                              <Ionicons
+                                name={battery <= 20 ? 'battery-dead' : 'battery-charging'}
+                                size={12}
+                                color={battery <= 20 ? '#EF4444' : brandGreen}
+                              />
+                              <Text
+                                style={[
+                                  styles.batteryText,
+                                  { color: battery <= 20 ? '#EF4444' : textSecondary },
+                                ]}
+                              >
+                                {battery}%
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Direct Contact Button */}
+                    {phone ? (
+                      <TouchableOpacity
+                        style={[styles.directCallBtn, { backgroundColor: brandGreen }]}
+                        onPress={() => Linking.openURL(`tel:${phone.replace(/[^\d+]/g, '')}`)}
+                        activeOpacity={0.75}
+                      >
+                        <Ionicons name="call" size={13} color="#FFFFFF" />
+                        <Text style={styles.directCallBtnText}>Call</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.directCallBtn, { backgroundColor: '#EF4444' }]}
+                        onPress={async () => {
+                          try {
+                            await sendExpoPushNotification(
+                              [member.user_id],
+                              '🚨 URGENT SOS ALERT',
+                              `${profile?.full_name || 'A family member'} is alerting you urgently from Emergency SOS!`,
+                              { type: 'SOS_DIRECT', senderId: profile?.id }
+                            );
+                            showToast(`🚨 Priority SOS ping dispatched to ${name.split(' ')[0]}!`);
+                          } catch (e) {
+                            showToast(`Priority alert dispatched to ${name.split(' ')[0]}`);
+                          }
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <Ionicons name="notifications" size={13} color="#FFFFFF" />
+                        <Text style={styles.directCallBtnText}>Alert</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <View
+              style={[
+                styles.emptyRespondersCard,
+                { backgroundColor: cardBg, borderColor: cardBorder },
+              ]}
+            >
+              <Ionicons name="people-outline" size={28} color={textTertiary} />
+              <Text style={[styles.emptyRespondersTitle, { color: textPrimary }]}>
+                No Other Members in Circle
+              </Text>
+              <Text style={[styles.emptyRespondersSub, { color: textSecondary }]}>
+                Invite guardians and family to {circleName} so they receive high-priority push sirens and live GPS breadcrumbs during emergencies.
+              </Text>
+              <TouchableOpacity
+                style={[styles.inviteCircleBtn, { backgroundColor: brandGreen }]}
+                onPress={() => navigation.navigate('Circle')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="person-add-outline" size={15} color="#FFFFFF" />
+                <Text style={styles.inviteCircleBtnText}>Invite Circle Members</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Personal Safety & Medical Dossier */}
+          <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>
+            <View>
+              <Text style={[styles.sectionHeadingTitle, { color: textPrimary }]}>
+                Personal Safety Dossier
+              </Text>
+              <Text style={[styles.sectionSubTitle, { color: textSecondary }]}>
+                Critical health and responder records
+              </Text>
+            </View>
+            <View style={[styles.badgePill, { backgroundColor: brandGreenSoft }]}>
+              <Text style={[styles.badgePillText, { color: brandGreen }]}>VERIFIED</Text>
+            </View>
+          </View>
+
+          <View style={styles.dossierDeck}>
+            {/* Emergency Contacts */}
+            <TouchableOpacity
+              style={[
+                styles.dossierCard,
+                { backgroundColor: cardBg, borderColor: cardBorder },
+              ]}
+              onPress={() => setEmergencyContactsVisible(true)}
+              activeOpacity={0.75}
+            >
+              <View style={[styles.dossierIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                <Ionicons name="heart" size={20} color="#EF4444" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.dossierCardTitle, { color: textPrimary }]}>
+                  Emergency Contacts
+                </Text>
+                <Text style={[styles.dossierCardSub, { color: textSecondary }]}>
+                  Custom phone numbers notified in crisis
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={textTertiary} />
+            </TouchableOpacity>
+
+            {/* Medical ID & Health Card */}
+            <TouchableOpacity
+              style={[
+                styles.dossierCard,
+                { backgroundColor: cardBg, borderColor: cardBorder },
+              ]}
+              onPress={() => setMedicalInfoVisible(true)}
+              activeOpacity={0.75}
+            >
+              <View style={[styles.dossierIconBox, { backgroundColor: 'rgba(59, 130, 246, 0.12)' }]}>
+                <Ionicons name="medkit" size={20} color="#3B82F6" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.dossierCardTitle, { color: textPrimary }]}>
+                  Medical ID & Health Card
+                </Text>
+                <Text style={[styles.dossierCardSub, { color: textSecondary }]}>
+                  Blood group, allergies, medications & notes
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={textTertiary} />
+            </TouchableOpacity>
+
+            {/* Live GPS Broadcast */}
+            <TouchableOpacity
+              style={[
+                styles.dossierCard,
+                { backgroundColor: cardBg, borderColor: cardBorder },
+              ]}
+              onPress={() => setShareLocationVisible(true)}
+              activeOpacity={0.75}
+            >
+              <View style={[styles.dossierIconBox, { backgroundColor: brandGreenSoft }]}>
+                <Ionicons name="navigate" size={20} color={brandGreen} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.dossierCardTitle, { color: textPrimary }]}>
+                  Share Live Satellite GPS
+                </Text>
+                <Text style={[styles.dossierCardSub, { color: textSecondary }]}>
+                  Broadcast temporary real-time coordinates
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={textTertiary} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Protection Contract Footer Note */}
+          <View
+            style={[
+              styles.protectionContractCard,
+              {
+                backgroundColor: isDark ? '#141A17' : '#F1F5F2',
+                borderColor: isDark ? '#212C26' : '#E0E7E2',
+              },
+            ]}
+          >
+            <Ionicons name="shield-checkmark-outline" size={20} color={brandGreen} />
+            <Text style={[styles.protectionContractText, { color: textSecondary }]}>
+              CircleGuard emergency telematics are encrypted end-to-end. SOS alerts broadcast instant push notifications with high-accuracy satellite GPS telemetry directly to your circle members and emergency contacts.
             </Text>
-            The 3-second continuous hold requirement prevents false triggers. Releasing early will
-            instantly cancel the alert sequence without contacting authorities.
-          </Text>
+          </View>
         </View>
       </ScrollView>
 
-      {/* Safety Escort Call Modal */}
+      {/* Linked Emergency Modals */}
       <FakeCallModal
         visible={fakeCallVisible}
         onClose={() => setFakeCallVisible(false)}
       />
 
-      {/* 3-Dots Emergency Quick Options Menu */}
-      <Modal
-        visible={emergencyMenuVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setEmergencyMenuVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setEmergencyMenuVisible(false)}
-        >
-          <Animated.View
-            style={[
-              styles.emergencyMenuSheet,
-              {
-                transform: [
-                  {
-                    translateY: menuTranslateY.interpolate({
-                      inputRange: [-50, 0, 600],
-                      outputRange: [0, 0, 600],
-                      extrapolate: 'clamp',
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            {/* Top Interactive Drag-to-Dismiss / Tap-to-Close Handle */}
-            <TouchableOpacity
-              style={styles.handleContainer}
-              onPress={() => setEmergencyMenuVisible(false)}
-              activeOpacity={0.7}
-              {...menuPanResponder.panHandlers}
-              accessibilityLabel="Drag down or tap to close emergency options"
-            >
-              <View style={styles.handleBar} />
-            </TouchableOpacity>
-
-            <View style={styles.emergencyMenuHeader}>
-              <View style={styles.emergencyMenuIconBadge}>
-                <Ionicons name="shield-checkmark" size={20} color="#183CE6" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.emergencyMenuTitle}>Emergency Options</Text>
-                <Text style={styles.emergencyMenuSubtitle}>Quick safety tools & medical profile</Text>
-              </View>
-            </View>
-
-            <View style={styles.menuItemsList}>
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => {
-                  setEmergencyMenuVisible(false);
-                  setEmergencyContactsVisible(true);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.menuItemIcon, { backgroundColor: '#DEE0FF' }]}>
-                  <Ionicons name="people" size={20} color="#183CE6" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.menuItemTitle}>Emergency Contacts</Text>
-                  <Text style={styles.menuItemDesc}>Manage and call your trusted family contacts</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="#757688" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => {
-                  setEmergencyMenuVisible(false);
-                  setMedicalInfoVisible(true);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.menuItemIcon, { backgroundColor: '#FFDAD7' }]}>
-                  <Ionicons name="medkit" size={20} color="#AE041B" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.menuItemTitle}>Medical Info & Health Card</Text>
-                  <Text style={styles.menuItemDesc}>Blood group, allergies & medical notes</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="#757688" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => {
-                  setEmergencyMenuVisible(false);
-                  setShareLocationVisible(true);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.menuItemIcon, { backgroundColor: '#E8F5EE' }]}>
-                  <Ionicons name="paper-plane" size={20} color="#006C4F" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.menuItemTitle}>Share Live Location</Text>
-                  <Text style={styles.menuItemDesc}>Broadcast instant GPS tracking to circle</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="#757688" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={handleTestSiren}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.menuItemIcon, { backgroundColor: '#FEF3C7' }]}>
-                  <Ionicons name="volume-high" size={20} color="#B45309" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.menuItemTitle}>Test Siren & Haptics</Text>
-                  <Text style={styles.menuItemDesc}>Safe diagnostic self-test without alerting authorities</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="#757688" />
-              </TouchableOpacity>
-
-              {(sosSent || silentAlertSent) && (
-                <TouchableOpacity
-                  style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: '#FFDAD7', marginTop: 4 }]}
-                  onPress={handleCancelActiveSos}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.menuItemIcon, { backgroundColor: '#AE041B' }]}>
-                    <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.menuItemTitle, { color: '#AE041B' }]}>Cancel Active SOS Alert</Text>
-                    <Text style={styles.menuItemDesc}>Mark alert as resolved and notify circle you are safe</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color="#AE041B" />
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <TouchableOpacity
-              style={styles.menuCancelBtn}
-              onPress={() => setEmergencyMenuVisible(false)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.menuCancelText}>Close</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Linked Emergency Modals */}
       <EmergencyContactsModal
         visible={emergencyContactsVisible}
         onClose={() => setEmergencyContactsVisible(false)}
@@ -681,10 +996,194 @@ export default function BillionDollarSOSView() {
         onClose={() => setShareLocationVisible(false)}
       />
 
-      {/* Toast */}
+      <CountrySelectorModal
+        visible={countryModalVisible}
+        onClose={() => setCountryModalVisible(false)}
+      />
+
+      {/* 3-Dots Quick Emergency Options Sheet */}
+      <Modal
+        visible={emergencyMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEmergencyMenuVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setEmergencyMenuVisible(false)}
+        >
+          <Animated.View
+            style={[
+              styles.emergencyMenuSheet,
+              {
+                backgroundColor: cardBg,
+                borderTopColor: cardBorder,
+                transform: [
+                  {
+                    translateY: menuTranslateY.interpolate({
+                      inputRange: [-50, 0, 600],
+                      outputRange: [0, 0, 600],
+                      extrapolate: 'clamp',
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View {...menuPanResponder.panHandlers} style={styles.handleContainer}>
+              <View style={[styles.handleBar, { backgroundColor: isDark ? '#2B3A33' : '#CBD5E1' }]} />
+            </View>
+
+            <View style={styles.menuHeaderRow}>
+              <Text style={[styles.menuHeaderTitle, { color: textPrimary }]}>
+                Emergency Options & Settings
+              </Text>
+              <TouchableOpacity
+                onPress={() => setEmergencyMenuVisible(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={20} color={textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.menuItemsList}>
+              <TouchableOpacity
+                style={[styles.menuItem, { borderBottomColor: cardBorder }]}
+                onPress={() => {
+                  setEmergencyMenuVisible(false);
+                  setCountryModalVisible(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.menuItemIcon, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                  <Ionicons name="globe-outline" size={20} color="#EF4444" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuItemTitle, { color: textPrimary }]}>
+                    Change Emergency Country ({country?.code || 'IN'})
+                  </Text>
+                  <Text style={[styles.menuItemDesc, { color: textSecondary }]}>
+                    Current dispatch number: {emergencyNumber}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={textTertiary} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.menuItem, { borderBottomColor: cardBorder }]}
+                onPress={() => {
+                  setEmergencyMenuVisible(false);
+                  setEmergencyContactsVisible(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.menuItemIcon, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                  <Ionicons name="people" size={20} color="#EF4444" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuItemTitle, { color: textPrimary }]}>
+                    Manage Emergency Contacts
+                  </Text>
+                  <Text style={[styles.menuItemDesc, { color: textSecondary }]}>
+                    Assign custom contacts for rapid notification
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={textTertiary} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.menuItem, { borderBottomColor: cardBorder }]}
+                onPress={() => {
+                  setEmergencyMenuVisible(false);
+                  setMedicalInfoVisible(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.menuItemIcon, { backgroundColor: 'rgba(59, 130, 246, 0.12)' }]}>
+                  <Ionicons name="medkit" size={20} color="#3B82F6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuItemTitle, { color: textPrimary }]}>
+                    Medical Info & Health Card
+                  </Text>
+                  <Text style={[styles.menuItemDesc, { color: textSecondary }]}>
+                    Blood group, allergies, medications
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={textTertiary} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.menuItem, { borderBottomColor: cardBorder }]}
+                onPress={() => {
+                  setEmergencyMenuVisible(false);
+                  handleTestSiren();
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.menuItemIcon, { backgroundColor: 'rgba(245, 158, 11, 0.12)' }]}>
+                  <Ionicons name="volume-high" size={20} color="#F59E0B" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuItemTitle, { color: textPrimary }]}>
+                    Self-Test Siren & Alarm
+                  </Text>
+                  <Text style={[styles.menuItemDesc, { color: textSecondary }]}>
+                    Test audio and vibration without alerting circle
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={textTertiary} />
+              </TouchableOpacity>
+
+              {(sosSent || silentAlertSent) && (
+                <TouchableOpacity
+                  style={[
+                    styles.menuItem,
+                    {
+                      borderTopWidth: 1,
+                      borderTopColor: isDark ? '#212C26' : '#FEE2E2',
+                      marginTop: 6,
+                    },
+                  ]}
+                  onPress={handleCancelActiveSos}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.menuItemIcon, { backgroundColor: '#EF4444' }]}>
+                    <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.menuItemTitle, { color: '#EF4444' }]}>
+                      Resolve & Cancel SOS Alert
+                    </Text>
+                    <Text style={[styles.menuItemDesc, { color: textSecondary }]}>
+                      Notify circle members that you are safe
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#EF4444" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.menuCloseBtn,
+                { backgroundColor: chipBg },
+              ]}
+              onPress={() => setEmergencyMenuVisible(false)}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.menuCloseBtnText, { color: textPrimary }]}>Close</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Floating Feedback Toast */}
       {toastMessage && (
-        <View style={styles.toastContainer}>
-          <Text style={styles.toastText}>{toastMessage}</Text>
+        <View style={styles.floatingToast}>
+          <Ionicons name="information-circle" size={18} color={brandGreen} />
+          <Text style={styles.floatingToastText}>{toastMessage}</Text>
         </View>
       )}
     </View>
@@ -694,17 +1193,20 @@ export default function BillionDollarSOSView() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9F9FF',
   },
   header: {
-    height: 56,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    zIndex: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerInner: {
+    width: '100%',
+    maxWidth: 560,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(249, 249, 255, 0.95)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(220, 226, 243, 0.6)',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -712,59 +1214,70 @@ const styles = StyleSheet.create({
     gap: 8,
     flex: 1,
   },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  circleSelectorBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 4,
+    maxWidth: 150,
   },
-  logoBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    backgroundColor: '#DEE0FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 16,
+  circleSelectorText: {
+    fontFamily: FONT_SANS,
+    fontSize: 13,
     fontWeight: '700',
-    color: '#151C27',
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
+  countryEmergencyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  countryFlagText: {
+    fontSize: 14,
+  },
+  countryEmergencyNumber: {
+    fontFamily: FONT_SANS,
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#EF4444',
+  },
   headerIconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
   },
-  profileAvatarBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: '#3D5AFE',
+  profileAvatarBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     overflow: 'hidden',
+    borderWidth: 1.5,
   },
   profileAvatarImg: {
     width: '100%',
     height: '100%',
   },
   avatarFallback: {
-    backgroundColor: '#183CE6',
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarFallbackText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
   },
   scrollArea: {
@@ -773,322 +1286,445 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 60,
-  },
-  guidanceSection: {
+    paddingBottom: 110,
     alignItems: 'center',
-    marginBottom: 20,
+  },
+  contentConstrained: {
+    width: '100%',
+    maxWidth: 560,
+  },
+  topStatusSection: {
+    alignItems: 'center',
+    marginBottom: 14,
   },
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(210, 41, 48, 0.12)',
+    gap: 7,
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 999,
-    marginBottom: 8,
+    borderWidth: 1,
+    marginBottom: 10,
   },
-  redPulseDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: '#AE041B',
+  pulseRadarDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   statusPillText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#AE041B',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  guidanceTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 22,
+    fontFamily: FONT_SANS,
+    fontSize: 10,
     fontWeight: '800',
-    color: '#151C27',
-    textAlign: 'center',
+    letterSpacing: 0.6,
   },
-  guidanceSub: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  pageMainTitle: {
+    fontFamily: FONT_SANS,
+    fontSize: 24,
+    fontWeight: '900',
+    textAlign: 'center',
+    letterSpacing: -0.3,
+  },
+  pageMainSub: {
+    fontFamily: FONT_SANS,
     fontSize: 13,
-    color: '#444656',
     textAlign: 'center',
-    marginTop: 4,
-    maxWidth: 280,
+    marginTop: 6,
     lineHeight: 18,
+    paddingHorizontal: 8,
   },
-  sosHeroSection: {
+  heroSection: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 18,
+    marginVertical: 20,
     position: 'relative',
+    height: 230,
   },
-  auraRingOuter: {
+  radarRing: {
     position: 'absolute',
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: 'rgba(210, 41, 48, 0.1)',
-  },
-  auraRingInner: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: 'rgba(210, 41, 48, 0.18)',
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    borderWidth: 1.5,
   },
   sosMainBtn: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: '#D22930',
+    width: 154,
+    height: 154,
+    borderRadius: 77,
+    backgroundColor: '#DC2626',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#AE041B',
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.45,
-    shadowRadius: 18,
-    elevation: 10,
+    shadowRadius: 20,
+    elevation: 14,
     position: 'relative',
+    borderWidth: 3.5,
   },
-  progressIndicatorRing: {
+  sosMainBtnActive: {
+    backgroundColor: '#B91C1C',
+  },
+  progressRing: {
     position: 'absolute',
-    top: -6,
-    left: -6,
-    right: -6,
-    bottom: -6,
-    borderRadius: 86,
-    borderWidth: 3,
-    borderColor: '#AE041B',
+    top: -8,
+    left: -8,
+    right: -8,
+    bottom: -8,
+    borderRadius: 85,
+    borderWidth: 4,
   },
-  sosHeroText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 34,
+  sosButtonLabel: {
+    fontFamily: FONT_SANS,
+    fontSize: 32,
     fontWeight: '900',
     color: '#FFFFFF',
-    letterSpacing: 1,
-    marginTop: 2,
-  },
-  sosHeroHoldText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    fontWeight: '700',
-    color: 'rgba(255, 255, 255, 0.9)',
     letterSpacing: 1.5,
     marginTop: 2,
   },
-  hapticHintRow: {
+  sosButtonSubLabel: {
+    fontFamily: FONT_SANS,
+    fontSize: 10,
+    fontWeight: '800',
+    color: 'rgba(255, 255, 255, 0.95)',
+    letterSpacing: 1.2,
+    marginTop: 2,
+  },
+  heroHintRow: {
+    position: 'absolute',
+    bottom: 0,
+    alignItems: 'center',
+  },
+  cancelActiveSosBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 14,
-  },
-  hapticHintText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 12,
-    color: '#444656',
-    fontWeight: '500',
-  },
-  sectionHeadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-    marginTop: 6,
-  },
-  sectionTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#151C27',
-  },
-  sectionSub: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    color: '#444656',
-  },
-  actionCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 14,
-    marginBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#E7EEFE',
-    shadowColor: '#151C27',
-    shadowOpacity: 0.04,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 20,
+    shadowOpacity: 0.3,
     shadowRadius: 6,
   },
-  actionCardLeft: {
+  cancelActiveSosText: {
+    fontFamily: FONT_SANS,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  protectionHintRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    flex: 1,
+    gap: 6,
   },
-  actionIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#151C27',
-  },
-  actionDesc: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  protectionHintText: {
+    fontFamily: FONT_SANS,
     fontSize: 11,
-    color: '#444656',
+    fontWeight: '500',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  sectionHeadingTitle: {
+    fontFamily: FONT_SANS,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  sectionSubTitle: {
+    fontFamily: FONT_SANS,
+    fontSize: 11,
     marginTop: 2,
   },
-  noSirenTag: {
-    backgroundColor: '#60FCC6',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 999,
-  },
-  noSirenText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#00513B',
-  },
-  activePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(96, 252, 198, 0.3)',
+  badgePill: {
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
   },
-  activePillText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#006C4F',
+  badgePillText: {
+    fontFamily: FONT_SANS,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
-  respondersGrid: {
+  actionGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 12,
+    gap: 12,
+    justifyContent: 'space-between',
   },
-  responderCard: {
-    width: (SCREEN_WIDTH - 42) / 2,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  gridCard: {
+    width: '48%',
+    borderRadius: 20,
+    padding: 14,
     borderWidth: 1,
-    borderColor: '#E7EEFE',
-    shadowColor: '#151C27',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 6,
+    elevation: 2,
   },
-  responderAvatarBox: {
-    position: 'relative',
+  gridCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
   },
-  responderAvatar: {
+  gridIconBox: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  responderDot: {
+  gridTag: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  gridTagText: {
+    fontFamily: FONT_SANS,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  gridCardTitle: {
+    fontFamily: FONT_SANS,
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  gridCardSub: {
+    fontFamily: FONT_SANS,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  activeRespondersBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  liveGreenDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  activeRespondersText: {
+    fontFamily: FONT_SANS,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  respondersList: {
+    gap: 10,
+  },
+  responderRowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 5,
+    elevation: 1,
+  },
+  responderRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  responderAvatarContainer: {
+    position: 'relative',
+  },
+  responderImg: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+  },
+  responderStatusDot: {
     position: 'absolute',
     bottom: -1,
     right: -1,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#006C4F',
-    borderWidth: 1.5,
-    borderColor: '#FFFFFF',
+    width: 11,
+    height: 11,
+    borderRadius: 5.5,
+    borderWidth: 2,
   },
-  responderName: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 12,
+  responderRowName: {
+    fontFamily: FONT_SANS,
+    fontSize: 13,
+    fontWeight: '800',
+    maxWidth: 130,
+  },
+  roleBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  roleBadgeText: {
+    fontFamily: FONT_SANS,
+    fontSize: 9,
     fontWeight: '700',
-    color: '#151C27',
   },
-  responderDistance: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 10,
-    color: '#444656',
-    marginTop: 1,
-  },
-  responderAlertStatus: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 10,
-    color: '#006C4F',
-    fontWeight: '600',
-    marginTop: 1,
-  },
-  noRespondersBox: {
-    padding: 16,
-    backgroundColor: '#F0F3FF',
-    borderRadius: 14,
-    marginBottom: 12,
-  },
-  noRespondersText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    color: '#444656',
-    lineHeight: 16,
-  },
-  protectionNoticeCard: {
+  responderMetaRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 8,
-    backgroundColor: '#E7EEFE',
-    borderRadius: 14,
-    padding: 12,
+    marginTop: 2,
   },
-  protectionNoticeText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  responderMetaText: {
+    fontFamily: FONT_SANS,
     fontSize: 11,
-    color: '#444656',
-    flex: 1,
-    lineHeight: 16,
   },
-  toastContainer: {
-    position: 'absolute',
-    top: 70,
-    alignSelf: 'center',
-    backgroundColor: '#2A313D',
+  batteryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  batteryText: {
+    fontFamily: FONT_SANS,
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  directCallBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+  },
+  directCallBtnText: {
+    fontFamily: FONT_SANS,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  emptyRespondersCard: {
+    alignItems: 'center',
+    padding: 24,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  emptyRespondersTitle: {
+    fontFamily: FONT_SANS,
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 8,
+  },
+  emptyRespondersSub: {
+    fontFamily: FONT_SANS,
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 17,
+  },
+  inviteCircleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 999,
-    zIndex: 999,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    borderRadius: 20,
+    marginTop: 14,
   },
-  toastText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    color: '#EBF1FF',
+  inviteCircleBtnText: {
+    fontFamily: FONT_SANS,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  dossierDeck: {
+    gap: 10,
+  },
+  dossierCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 13,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 5,
+    elevation: 1,
+  },
+  dossierIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dossierCardTitle: {
+    fontFamily: FONT_SANS,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  dossierCardSub: {
+    fontFamily: FONT_SANS,
+    fontSize: 11,
+    marginTop: 1,
+  },
+  protectionContractCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginTop: 20,
+  },
+  protectionContractText: {
+    fontFamily: FONT_SANS,
+    fontSize: 11,
+    lineHeight: 16,
+    flex: 1,
+  },
+  floatingToast: {
+    position: 'absolute',
+    top: 75,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+    zIndex: 9999,
+  },
+  floatingToastText: {
+    fontFamily: FONT_SANS,
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '700',
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(10, 11, 16, 0.65)',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
     justifyContent: 'flex-end',
   },
   emergencyMenuSheet: {
-    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingHorizontal: 24,
+    borderTopWidth: 1,
+    paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 28,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 26,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15,
@@ -1098,96 +1734,64 @@ const styles = StyleSheet.create({
   handleContainer: {
     width: '100%',
     alignItems: 'center',
-    paddingVertical: 6,
-    marginBottom: 8,
+    paddingVertical: 8,
   },
   handleBar: {
-    width: 44,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#D1D5DB',
+    width: 38,
+    height: 4,
+    borderRadius: 2,
   },
-  emergencyMenuHeader: {
+  menuHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(220, 226, 243, 0.6)',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(150, 150, 150, 0.2)',
+    marginBottom: 8,
   },
-  emergencyMenuIconBadge: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#DEE0FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emergencyMenuTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#151C27',
-  },
-  emergencyMenuSubtitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 12,
-    color: '#5C665F',
-    marginTop: 2,
-  },
-  closeSheetBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F0F3FF',
-    alignItems: 'center',
-    justifyContent: 'center',
+  menuHeaderTitle: {
+    fontFamily: FONT_SANS,
+    fontSize: 16,
+    fontWeight: '800',
   },
   menuItemsList: {
-    gap: 8,
-    marginBottom: 16,
+    marginVertical: 4,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    backgroundColor: '#F9F9FF',
+    borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 12,
   },
   menuItemIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   menuItemTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontFamily: FONT_SANS,
     fontSize: 14,
     fontWeight: '700',
-    color: '#151C27',
   },
   menuItemDesc: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontFamily: FONT_SANS,
     fontSize: 11,
-    color: '#5C665F',
-    marginTop: 2,
+    marginTop: 1,
   },
-  menuCancelBtn: {
+  menuCloseBtn: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 14,
-    backgroundColor: '#F0F3FF',
-    marginTop: 6,
+    paddingVertical: 13,
+    borderRadius: 16,
+    marginTop: 12,
   },
-  menuCancelText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  menuCloseBtnText: {
+    fontFamily: FONT_SANS,
     fontSize: 14,
     fontWeight: '700',
-    color: '#151C27',
   },
 });

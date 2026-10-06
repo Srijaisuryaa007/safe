@@ -74,6 +74,7 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week'>('all');
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'checkins' | 'arrivals' | 'departures' | 'alerts'>('all');
+  const [selectedMemberId, setSelectedMemberId] = useState<string>('all');
   const [safeHomeCheckedIn, setSafeHomeCheckedIn] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
@@ -135,14 +136,6 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
     }
 
     try {
-      // Automatically evaluate all circle members against safe places in real-time
-      if (members.length > 0 && places.length > 0) {
-        try {
-          const { evaluateCircleMembersGeofences } = require('../services/GeofenceEngine');
-          await evaluateCircleMembersGeofences(members, places);
-        } catch (e) {}
-      }
-
       const list = await fetchCircleActivities(activeCircle.id, members, places);
       setActivities(list);
     } catch (e) {
@@ -154,13 +147,20 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
     fetchTimelineEvents();
   }, [activeCircle?.id, members.length]);
 
-  // Realtime subscription for instant activity updates
+  // Realtime subscription for instant activity updates across ALL circle members
   useEffect(() => {
     if (!activeCircle?.id) return;
 
     const channelUid = Math.random().toString(36).substring(2, 8);
     const channel = supabase
       .channel(`timeline_rt_${activeCircle.id}_${channelUid}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'zone_events', filter: `circle_id=eq.${activeCircle.id}` },
+        () => {
+          fetchTimelineEvents();
+        }
+      )
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'place_events' },
@@ -178,6 +178,13 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'sos_alerts', filter: `circle_id=eq.${activeCircle.id}` },
+        () => {
+          fetchTimelineEvents();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'locations' },
         () => {
           fetchTimelineEvents();
         }
@@ -252,13 +259,36 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
 
   const circleName = activeCircle?.name || 'My Family Circle';
 
-  // Filter activities
+  // Member event counts
+  const memberCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: activities.length };
+    activities.forEach((a) => {
+      if (a.userId) {
+        counts[a.userId] = (counts[a.userId] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [activities]);
+
+  // Selected member object (if any)
+  const selectedMember = useMemo(() => {
+    if (selectedMemberId === 'all') return null;
+    return members.find((m) => m.user_id === selectedMemberId || (m as any).id === selectedMemberId) || null;
+  }, [members, selectedMemberId]);
+
+  // Filter activities by date, category, and selected member
   const filteredActivities = useMemo(() => {
     const now = Date.now();
     const oneDayMs = 24 * 60 * 60 * 1000;
 
     let list = activities;
 
+    // 1. Member scope filter
+    if (selectedMemberId !== 'all') {
+      list = list.filter((a) => a.userId === selectedMemberId);
+    }
+
+    // 2. Date scope filter
     if (dateFilter === 'today') {
       list = list.filter((a) => now - a.timestamp <= oneDayMs);
     } else if (dateFilter === 'yesterday') {
@@ -267,6 +297,7 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
       list = list.filter((a) => now - a.timestamp <= 7 * oneDayMs);
     }
 
+    // 3. Category scope filter
     if (categoryFilter === 'checkins') {
       list = list.filter((a) => a.type === 'MESSAGE' || a.type === 'CHECKIN');
     } else if (categoryFilter === 'arrivals') {
@@ -278,23 +309,29 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
     }
 
     return list;
-  }, [activities, dateFilter, categoryFilter]);
+  }, [activities, selectedMemberId, dateFilter, categoryFilter]);
+
+  // Scoped activities for active member filter (keeps category badges relevant to active member)
+  const scopedActivities = useMemo(() => {
+    if (selectedMemberId === 'all') return activities;
+    return activities.filter((a) => a.userId === selectedMemberId);
+  }, [activities, selectedMemberId]);
 
   const checkinCount = useMemo(
-    () => activities.filter((a) => a.type === 'MESSAGE' || a.type === 'CHECKIN').length,
-    [activities]
+    () => scopedActivities.filter((a) => a.type === 'MESSAGE' || a.type === 'CHECKIN').length,
+    [scopedActivities]
   );
   const arrivalCount = useMemo(
-    () => activities.filter((a) => a.type === 'GEOFENCE' && a.eventType === 'arrival').length,
-    [activities]
+    () => scopedActivities.filter((a) => a.type === 'GEOFENCE' && a.eventType === 'arrival').length,
+    [scopedActivities]
   );
   const departureCount = useMemo(
-    () => activities.filter((a) => a.type === 'GEOFENCE' && a.eventType === 'departure').length,
-    [activities]
+    () => scopedActivities.filter((a) => a.type === 'GEOFENCE' && a.eventType === 'departure').length,
+    [scopedActivities]
   );
   const alertCount = useMemo(
-    () => activities.filter((a) => a.type === 'SOS').length,
-    [activities]
+    () => scopedActivities.filter((a) => a.type === 'SOS').length,
+    [scopedActivities]
   );
 
   const INITIAL_DISPLAY_LIMIT = 5;
@@ -387,6 +424,284 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
             <Text style={styles.calendarFilterText}>Live Feed</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Member Selector Carousel */}
+        <View style={styles.memberFilterSection}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.memberFilterScroll}
+          >
+            {/* All Members Chip */}
+            <TouchableOpacity
+              style={[
+                styles.memberFilterChip,
+                isDark && styles.memberFilterChipDark,
+                selectedMemberId === 'all' && styles.memberFilterChipActive,
+                selectedMemberId === 'all' && isDark && styles.memberFilterChipActiveDark,
+              ]}
+              onPress={() => setSelectedMemberId('all')}
+              activeOpacity={0.75}
+            >
+              <View
+                style={[
+                  styles.memberChipIconBox,
+                  isDark && styles.memberChipIconBoxDark,
+                  selectedMemberId === 'all' && styles.memberChipIconBoxActive,
+                ]}
+              >
+                <Ionicons
+                  name="people-outline"
+                  size={15}
+                  color={selectedMemberId === 'all' ? '#FFFFFF' : (isDark ? '#3ADFAB' : '#2E7D5B')}
+                />
+              </View>
+              <Text
+                style={[
+                  styles.memberChipName,
+                  isDark && styles.memberChipNameDark,
+                  selectedMemberId === 'all' && styles.memberChipNameActive,
+                ]}
+                numberOfLines={1}
+              >
+                All Members
+              </Text>
+              <View
+                style={[
+                  styles.memberCountBadge,
+                  isDark && styles.memberCountBadgeDark,
+                  selectedMemberId === 'all' && styles.memberCountBadgeActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.memberCountBadgeText,
+                    isDark && styles.memberCountBadgeTextDark,
+                    selectedMemberId === 'all' && styles.memberCountBadgeTextActive,
+                  ]}
+                >
+                  {memberCounts.all || 0}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Individual Members Chips */}
+            {members.map((m) => {
+              const isSelected = selectedMemberId === m.user_id;
+              const isSelf = m.user_id === profile?.id;
+              const rawName = m.profile?.full_name || 'Member';
+              const firstName = rawName.split(' ')[0];
+              const displayName = isSelf ? `${firstName} (You)` : firstName;
+              const count = memberCounts[m.user_id] || 0;
+              const initial = rawName.charAt(0).toUpperCase();
+
+              return (
+                <TouchableOpacity
+                  key={m.user_id}
+                  style={[
+                    styles.memberFilterChip,
+                    isDark && styles.memberFilterChipDark,
+                    isSelected && styles.memberFilterChipActive,
+                    isSelected && isDark && styles.memberFilterChipActiveDark,
+                  ]}
+                  onPress={() => setSelectedMemberId(m.user_id)}
+                  activeOpacity={0.75}
+                >
+                  <View style={styles.memberAvatarWrapper}>
+                    {m.profile?.avatar_url ? (
+                      <Image source={{ uri: m.profile.avatar_url }} style={styles.memberChipAvatar} />
+                    ) : (
+                      <View style={[styles.memberChipAvatar, styles.avatarFallback]}>
+                        <Text style={styles.memberChipAvatarText}>{initial}</Text>
+                      </View>
+                    )}
+                    {m.isOnline && <View style={styles.memberOnlineDot} />}
+                  </View>
+                  <Text
+                    style={[
+                      styles.memberChipName,
+                      isDark && styles.memberChipNameDark,
+                      isSelected && styles.memberChipNameActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {displayName}
+                  </Text>
+                  {count > 0 && (
+                    <View
+                      style={[
+                        styles.memberCountBadge,
+                        isDark && styles.memberCountBadgeDark,
+                        isSelected && styles.memberCountBadgeActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.memberCountBadgeText,
+                          isDark && styles.memberCountBadgeTextDark,
+                          isSelected && styles.memberCountBadgeTextActive,
+                        ]}
+                      >
+                        {count}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* Selected Member Hero Context Card */}
+        {selectedMember && (
+          <View style={[styles.memberHeroCard, isDark && styles.memberHeroCardDark]}>
+            <View style={styles.memberHeroTopRow}>
+              <View style={styles.memberHeroAvatarBox}>
+                {selectedMember.profile?.avatar_url ? (
+                  <Image source={{ uri: selectedMember.profile.avatar_url }} style={styles.memberHeroAvatar} />
+                ) : (
+                  <View style={[styles.memberHeroAvatar, styles.avatarFallback]}>
+                    <Text style={styles.memberHeroAvatarText}>
+                      {(selectedMember.profile?.full_name || 'M').charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <View
+                  style={[
+                    styles.memberHeroStatusDot,
+                    { backgroundColor: selectedMember.isOnline ? '#2E7D5B' : '#94A3B8' },
+                  ]}
+                />
+              </View>
+
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <View style={styles.memberHeroNameRow}>
+                  <Text style={[styles.memberHeroName, isDark && styles.textLight]} numberOfLines={1}>
+                    {selectedMember.profile?.full_name || 'Circle Member'}
+                  </Text>
+                  <View style={[styles.memberRoleBadge, isDark && styles.memberRoleBadgeDark]}>
+                    <Text style={[styles.memberRoleBadgeText, isDark && { color: '#3ADFAB' }]}>
+                      {selectedMember.role === 'owner'
+                        ? 'LEADER'
+                        : selectedMember.role === 'guardian'
+                        ? 'GUARDIAN'
+                        : selectedMember.role === 'co_leader'
+                        ? 'CO-LEADER'
+                        : 'MEMBER'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.memberHeroMetaRow}>
+                  <Text style={[styles.memberHeroStatusText, isDark && styles.textSubDark]}>
+                    {selectedMember.isOnline ? 'Online now' : (selectedMember.lastSeenText || 'Offline')}
+                  </Text>
+                  {typeof selectedMember.batteryPct === 'number' && (
+                    <View style={styles.memberBatteryPill}>
+                      <Ionicons
+                        name={
+                          selectedMember.batteryPct <= 20
+                            ? 'battery-dead'
+                            : selectedMember.batteryPct <= 50
+                            ? 'battery-half'
+                            : 'battery-full'
+                        }
+                        size={13}
+                        color={selectedMember.batteryPct <= 20 ? '#DC2626' : (isDark ? '#3ADFAB' : '#2E7D5B')}
+                      />
+                      <Text
+                        style={[
+                          styles.memberBatteryText,
+                          selectedMember.batteryPct <= 20 && { color: '#DC2626' },
+                          isDark && selectedMember.batteryPct > 20 && { color: '#3ADFAB' },
+                        ]}
+                      >
+                        {selectedMember.batteryPct}%
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.memberHeroCloseBtn, isDark && styles.memberHeroCloseBtnDark]}
+                onPress={() => setSelectedMemberId('all')}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={16} color={isDark ? '#94A3B8' : '#64748B'} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Quick Actions Row */}
+            <View style={styles.memberHeroActionsRow}>
+              <TouchableOpacity
+                style={[styles.memberHeroActionBtn, isDark && styles.memberHeroActionBtnDark]}
+                onPress={() => {
+                  navigateToScreen('Map', {
+                    focusUserId: selectedMember.user_id,
+                    focusLat: selectedMember.latitude,
+                    focusLng: selectedMember.longitude,
+                    focusUserName: selectedMember.profile?.full_name,
+                  });
+                }}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="map-outline" size={14} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                <Text style={[styles.memberHeroActionText, isDark && { color: '#3ADFAB' }]}>
+                  Locate on Map
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.memberHeroActionBtn, isDark && styles.memberHeroActionBtnDark]}
+                onPress={() => {
+                  navigateToScreen('LocationHistory', {
+                    member: selectedMember,
+                    memberId: selectedMember.user_id,
+                    circleId: activeCircle?.id,
+                    memberName: selectedMember.profile?.full_name,
+                  });
+                }}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="trail-sign-outline" size={14} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                <Text style={[styles.memberHeroActionText, isDark && { color: '#3ADFAB' }]}>
+                  Route History
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.memberHeroActionBtn, isDark && styles.memberHeroActionBtnDark]}
+                onPress={() => {
+                  navigateToScreen('Chat', {
+                    recipientId: selectedMember.user_id,
+                  });
+                }}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="chatbubbles-outline" size={14} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                <Text style={[styles.memberHeroActionText, isDark && { color: '#3ADFAB' }]}>
+                  Message
+                </Text>
+              </TouchableOpacity>
+
+              {selectedMember.profile?.phone ? (
+                <TouchableOpacity
+                  style={[styles.memberHeroActionBtn, isDark && styles.memberHeroActionBtnDark]}
+                  onPress={() => {
+                    Linking.openURL(`tel:${selectedMember.profile?.phone}`);
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons name="call-outline" size={14} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                  <Text style={[styles.memberHeroActionText, isDark && { color: '#3ADFAB' }]}>
+                    Call
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+        )}
 
         {/* Date Segmented JellyRadio */}
         <View style={{ marginBottom: 10 }}>
@@ -539,141 +854,141 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
           </TouchableOpacity>
         </View>
 
-        {/* Chronological Feed Stream with Vertical Connecting Line */}
+        {/* Continuous Feed Stream with Vertical Connecting Line */}
         <View style={styles.feedContainer}>
-          {displayActivities.length > 0 && (
-            <View style={[styles.verticalTrackLine, isDark && styles.verticalTrackLineDark]} />
-          )}
+            {displayActivities.length > 0 && (
+              <View style={[styles.verticalTrackLine, isDark && styles.verticalTrackLineDark]} />
+            )}
 
-          {displayActivities.length > 0 ? (
-            displayActivities.map((event) => (
-              <TouchableOpacity
-                key={event.id}
-                style={styles.timelineItem}
-                onPress={() => setSelectedEvent(event)}
-                activeOpacity={0.75}
-              >
-                <View style={[styles.timelineAvatarContainer, isDark && styles.timelineAvatarContainerDark]}>
-                  {event.avatarUrl ? (
-                    <Image source={{ uri: event.avatarUrl }} style={styles.timelineAvatar} />
-                  ) : (
-                    <View style={[styles.timelineAvatar, styles.avatarFallback]}>
-                      <Text style={styles.avatarFallbackText}>
-                        {event.memberName.charAt(0).toUpperCase()}
-                      </Text>
+            {displayActivities.length > 0 ? (
+              displayActivities.map((event) => (
+                <TouchableOpacity
+                  key={event.id}
+                  style={styles.timelineItem}
+                  onPress={() => setSelectedEvent(event)}
+                  activeOpacity={0.75}
+                >
+                  <View style={[styles.timelineAvatarContainer, isDark && styles.timelineAvatarContainerDark]}>
+                    {event.avatarUrl ? (
+                      <Image source={{ uri: event.avatarUrl }} style={styles.timelineAvatar} />
+                    ) : (
+                      <View style={[styles.timelineAvatar, styles.avatarFallback]}>
+                        <Text style={styles.avatarFallbackText}>
+                          {event.memberName.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={[styles.timelineBadgeDot, { backgroundColor: event.color }]}>
+                      <Ionicons name={event.icon as any || 'information'} size={10} color="#FFFFFF" />
                     </View>
-                  )}
-                  <View style={[styles.timelineBadgeDot, { backgroundColor: event.color }]}>
-                    <Ionicons name={event.icon as any || 'information'} size={10} color="#FFFFFF" />
                   </View>
-                </View>
 
-                <View style={[styles.timelineCard, isDark && styles.timelineCardDark]}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flex: 1, marginRight: 8 }}>
-                      {event.type === 'GEOFENCE' && (
-                        <View style={styles.geofenceTagRow}>
-                          <View
-                            style={[
-                              styles.geofenceStatusTag,
-                              { backgroundColor: event.eventType === 'arrival' ? '#E8F5EE' : '#FEF3C7' },
-                            ]}
-                          >
-                            <Ionicons
-                              name={event.eventType === 'arrival' ? 'location-sharp' : 'walk-outline'}
-                              size={10}
-                              color={event.eventType === 'arrival' ? '#2E7D5B' : '#B45309'}
-                            />
-                            <Text
+                  <View style={[styles.timelineCard, isDark && styles.timelineCardDark]}>
+                    <View style={styles.cardHeaderRow}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        {event.type === 'GEOFENCE' && (
+                          <View style={styles.geofenceTagRow}>
+                            <View
                               style={[
-                                styles.geofenceStatusTagText,
-                                { color: event.eventType === 'arrival' ? '#2E7D5B' : '#B45309' },
+                                styles.geofenceStatusTag,
+                                { backgroundColor: event.eventType === 'arrival' ? '#E8F5EE' : '#FEF3C7' },
                               ]}
                             >
-                              {event.eventType === 'arrival' ? 'ARRIVED' : 'DEPARTED'}
-                            </Text>
+                              <Ionicons
+                                name={event.eventType === 'arrival' ? 'location-sharp' : 'walk-outline'}
+                                size={10}
+                                color={event.eventType === 'arrival' ? '#2E7D5B' : '#B45309'}
+                              />
+                              <Text
+                                style={[
+                                  styles.geofenceStatusTagText,
+                                  { color: event.eventType === 'arrival' ? '#2E7D5B' : '#B45309' },
+                                ]}
+                              >
+                                {event.eventType === 'arrival' ? 'ARRIVED' : 'DEPARTED'}
+                              </Text>
+                            </View>
+                            <View style={[styles.preciseTimeTag, isDark && styles.preciseTimeTagDark]}>
+                              <Ionicons name="time-outline" size={10} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                              <Text style={[styles.preciseTimeTagText, isDark && { color: '#3ADFAB' }]}>
+                                {event.preciseTime || formatPreciseTime(event.timestamp, event.occurredAtIso)}
+                              </Text>
+                            </View>
+                            {event.dwellDurationText ? (
+                              <Text style={styles.dwellDurationBadge}>
+                                {event.dwellDurationText}
+                              </Text>
+                            ) : null}
                           </View>
-                          <View style={[styles.preciseTimeTag, isDark && styles.preciseTimeTagDark]}>
-                            <Ionicons name="time-outline" size={10} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-                            <Text style={[styles.preciseTimeTagText, isDark && { color: '#3ADFAB' }]}>
-                              {event.preciseTime || formatPreciseTime(event.timestamp, event.occurredAtIso)}
-                            </Text>
-                          </View>
-                          {event.dwellDurationText ? (
-                            <Text style={styles.dwellDurationBadge}>
-                              {event.dwellDurationText}
-                            </Text>
-                          ) : null}
-                        </View>
-                      )}
-                      <Text style={[styles.cardItemTitle, isDark && styles.textLight]} numberOfLines={1}>
-                        {event.title}
+                        )}
+                        <Text style={[styles.cardItemTitle, isDark && styles.textLight]} numberOfLines={1}>
+                          {event.title}
+                        </Text>
+                      </View>
+                      <Text style={[styles.cardItemTime, isDark && styles.textSubDark]}>
+                        {formatEventDisplayTime(event.timestamp, event.occurredAtIso)}
                       </Text>
                     </View>
-                    <Text style={[styles.cardItemTime, isDark && styles.textSubDark]}>
-                      {formatEventDisplayTime(event.timestamp, event.occurredAtIso)}
-                    </Text>
+                    <Text style={[styles.cardItemSub, isDark && styles.textSubDark]}>{event.message}</Text>
+                    <View style={styles.cardActionHintRow}>
+                      <Text style={styles.cardActionHintText}>Tap for actions & map</Text>
+                      <Ionicons name="chevron-forward" size={12} color="#2E7D5B" />
+                    </View>
                   </View>
-                  <Text style={[styles.cardItemSub, isDark && styles.textSubDark]}>{event.message}</Text>
-                  <View style={styles.cardActionHintRow}>
-                    <Text style={styles.cardActionHintText}>Tap for actions & map</Text>
-                    <Ionicons name="chevron-forward" size={12} color="#2E7D5B" />
-                  </View>
+                </TouchableOpacity>
+              ))
+            ) : (
+              <View style={[styles.emptyFeedBox, isDark && styles.emptyFeedBoxDark]}>
+                <Ionicons name="calendar-outline" size={32} color="#2E7D5B" />
+                <Text style={[styles.emptyFeedTitle, isDark && styles.textLight]}>No Events Recorded</Text>
+                <Text style={[styles.emptyFeedSub, isDark && styles.textSubDark]}>
+                  Arrivals, departures, check-ins, and safety alerts will automatically populate here as your circle stays connected.
+                </Text>
+              </View>
+            )}
+
+            {/* Expand to View All Events button */}
+            {hasMoreToExpand && !isExpanded && (
+              <TouchableOpacity
+                style={[styles.expandFeedBtn, isDark && styles.expandFeedBtnDark]}
+                onPress={() => setIsExpanded(true)}
+                activeOpacity={0.8}
+                accessibilityLabel={`View all ${filteredActivities.length} events`}
+              >
+                <View style={[styles.expandFeedBadge, isDark && styles.expandFeedBadgeDark]}>
+                  <Text style={[styles.expandFeedBadgeText, isDark && styles.expandFeedBadgeTextDark]}>
+                    {filteredActivities.length}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.expandFeedBtnTitle, isDark && styles.textLight]}>
+                    View All {filteredActivities.length} Events ▾
+                  </Text>
+                  <Text style={[styles.expandFeedBtnSub, isDark && styles.textSubDark]}>
+                    Tap to expand complete activity history
+                  </Text>
+                </View>
+                <View style={[styles.expandIconCircle, isDark && styles.expandIconCircleDark]}>
+                  <Ionicons name="chevron-down" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
                 </View>
               </TouchableOpacity>
-            ))
-          ) : (
-            <View style={[styles.emptyFeedBox, isDark && styles.emptyFeedBoxDark]}>
-              <Ionicons name="calendar-outline" size={32} color="#2E7D5B" />
-              <Text style={[styles.emptyFeedTitle, isDark && styles.textLight]}>No Events Recorded</Text>
-              <Text style={[styles.emptyFeedSub, isDark && styles.textSubDark]}>
-                Arrivals, departures, check-ins, and safety alerts will automatically populate here as your circle stays connected.
-              </Text>
-            </View>
-          )}
+            )}
 
-          {/* Expand to View All Events button */}
-          {hasMoreToExpand && !isExpanded && (
-            <TouchableOpacity
-              style={[styles.expandFeedBtn, isDark && styles.expandFeedBtnDark]}
-              onPress={() => setIsExpanded(true)}
-              activeOpacity={0.8}
-              accessibilityLabel={`View all ${filteredActivities.length} events`}
-            >
-              <View style={[styles.expandFeedBadge, isDark && styles.expandFeedBadgeDark]}>
-                <Text style={[styles.expandFeedBadgeText, isDark && styles.expandFeedBadgeTextDark]}>
-                  {filteredActivities.length}
+            {/* Collapse Feed button */}
+            {hasMoreToExpand && isExpanded && (
+              <TouchableOpacity
+                style={[styles.collapseFeedBtn, isDark && styles.collapseFeedBtnDark]}
+                onPress={() => setIsExpanded(false)}
+                activeOpacity={0.8}
+                accessibilityLabel="Show less events"
+              >
+                <Ionicons name="chevron-up" size={16} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                <Text style={[styles.collapseFeedBtnText, isDark && { color: '#3ADFAB' }]}>
+                  Show Less (Collapse Feed)
                 </Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.expandFeedBtnTitle, isDark && styles.textLight]}>
-                  View All {filteredActivities.length} Events ▾
-                </Text>
-                <Text style={[styles.expandFeedBtnSub, isDark && styles.textSubDark]}>
-                  Tap to expand complete activity history
-                </Text>
-              </View>
-              <View style={[styles.expandIconCircle, isDark && styles.expandIconCircleDark]}>
-                <Ionicons name="chevron-down" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-              </View>
-            </TouchableOpacity>
-          )}
-
-          {/* Collapse Feed button */}
-          {hasMoreToExpand && isExpanded && (
-            <TouchableOpacity
-              style={[styles.collapseFeedBtn, isDark && styles.collapseFeedBtnDark]}
-              onPress={() => setIsExpanded(false)}
-              activeOpacity={0.8}
-              accessibilityLabel="Show less events"
-            >
-              <Ionicons name="chevron-up" size={16} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-              <Text style={[styles.collapseFeedBtnText, isDark && { color: '#3ADFAB' }]}>
-                Show Less (Collapse Feed)
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
+              </TouchableOpacity>
+            )}
+          </View>
 
         {/* Floating Context Action: Request Check-In */}
         <TouchableOpacity
@@ -951,12 +1266,13 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
                         navigation.navigate('Chat', {
                           memberId: targetUserId,
                           memberName: targetName,
-                          filterMemberId: targetUserId,
+                          taggedMember: { user_id: targetUserId, id: targetUserId, name: targetName },
+                          initialText: `@${targetName} `,
                         });
                       }}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="chatbubbles-outline" size={16} color="#183CE6" />
+                      <Ionicons name="chatbubbles-outline" size={16} color="#2E7D5B" />
                       <Text style={[styles.modalActionSecondaryText, isDark && styles.textLight]}>
                         Chat ({targetName.split(' ')[0]})
                       </Text>
@@ -1215,7 +1531,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#E7EEFE',
+    borderColor: '#E2ECE6',
     marginBottom: 20,
     shadowColor: '#151C27',
     shadowOpacity: 0.04,
@@ -1272,7 +1588,7 @@ const styles = StyleSheet.create({
     bottom: 24,
     left: 24,
     width: 2,
-    backgroundColor: '#DCE2F3',
+    backgroundColor: '#DFEAE3',
     zIndex: 1,
   },
   timelineItem: {
@@ -1315,7 +1631,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#E7EEFE',
+    borderColor: '#E2ECE6',
     shadowColor: '#151C27',
     shadowOpacity: 0.04,
     shadowRadius: 6,
@@ -1352,7 +1668,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     borderWidth: 1,
-    borderColor: '#E7EEFE',
+    borderColor: '#E2ECE6',
     marginBottom: 16,
   },
   emptyFeedTitle: {
@@ -1955,4 +2271,260 @@ const styles = StyleSheet.create({
   allEventsPromptTextDark: {
     color: '#3ADFAB',
   },
+  // Member Selector Carousel Styles
+  memberFilterSection: {
+    marginBottom: 12,
+    marginHorizontal: -16,
+  },
+  memberFilterScroll: {
+    paddingHorizontal: 16,
+    gap: 8,
+    alignItems: 'center',
+  },
+  memberFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  memberFilterChipDark: {
+    backgroundColor: '#141E18',
+    borderColor: '#1F2E25',
+  },
+  memberFilterChipActive: {
+    backgroundColor: '#2E7D5B',
+    borderColor: '#2E7D5B',
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  memberFilterChipActiveDark: {
+    backgroundColor: '#3ADFAB',
+    borderColor: '#3ADFAB',
+  },
+  memberChipIconBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#E8F5EE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memberChipIconBoxDark: {
+    backgroundColor: '#1E2C23',
+  },
+  memberChipIconBoxActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  memberAvatarWrapper: {
+    position: 'relative',
+  },
+  memberChipAvatar: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+  },
+  memberChipAvatarText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  memberOnlineDot: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#2E7D5B',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  memberChipName: {
+    fontFamily: SANS_FONT,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  memberChipNameDark: {
+    color: '#CAD5CE',
+  },
+  memberChipNameActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  memberCountBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: '#F1F5F9',
+  },
+  memberCountBadgeDark: {
+    backgroundColor: '#1F2E25',
+  },
+  memberCountBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  memberCountBadgeText: {
+    fontFamily: SANS_FONT,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  memberCountBadgeTextDark: {
+    color: '#94A3B8',
+  },
+  memberCountBadgeTextActive: {
+    color: '#FFFFFF',
+  },
+
+  // Member Hero / Context Card
+  memberHeroCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  memberHeroCardDark: {
+    backgroundColor: '#141E18',
+    borderColor: '#24382C',
+  },
+  memberHeroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  memberHeroAvatarBox: {
+    position: 'relative',
+  },
+  memberHeroAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  memberHeroAvatarText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  memberHeroStatusDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  memberHeroNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  memberHeroName: {
+    fontFamily: SANS_FONT,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  memberRoleBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: '#E8F5EE',
+  },
+  memberRoleBadgeDark: {
+    backgroundColor: '#1E2F25',
+  },
+  memberRoleBadgeText: {
+    fontFamily: SANS_FONT,
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#2E7D5B',
+    letterSpacing: 0.4,
+  },
+  memberHeroMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 3,
+  },
+  memberHeroStatusText: {
+    fontFamily: SANS_FONT,
+    fontSize: 12,
+    color: '#64748B',
+  },
+  memberBatteryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 8,
+  },
+  memberBatteryText: {
+    fontFamily: SANS_FONT,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  memberHeroCloseBtn: {
+    padding: 6,
+    borderRadius: 999,
+    backgroundColor: '#F1F5F9',
+  },
+  memberHeroCloseBtnDark: {
+    backgroundColor: '#1F2E25',
+  },
+  memberHeroActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  memberHeroActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
+  },
+  memberHeroActionBtnDark: {
+    backgroundColor: '#16281E',
+    borderColor: '#233F2E',
+  },
+  memberHeroActionText: {
+    fontFamily: SANS_FONT,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2E7D5B',
+  },
+
 });

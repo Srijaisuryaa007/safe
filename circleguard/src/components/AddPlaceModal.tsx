@@ -101,7 +101,7 @@ export default function AddPlaceModal({ visible, coordinate, members = [], onClo
   if (!visible) return null;
 
   return (
-    <Modal transparent={true} visible={visible} animationType="slide">
+    <Modal transparent={true} visible={visible} animationType="slide" statusBarTranslucent={true}>
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
         style={styles.overlay}
@@ -276,10 +276,16 @@ const styles = StyleSheet.create({
   modalBox: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 0,
     paddingHorizontal: 24,
     paddingTop: 10,
     paddingBottom: 36,
-    borderWidth: 1,
+    width: '100%',
   },
   handleContainer: {
     width: '100%',

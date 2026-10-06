@@ -157,9 +157,12 @@ export default function DeleteAccountModal({
         await supabase.from('safe_places').delete().eq('user_id', userId);
       } catch (e) {}
 
-      // 5. Remove emergency contacts registered in cloud
+      // 5. Remove emergency contacts & medical info registered in cloud
       try {
         await supabase.from('emergency_contacts').delete().eq('user_id', userId);
+        await supabase.from('medical_info').delete().eq('user_id', userId);
+        const { EmergencyMedicalService } = require('../services/EmergencyMedicalService');
+        await EmergencyMedicalService.clearUserCache(userId);
       } catch (e) {}
 
       // 6. Remove avatar from storage if exists

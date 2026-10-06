@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,14 +14,17 @@ import {
   StatusBar,
   Alert,
   Modal,
+  Animated,
+  Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuthStore } from '../store/useAuthStore';
-import { useCircleStore } from '../store/useCircleStore';
+import { useCircleStore, formatZoneArrival } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
+import { supabase } from '../lib/supabase';
 import { navigationRef } from '../navigation/AppNavigator';
 import CircleQRCodeModal from './CircleQRCodeModal';
 import CircleSwitcherModal from './CircleSwitcherModal';
@@ -30,23 +33,91 @@ import MemberRoleModal from './MemberRoleModal';
 import BranchAssignmentModal from './BranchAssignmentModal';
 import CircleHierarchyTree from './CircleHierarchyTree';
 import MemberQuickActionsModal from './MemberQuickActionsModal';
-import MemberShortProfileModal from './MemberShortProfileModal';
-import AnimatedList from './AnimatedList';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
 import { getSafeTopInset } from '../utils/safeArea';
 import { useLuxuryAlert } from './LuxuryAlertModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+
 export default function BillionDollarCircleView() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const topInset = getSafeTopInset(insets.top);
 
+  const scrollViewRef = useRef<any>(null);
+  const scrollY = useRef(new Animated.Value(0)).current;
+
+  // Header dynamic elevation & border opacity
+  const headerElevation = scrollY.interpolate({
+    inputRange: [0, 40],
+    outputRange: [0, 5],
+    extrapolate: 'clamp',
+  });
+
+  const headerTitleOpacity = scrollY.interpolate({
+    inputRange: [30, 80],
+    outputRange: [0.7, 1],
+    extrapolate: 'clamp',
+  });
+
+  const headerTitleScale = scrollY.interpolate({
+    inputRange: [0, 80],
+    outputRange: [0.94, 1],
+    extrapolate: 'clamp',
+  });
+
+  // Hero section parallax & elastic pull-down stretch
+  const heroOpacity = scrollY.interpolate({
+    inputRange: [0, 85],
+    outputRange: [1, 0.15],
+    extrapolate: 'clamp',
+  });
+
+  const heroTranslateY = scrollY.interpolate({
+    inputRange: [-120, 0, 100],
+    outputRange: [-24, 0, -18],
+    extrapolate: 'clamp',
+  });
+
+  const heroScale = scrollY.interpolate({
+    inputRange: [-120, 0, 100],
+    outputRange: [1.14, 1, 0.94],
+    extrapolate: 'clamp',
+  });
+
+  // Micro Scroll Progress Bar width
+  const scrollProgressWidth = scrollY.interpolate({
+    inputRange: [0, 600],
+    outputRange: ['0%', '100%'],
+    extrapolate: 'clamp',
+  });
+
+  // Floating Back-to-Top pill entrance
+  const floatingBackToTopOpacity = scrollY.interpolate({
+    inputRange: [160, 240],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+
+  const floatingBackToTopTranslateY = scrollY.interpolate({
+    inputRange: [160, 240],
+    outputRange: [24, 0],
+    extrapolate: 'clamp',
+  });
+
   const { profile } = useAuthStore();
-  const { activeCircle, members, places, fetchMembers, fetchPlaces } = useCircleStore();
+  const { activeCircle, members, places, fetchMembers, fetchPlaces, fetchActiveCircle } = useCircleStore();
   const { isDark } = useThemeStore();
-  const { showConfirm } = useLuxuryAlert();
+  const { showConfirm, showAlert } = useLuxuryAlert();
+
+  const displayMembers = useMemo(() => {
+    let list = (members && members.length > 0)
+      ? members
+      : (activeCircle?.id ? useCircleStore.getState().membersByCircle[activeCircle.id] || [] : []);
+    if (!activeCircle?.id) return list;
+    return list.filter((m: any) => !m.circle_id || m.circle_id === activeCircle.id);
+  }, [members, activeCircle?.id]);
 
   const [copyStatus, setCopyStatus] = useState('Copy');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -55,12 +126,13 @@ export default function BillionDollarCircleView() {
   const [roleModalMember, setRoleModalMember] = useState<any>(null);
   const [branchModalMember, setBranchModalMember] = useState<any>(null);
   const [hierarchyModalVisible, setHierarchyModalVisible] = useState(false);
+  const [reopenHierarchyAfterBranch, setReopenHierarchyAfterBranch] = useState(false);
   const [selectedActionsMember, setSelectedActionsMember] = useState<any>(null);
-  const [shortProfileMember, setShortProfileMember] = useState<any>(null);
+  const subActionHandledRef = useRef(false);
 
   useEffect(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      (window as any).__openMemberShortProfile = (m: any) => setShortProfileMember(m);
+      (window as any).__openMemberShortProfile = (m: any) => setSelectedActionsMember(m);
     }
   }, []);
 
@@ -134,26 +206,38 @@ export default function BillionDollarCircleView() {
     }
   }, [navigation]);
 
-  const myMemberRecord = members.find((m) => m.user_id === profile?.id);
-  const myRole = myMemberRecord?.role || 'member';
-  const isOwner = (activeCircle && profile && activeCircle.owner_id === profile.id) ||
-    (activeCircle && profile && (activeCircle as any).created_by === profile.id) ||
-    myRole === 'owner' ||
-    (myRole as string) === 'leader';
-  const canManageRanks = isOwner; // STRICT: Only circle leader / founder has permission to promote or edit roles
+  const effectiveUserId = profile?.id || 
+    (useAuthStore.getState() as any).session?.user?.id || 
+    (useAuthStore.getState() as any).user?.id;
 
   const founder = useMemo(() => {
-    const owners = members.filter((m) => m.role === 'owner');
+    if (!Array.isArray(members) || members.length === 0) return null;
+    if (activeCircle?.owner_id) {
+      const match = members.find((m) => (m.user_id || (m as any).id) === activeCircle.owner_id);
+      if (match) return match;
+    }
+    const owners = members.filter((m) => m.role === 'owner' || (m.role as string) === 'leader');
     return owners.length > 0 ? owners[0] : members[0];
-  }, [members]);
+  }, [members, activeCircle?.owner_id]);
   const founderName = founder?.profile?.full_name || 'Circle Leader';
+  const trueLeaderId = activeCircle?.owner_id || founder?.user_id || (founder as any)?.id;
+
+  const myMemberRecord = members.find((m) => (m.user_id || (m as any).id) === effectiveUserId);
+  const isOwner = Boolean(effectiveUserId && trueLeaderId && effectiveUserId === trueLeaderId);
+  const myRole = isOwner ? 'owner' : (myMemberRecord?.role === 'owner' ? 'co_leader' : (myMemberRecord?.role || 'member'));
+  const canManageRanks = isOwner || myRole === 'co_leader';
 
   useEffect(() => {
     if (activeCircle?.id) {
       fetchMembers(activeCircle.id);
       fetchPlaces(activeCircle.id);
+    } else {
+      const uid = profile?.id || useAuthStore.getState().user?.id;
+      if (uid) {
+        fetchActiveCircle(uid);
+      }
     }
-  }, [activeCircle?.id]);
+  }, [activeCircle?.id, profile?.id]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -184,38 +268,62 @@ export default function BillionDollarCircleView() {
   };
 
   const handleRingMember = async (member: any) => {
-    const name = member.profile?.full_name || 'Family Member';
+    const targetUserId = member.user_id || member.id;
+    const name = member.profile?.full_name || 'Circle Member';
     if (Platform.OS !== 'web') {
-      Vibration.vibrate([150, 100, 150, 100, 300]);
+      try { Vibration.vibrate([0, 200, 100, 200]); } catch (_) {}
     }
-    showToast(`Ringing ${name}'s device with audible chime...`);
-    try {
-      await sendExpoPushNotification(
-        member.user_id,
-        'Urgent Audible Ring',
-        `${profile?.full_name || 'A circle member'} is ringing your device with an urgent audible chime!`,
-        { type: 'RING' }
-      );
-      showToast(`Audible chime sent to ${name}'s device!`);
-    } catch (e) {
-      showToast(`Chime alert dispatched to ${name}!`);
-    }
+    showToast(`Sending high-priority chime to ${name}...`);
+    (async () => {
+      try {
+        await sendExpoPushNotification(
+          targetUserId,
+          `🔔 High-Priority Chime: ${profile?.full_name || 'Circle Member'}`,
+          `${profile?.full_name || 'A circle member'} is pinging your device with an urgent audible chime!`,
+          { type: 'RING_DEVICE', senderId: profile?.id, timestamp: Date.now(), isEmergency: true }
+        );
+        if (activeCircle?.id && profile?.id) {
+          await supabase.from('circle_messages').insert({
+            circle_id: activeCircle.id,
+            sender_id: profile.id,
+            content: `CHIME ALERT: Dispatched audible radar chime to ${name}'s device.`,
+          });
+        }
+        showToast(`Audible radar chime delivered to ${name}!`);
+      } catch (e: any) {
+        showToast(`Radar chime signal broadcasted to ${name}`);
+      }
+    })();
   };
 
   const handleNudgeMember = async (member: any) => {
-    const name = member.profile?.full_name || 'Family Member';
-    showToast(`Sending recharge reminder to ${name}...`);
-    try {
-      await sendExpoPushNotification(
-        member.user_id,
-        'Low Battery Alert',
-        `${profile?.full_name || 'A circle member'} noticed your battery is at ${member.batteryPct || 15}%. Please plug in your charger!`,
-        { type: 'LOW_BATTERY' }
-      );
-      showToast(`Recharge prompt sent to ${name}!`);
-    } catch (e) {
-      showToast(`Sent prompt to ${name}!`);
+    const targetUserId = member.user_id || member.id;
+    const name = member.profile?.full_name || 'Circle Member';
+    const batteryPct = member.batteryPct ?? member.battery_level ?? 15;
+    if (Platform.OS !== 'web') {
+      try { Vibration.vibrate([0, 150, 100, 150]); } catch (_) {}
     }
+    showToast(`Sending battery reminder to ${name}...`);
+    (async () => {
+      try {
+        await sendExpoPushNotification(
+          targetUserId,
+          `⚡ Low Battery Reminder: ${name}`,
+          `${profile?.full_name || 'A circle member'} noticed your battery is at ${batteryPct}%. Please connect to a charger!`,
+          { type: 'LOW_BATTERY', senderId: profile?.id, timestamp: Date.now() }
+        );
+        if (activeCircle?.id && profile?.id) {
+          await supabase.from('circle_messages').insert({
+            circle_id: activeCircle.id,
+            sender_id: profile.id,
+            content: `BATTERY NUDGE: Reminded ${name} to charge device (${batteryPct}%).`,
+          });
+        }
+        showToast(`Battery reminder delivered to ${name}!`);
+      } catch (e) {
+        showToast(`Battery reminder dispatched to ${name}`);
+      }
+    })();
   };
 
   const normalBatteryCount = useMemo(() => {
@@ -288,44 +396,77 @@ export default function BillionDollarCircleView() {
   return (
     <View style={[styles.container, isDark && { backgroundColor: '#0F1411' }]}>
       {/* Header Bar */}
-      <View
+      <Animated.View
         style={[
           styles.header,
           { paddingTop: topInset, height: 56 + topInset },
           isDark && { backgroundColor: '#141A17', borderBottomColor: '#212C26' },
+          {
+            elevation: headerElevation,
+            shadowColor: '#000000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: headerElevation.interpolate({
+              inputRange: [0, 6],
+              outputRange: [0, 0.12],
+            }),
+            shadowRadius: 6,
+          },
         ]}
       >
         <View style={styles.headerLeft}>
           <OrbitalGoldenLogoBadge
             size={34}
-            onPress={() => navigation.navigate('Home')}
+            onPress={() => navigateToScreen('Home')}
             accessibilityLabel="CircleGuard Logo"
           />
-          <TouchableOpacity
-            style={[styles.circleSelectorBtn, isDark && { backgroundColor: '#1C2621' }]}
-            onPress={() => setCircleSwitcherVisible(true)}
-            activeOpacity={0.7}
+          <Animated.View
+            style={[
+              styles.headerTitleWrap,
+              {
+                opacity: headerTitleOpacity,
+                transform: [{ scale: headerTitleScale }],
+              },
+            ]}
           >
-            <Text style={[styles.circleSelectorText, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
-              {circleName}
-            </Text>
-            <Ionicons name="chevron-down" size={15} color={isDark ? '#9EACA3' : '#5C665F'} />
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.circleSelectorBtn, isDark && { backgroundColor: '#1C2621' }]}
+              onPress={() => setCircleSwitcherVisible(true)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.headerActiveDot} />
+              <Text style={[styles.circleSelectorText, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
+                {circleName}
+              </Text>
+              <Ionicons name="chevron-down" size={14} color={isDark ? '#9EACA3' : '#5C665F'} />
+            </TouchableOpacity>
+          </Animated.View>
         </View>
 
         <View style={styles.headerRight}>
           <TouchableOpacity
             style={[styles.headerIconButton, isDark && { backgroundColor: '#1C2621' }]}
-            onPress={() => navigation.navigate('Chat')}
+            onPress={() => {
+              if (Platform.OS !== 'web') {
+                try { Vibration.vibrate(10); } catch (_) {}
+              }
+              navigateToScreen('Chat');
+            }}
             activeOpacity={0.7}
+            accessibilityLabel="Open Circle Chat"
           >
             <Ionicons name="chatbubbles-outline" size={19} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.profileAvatarBtn, isDark && { borderColor: '#3ADFAB' }]}
-            onPress={() => navigation.navigate('Profile')}
+            onPress={() => {
+              if (Platform.OS !== 'web') {
+                try { Vibration.vibrate(10); } catch (_) {}
+              }
+              navigateToScreen('Profile');
+            }}
             activeOpacity={0.7}
+            accessibilityLabel="Open Profile & Settings"
           >
             {profile?.avatar_url ? (
               <Image source={{ uri: profile.avatar_url }} style={styles.profileAvatarImg} />
@@ -338,15 +479,40 @@ export default function BillionDollarCircleView() {
             )}
           </TouchableOpacity>
         </View>
-      </View>
 
-      <ScrollView
+        {/* Micro Luxury Scroll Progress Bar */}
+        <Animated.View
+          style={[
+            styles.scrollProgressBar,
+            {
+              width: scrollProgressWidth,
+              backgroundColor: isDark ? '#3ADFAB' : '#2E7D5B',
+            },
+          ]}
+        />
+      </Animated.View>
+
+      <Animated.ScrollView
+        ref={scrollViewRef}
         style={styles.scrollArea}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: false }
+        )}
       >
-        {/* Circle Header */}
-        <View style={styles.topSection}>
+        {/* Circle Header with Parallax & Elastic Stretch */}
+        <Animated.View
+          style={[
+            styles.topSection,
+            {
+              opacity: heroOpacity,
+              transform: [{ translateY: heroTranslateY }, { scale: heroScale }],
+            },
+          ]}
+        >
           <View style={styles.titleRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
               <Text style={[styles.headlineText, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
@@ -355,12 +521,37 @@ export default function BillionDollarCircleView() {
             </View>
           </View>
 
+          {/* Quick Switch Suggestion if on empty/testing circle while other circles exist */}
+          {displayMembers.length <= 1 && useCircleStore.getState().circles.some(c => c.id !== activeCircle?.id) && (
+            <TouchableOpacity
+              style={[
+                styles.quickSwitchBanner,
+                isDark && { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: 'rgba(212, 175, 55, 0.3)' }
+              ]}
+              onPress={() => {
+                const target = useCircleStore.getState().circles.find(c => c.id === 'af00325e-7e26-4b5d-856d-907085b326d2' || c.id !== activeCircle?.id);
+                if (target) {
+                  useCircleStore.getState().switchActiveCircle(target);
+                } else {
+                  setCircleSwitcherVisible(true);
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="swap-horizontal" size={16} color={isDark ? '#D4AF37' : '#926C15'} />
+              <Text style={[styles.quickSwitchBannerText, isDark && { color: '#E8EDE9' }]}>
+                Switch to <Text style={{ fontWeight: '700', color: isDark ? '#D4AF37' : '#926C15' }}>Test app</Text> circle to see family members
+              </Text>
+              <Ionicons name="chevron-forward" size={14} color={isDark ? '#D4AF37' : '#926C15'} />
+            </TouchableOpacity>
+          )}
+
           {/* Active Circle Status Banner */}
           <View style={[styles.activeBanner, isDark && { backgroundColor: '#161E1A', borderColor: '#26342D' }]}>
             <View style={styles.greenPulseDot} />
             <Text style={[styles.bannerText, isDark && { color: '#9EACA3' }]}>
               <Text style={{ fontWeight: '700', color: isDark ? '#FFFFFF' : '#151C27' }}>
-                {members.length} {members.length === 1 ? 'Active' : 'Active'}
+                {displayMembers.length} {displayMembers.length === 1 ? 'Active' : 'Active'}
               </Text>
               {'  ·  '}
               <Text>{circlePlaces.length} Geofences Monitored</Text>
@@ -370,12 +561,12 @@ export default function BillionDollarCircleView() {
               </Text>
             </Text>
           </View>
-        </View>
+        </Animated.View>
 
         {/* Common Circle Group Chat Hub */}
         <TouchableOpacity
           style={[styles.commonChatCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}
-          onPress={() => navigation.navigate('Chat')}
+          onPress={() => navigateToScreen('Chat')}
           activeOpacity={0.85}
         >
           <View style={[styles.commonChatIconBox, isDark && { backgroundColor: '#2E7D5B' }]}>
@@ -389,12 +580,12 @@ export default function BillionDollarCircleView() {
               </View>
             </View>
             <Text style={[styles.commonChatSub, isDark && { color: '#9EACA3' }]}>
-              Common chat with all {members.length} circle members
+              Common chat with all {displayMembers.length} circle members
             </Text>
           </View>
           <View style={[styles.commonChatAction, isDark && { backgroundColor: '#26342D' }]}>
             <Text style={[styles.commonChatActionText, isDark && { color: '#3ADFAB' }]}>Open</Text>
-            <Ionicons name="chevron-forward" size={16} color={isDark ? '#3ADFAB' : '#183CE6'} />
+            <Ionicons name="chevron-forward" size={16} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
           </View>
         </TouchableOpacity>
 
@@ -403,7 +594,7 @@ export default function BillionDollarCircleView() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={[styles.sectionTitle, isDark && { color: '#FFFFFF' }]}>Family Members</Text>
             <View style={[styles.countBadge, isDark && { backgroundColor: '#26342D' }]}>
-              <Text style={[styles.countText, isDark && { color: '#FFFFFF' }]}>{members.length}</Text>
+              <Text style={[styles.countText, isDark && { color: '#FFFFFF' }]}>{displayMembers.length}</Text>
             </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -418,75 +609,92 @@ export default function BillionDollarCircleView() {
               <Ionicons name="git-network-outline" size={13} color={isDark ? '#D4AF37' : '#926C15'} />
               <Text style={[styles.hierarchyTreeBtnText, isDark && { color: '#D4AF37' }]}>Hierarchy</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => navigation.navigate('Home')}>
+            <TouchableOpacity onPress={() => navigateToScreen('Home')}>
               <Text style={[styles.sectionLink, isDark && { color: '#3ADFAB' }]}>Live Map View ›</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Circle Members Animated List */}
-        {members.length > 0 ? (
-          <AnimatedList
-            items={members}
-            showGradients={members.length > 3}
-            maxHeight={members.length > 3 ? 460 : undefined}
-            gradientColor={isDark ? '#111613' : '#FAF9F6'}
-            onItemSelect={(member) => setShortProfileMember(member)}
-            renderItem={(member) => {
+        {/* Circle Members List */}
+        {displayMembers.length > 0 ? (
+          <View style={{ width: '100%' }}>
+            {displayMembers.map((member, index) => {
               const name = member.profile?.full_name || 'Family Member';
-              const isSelf = member.user_id === profile?.id;
-              const role = member.role || 'member';
+              const memberUserId = member.user_id || (member as any).id;
+              const isSelf = memberUserId === profile?.id;
+              const isTargetOwner = Boolean(memberUserId && trueLeaderId && memberUserId === trueLeaderId);
+              const effectiveRole = isTargetOwner ? 'owner' : (member.role === 'owner' ? 'co_leader' : (member.role || 'member'));
+              const role = effectiveRole;
               const battery = member.batteryPct != null ? `${member.batteryPct}%` : '100%';
               const isLowBattery = (member.batteryPct != null && member.batteryPct <= 20);
               const isDriving = Boolean(member.isDriving);
               const isOnline = member.isOnline !== false;
 
-              const isTargetOwner = role === 'owner';
               const roleLabel =
-                role === 'owner'
+                effectiveRole === 'owner'
                   ? 'Leader'
-                  : role === 'co_leader'
+                  : effectiveRole === 'co_leader'
                   ? 'Co-Leader'
-                  : role === 'guardian'
+                  : effectiveRole === 'guardian'
                   ? 'Guardian'
                   : 'Member';
 
+              // Bespoke Luxury CircleGuard Role Tokens: Champagne Gold, Neon Mint, Deep Jade & Frosted Platinum
               const roleColor =
-                role === 'owner'
+                effectiveRole === 'owner'
+                  ? (isDark ? '#F5A623' : '#D97706')
+                  : effectiveRole === 'co_leader'
                   ? (isDark ? '#3ADFAB' : '#059669')
-                  : role === 'co_leader'
-                  ? (isDark ? '#818CF8' : '#4F46E5')
-                  : role === 'guardian'
-                  ? (isDark ? '#2DD4BF' : '#0D9488')
-                  : (isDark ? '#94A3B8' : '#64748B');
+                  : effectiveRole === 'guardian'
+                  ? (isDark ? '#4AE3B5' : '#047857')
+                  : (isDark ? '#CAD8D0' : '#475C50');
 
               const roleBg =
-                role === 'owner'
-                  ? (isDark ? 'rgba(58, 223, 171, 0.12)' : '#ECFDF5')
-                  : role === 'co_leader'
-                  ? (isDark ? 'rgba(99, 102, 241, 0.12)' : '#EEF2FF')
-                  : role === 'guardian'
-                  ? (isDark ? 'rgba(13, 148, 136, 0.12)' : '#F0FDFA')
-                  : (isDark ? 'rgba(148, 163, 184, 0.12)' : '#F1F5F9');
+                effectiveRole === 'owner'
+                  ? (isDark ? 'rgba(245, 166, 35, 0.14)' : '#FEF3C7')
+                  : effectiveRole === 'co_leader'
+                  ? (isDark ? 'rgba(58, 223, 171, 0.14)' : '#ECFDF5')
+                  : effectiveRole === 'guardian'
+                  ? (isDark ? 'rgba(46, 125, 91, 0.20)' : '#E6F4ED')
+                  : (isDark ? 'rgba(202, 216, 208, 0.10)' : '#F0F4F2');
+
+              const roleBorder =
+                effectiveRole === 'owner'
+                  ? (isDark ? 'rgba(245, 166, 35, 0.38)' : 'rgba(217, 119, 6, 0.35)')
+                  : effectiveRole === 'co_leader'
+                  ? (isDark ? 'rgba(58, 223, 171, 0.38)' : 'rgba(5, 150, 105, 0.35)')
+                  : effectiveRole === 'guardian'
+                  ? (isDark ? 'rgba(46, 125, 91, 0.40)' : 'rgba(4, 120, 87, 0.30)')
+                  : (isDark ? 'rgba(202, 216, 208, 0.22)' : 'rgba(71, 92, 80, 0.20)');
+
+              const memberKey = member.user_id 
+                ? `member_${member.user_id}` 
+                : ((member as any).id ? `member_${(member as any).id}` : `member_idx_${index}`);
 
               return (
-                <TouchableOpacity
-                  key={member.user_id}
-                  style={[
-                    styles.memberCard,
-                    isDark && { backgroundColor: '#1A231F', borderColor: '#283730' },
-                  ]}
-                  onPress={() => setShortProfileMember(member)}
-                  activeOpacity={0.85}
-                >
+                <View key={memberKey} style={{ width: '100%' }}>
+                  <TouchableOpacity
+                    style={[
+                      styles.memberCard,
+                      isDark && { backgroundColor: '#16201B', borderColor: 'rgba(58, 223, 171, 0.18)' },
+                    ]}
+                    onPress={() => {
+                      if (subActionHandledRef.current) return;
+                      if (Platform.OS !== 'web') {
+                        try { Vibration.vibrate(10); } catch (_) {}
+                      }
+                      setSelectedActionsMember(member);
+                    }}
+                    activeOpacity={0.75}
+                  >
                   <View style={styles.memberCardTop}>
                     {/* Avatar */}
                     <View style={styles.memberAvatarWrapper}>
                       {member.profile?.avatar_url ? (
                         <Image source={{ uri: member.profile.avatar_url }} style={styles.avatarImg} />
                       ) : (
-                        <View style={[styles.avatarImg, styles.avatarFallback, isDark && { backgroundColor: '#26342D' }]}>
-                          <Text style={[styles.avatarFallbackText, isDark && { color: '#3ADFAB' }]}>
+                        <View style={[styles.avatarImg, styles.avatarFallback, isDark && { backgroundColor: '#1E2B24' }]}>
+                          <Text style={[styles.avatarFallbackText, isDark && { color: roleColor }]}>
                             {name.charAt(0).toUpperCase()}
                           </Text>
                         </View>
@@ -494,16 +702,16 @@ export default function BillionDollarCircleView() {
                       <View
                         style={[
                           styles.avatarStatusBadge,
-                          isDriving && { backgroundColor: isDark ? '#1E254A' : '#DEE0FF' },
+                          isDriving && { backgroundColor: isDark ? 'rgba(245, 166, 35, 0.20)' : '#FEF3C7', borderColor: isDark ? '#F5A623' : '#D97706' },
                         ]}
                       >
                         {isDriving ? (
-                          <Ionicons name="car" size={10} color={isDark ? '#818CF8' : '#183CE6'} />
+                          <Ionicons name="car" size={10} color={isDark ? '#F5A623' : '#D97706'} />
                         ) : (
                           <View
                             style={[
                               styles.avatarStatusDot,
-                              { backgroundColor: isOnline ? '#10B981' : '#94A3B8' }
+                              { backgroundColor: isOnline ? '#10B981' : '#718579' }
                             ]}
                           />
                         )}
@@ -511,34 +719,17 @@ export default function BillionDollarCircleView() {
                     </View>
 
                     <View style={styles.memberInfoCol}>
-                      {/* Line 1: Member Name & 3-Dots Action Button */}
+                      {/* Line 1: Member Name & Navigation Indicator */}
                       <View style={styles.memberNameRow}>
                         <Text style={[styles.memberName, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
                           {isSelf ? `${name} (You)` : name}
                         </Text>
 
-                        <TouchableOpacity
-                          style={[
-                            styles.threeDotsBtn,
-                            isDark && {
-                              backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                              borderColor: 'rgba(255, 255, 255, 0.12)',
-                            },
-                          ]}
-                          onPress={(e) => {
-                            e?.stopPropagation?.();
-                            setSelectedActionsMember(member);
-                          }}
-                          activeOpacity={0.65}
-                          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                          accessibilityLabel={`Actions for ${name}`}
-                        >
-                          <Ionicons
-                            name="ellipsis-horizontal"
-                            size={16}
-                            color={isDark ? '#3ADFAB' : '#2E7D5B'}
-                          />
-                        </TouchableOpacity>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={15}
+                          color={isDark ? '#4B5563' : '#9CA3AF'}
+                        />
                       </View>
 
                       {/* Line 2: Role Badge, Battery Chip & Status */}
@@ -548,16 +739,17 @@ export default function BillionDollarCircleView() {
                             styles.roleTag,
                             {
                               backgroundColor: roleBg,
-                              borderColor: roleColor,
+                              borderColor: roleBorder,
                             },
                           ]}
-                          onPress={(e) => {
-                            if (canManageRanks && !isTargetOwner) {
-                              e.stopPropagation();
+                          onPress={() => {
+                            if (!isTargetOwner) {
+                              subActionHandledRef.current = true;
+                              setTimeout(() => { subActionHandledRef.current = false; }, 350);
                               setRoleModalMember(member);
                             }
                           }}
-                          activeOpacity={canManageRanks && !isTargetOwner ? 0.7 : 1}
+                          activeOpacity={!isTargetOwner ? 0.7 : 1}
                         >
                           <Ionicons
                             name={
@@ -565,6 +757,8 @@ export default function BillionDollarCircleView() {
                                 ? 'shield-checkmark'
                                 : role === 'co_leader'
                                 ? 'shield'
+                                : role === 'guardian'
+                                ? 'eye'
                                 : 'person'
                             }
                             size={10}
@@ -610,8 +804,10 @@ export default function BillionDollarCircleView() {
                           • {isDriving
                             ? 'In transit'
                             : isOnline
-                            ? 'Sharing location'
-                            : 'Active recently'}
+                            ? 'Active now'
+                            : (member.latestPlaceEvent?.event_type === 'arrival' && member.latestPlaceEvent?.occurred_at)
+                            ? `In safe zone • ${formatZoneArrival(member.latestPlaceEvent.occurred_at).sinceText}`
+                            : (member.lastActiveText || member.lastSeenText || 'Active recently')}
                         </Text>
                       </View>
                     </View>
@@ -624,8 +820,9 @@ export default function BillionDollarCircleView() {
                         <Text style={[styles.lowBatteryText, isDark && { color: '#FCA5A5' }]}>Low battery ({battery})</Text>
                       </View>
                       <TouchableOpacity
-                        onPress={(e) => {
-                          e.stopPropagation();
+                        onPress={() => {
+                          subActionHandledRef.current = true;
+                          setTimeout(() => { subActionHandledRef.current = false; }, 350);
                           handleNudgeMember(member);
                         }}
                       >
@@ -634,12 +831,13 @@ export default function BillionDollarCircleView() {
                     </View>
                   )}
                 </TouchableOpacity>
-              );
-            }}
-          />
+              </View>
+            );
+          })}
+          </View>
         ) : (
           <View style={[styles.emptyCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
-            <Ionicons name="person-add-outline" size={32} color={isDark ? '#3ADFAB' : '#183CE6'} />
+            <Ionicons name="person-add-outline" size={32} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
             <Text style={[styles.emptyCardTitle, isDark && { color: '#FFFFFF' }]}>No Members In This Circle Yet</Text>
             <Text style={[styles.emptyCardSub, isDark && { color: '#9EACA3' }]}>
               Share your invite code below with family to see their real-time location and safety status.
@@ -655,7 +853,7 @@ export default function BillionDollarCircleView() {
               <Text style={[styles.countText, isDark && { color: '#FFFFFF' }]}>{circlePlaces.length}</Text>
             </View>
           </View>
-          <TouchableOpacity onPress={() => navigation.navigate('SafePlaces')}>
+          <TouchableOpacity onPress={() => navigateToScreen('SafePlaces')}>
             <Text style={[styles.sectionLink, isDark && { color: '#3ADFAB' }]}>Manage All</Text>
           </TouchableOpacity>
         </View>
@@ -663,8 +861,8 @@ export default function BillionDollarCircleView() {
         {circlePlaces && circlePlaces.length > 0 ? (
           circlePlaces.map((place) => (
             <View key={place.id} style={[styles.placeCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
-              <View style={[styles.placeIconBox, { backgroundColor: isDark ? '#1C2E24' : '#DEE0FF' }]}>
-                <Ionicons name="location" size={20} color={isDark ? '#3ADFAB' : '#183CE6'} />
+              <View style={[styles.placeIconBox, { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E8F5EE' }]}>
+                <Ionicons name="location" size={20} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
               </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -679,7 +877,7 @@ export default function BillionDollarCircleView() {
               </View>
               <TouchableOpacity
                 style={[styles.placeEditBtn, isDark && { backgroundColor: '#26342D' }]}
-                onPress={() => navigation.navigate('SafePlaces')}
+                onPress={() => navigateToScreen('SafePlaces')}
               >
                 <Ionicons name="options-outline" size={18} color={isDark ? '#CAD5CE' : '#444656'} />
               </TouchableOpacity>
@@ -696,10 +894,10 @@ export default function BillionDollarCircleView() {
         {/* Add New Safe Place Button */}
         <TouchableOpacity
           style={[styles.addPlaceCard, isDark && { backgroundColor: '#161E1A', borderColor: '#26342D' }]}
-          onPress={() => navigation.navigate('SafePlaces')}
+          onPress={() => navigateToScreen('SafePlaces')}
           activeOpacity={0.8}
         >
-          <Ionicons name="add-circle-outline" size={18} color={isDark ? '#3ADFAB' : '#183CE6'} />
+          <Ionicons name="add-circle-outline" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
           <Text style={[styles.addPlaceText, isDark && { color: '#3ADFAB' }]}>Add New Safe Place</Text>
         </TouchableOpacity>
 
@@ -815,7 +1013,7 @@ export default function BillionDollarCircleView() {
             </Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
 
       {/* Circle QR Code Modal */}
       <CircleQRCodeModal
@@ -837,14 +1035,25 @@ export default function BillionDollarCircleView() {
         member={roleModalMember}
         circleId={activeCircle?.id || ''}
         canEdit={canManageRanks}
-        onClose={() => setRoleModalMember(null)}
+        onClose={() => {
+          setRoleModalMember(null);
+          if (reopenHierarchyAfterBranch) {
+            setTimeout(() => {
+              setHierarchyModalVisible(true);
+              setReopenHierarchyAfterBranch(false);
+            }, Platform.OS === 'ios' ? 140 : 250);
+          }
+        }}
         onRoleUpdated={(userId, newRole) => {
           setRoleModalMember((prev: any) => (prev ? { ...prev, role: newRole } : null));
           if (activeCircle?.id) fetchMembers(activeCircle.id);
           showToast(`Role updated to ${newRole.replace('_', ' ').toUpperCase()}`);
         }}
         onAssignGuardian={(m) => {
-          setBranchModalMember(m);
+          setRoleModalMember(null);
+          setTimeout(() => {
+            setBranchModalMember(m);
+          }, Platform.OS === 'ios' ? 120 : 220);
         }}
       />
 
@@ -853,13 +1062,26 @@ export default function BillionDollarCircleView() {
         visible={!!branchModalMember}
         targetMember={branchModalMember}
         circleId={activeCircle?.id || ''}
+        circleOwnerId={activeCircle?.owner_id || (activeCircle as any)?.created_by}
         onAssigned={(supName, memName) => {
           showToast(`${memName} is now assigned to ${supName}`);
           if (activeCircle?.id) fetchMembers(activeCircle.id);
+          if (reopenHierarchyAfterBranch) {
+            setTimeout(() => {
+              setHierarchyModalVisible(true);
+              setReopenHierarchyAfterBranch(false);
+            }, Platform.OS === 'ios' ? 140 : 250);
+          }
         }}
         onClose={() => {
           setBranchModalMember(null);
           if (activeCircle?.id) fetchMembers(activeCircle.id);
+          if (reopenHierarchyAfterBranch) {
+            setTimeout(() => {
+              setHierarchyModalVisible(true);
+              setReopenHierarchyAfterBranch(false);
+            }, Platform.OS === 'ios' ? 140 : 250);
+          }
         }}
       />
 
@@ -894,100 +1116,96 @@ export default function BillionDollarCircleView() {
           <CircleHierarchyTree
             members={members}
             currentUserId={profile?.id}
+            circleOwnerId={activeCircle?.owner_id || (activeCircle as any)?.created_by}
             isOwner={isOwner}
             canManageRanks={canManageRanks}
             onSelectMember={(m) => {
+              setReopenHierarchyAfterBranch(true);
               setHierarchyModalVisible(false);
-              setRoleModalMember(m);
+              setTimeout(() => {
+                setRoleModalMember(m);
+              }, Platform.OS === 'ios' ? 140 : 250);
             }}
             onMoveBranch={(m) => {
+              setReopenHierarchyAfterBranch(true);
               setHierarchyModalVisible(false);
-              setBranchModalMember(m);
+              setTimeout(() => {
+                setBranchModalMember(m);
+              }, Platform.OS === 'ios' ? 140 : 250);
             }}
           />
         </View>
       </Modal>
 
-      {/* Member Short Profile Modal (Triggered by Member Avatar / Card Tap) */}
-      <MemberShortProfileModal
-        visible={Boolean(shortProfileMember)}
-        member={shortProfileMember}
-        circleId={activeCircle?.id}
-        onClose={() => setShortProfileMember(null)}
-        onNavigateToHistory={(m) => {
-          setShortProfileMember(null);
-          const targetUserId = m.user_id || m.id;
-          navigateToScreen('LocationHistory', {
-            member: m,
-            memberId: targetUserId,
-            circleId: activeCircle?.id,
-          });
-        }}
-        onNavigateToDriving={(m) => {
-          setShortProfileMember(null);
-          const targetUserId = m.user_id || m.id;
-          navigateToScreen('DrivingReports', {
-            member: m,
-            memberId: targetUserId,
-            circleId: activeCircle?.id,
-          });
-        }}
-        onNavigateToMap={(m) => {
-          setShortProfileMember(null);
-          const targetUserId = m?.user_id || m?.id;
-          const allMembers = useCircleStore.getState().members;
-          const memberInStore = allMembers.find((x) => x.user_id === targetUserId) || m;
-          const targetLat = memberInStore?.latitude ?? m?.latitude;
-          const targetLng = memberInStore?.longitude ?? m?.longitude;
-          const targetName = memberInStore?.profile?.full_name || m?.profile?.full_name || 'Member';
-
-          navigateToScreen('Map', {
-            focusUserId: targetUserId,
-            focusLat: targetLat,
-            focusLng: targetLng,
-            focusUserName: targetName,
-            targetMember: memberInStore,
-            timestamp: Date.now(),
-          });
-        }}
-        onNavigateToChat={(_m) => {
-          setShortProfileMember(null);
-          navigateToScreen('Chat');
-        }}
-      />
-
-      {/* Member 3-Dots Quick Actions Bottom Sheet (STRICT: ONLY opened by clicking the 3 dots button) */}
+      {/* Unified Member Profile & Quick Actions Modal */}
       <MemberQuickActionsModal
         visible={Boolean(selectedActionsMember)}
         onClose={() => setSelectedActionsMember(null)}
         member={selectedActionsMember}
         circleId={activeCircle?.id}
-        isSelf={selectedActionsMember?.user_id === profile?.id}
+        isSelf={(selectedActionsMember?.user_id || selectedActionsMember?.id) === (profile?.id || (useAuthStore.getState() as any).session?.user?.id)}
         canManageRanks={canManageRanks}
+        onChatMember={(m) => {
+          setSelectedActionsMember(null);
+          const targetName = m?.profile?.full_name || m?.full_name || 'Member';
+          const targetUserId = m?.user_id || m?.id;
+          navigateToScreen('Chat', {
+            memberId: targetUserId,
+            memberName: targetName,
+            taggedMember: m,
+            initialText: `@${targetName} `,
+          });
+        }}
         onNavigateMember={(m) => {
           setSelectedActionsMember(null);
           const targetUserId = m?.user_id || m?.id;
           const allMembers = useCircleStore.getState().members;
-          const memberInStore = allMembers.find((x) => x.user_id === targetUserId) || m;
+          const memberInStore = allMembers.find((x) => (x.user_id || (x as any).id) === targetUserId) || m;
           const targetLat = memberInStore?.latitude ?? m?.latitude;
           const targetLng = memberInStore?.longitude ?? m?.longitude;
           const targetName = memberInStore?.profile?.full_name || m?.profile?.full_name || 'Member';
 
-          navigateToScreen('Map', {
-            focusUserId: targetUserId,
-            focusLat: targetLat,
-            focusLng: targetLng,
-            focusUserName: targetName,
-            targetMember: memberInStore,
-            timestamp: Date.now(),
-          });
+          showToast(`Opening live route to ${targetName}...`);
+
+          if (targetLat != null && targetLng != null && !isNaN(Number(targetLat)) && !isNaN(Number(targetLng))) {
+            const lat = Number(targetLat);
+            const lng = Number(targetLng);
+
+            // Focus on member on live Map
+            navigateToScreen('Map', {
+              focusUserId: targetUserId,
+              focusLat: lat,
+              focusLng: lng,
+              focusUserName: targetName,
+              targetMember: memberInStore,
+              timestamp: Date.now(),
+            });
+          } else {
+            // Member hasn't shared GPS yet: navigate to map and ping device
+            navigateToScreen('Map', {
+              focusUserId: targetUserId,
+              focusUserName: targetName,
+              targetMember: memberInStore,
+              timestamp: Date.now(),
+            });
+            showToast(`Location refresh ping dispatched to ${targetName}`);
+            sendExpoPushNotification(
+              targetUserId,
+              `📍 Location Check: ${profile?.full_name || 'Circle Member'}`,
+              `Requesting live location update to verify your perimeter safety.`,
+              { type: 'LOCATION_PING', senderId: profile?.id, timestamp: Date.now() }
+            ).catch(() => {});
+          }
         }}
         onRingMember={(m) => {
-          if (m?.user_id === profile?.id) {
+          setSelectedActionsMember(null);
+          const targetUid = m?.user_id || m?.id;
+          const currentUid = profile?.id || (useAuthStore.getState() as any).session?.user?.id;
+          if (targetUid === currentUid) {
             if (Platform.OS !== 'web') {
-              Vibration.vibrate([100, 100, 200]);
+              try { Vibration.vibrate([100, 100, 200]); } catch (_) {}
             }
-            showToast('Centering on your location...');
+            showToast('Centering map on your device');
             const myLat = myMemberRecord?.latitude ?? (profile as any)?.latitude;
             const myLng = myMemberRecord?.longitude ?? (profile as any)?.longitude;
             navigateToScreen('Map', {
@@ -1003,7 +1221,10 @@ export default function BillionDollarCircleView() {
           }
         }}
         onOpenHistory={(m) => {
+          setSelectedActionsMember(null);
+          const targetName = m?.profile?.full_name || m?.full_name || 'Member';
           const targetUserId = m?.user_id || m?.id;
+          showToast(`Loading 24h timeline for ${targetName}...`);
           navigateToScreen('LocationHistory', {
             member: m,
             memberId: targetUserId,
@@ -1011,7 +1232,10 @@ export default function BillionDollarCircleView() {
           });
         }}
         onOpenDriving={(m) => {
+          setSelectedActionsMember(null);
+          const targetName = m?.profile?.full_name || m?.full_name || 'Member';
           const targetUserId = m?.user_id || m?.id;
+          showToast(`Loading drive safety report for ${targetName}...`);
           navigateToScreen('DrivingReports', {
             member: m,
             memberId: targetUserId,
@@ -1019,15 +1243,23 @@ export default function BillionDollarCircleView() {
           });
         }}
         onNudgeMember={(m) => {
+          setSelectedActionsMember(null);
           handleNudgeMember(m);
         }}
         onAssignGuardian={(m) => {
-          setBranchModalMember(m);
+          setSelectedActionsMember(null);
+          setTimeout(() => {
+            setBranchModalMember(m);
+          }, Platform.OS === 'ios' ? 120 : 220);
         }}
         onManageRole={(m) => {
-          setRoleModalMember(m);
+          setSelectedActionsMember(null);
+          setTimeout(() => {
+            setRoleModalMember(m);
+          }, Platform.OS === 'ios' ? 120 : 220);
         }}
         onRemoveMember={(m) => {
+          setSelectedActionsMember(null);
           showConfirm({
             title: 'Remove Member',
             message: `Are you sure you want to remove ${m?.profile?.full_name || 'this member'} from the circle?`,
@@ -1038,7 +1270,7 @@ export default function BillionDollarCircleView() {
               if (!activeCircle?.id) return;
               try {
                 showToast('Removing member from circle...');
-                const success = await useCircleStore.getState().removeMember(activeCircle.id, m.user_id);
+                const success = await useCircleStore.getState().removeMember(activeCircle.id, m.user_id || m.id);
                 if (success) {
                   showToast('Member removed from circle');
                   fetchMembers(activeCircle.id);
@@ -1052,6 +1284,40 @@ export default function BillionDollarCircleView() {
           });
         }}
       />
+
+      {/* Circle Switcher Modal */}
+      <CircleSwitcherModal
+        visible={circleSwitcherVisible}
+        onClose={() => setCircleSwitcherVisible(false)}
+      />
+
+      {/* Floating Scroll to Top Pill */}
+      <Animated.View
+        style={[
+          styles.floatingBackToTopWrap,
+          {
+            opacity: floatingBackToTopOpacity,
+            transform: [{ translateY: floatingBackToTopTranslateY }],
+          },
+        ]}
+        pointerEvents="box-none"
+      >
+        <TouchableOpacity
+          style={[
+            styles.floatingBackToTopBtn,
+            isDark && { backgroundColor: '#16221C', borderColor: '#2E4A3B' },
+          ]}
+          onPress={() => scrollViewRef.current?.scrollTo({ y: 0, animated: true })}
+          activeOpacity={0.84}
+        >
+          <View style={[styles.floatingBackToTopIconWrap, isDark && { backgroundColor: 'rgba(58, 223, 171, 0.16)' }]}>
+            <Ionicons name="arrow-up" size={13} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+          </View>
+          <Text style={[styles.floatingBackToTopText, isDark && { color: '#E8F5EE' }]}>
+            {circleName} • Top
+          </Text>
+        </TouchableOpacity>
+      </Animated.View>
     </View>
   );
 }
@@ -1059,6 +1325,80 @@ export default function BillionDollarCircleView() {
 const SANS_FONT = Platform.OS === 'web' ? 'sans-serif' : undefined;
 
 const styles = StyleSheet.create({
+  scrollProgressBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    height: 2.5,
+    borderRadius: 2,
+  },
+  headerTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerActiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#3ADFAB',
+    marginRight: 2,
+  },
+  floatingBackToTopWrap: {
+    position: 'absolute',
+    bottom: 84,
+    alignSelf: 'center',
+    zIndex: 99,
+  },
+  floatingBackToTopBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D8E2DC',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.14,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  floatingBackToTopIconWrap: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#E8F5EE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingBackToTopText: {
+    fontFamily: SANS_FONT,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F2A24',
+  },
+  quickSwitchBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.25)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 8,
+    marginBottom: 4,
+    gap: 8,
+  },
+  quickSwitchBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#151C27',
+    fontWeight: '500',
+  },
   container: {
     flex: 1,
     backgroundColor: '#FAF9F6',
@@ -1400,11 +1740,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   roleTag: {
-    backgroundColor: '#E2E8F8',
+    backgroundColor: '#E8F5EE',
     paddingHorizontal: 7,
     paddingVertical: 2.5,
     borderRadius: 6,
     borderWidth: 1,
+    borderColor: '#D4E8DC',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
@@ -1420,7 +1761,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: '#F0F3FF',
+    backgroundColor: '#EBF5F0',
     paddingHorizontal: 6,
     paddingVertical: 2.5,
     borderRadius: 6,
@@ -1447,7 +1788,9 @@ const styles = StyleSheet.create({
   actionPillBtn: {
     flex: 1,
     height: 36,
-    backgroundColor: '#F0F3FF',
+    backgroundColor: '#EFF6F2',
+    borderWidth: 1,
+    borderColor: '#E2ECE6',
     borderRadius: 999,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1464,7 +1807,9 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#F0F3FF',
+    backgroundColor: '#EFF6F2',
+    borderWidth: 1,
+    borderColor: '#E2ECE6',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1488,7 +1833,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 11,
     fontWeight: '700',
-    color: '#183CE6',
+    color: '#D97706',
   },
   emptyCard: {
     backgroundColor: '#FFFFFF',
@@ -1497,7 +1842,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     borderWidth: 1,
-    borderColor: '#E7EEFE',
+    borderColor: '#D4E8DC',
     marginBottom: 10,
   },
   emptyCardTitle: {
@@ -1522,7 +1867,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     borderWidth: 1,
-    borderColor: '#E7EEFE',
+    borderColor: '#E2ECE6',
     shadowColor: '#151C27',
     shadowOpacity: 0.04,
     shadowRadius: 6,
@@ -1552,13 +1897,15 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F0F3FF',
+    backgroundColor: '#EFF6F2',
   },
   emptyPlaceCard: {
-    backgroundColor: '#F0F3FF',
+    backgroundColor: '#F4F9F6',
     borderRadius: 14,
     padding: 14,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E2ECE6',
   },
   emptyPlaceText: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
@@ -1567,8 +1914,11 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   addPlaceCard: {
-    backgroundColor: '#F0F3FF',
+    backgroundColor: '#F2FAF6',
     borderRadius: 18,
+    borderWidth: 1.2,
+    borderColor: '#D4E8DC',
+    borderStyle: 'dashed',
     paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1581,13 +1931,18 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 13,
     fontWeight: '700',
-    color: '#183CE6',
+    color: '#2E7D5B',
   },
   inviteCard: {
-    backgroundColor: '#E7EEFE',
+    backgroundColor: '#F2FAF6',
     borderRadius: 20,
     padding: 16,
     gap: 10,
+    borderWidth: 1.2,
+    borderColor: '#D4E8DC',
+    shadowColor: '#151C27',
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
   },
   inviteCardTop: {
     flexDirection: 'row',
@@ -1604,7 +1959,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 12,
     fontWeight: '700',
-    color: '#183CE6',
+    color: '#2E7D5B',
   },
   inviteCodeRow: {
     flexDirection: 'row',
@@ -1614,6 +1969,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#DFEAE3',
   },
   inviteCodeText: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
@@ -1670,7 +2027,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    backgroundColor: '#F0F3FF',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D4E8DC',
     paddingHorizontal: 8,
     paddingVertical: 8,
     borderRadius: 10,
@@ -1679,7 +2038,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 11,
     fontWeight: '700',
-    color: '#183CE6',
+    color: '#2E7D5B',
   },
   codeActionBtnActive: {
     flex: 1,

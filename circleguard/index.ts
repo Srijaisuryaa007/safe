@@ -1,6 +1,9 @@
 import 'react-native-url-polyfill/auto';
 import { registerRootComponent } from 'expo';
 
+// Module-scope background task definitions for OS-level geofencing & location updates
+import './src/tasks/backgroundTasks';
+
 import App from './App';
 
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App);

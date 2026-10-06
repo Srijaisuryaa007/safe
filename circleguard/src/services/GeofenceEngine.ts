@@ -218,15 +218,16 @@ export async function canAndRecordGeofenceAlert(
     }
 
     if (record) {
-      // RULE 1: STRICT STATE ALTERNATION
-      // If we already alerted for this exact transition, reject duplicate alert immediately
-      if (record.lastEventType === targetType) {
+      const timeSinceLastAlert = now - record.lastAlertTime;
+
+      // Anti-flapping: don't allow rapid flip within 45 seconds (stops GPS micro-jitter)
+      if (timeSinceLastAlert < 45000) {
         return false;
       }
 
-      // RULE 2: ANTI-FLAPPING TRANSITION COOLDOWN
-      // Require at least 3 minutes between opposite state transitions
-      if (now - record.lastAlertTime < GEOFENCE_TRANSITION_COOLDOWN_MS) {
+      // If same event type (e.g. exit followed by exit), allow if more than 3 minutes have elapsed
+      // This prevents a permanent deadlock if an intermediate entry wasn't recorded while phone was locked.
+      if (record.lastEventType === targetType && timeSinceLastAlert < 180000) {
         return false;
       }
     }
@@ -499,6 +500,27 @@ export async function evaluateGeofenceBreaches(
     const isExit = candidateState === 'outside';
     const targetEventType: 'entry' | 'exit' = isExit ? 'exit' : 'entry';
 
+    // Check authoritative database state before inserting duplicate arrival/departure
+    const targetDbEvent = isExit ? 'departure' : 'arrival';
+    try {
+      const { data: latestDbEvent } = await supabase
+        .from('place_events')
+        .select('event_type, occurred_at')
+        .eq('place_id', place.id)
+        .eq('user_id', userLoc.user_id)
+        .order('occurred_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (latestDbEvent && latestDbEvent.event_type === targetDbEvent) {
+        const timeDiff = now - new Date(latestDbEvent.occurred_at).getTime();
+        if (timeDiff < 180000) {
+          // Within 3 minutes of previous identical event, skip duplicate
+          continue;
+        }
+      }
+    } catch (_) {}
+
     // Layer 6: Authoritative Anti-Flapping Transition Cooldown & Deduplication
     const allowed = await canAndRecordGeofenceAlert(userLoc.user_id, place.id, targetEventType);
     if (!allowed) {
@@ -509,6 +531,8 @@ export async function evaluateGeofenceBreaches(
         ? `${(distMeters / 1000).toFixed(1)} km`
         : `${Math.round(distMeters)} m`;
 
+    const actualEventTime = userLoc.updated_at || new Date().toISOString();
+
     const breachEvent: GeofenceBreachEvent = {
       id: `${place.id}_${candidateState}_${now}`,
       type: isExit ? 'exit' : 'entry',
@@ -518,7 +542,7 @@ export async function evaluateGeofenceBreaches(
       userName: userName,
       distanceMeters: distMeters,
       formattedDistance: formattedDist,
-      timestamp: new Date().toISOString(),
+      timestamp: actualEventTime,
       latitude: userLoc.latitude,
       longitude: userLoc.longitude,
     };
@@ -574,15 +598,53 @@ export async function evaluateGeofenceBreaches(
     breaches.push(breachEvent);
 
     try {
+      const transitionType: 'EXIT' | 'ENTER' = isExit ? 'EXIT' : 'ENTER';
+
+      // 1. Authoritative: Call RPC / queue transition for offline resilience
+      try {
+        const { reportZoneTransitionAuthoritative } = require('./ZoneTransitionQueueService');
+        reportZoneTransitionAuthoritative({
+          memberId: userLoc.user_id,
+          zoneId: place.id,
+          type: transitionType,
+          occurredAt: actualEventTime,
+          lat: userLoc.latitude,
+          lng: userLoc.longitude,
+          accuracy: userLoc.accuracy_m,
+        }).catch((rpcErr: any) => console.warn('[GeofenceEngine] RPC transition note:', rpcErr?.message));
+      } catch (_) {}
+
+      // 2. Direct insert into public.zone_events for guaranteed Supabase Realtime broadcast to all members
+      if (place.circle_id) {
+        Promise.resolve(
+          supabase
+            .from('zone_events')
+            .insert({
+              circle_id: place.circle_id,
+              member_id: userLoc.user_id,
+              zone_id: place.id,
+              type: transitionType,
+              occurred_at: actualEventTime,
+              received_at: new Date().toISOString(),
+              lat: userLoc.latitude,
+              lng: userLoc.longitude,
+              accuracy: userLoc.accuracy_m,
+            })
+        ).catch(() => {});
+      }
+
+      // 3. Insert into place_events for backward compatibility
       await supabase.from('place_events').insert({
         place_id: place.id,
         user_id: userLoc.user_id,
         event_type: isExit ? 'departure' : 'arrival',
-        occurred_at: new Date().toISOString(),
+        occurred_at: actualEventTime,
       });
+
+      // 4. Dispatch push alerts to all circle members and publish system message
       await dispatchGeofencePushAlert(breachEvent, place);
     } catch (e) {
-      console.warn('Error logging place_event:', e);
+      console.warn('Error logging geofence events:', e);
     }
   }
 
@@ -654,43 +716,41 @@ export async function dispatchGeofencePushAlert(breach: GeofenceBreachEvent, pla
 
     if (place.circle_id && isValidUuid(place.circle_id)) {
       try {
-        const { data: membersData, error: relErr } = await supabase
+        const { data: rawCmRows } = await supabase
           .from('circle_members')
-          .select('user_id, profiles(push_token)')
+          .select('user_id')
           .eq('circle_id', place.circle_id);
 
-        if (!relErr && membersData && membersData.length > 0) {
-          membersData.forEach(m => {
-            let prof = m.profiles as any;
-            if (Array.isArray(prof)) prof = prof[0];
+        if (rawCmRows && rawCmRows.length > 0) {
+          const otherMemberIds = rawCmRows
+            .map(cm => cm.user_id)
+            .filter(id => id !== breach.userId && isValidUuid(id));
 
-            if (prof?.push_token && m.user_id !== breach.userId) {
-              tokenSet.add(prof.push_token);
-            }
-          });
-        } else {
-          // Tier 2 direct query fallback without relational join
-          const { data: rawCmRows } = await supabase
-            .from('circle_members')
-            .select('user_id')
-            .eq('circle_id', place.circle_id);
+          if (otherMemberIds.length > 0) {
+            // 1. Authoritative: Fetch from public.push_tokens
+            const { data: ptRows } = await supabase
+              .from('push_tokens')
+              .select('expo_push_token')
+              .in('user_id', otherMemberIds);
 
-          if (rawCmRows && rawCmRows.length > 0) {
-            const memberIds = rawCmRows.map(cm => cm.user_id).filter(id => id !== breach.userId && isValidUuid(id));
-            if (memberIds.length > 0) {
-              const { data: profRows } = await supabase
-                .from('profiles')
-                .select('push_token')
-                .in('id', memberIds);
+            (ptRows || []).forEach(pt => {
+              if (pt.expo_push_token) tokenSet.add(pt.expo_push_token);
+            });
 
-              (profRows || []).forEach(p => {
-                if (p.push_token) tokenSet.add(p.push_token);
-              });
-            }
+            // 2. Fetch from profiles (push_token and expo_push_token)
+            const { data: profRows } = await supabase
+              .from('profiles')
+              .select('id, push_token, expo_push_token')
+              .in('id', otherMemberIds);
+
+            (profRows || []).forEach((p: any) => {
+              const t = p.expo_push_token || p.push_token;
+              if (t) tokenSet.add(t);
+            });
           }
         }
       } catch (e) {
-        console.warn('Geofence member token lookup note:', e);
+        console.warn('[GeofenceEngine] Member push token lookup error:', e);
       }
     }
 
@@ -709,12 +769,26 @@ export async function dispatchGeofencePushAlert(breach: GeofenceBreachEvent, pla
       ? CREATIVE_NOTIFICATION_TEMPLATES.departure(breach.userName, placeName, undefined, shortTimeStr)
       : CREATIVE_NOTIFICATION_TEMPLATES.arrival(breach.userName, placeName, shortTimeStr);
 
-    const title = template.title;
+    const title = template.title || (isExit ? `📍 ${breach.userName} left ${placeName}` : `📍 ${breach.userName} arrived at ${placeName}`);
     const body = isExit
-      ? `${breach.userName} departed ${placeName} safe boundary at ${preciseTimeStr}. Tap to view activity.`
-      : `${breach.userName} safely entered ${placeName} at ${preciseTimeStr}. Status verified.`;
+      ? `${breach.userName} left ${placeName} safe boundary at ${preciseTimeStr}.`
+      : `${breach.userName} arrived at ${placeName} at ${preciseTimeStr}.`;
 
-    // Deliver local pop-up notification and notify in-app listeners
+    // 1. Post automated broadcast message to circle so members see it in Chat and Timeline
+    if (place.circle_id) {
+      Promise.resolve(
+        supabase
+          .from('circle_messages')
+          .insert({
+            circle_id: place.circle_id,
+            sender_id: breach.userId,
+            content: isExit ? `📍 Left ${placeName} at ${shortTimeStr}` : `📍 Arrived at ${placeName} at ${shortTimeStr}`,
+            created_at: eventDate.toISOString(),
+          })
+      ).catch(() => {});
+    }
+
+    // 2. Deliver local notification and notify in-app listeners
     notifyInAppGeofenceBreach(breach);
 
     await scheduleLocalNotification(title, body, {
@@ -726,11 +800,16 @@ export async function dispatchGeofencePushAlert(breach: GeofenceBreachEvent, pla
       preciseTime: preciseTimeStr,
     });
 
+    // 3. Send high-priority Push Notification to ALL other members of the circle
     if (tokens.length > 0) {
+      console.log(`[GeofenceEngine] Sending geofence push to ${tokens.length} member tokens for ${breach.userName} ${isExit ? 'exit' : 'entry'}`);
       await sendExpoPushNotification(tokens, title, body, {
-        screen: 'Map',
+        screen: 'Activity',
+        type: 'GEOFENCE',
+        eventType: breach.type === 'exit' ? 'departure' : 'arrival',
         userId: breach.userId,
         placeId: breach.placeId,
+        circleId: place.circle_id,
         latitude: breach.latitude,
         longitude: breach.longitude,
       });
@@ -837,33 +916,7 @@ export async function evaluateCircleMembersGeofences(
   members: any[],
   places: GeofencePlace[]
 ): Promise<GeofenceBreachEvent[]> {
-  if (!members || members.length === 0 || !places || places.length === 0) return [];
-  const allBreaches: GeofenceBreachEvent[] = [];
-
-  for (const m of members) {
-    const lat = typeof m.latitude === 'number' ? m.latitude : parseFloat(m.latitude);
-    const lng = typeof m.longitude === 'number' ? m.longitude : parseFloat(m.longitude);
-
-    if (lat && lng && !isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0)) {
-      const userLoc: UserLocation = {
-        user_id: m.user_id || m.id,
-        latitude: lat,
-        longitude: lng,
-        speed_mps: m.isDriving ? 8 : (m.speed_mps || 0),
-        accuracy_m: 12,
-        updated_at: new Date().toISOString(),
-      };
-      const name = m.profile?.full_name || m.name || 'Member';
-      try {
-        const breaches = await evaluateGeofenceBreaches(userLoc, name, places);
-        if (breaches && breaches.length > 0) {
-          allBreaches.push(...breaches);
-        }
-      } catch (err) {
-        console.warn(`[GeofenceEngine] Error evaluating member ${m.user_id || m.id}:`, err);
-      }
-    }
-  }
-
-  return allBreaches;
+  // Safe design: individual member geofencing is evaluated by the member's own client/background engine
+  // using their authentic GPS timeline. This prevents spurious arrival timestamps when other users open the app.
+  return [];
 }

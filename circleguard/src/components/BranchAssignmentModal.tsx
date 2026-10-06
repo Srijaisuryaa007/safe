@@ -12,6 +12,7 @@ import {
   Image,
   Animated,
   PanResponder,
+  Vibration,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +29,7 @@ interface BranchAssignmentModalProps {
   onClose: () => void;
   targetMember: CircleMember | null;
   circleId: string;
+  circleOwnerId?: string;
   onAssigned?: (supervisorName: string, memberName: string) => void;
 }
 
@@ -36,6 +38,7 @@ export default function BranchAssignmentModal({
   onClose,
   targetMember,
   circleId,
+  circleOwnerId,
   onAssigned,
 }: BranchAssignmentModalProps) {
   const insets = useSafeAreaInsets();
@@ -85,15 +88,19 @@ export default function BranchAssignmentModal({
   // Prevent cycles: Find all descendants of targetMember (they cannot be chosen as supervisor)
   const descendantIds = React.useMemo(() => {
     const set = new Set<string>();
-    if (!targetMember) return set;
-    set.add(targetMember.user_id);
+    const uid = targetMember?.user_id || (targetMember as any)?.id;
+    if (!uid) return set;
+    set.add(uid);
 
     let added = true;
-    while (added) {
+    let iterations = 0;
+    while (added && iterations < 50) {
+      iterations++;
       added = false;
       for (const m of members) {
-        if (m.supervisor_id && set.has(m.supervisor_id) && !set.has(m.user_id)) {
-          set.add(m.user_id);
+        const mUserId = m?.user_id || (m as any)?.id;
+        if (m.supervisor_id && set.has(m.supervisor_id) && mUserId && !set.has(mUserId)) {
+          set.add(mUserId);
           added = true;
         }
       }
@@ -101,54 +108,71 @@ export default function BranchAssignmentModal({
     return set;
   }, [targetMember, members]);
 
+  // Find Founder / Circle Leader accurately
+  const founder = React.useMemo(() => {
+    if (!Array.isArray(members) || members.length === 0) return null;
+    if (circleOwnerId) {
+      const match = members.find((m) => (m.user_id || (m as any).id) === circleOwnerId);
+      if (match) return match;
+    }
+    const owners = members.filter((m) => m.role === 'owner' || (m.role as string) === 'leader');
+    return owners.length > 0 ? owners[0] : members[0];
+  }, [members, circleOwnerId]);
+
   if (!visible || !targetMember) return null;
 
-  const memberName = targetMember.profile?.full_name || 'Member';
+  const targetUserId = targetMember.user_id || (targetMember as any).id;
+  const memberName = targetMember.profile?.full_name || (targetMember as any)?.profiles?.full_name || (targetMember as any)?.full_name || 'Member';
   const memberInitial = memberName.charAt(0).toUpperCase() || 'M';
-  const avatarUrl = targetMember.profile?.avatar_url;
+  const avatarUrl = targetMember.profile?.avatar_url || (targetMember as any)?.profiles?.avatar_url || (targetMember as any)?.avatar_url;
   const currentSupervisorId = targetMember.supervisor_id;
 
-  // Find Founder / Circle Leader
-  const founder = members.find((m) => m.role === 'owner') || members[0];
-  const founderName = founder?.profile?.full_name || 'Circle Leader';
-  const founderAvatar = founder?.profile?.avatar_url;
+  const founderName = founder?.profile?.full_name || (founder as any)?.profiles?.full_name || 'Circle Leader';
+  const founderAvatar = founder?.profile?.avatar_url || (founder as any)?.profiles?.avatar_url;
 
   // All eligible supervisors: Co-Leaders, Guardians, and all other circle members (excluding Founder & descendants)
-  const eligibleGuardianBranches = members.filter(
-    (m) => m.user_id !== founder?.user_id && !descendantIds.has(m.user_id)
-  );
+  const founderUid = founder?.user_id || (founder as any)?.id;
+  const eligibleGuardianBranches = members.filter((m) => {
+    const uid = m?.user_id || (m as any)?.id;
+    return uid && uid !== founderUid && !descendantIds.has(uid);
+  });
 
-  const isUnderFounder = !currentSupervisorId || (founder && currentSupervisorId === founder.user_id);
+  const isUnderFounder = !currentSupervisorId || (founder && currentSupervisorId === founderUid);
 
   const handleSelectSupervisor = async (supervisor: CircleMember | null) => {
+    if (Platform.OS !== 'web') {
+      try { Vibration.vibrate(10); } catch (_) {}
+    }
     try {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     } catch (e) {}
 
-    const supervisorId = supervisor ? supervisor.user_id : null;
-    const supName = supervisor ? (supervisor.profile?.full_name || 'Guardian') : (founderName || 'Circle Leader');
+    const targetUid = targetMember.user_id || (targetMember as any).id;
+    const supervisorId = supervisor ? (supervisor.user_id || (supervisor as any).id) : (founderUid || null);
+    const supName = supervisor ? (supervisor.profile?.full_name || (supervisor as any)?.profiles?.full_name || 'Guardian') : (founderName || 'Circle Leader');
 
     // If selected member is standard member, promote them to 'guardian' rank as well
     if (supervisor && supervisor.role === 'member') {
+      const supUid = supervisor.user_id || (supervisor as any).id;
       try {
         await supabase
           .from('circle_members')
           .update({ role: 'guardian' })
           .eq('circle_id', circleId)
-          .eq('user_id', supervisor.user_id);
+          .eq('user_id', supUid);
       } catch (e) {}
 
       // Update in local store immediately
       const curr = useCircleStore.getState().members;
       useCircleStore.setState({
         members: curr.map((m) =>
-          m.user_id === supervisor.user_id ? { ...m, role: 'guardian' as const } : m
+          (m.user_id || (m as any).id) === supUid ? { ...m, role: 'guardian' as const } : m
         ),
       });
     }
 
     // Instant optimistic update
-    await assignMemberSupervisor(circleId, targetMember.user_id, supervisorId);
+    await assignMemberSupervisor(circleId, targetUid, supervisorId);
     if (onAssigned) {
       onAssigned(supName, memberName);
     }
@@ -156,8 +180,10 @@ export default function BranchAssignmentModal({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent={true} onRequestClose={onClose}>
       <View style={styles.overlay}>
+        {/* Backdrop Tap to Dismiss */}
+        <TouchableOpacity style={styles.dismissArea} activeOpacity={1} onPress={onClose} />
         <Animated.View
           style={[
             styles.sheetContainer,
@@ -188,7 +214,7 @@ export default function BranchAssignmentModal({
             <View style={[styles.handleBar, { backgroundColor: isDark ? '#26342D' : '#D1D5DB' }]} />
           </TouchableOpacity>
 
-          {/* Header Row */}
+          {/* Header Row with Badge & Close Button */}
           <View style={styles.headerRow}>
             <View style={styles.headerLeft}>
               <View style={[styles.categoryBadge, { backgroundColor: isDark ? 'rgba(2, 132, 199, 0.15)' : '#E0F2FE' }]}>
@@ -196,6 +222,15 @@ export default function BranchAssignmentModal({
                 <Text style={styles.categoryBadgeText}>GUARDIAN HIERARCHY ASSIGNMENT</Text>
               </View>
             </View>
+            <TouchableOpacity
+              style={[styles.closeBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}
+              onPress={onClose}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityLabel="Close"
+            >
+              <Ionicons name="close" size={16} color={isDark ? '#CAD5CE' : '#5C665F'} />
+            </TouchableOpacity>
           </View>
 
           {/* Target Member Strip */}
@@ -245,7 +280,7 @@ export default function BranchAssignmentModal({
                   elevation: 2,
                 },
               ]}
-              onPress={() => handleSelectSupervisor(null)}
+              onPress={() => handleSelectSupervisor(founder || null)}
               activeOpacity={0.8}
             >
               <View
@@ -368,10 +403,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(17, 19, 23, 0.72)',
     justifyContent: 'flex-end',
   },
+  dismissArea: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
   sheetContainer: {
+    width: '100%',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    borderWidth: 1,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 0,
     paddingTop: 8,
     paddingHorizontal: 20,
     maxHeight: '88%',

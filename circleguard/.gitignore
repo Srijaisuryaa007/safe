@@ -44,3 +44,7 @@ yarn-error.*
 tests/*.png
 scratch/
 playwright_screenshots/
+.gradle/
+**/.gradle/
+**/build/
+*.lock

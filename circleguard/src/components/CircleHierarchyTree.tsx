@@ -28,6 +28,7 @@ const CONNECTOR_HEIGHT = 32;
 interface CircleHierarchyTreeProps {
   members: CircleMember[];
   currentUserId?: string;
+  circleOwnerId?: string;
   isOwner?: boolean;
   canManageRanks?: boolean;
   onSelectMember: (member: CircleMember) => void;
@@ -44,6 +45,7 @@ interface TreeNode {
 export default function CircleHierarchyTree({
   members,
   currentUserId,
+  circleOwnerId,
   isOwner,
   canManageRanks,
   onSelectMember,
@@ -53,12 +55,16 @@ export default function CircleHierarchyTree({
   const { width: windowWidth } = useWindowDimensions();
   const [collapsedNodes, setCollapsedNodes] = useState<Record<string, boolean>>({});
 
-  // 1. Resolve Founder / Apex Node
+  // 1. Resolve Founder / Apex Node accurately
   const founder = useMemo(() => {
     if (!Array.isArray(members) || members.length === 0) return null;
-    const owners = members.filter((m) => m.role === 'owner');
+    if (circleOwnerId) {
+      const match = members.find((m) => m.user_id === circleOwnerId);
+      if (match) return match;
+    }
+    const owners = members.filter((m) => m.role === 'owner' || (m.role as string) === 'leader');
     return owners.length > 0 ? owners[0] : members[0];
-  }, [members]);
+  }, [members, circleOwnerId]);
 
   const toggleCollapse = (userId: string) => {
     try {
@@ -163,8 +169,10 @@ export default function CircleHierarchyTree({
       const sortedChildren = [...rawChildren]
         .filter((c) => !visited.has(c.user_id))
         .sort((a, b) => {
-          const weights: Record<string, number> = { co_leader: 1, guardian: 2, member: 3, owner: 4 };
-          return (weights[a.role] || 9) - (weights[b.role] || 9);
+          const weights: Record<string, number> = { co_leader: 1, guardian: 2, member: 3 };
+          const roleA = a.role === 'owner' ? 'co_leader' : a.role;
+          const roleB = b.role === 'owner' ? 'co_leader' : b.role;
+          return (weights[roleA] || 9) - (weights[roleB] || 9);
         });
 
       const totalDirectChildren = sortedChildren.length;
@@ -216,11 +224,13 @@ export default function CircleHierarchyTree({
     return Object.values(collapsedNodes).some((v) => v);
   }, [collapsedNodes]);
 
-  // Role Tokens
+  // Role Tokens - Exactly 1 Leader (golden), N Co-Leaders (purple), Guardians (sky blue), Members (emerald)
   const getRoleInfo = (m: CircleMember) => {
-    switch (m.role) {
+    const isSingleLeader = founder && m.user_id === founder.user_id;
+    const effectiveRole = isSingleLeader ? 'owner' : (m.role === 'owner' ? 'co_leader' : m.role);
+    switch (effectiveRole) {
       case 'owner':
-        return { color: '#D97706', title: 'FOUNDER', icon: 'ribbon' as keyof typeof Ionicons.glyphMap };
+        return { color: '#F5A623', title: 'LEADER', icon: 'ribbon' as keyof typeof Ionicons.glyphMap };
       case 'co_leader':
         return { color: '#7E22CE', title: 'CO-LEADER', icon: 'shield-checkmark' as keyof typeof Ionicons.glyphMap };
       case 'guardian':

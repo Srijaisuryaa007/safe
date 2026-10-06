@@ -14,40 +14,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useAuthStore } from '../store/useAuthStore';
-
-function AnimatedActivityItem({ children, index }: { children: React.ReactNode; index: number }) {
-  const anim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(anim, {
-      toValue: 1,
-      duration: 380,
-      delay: Math.min(index * 70, 350),
-      useNativeDriver: true,
-    }).start();
-  }, [index]);
-
-  const translateY = anim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [18, 0],
-  });
-
-  const scale = anim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.96, 1],
-  });
-
-  return (
-    <Animated.View
-      style={{
-        opacity: anim,
-        transform: [{ translateY }, { scale }],
-      }}
-    >
-      {children}
-    </Animated.View>
-  );
-}
 import { useCircleStore, CircleMember } from '../store/useCircleStore';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -75,6 +41,7 @@ import CircleQRCodeModal from '../components/CircleQRCodeModal';
 import BillionDollarHomeView from '../components/BillionDollarHomeView';
 import * as Location from 'expo-location';
 import { getHaversineDistanceInMeters } from '../services/GeofenceEngine';
+import { resolveAuthenticPlaceEventTime } from '../services/ActivityService';
 
 export default function HomeScreen() {
   const { colors, isDark, themeMode } = useThemeStore();
@@ -235,8 +202,22 @@ export default function HomeScreen() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'locations' },
         (payload: any) => {
-          console.log(`[GPS_PIPELINE:LAYER_5_REALTIME_SYNC] HomeScreen received Realtime postgres_changes event=${payload?.eventType} for user_id=${payload?.new?.user_id || payload?.old?.user_id}`);
-          useCircleStore.getState().fetchMembers(activeCircle.id);
+          if (payload?.new && payload.new.user_id) {
+            // ZERO-LATENCY FAST PATH: update moving member coordinates in 0ms without database re-query lag!
+            useCircleStore.getState().updateMemberLocationDirect(payload.new);
+          } else {
+            useCircleStore.getState().fetchMembers(activeCircle.id);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'zone_events', filter: `circle_id=eq.${activeCircle.id}` },
+        () => {
+          if (activeCircle?.id) {
+            fetchCircleActivity(activeCircle.id);
+            useCircleStore.getState().fetchMembers(activeCircle.id);
+          }
         }
       )
       .on(
@@ -317,8 +298,25 @@ export default function HomeScreen() {
 
       const placeIds = (placesRes.data || []).map((p: any) => p.id).filter(Boolean);
       let placeEventsData: any[] = [];
-      if (placeIds.length > 0) {
-        try {
+      try {
+        const { data: zeData } = await supabase
+          .from('zone_events')
+          .select('id, occurred_at, type, zone_id, member_id, places(name), profiles:member_id(full_name)')
+          .eq('circle_id', circleId)
+          .order('occurred_at', { ascending: false })
+          .limit(8);
+
+        if (zeData && zeData.length > 0) {
+          placeEventsData = zeData.map((ze: any) => ({
+            id: ze.id,
+            occurred_at: ze.occurred_at,
+            event_type: ze.type === 'EXIT' ? 'departure' : 'arrival',
+            place_id: ze.zone_id,
+            user_id: ze.member_id,
+            places: ze.places,
+            profiles: ze.profiles,
+          }));
+        } else if (placeIds.length > 0) {
           const { data: peData } = await supabase
             .from('place_events')
             .select('id, occurred_at, event_type, place_id, user_id, places(name), profiles(full_name)')
@@ -326,8 +324,8 @@ export default function HomeScreen() {
             .order('occurred_at', { ascending: false })
             .limit(5);
           if (peData) placeEventsData = peData;
-        } catch (e) {}
-      }
+        }
+      } catch (e) {}
 
       const sosActivities = (sosRes.data || []).map((item) => {
         let name = 'A member';
@@ -395,24 +393,18 @@ export default function HomeScreen() {
           placeName = Array.isArray(item.places) ? item.places[0]?.name : item.places?.name;
         }
         const isArrival = item.event_type === 'arrival';
-        const eventDate = new Date(item.occurred_at);
-        const shortTime = !isNaN(eventDate.getTime())
-          ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
-          : 'Recently';
-        const preciseTime = !isNaN(eventDate.getTime())
-          ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })
-          : 'Recently';
+        const timing = resolveAuthenticPlaceEventTime(item, placeEventsData);
 
         return {
           id: String(item.id),
           title: isArrival
-            ? `${name || 'Member'} arrived at ${placeName} • ${shortTime}`
-            : `${name || 'Member'} left ${placeName} • ${shortTime}`,
-          badgeText: isArrival ? `ZONE ARRIVAL • ${preciseTime}` : `ZONE DEPARTURE • ${preciseTime}`,
+            ? `${name || 'Member'} arrived at ${placeName} • ${timing.shortTime}`
+            : `${name || 'Member'} left ${placeName} • ${timing.shortTime}`,
+          badgeText: isArrival ? `ZONE ARRIVAL • ${timing.preciseTime}` : `ZONE DEPARTURE • ${timing.preciseTime}`,
           icon: isArrival ? 'location' : 'exit-outline',
-          time: preciseTime,
+          time: timing.preciseTime,
           color: isArrival ? '#10B981' : '#F5A623',
-          timestamp: new Date(item.occurred_at).getTime(),
+          timestamp: timing.effectiveTimestamp,
         };
       });
 

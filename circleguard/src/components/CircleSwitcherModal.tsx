@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCircleStore, Circle } from '../store/useCircleStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
@@ -24,6 +25,7 @@ interface CircleSwitcherModalProps {
 }
 
 export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcherModalProps) {
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { profile } = useAuthStore();
   const { isDark } = useThemeStore();
@@ -146,7 +148,10 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
           style={[
             styles.sheetCard,
             isDark && styles.sheetCardDark,
-            { transform: [{ translateY }] },
+            {
+              paddingBottom: Math.max(insets.bottom, 16) + 14,
+              transform: [{ translateY }],
+            },
           ]}
         >
           {/* Top Sheet Drag Handle: Both Tap to Close and Drag Down to Dismiss */}
@@ -319,10 +324,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderTopWidth: 1.2,
+    borderLeftWidth: 1.2,
+    borderRightWidth: 1.2,
+    borderBottomWidth: 0,
     paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
     paddingHorizontal: 20,
     maxHeight: '80%',
+    width: '100%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.12,

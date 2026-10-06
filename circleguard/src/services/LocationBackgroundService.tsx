@@ -149,12 +149,21 @@ try {
           const timeDiffSec = (now - lastSaved.timeMs) / 1000;
           if (isDriving || rawSpeed >= 2.0) {
             // High-precision breadcrumbs while in transit (metro, rail, or car)
-            if (distMeters >= 8 || timeDiffSec >= 12) {
+            if (distMeters >= 12 || timeDiffSec >= 15) {
               shouldSaveBgHistory = true;
             }
-          } else if (distMeters >= 20 || (distMeters >= 12 && timeDiffSec >= 180)) {
-            // Walking or slow transit
-            shouldSaveBgHistory = true;
+          } else if (rawSpeed >= 1.0) {
+            // Active walking / cycling (speed >= 1.0 m/s = 3.6 km/h)
+            if (distMeters >= 15 || timeDiffSec >= 30) {
+              shouldSaveBgHistory = true;
+            }
+          } else {
+            // Stationary / Parked / Indoor dwell (rawSpeed < 1.0 m/s):
+            // CRITICAL ANTI-DRIFT FIX: Never save periodic jitter breadcrumbs while stationary!
+            // Only record when user has genuinely departed from the stationary anchor (> 35m).
+            if (distMeters >= 35 && timeDiffSec >= 20) {
+              shouldSaveBgHistory = true;
+            }
           }
         }
 
@@ -330,6 +339,7 @@ try {
                   accuracy_m: latest.coords.accuracy ?? undefined,
                   speed_mps: rawSpeed,
                   activity_state: activityState,
+                  updated_at: new Date(latest.timestamp || Date.now()).toISOString(),
                 },
                 cached?.fullName || 'Member',
                 formattedPlaces
@@ -424,11 +434,46 @@ try {
         };
 
         try {
+          const transitionType = isExit ? 'EXIT' : 'ENTER';
+          const occurredAtIso = new Date().toISOString();
+
+          // 1. Authoritative: Call RPC / queue transition for offline resilience
+          try {
+            const { reportZoneTransitionAuthoritative } = require('./ZoneTransitionQueueService');
+            reportZoneTransitionAuthoritative({
+              memberId: userId,
+              zoneId: placeData.id,
+              type: transitionType,
+              occurredAt: occurredAtIso,
+              lat: region.latitude,
+              lng: region.longitude,
+            }).catch((e: any) => console.warn('[NativeGeofence] RPC report error:', e?.message));
+          } catch (_) {}
+
+          // 2. Direct insert into public.zone_events for guaranteed Realtime broadcast
+          if (placeData.circle_id) {
+            Promise.resolve(
+              supabase
+                .from('zone_events')
+                .insert({
+                  circle_id: placeData.circle_id,
+                  member_id: userId,
+                  zone_id: placeData.id,
+                  type: transitionType,
+                  occurred_at: occurredAtIso,
+                  received_at: occurredAtIso,
+                  lat: region.latitude,
+                  lng: region.longitude,
+                })
+            ).catch(() => {});
+          }
+
+          // 3. Insert into place_events for backward compatibility
           await supabase.from('place_events').insert({
             place_id: placeData.id,
             user_id: userId,
             event_type: isExit ? 'departure' : 'arrival',
-            occurred_at: new Date().toISOString(),
+            occurred_at: occurredAtIso,
           });
         } catch (e) {}
 

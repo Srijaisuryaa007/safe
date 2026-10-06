@@ -22,13 +22,17 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import * as Clipboard from 'expo-clipboard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeStore } from '../store/useThemeStore';
+import { reverseGeocodeLive, GeocodedAddress } from '../services/GeocodingService';
 
 interface CurrentAddressModalProps {
   visible: boolean;
   onClose: () => void;
   userLoc: { latitude: number; longitude: number } | null;
   onRefreshLocation?: () => Promise<void> | void;
+  safePlaces?: any[];
+  gpsAccuracy?: number;
 }
 
 export default function CurrentAddressModal({
@@ -36,8 +40,11 @@ export default function CurrentAddressModal({
   onClose,
   userLoc,
   onRefreshLocation,
+  safePlaces = [],
+  gpsAccuracy,
 }: CurrentAddressModalProps) {
   const { isDark } = useThemeStore();
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(false);
   const translateY = useRef(new Animated.Value(0)).current;
@@ -107,57 +114,53 @@ export default function CurrentAddressModal({
   const [streetName, setStreetName] = useState<string>('Detecting street...');
   const [areaDetails, setAreaDetails] = useState<string>('Resolving locality...');
   const [fullAddress, setFullAddress] = useState<string>('');
+  const [isSafeZone, setIsSafeZone] = useState<boolean>(false);
+  const [safeZoneName, setSafeZoneName] = useState<string | null>(null);
+  const [activeCoords, setActiveCoords] = useState<{ latitude: number; longitude: number } | null>(userLoc);
+  const [accuracy, setAccuracy] = useState<number | undefined>(gpsAccuracy);
   const [copied, setCopied] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    if (visible && userLoc?.latitude && userLoc?.longitude) {
-      resolveAddress(userLoc.latitude, userLoc.longitude);
+    if (userLoc?.latitude && userLoc?.longitude) {
+      setActiveCoords(userLoc);
+      if (gpsAccuracy) setAccuracy(gpsAccuracy);
     }
-  }, [visible, userLoc?.latitude, userLoc?.longitude]);
+  }, [userLoc?.latitude, userLoc?.longitude, gpsAccuracy]);
 
-  const resolveAddress = async (lat: number, lng: number) => {
+  useEffect(() => {
+    if (visible && activeCoords?.latitude && activeCoords?.longitude) {
+      resolveAddress(activeCoords.latitude, activeCoords.longitude, accuracy);
+    }
+  }, [visible, activeCoords?.latitude, activeCoords?.longitude, safePlaces]);
+
+  const resolveAddress = async (lat: number, lng: number, acc?: number) => {
     setLoading(true);
     try {
-      const results = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-      if (results && results.length > 0) {
-        const place = results[0];
-        
-        // Primary street / prominent landmark
-        const street = place.street || place.name || place.subregion || 'Current Location';
-        setStreetName(street);
+      const result = await reverseGeocodeLive(lat, lng, {
+        safePlaces,
+        accuracyMeters: acc ?? accuracy,
+      });
 
-        // Locality, City, Postal code
-        const localityParts = [
-          place.district || place.subregion,
-          place.city,
-          place.region,
-          place.postalCode,
-        ].filter(Boolean);
-        const locality = localityParts.join(', ');
-        setAreaDetails(locality || 'Area details resolved');
-
-        // Full address string for sharing & copying
-        const full = [place.name, place.street, place.district, place.city, place.region, place.postalCode, place.country]
-          .filter(Boolean)
-          .join(', ');
-        setFullAddress(full || `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
-      } else {
-        setStreetName(`Coordinates ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-        setAreaDetails('Locality coordinates available');
-        setFullAddress(`GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+      setStreetName(result.headline || `Street near ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+      setAreaDetails(result.subtitle || 'Locality details resolved');
+      setFullAddress(result.fullAddress);
+      setIsSafeZone(result.isSafePlace);
+      setSafeZoneName(result.safePlaceName || null);
+      if (typeof acc === 'number') {
+        setAccuracy(acc);
       }
     } catch (e) {
-      setStreetName(`GPS • ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-      setAreaDetails('High precision coordinates lock active');
-      setFullAddress(`https://maps.google.com/?q=${lat},${lng}`);
+      setStreetName(`Coordinates ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+      setAreaDetails('Live GPS Satellite Lock Active');
+      setFullAddress(`GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
     } finally {
       setLoading(false);
     }
   };
 
   const handleCopy = async () => {
-    const textToCopy = fullAddress || (userLoc ? `${userLoc.latitude}, ${userLoc.longitude}` : '');
+    const textToCopy = fullAddress || (activeCoords ? `${activeCoords.latitude}, ${activeCoords.longitude}` : '');
     if (textToCopy) {
       await Clipboard.setStringAsync(textToCopy);
       setCopied(true);
@@ -166,9 +169,10 @@ export default function CurrentAddressModal({
   };
 
   const handleShare = async () => {
-    if (!userLoc) return;
+    const targetLoc = activeCoords || userLoc;
+    if (!targetLoc) return;
     try {
-      const mapsUrl = `https://maps.google.com/?q=${userLoc.latitude},${userLoc.longitude}`;
+      const mapsUrl = `https://maps.google.com/?q=${targetLoc.latitude},${targetLoc.longitude}`;
       await Share.share({
         message: `📍 My Current Live Location on CircleGuard:\n${streetName}\n${areaDetails}\n\nLive Map Link: ${mapsUrl}`,
       });
@@ -181,8 +185,19 @@ export default function CurrentAddressModal({
       if (onRefreshLocation) {
         await onRefreshLocation();
       }
-      if (userLoc?.latitude && userLoc?.longitude) {
-        await resolveAddress(userLoc.latitude, userLoc.longitude);
+
+      // Force fresh high-precision GPS satellite fix directly from device hardware
+      const freshLoc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      }).catch(() => null);
+
+      if (freshLoc?.coords) {
+        const { latitude, longitude, accuracy: freshAcc } = freshLoc.coords;
+        setActiveCoords({ latitude, longitude });
+        setAccuracy(freshAcc ?? undefined);
+        await resolveAddress(latitude, longitude, freshAcc ?? undefined);
+      } else if (activeCoords?.latitude && activeCoords?.longitude) {
+        await resolveAddress(activeCoords.latitude, activeCoords.longitude, accuracy);
       }
     } finally {
       setRefreshing(false);
@@ -190,17 +205,27 @@ export default function CurrentAddressModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleDismiss}>
-      <TouchableOpacity
-        style={styles.modalOverlay}
-        activeOpacity={1}
-        onPress={handleDismiss}
-      >
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent={true}
+      onRequestClose={handleDismiss}
+    >
+      <View style={styles.modalOverlay}>
+        <TouchableOpacity
+          style={styles.backdrop}
+          activeOpacity={1}
+          onPress={handleDismiss}
+        />
         <Animated.View
           style={[
             styles.sheetContainer,
             isDark && { backgroundColor: '#141A17', borderColor: '#26372E' },
-            { transform: [{ translateY }] },
+            {
+              paddingBottom: Math.max(insets.bottom, 16) + 14,
+              transform: [{ translateY }],
+            },
           ]}
         >
           {/* Swiggy-Style Sheet Handle: Both Tap to Close and Drag Down to Dismiss */}
@@ -222,6 +247,15 @@ export default function CurrentAddressModal({
                 <View style={styles.liveGpsDot} />
                 <Text style={[styles.liveGpsText, isDark && { color: '#3ADFAB' }]}>CURRENT LIVE LOCATION</Text>
               </View>
+
+              {isSafeZone && safeZoneName ? (
+                <View style={[styles.safeZoneBadgePill, isDark && { backgroundColor: '#1C2621', borderColor: '#2E7D5B' }]}>
+                  <Ionicons name="shield-checkmark" size={11} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                  <Text style={[styles.safeZoneBadgeText, isDark && { color: '#3ADFAB' }]}>
+                    INSIDE {safeZoneName.toUpperCase()}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </View>
 
@@ -271,7 +305,7 @@ export default function CurrentAddressModal({
               <View style={{ flex: 1 }}>
                 <Text style={[styles.telemetryLabel, isDark && { color: '#8E9E94' }]}>COORDINATES</Text>
                 <Text style={[styles.telemetryValue, isDark && { color: '#FFFFFF' }]}>
-                  {userLoc ? `${userLoc.latitude.toFixed(5)}, ${userLoc.longitude.toFixed(5)}` : '--'}
+                  {activeCoords ? `${activeCoords.latitude.toFixed(5)}, ${activeCoords.longitude.toFixed(5)}` : '--'}
                 </Text>
               </View>
             </View>
@@ -286,7 +320,9 @@ export default function CurrentAddressModal({
               <View style={{ flex: 1 }}>
                 <Text style={[styles.telemetryLabel, isDark && { color: '#8E9E94' }]}>GPS ACCURACY</Text>
                 <Text style={[styles.telemetryValue, isDark && { color: '#FFFFFF' }]}>
-                  ± 4.5m High Precision
+                  {typeof accuracy === 'number' && accuracy > 0
+                    ? `± ${Math.round(accuracy)}m ${accuracy <= 15 ? 'Satellite Lock' : 'Precision'}`
+                    : '± 4.5m High Precision'}
                 </Text>
               </View>
             </View>
@@ -353,7 +389,7 @@ export default function CurrentAddressModal({
             </TouchableOpacity>
           </View>
         </Animated.View>
-      </TouchableOpacity>
+      </View>
     </Modal>
   );
 }
@@ -364,20 +400,28 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.55)',
     justifyContent: 'flex-end',
   },
+  backdrop: {
+    ...StyleSheet.absoluteFill,
+  },
   sheetContainer: {
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
-    borderWidth: 1,
+    borderTopWidth: 1.2,
+    borderLeftWidth: 1.2,
+    borderRightWidth: 1.2,
+    borderBottomWidth: 0,
     borderColor: '#ECEAE4',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 20,
+    width: '100%',
   },
   dragHandleBox: {
     alignItems: 'center',
@@ -424,6 +468,24 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.6,
     color: '#2E7D5B',
+  },
+  safeZoneBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#E8F5EE',
+    borderWidth: 1,
+    borderColor: '#A3D9BE',
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 999,
+    marginLeft: 8,
+  },
+  safeZoneBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#2E7D5B',
+    letterSpacing: 0.4,
   },
   closeIconBtn: {
     width: 32,

@@ -129,26 +129,46 @@ export async function registerForPushNotificationsAsync(userId: string): Promise
   try {
     // 1. Android Notification Channel setup with Apple-Minimalist colors (#1C1C1E / #0D0E12)
     if (Platform.OS === 'android' && Notifications.setNotificationChannelAsync) {
-      await Notifications.setNotificationChannelAsync('emergency-distress-v2', {
-        name: 'CircleGuard Emergency Distress',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 600, 300, 600, 300, 600],
-        lightColor: '#EF4444',
-        sound: 'default',
-        enableLights: true,
-        enableVibrate: true,
-        bypassDnd: true,
-        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      });
+      try {
+        await Notifications.setNotificationChannelAsync('emergency-distress-v2', {
+          name: 'CircleGuard Emergency Distress',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 600, 300, 600, 300, 600],
+          lightColor: '#EF4444',
+          sound: 'default',
+          enableLights: true,
+          enableVibrate: true,
+          bypassDnd: false, // Prevents Android NPE when DND access permission is not granted
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        });
+      } catch (e) {
+        // Ignored in Expo Go or non-privileged environments
+      }
 
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'CircleGuard Member Radar',
-        importance: Notifications.AndroidImportance.HIGH,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#1C1C1E', // Minimalist Apple-style dark monochrome
-        sound: 'default',
-        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      });
+      try {
+        await Notifications.setNotificationChannelAsync('safe-zone', {
+          name: 'CircleGuard Safe Zones',
+          importance: Notifications.AndroidImportance.HIGH,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#3ADFAB',
+          sound: 'default',
+          enableLights: true,
+          enableVibrate: true,
+          showBadge: true,
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        });
+      } catch (e) {}
+
+      try {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'CircleGuard Member Radar',
+          importance: Notifications.AndroidImportance.HIGH,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#1C1C1E',
+          sound: 'default',
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        });
+      } catch (e) {}
     }
 
     // 2. Request System Push Notification Permissions
@@ -182,12 +202,33 @@ export async function registerForPushNotificationsAsync(userId: string): Promise
       const token = tokenData?.data;
 
       if (token && userId) {
+        // Resolve device's IANA timezone (e.g., 'America/New_York', 'Asia/Kolkata')
+        const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+        // 1. Authoritative upsert to public.push_tokens
+        try {
+          await supabase
+            .from('push_tokens')
+            .upsert({
+              user_id: userId,
+              expo_push_token: token,
+              platform: Platform.OS,
+              timezone: deviceTimezone,
+              updated_at: new Date().toISOString(),
+            }, {
+              onConflict: 'user_id,expo_push_token',
+            });
+        } catch (tokErr) {
+          console.warn('[PushService] push_tokens table upsert error:', tokErr);
+        }
+
+        // 2. Backward compatibility: update profiles.push_token
         await supabase
           .from('profiles')
           .update({ push_token: token })
           .eq('id', userId);
 
-        console.log('[PushService] System Push Token saved to Supabase profile:', token);
+        console.log('[PushService] System Push Token saved with timezone:', deviceTimezone, token);
       }
 
       return token;
@@ -347,18 +388,20 @@ export async function scheduleLocalNotification(title: string, body: string, dat
     
     // Ensure Android Notification Channel is set to Apple Minimalist Dark Monochrome with MAX importance
     if (Platform.OS === 'android' && Notifications.setNotificationChannelAsync) {
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'CircleGuard Radar',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 200, 100, 200],
-        lightColor: '#1C1C1E',
-        sound: 'default',
-        enableLights: true,
-        enableVibrate: true,
-        showBadge: true,
-        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-        bypassDnd: false,
-      });
+      try {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'CircleGuard Radar',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 200, 100, 200],
+          lightColor: '#1C1C1E',
+          sound: 'default',
+          enableLights: true,
+          enableVibrate: true,
+          showBadge: true,
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+          bypassDnd: false,
+        });
+      } catch (e) {}
     }
 
     await Notifications.scheduleNotificationAsync({
@@ -376,5 +419,44 @@ export async function scheduleLocalNotification(title: string, body: string, dat
     });
   } catch (e) {
     console.warn('[PushService] Local system notification pop-up error:', e);
+  }
+}
+
+/**
+ * Setup Push Notification Listeners for both foreground and background data payloads (e.g. LOCATION_PING)
+ */
+export function setupPushNotificationListeners() {
+  if (Platform.OS === 'web') return;
+  const Notifications = getNotificationsModule();
+  if (!Notifications) return;
+
+  try {
+    // 1. Handle incoming notification when app is running (foreground or background wake)
+    Notifications.addNotificationReceivedListener(async (notification: any) => {
+      const data = notification?.request?.content?.data;
+      if (data?.type === 'LOCATION_PING') {
+        try {
+          const { locationRequestService } = require('./LocationRequestService');
+          await locationRequestService.handleIncomingLocationPing(data);
+        } catch (err) {
+          console.warn('[PushService] LOCATION_PING handling error:', err);
+        }
+      }
+    });
+
+    // 2. Handle notification response when user taps notification
+    Notifications.addNotificationResponseReceivedListener(async (response: any) => {
+      const data = response?.notification?.request?.content?.data;
+      if (data?.type === 'LOCATION_PING') {
+        try {
+          const { locationRequestService } = require('./LocationRequestService');
+          await locationRequestService.handleIncomingLocationPing(data);
+        } catch (err) {
+          console.warn('[PushService] LOCATION_PING response error:', err);
+        }
+      }
+    });
+  } catch (e) {
+    console.warn('[PushService] Could not register push notification listeners:', e);
   }
 }

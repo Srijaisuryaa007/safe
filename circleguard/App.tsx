@@ -8,7 +8,9 @@ import { useAuthStore } from './src/store/useAuthStore';
 import { useCircleStore } from './src/store/useCircleStore';
 import AppNavigator from './src/navigation/AppNavigator';
 import { startBatteryOptimizedBackgroundLocation, stopBatteryOptimizedBackgroundLocation } from './src/services/LocationBackgroundService';
-import { registerForPushNotificationsAsync } from './src/services/PushNotificationService';
+import { registerForPushNotificationsAsync, setupPushNotificationListeners } from './src/services/PushNotificationService';
+import { registerSafeZoneGeofences, startSafeZoneLocationFallback } from './src/tasks/backgroundTasks';
+import { flushZoneTransitionQueue } from './src/services/ZoneTransitionQueueService';
 import { useThemeStore } from './src/store/useThemeStore';
 import { useCountryStore } from './src/store/useCountryStore';
 import { RevenueCatService } from './src/services/RevenueCatService';
@@ -25,9 +27,10 @@ function App() {
   const { setSession, setProfile, setLoading } = useAuthStore();
 
   useEffect(() => {
-    // 0. Initialize visual theme & country regional preferences
+    // 0. Initialize visual theme & country regional preferences & push listeners
     useThemeStore.getState().initTheme().catch(() => { });
     useCountryStore.getState().initCountry().catch(() => { });
+    setupPushNotificationListeners();
 
     let isMounted = true;
 
@@ -228,12 +231,25 @@ function App() {
 
       if (data) {
         setProfile(data);
-        useCircleStore.getState().fetchActiveCircle(userId).then((circle) => {
+
+        // Fetch dedicated medical_info and emergency_contacts from Supabase
+        const { EmergencyMedicalService } = require('./src/services/EmergencyMedicalService');
+        EmergencyMedicalService.fetchMedicalInfo(userId).catch(() => {});
+        EmergencyMedicalService.fetchEmergencyContacts(userId).catch(() => {});
+        EmergencyMedicalService.syncPendingQueues(userId).catch(() => {});
+
+        useCircleStore.getState().fetchActiveCircle(userId).then(async (circle) => {
           if (circle) {
             startBatteryOptimizedBackgroundLocation();
+            const places = useCircleStore.getState().places;
+            if (places && places.length > 0) {
+              await registerSafeZoneGeofences(places);
+            }
+            await startSafeZoneLocationFallback();
           }
         }).catch(() => {});
         registerForPushNotificationsAsync(userId);
+        flushZoneTransitionQueue().catch(() => {});
         RevenueCatService.initialize(userId);
       } else {
         // Network/DB returned empty or error:

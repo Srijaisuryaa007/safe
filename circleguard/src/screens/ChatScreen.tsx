@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Image,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -50,6 +51,12 @@ export interface ChatMessage {
   reactions?: Record<string, string[]>;
 }
 
+export interface TaggedMemberInfo {
+  id: string;
+  name: string;
+  avatar?: string | null;
+}
+
 export default function ChatScreen() {
   const navigation = useNavigation();
   const route = useRoute<any>();
@@ -60,16 +67,20 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const topInset = getSafeTopInset(insets.top);
 
-  const initialFilterId = route.params?.filterMemberId || route.params?.memberId;
+  // If explicitly requested to only filter, apply filter; otherwise keep all circle messages visible
+  const isExplicitFilter = Boolean(route.params?.onlyFilter || (route.params?.filterMemberId && !route.params?.taggedMember));
+  const initialFilterId = isExplicitFilter ? (route.params?.filterMemberId || route.params?.memberId) : null;
   const targetMemberName = route.params?.memberName;
   const [activeFilterMemberId, setActiveFilterMemberId] = useState<string | null>(initialFilterId || null);
 
   useEffect(() => {
-    const fId = route.params?.filterMemberId || route.params?.memberId;
-    if (fId) {
-      setActiveFilterMemberId(fId);
+    if (route.params?.onlyFilter || (route.params?.filterMemberId && !route.params?.taggedMember)) {
+      const fId = route.params?.filterMemberId || route.params?.memberId;
+      if (fId) {
+        setActiveFilterMemberId(fId);
+      }
     }
-  }, [route.params?.filterMemberId, route.params?.memberId]);
+  }, [route.params?.onlyFilter, route.params?.filterMemberId, route.params?.taggedMember, route.params?.memberId]);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -79,9 +90,93 @@ export default function ChatScreen() {
   const [selectedReactionMsgId, setSelectedReactionMsgId] = useState<string | null>(null);
   const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
 
+  // Active Tagged Member State
+  const [taggedMember, setTaggedMember] = useState<TaggedMemberInfo | null>(null);
+
   const flatListRef = useRef<FlatList>(null);
+  const inputRef = useRef<any>(null);
   const channelRef = useRef<any>(null);
   const typingTimeoutRef = useRef<any>(null);
+
+  // Auto-tag user when navigating to Chat from a user's profile, member card, or action modal
+  useEffect(() => {
+    const tm = route.params?.taggedMember || route.params?.member;
+    const targetName = tm?.profile?.full_name || tm?.full_name || tm?.name || route.params?.memberName;
+    const targetId = tm?.user_id || tm?.id || route.params?.memberId;
+    const targetAvatar = tm?.profile?.avatar_url || tm?.avatar_url || tm?.avatar;
+
+    if (targetName) {
+      setTaggedMember({
+        id: targetId || '',
+        name: targetName,
+        avatar: targetAvatar,
+      });
+
+      const tagPrefix = `@${targetName} `;
+      setInputText((prev) => {
+        if (!prev) return tagPrefix;
+        if (prev.includes(`@${targetName}`)) return prev;
+        return `${tagPrefix}${prev.trimStart()}`;
+      });
+
+      const timer = setTimeout(() => {
+        inputRef.current?.focus?.();
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [route.params?.taggedMember, route.params?.member, route.params?.memberName, route.params?.memberId]);
+
+  const handleTagMember = (memberInfo: { id: string; name: string; avatar?: string | null }) => {
+    setTaggedMember(memberInfo);
+    const tagPrefix = `@${memberInfo.name} `;
+    setInputText((prev) => {
+      if (!prev) return tagPrefix;
+      if (prev.includes(`@${memberInfo.name}`)) return prev;
+      return `${prev.trimEnd()} ${tagPrefix}`;
+    });
+    setTimeout(() => {
+      inputRef.current?.focus?.();
+    }, 120);
+  };
+
+  const handleClearTag = () => {
+    if (taggedMember) {
+      const tagPattern = new RegExp(`@${taggedMember.name}\\s*`, 'gi');
+      setInputText((prev) => prev.replace(tagPattern, '').trimStart());
+    }
+    setTaggedMember(null);
+  };
+
+  // Mention Autocomplete: detect "@" being typed
+  const lastAtPos = inputText.lastIndexOf('@');
+  const isTypingMention = lastAtPos !== -1 && !inputText.slice(lastAtPos).includes(' ');
+  const mentionQuery = isTypingMention ? inputText.slice(lastAtPos + 1).toLowerCase() : '';
+
+  const mentionSuggestions = React.useMemo(() => {
+    if (!isTypingMention) return [];
+    return members
+      .filter((m) => {
+        if (m.user_id === profile?.id) return false;
+        const fullName = m.profile?.full_name || '';
+        return fullName.toLowerCase().includes(mentionQuery);
+      })
+      .slice(0, 5);
+  }, [isTypingMention, mentionQuery, members, profile?.id]);
+
+  const handleSelectMentionSuggestion = (memberItem: any) => {
+    const memName = memberItem.profile?.full_name || 'Member';
+    const beforeAt = inputText.slice(0, lastAtPos);
+    const newText = `${beforeAt}@${memName} `;
+    setInputText(newText);
+    setTaggedMember({
+      id: memberItem.user_id,
+      name: memName,
+      avatar: memberItem.profile?.avatar_url,
+    });
+    setTimeout(() => {
+      inputRef.current?.focus?.();
+    }, 80);
+  };
 
   // Set of viewed message IDs to prevent duplicate RPC calls
   const viewedSetRef = useRef<Set<string>>(new Set());
@@ -476,7 +571,10 @@ export default function ChatScreen() {
       return;
     }
 
-    if (!customContent) setInputText('');
+    if (!customContent) {
+      setInputText('');
+      setTaggedMember(null);
+    }
     setSending(true);
 
     const senderFirstName = profile?.full_name?.split(' ')[0] || 'Member';
@@ -579,22 +677,40 @@ export default function ChatScreen() {
       if (!circleMembers) return;
 
       const tokens: string[] = [];
+      const taggedTokens: string[] = [];
+
       circleMembers.forEach((m: any) => {
         let prof = m.profiles;
         if (Array.isArray(prof)) prof = prof[0];
         if (prof?.push_token) {
-          tokens.push(prof.push_token);
+          const isTagged = taggedMember?.id === m.user_id || 
+            (prof.full_name && msgText.toLowerCase().includes(`@${prof.full_name.toLowerCase()}`));
+          if (isTagged) {
+            taggedTokens.push(prof.push_token);
+          } else {
+            tokens.push(prof.push_token);
+          }
         }
       });
 
-      if (tokens.length > 0) {
-        const senderName = profile?.full_name || 'Circle Member';
-        const cleanTitle = `${senderName} (Circle Chat)`;
-        const cleanBody = msgText.length > 90 ? `${msgText.substring(0, 90)}...` : msgText;
+      const senderName = profile?.full_name || 'Circle Member';
+      const cleanBody = msgText.length > 90 ? `${msgText.substring(0, 90)}...` : msgText;
 
+      // 1. High-priority targeted alert for tagged member
+      if (taggedTokens.length > 0) {
+        await sendExpoPushNotification(
+          taggedTokens,
+          `🔔 ${senderName} tagged you in Circle Chat`,
+          cleanBody,
+          { screen: 'Chat', circle_id: activeCircle.id, tagged: true }
+        );
+      }
+
+      // 2. Regular alert for the rest of circle members
+      if (tokens.length > 0) {
         await sendExpoPushNotification(
           tokens,
-          cleanTitle,
+          `${senderName} (Circle Chat)`,
           cleanBody,
           { screen: 'Chat', circle_id: activeCircle.id }
         );
@@ -624,6 +740,64 @@ export default function ChatScreen() {
     return '';
   };
 
+  const renderFormattedMessageContent = (content: string, textColor: string, isMeBubble: boolean) => {
+    // Regex matching @Name mentions (e.g. @John Doe, @Alice)
+    const mentionRegex = /(@[A-Za-z0-9_]+(?:\s[A-Za-z0-9_]+)?)/g;
+    const parts = content.split(mentionRegex);
+
+    if (parts.length <= 1) {
+      return (
+        <Text style={[styles.bubbleText, { color: textColor }]}>
+          {content}
+        </Text>
+      );
+    }
+
+    return (
+      <Text style={[styles.bubbleText, { color: textColor }]}>
+        {parts.map((part, idx) => {
+          if (!part) return null;
+          if (part.startsWith('@')) {
+            const rawName = part.substring(1).trim().toLowerCase();
+            const matchedMember = members.find((m) => {
+              const fName = (m.profile?.full_name || '').toLowerCase();
+              return fName === rawName || fName.startsWith(rawName) || rawName.startsWith(fName.split(' ')[0]);
+            });
+
+            return (
+              <Text
+                key={idx}
+                style={[
+                  styles.mentionInBubble,
+                  {
+                    color: isMeBubble ? '#FFFFFF' : (isDark ? '#3ADFAB' : '#2E7D5B'),
+                    backgroundColor: isMeBubble
+                      ? 'rgba(255, 255, 255, 0.22)'
+                      : isDark
+                      ? 'rgba(58, 223, 171, 0.16)'
+                      : 'rgba(46, 125, 91, 0.12)',
+                  },
+                ]}
+                onPress={() => {
+                  if (matchedMember) {
+                    handleTagMember({
+                      id: matchedMember.user_id,
+                      name: matchedMember.profile?.full_name || part.substring(1),
+                      avatar: matchedMember.profile?.avatar_url,
+                    });
+                  }
+                }}
+              >
+                {part}
+              </Text>
+            );
+          }
+          return <Text key={idx}>{part}</Text>;
+        })}
+      </Text>
+    );
+  };
+
   const renderMessageItem = ({ item }: { item: ChatMessage }) => {
     const isMe = item.sender_id === profile?.id;
     const initial = String(item.sender_name || 'M').charAt(0).toUpperCase();
@@ -638,18 +812,47 @@ export default function ChatScreen() {
     return (
       <View style={[styles.messageRow, isMe ? styles.myMessageRow : styles.theirMessageRow]}>
         {!isMe ? (
-          <View style={[styles.avatarBox, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 16 }]}>
+          <TouchableOpacity
+            style={[styles.avatarBox, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 16 }]}
+            onPress={() => {
+              if (item.sender_name) {
+                handleTagMember({
+                  id: item.sender_id,
+                  name: item.sender_name,
+                  avatar: item.sender_avatar,
+                });
+              }
+            }}
+            activeOpacity={0.7}
+            accessibilityLabel={`Tag ${item.sender_name || 'member'}`}
+            accessibilityRole="button"
+          >
             {item.sender_avatar ? (
               <Image source={{ uri: item.sender_avatar }} style={styles.avatarImg} />
             ) : (
               <Text style={[styles.avatarInitial, { color: colors.foreground }]}>{initial}</Text>
             )}
-          </View>
+          </TouchableOpacity>
         ) : null}
 
         <View style={{ maxWidth: '80%', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
           {!isMe ? (
-            <Text style={[styles.senderName, { color: colors.foreground, fontSize: 11, fontWeight: '700', marginBottom: 2 }]}>{item.sender_name}</Text>
+            <TouchableOpacity
+              onPress={() => {
+                if (item.sender_name) {
+                  handleTagMember({
+                    id: item.sender_id,
+                    name: item.sender_name,
+                    avatar: item.sender_avatar,
+                  });
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.senderName, { color: colors.foreground, fontSize: 11, fontWeight: '700', marginBottom: 2 }]}>
+                {item.sender_name} <Text style={{ fontSize: 9.5, color: isDark ? '#3ADFAB' : '#2E7D5B', fontWeight: '600' }}>· Tag</Text>
+              </Text>
+            </TouchableOpacity>
           ) : null}
 
           {/* Floating Quick Emoji Reaction Bar */}
@@ -753,9 +956,7 @@ export default function ChatScreen() {
                 </Text>
               </View>
             ) : (
-              <Text style={[styles.bubbleText, { color: bubbleThemeStyle.textColor }]}>
-                {item.content}
-              </Text>
+              renderFormattedMessageContent(item.content, bubbleThemeStyle.textColor, isMe)
             )}
 
             {/* Time Readout & iMessage Read Receipts */}
@@ -869,6 +1070,79 @@ export default function ChatScreen() {
         </View>
       )}
 
+      {/* Circle Members Quick Tag Strip */}
+      {members && members.length > 1 && (
+        <View style={[styles.membersTagStrip, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+          <View style={styles.tagStripLabelBox}>
+            <Ionicons name="at" size={13} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+            <Text style={[styles.tagStripLabel, { color: isDark ? '#3ADFAB' : '#2E7D5B' }]}>TAG</Text>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.membersTagScroll}>
+            {members
+              .filter((m) => m.user_id !== profile?.id)
+              .map((m) => {
+                const memName = m.profile?.full_name || 'Member';
+                const initial = memName.charAt(0).toUpperCase();
+                const isCurrentTagged = taggedMember?.id === m.user_id || inputText.includes(`@${memName}`);
+
+                return (
+                  <TouchableOpacity
+                    key={m.user_id}
+                    style={[
+                      styles.memberTagChip,
+                      {
+                        backgroundColor: isCurrentTagged
+                          ? (isDark ? 'rgba(58, 223, 171, 0.22)' : '#D1FAE5')
+                          : (isDark ? '#1C2621' : '#F1F5F3'),
+                        borderColor: isCurrentTagged
+                          ? (isDark ? '#3ADFAB' : '#10B981')
+                          : (isDark ? '#2B3931' : '#E2E8E4'),
+                      },
+                    ]}
+                    onPress={() => {
+                      if (isCurrentTagged) {
+                        handleClearTag();
+                      } else {
+                        handleTagMember({
+                          id: m.user_id,
+                          name: memName,
+                          avatar: m.profile?.avatar_url,
+                        });
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.memberTagAvatar, { backgroundColor: isDark ? '#2E3D34' : '#CBD5E1' }]}>
+                      {m.profile?.avatar_url ? (
+                        <Image source={{ uri: m.profile.avatar_url }} style={styles.memberTagAvatarImg} />
+                      ) : (
+                        <Text style={[styles.memberTagAvatarInitial, { color: colors.foreground }]}>{initial}</Text>
+                      )}
+                    </View>
+                    <Text
+                      style={[
+                        styles.memberTagChipText,
+                        {
+                          color: isCurrentTagged
+                            ? (isDark ? '#3ADFAB' : '#047857')
+                            : colors.foreground,
+                          fontWeight: isCurrentTagged ? '800' : '600',
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {memName.split(' ')[0]}
+                    </Text>
+                    {isCurrentTagged && (
+                      <Ionicons name="checkmark-circle" size={12} color={isDark ? '#3ADFAB' : '#10B981'} style={{ marginLeft: 2 }} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+          </ScrollView>
+        </View>
+      )}
+
       {/* Quick Action Safety Pills */}
       <View style={[styles.pillsBar, { borderBottomColor: colors.border }]}>
         <FlatList
@@ -960,6 +1234,95 @@ export default function ChatScreen() {
       {/* Live Typing Indicator Animation */}
       <TypingIndicator typingUsers={typingUsers} />
 
+      {/* Mention Autocomplete Suggestions List */}
+      {mentionSuggestions.length > 0 && (
+        <View style={[
+          styles.mentionSuggestBox, 
+          { 
+            backgroundColor: isDark ? '#1C2621' : '#FFFFFF', 
+            borderColor: isDark ? '#2B3931' : '#E2E8F0',
+          }
+        ]}>
+          <View style={styles.mentionSuggestHeader}>
+            <Ionicons name="at" size={12} color={colors.accentGold} />
+            <Text style={[styles.mentionSuggestHeaderText, { color: colors.textMuted }]}>
+              CIRCLE MEMBERS
+            </Text>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mentionSuggestScroll}>
+            {mentionSuggestions.map((m) => {
+              const mName = m.profile?.full_name || 'Member';
+              return (
+                <TouchableOpacity
+                  key={m.user_id}
+                  style={[
+                    styles.mentionSuggestItem, 
+                    { 
+                      backgroundColor: isDark ? '#26342D' : '#F1F5F9',
+                      borderColor: isDark ? 'rgba(58, 223, 171, 0.3)' : '#CBD5E1',
+                    }
+                  ]}
+                  onPress={() => handleSelectMentionSuggestion(m)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.suggestAvatarWrap, { backgroundColor: isDark ? '#1C2621' : '#E2E8F0' }]}>
+                    {m.profile?.avatar_url ? (
+                      <Image source={{ uri: m.profile.avatar_url }} style={styles.suggestAvatarImg} />
+                    ) : (
+                      <Text style={[styles.suggestAvatarInitial, { color: colors.foreground }]}>{mName.charAt(0).toUpperCase()}</Text>
+                    )}
+                  </View>
+                  <Text style={[styles.suggestMemberName, { color: colors.foreground }]}>{mName}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Active Tagged Member Banner */}
+      {taggedMember && (
+        <View style={[
+          styles.taggedMemberBanner, 
+          { 
+            backgroundColor: isDark ? 'rgba(46, 125, 91, 0.22)' : '#E8F5E9',
+            borderColor: isDark ? 'rgba(58, 223, 171, 0.4)' : '#A5D6A7',
+          }
+        ]}>
+          <View style={styles.taggedMemberLeft}>
+            <View style={[styles.taggedAvatarCircle, { backgroundColor: isDark ? '#2E7D5B' : '#C8E6C9' }]}>
+              {taggedMember.avatar ? (
+                <Image source={{ uri: taggedMember.avatar }} style={styles.taggedAvatarImg} />
+              ) : (
+                <Text style={[styles.taggedAvatarInitial, { color: isDark ? '#FFFFFF' : '#1B5E20' }]}>
+                  {taggedMember.name.charAt(0).toUpperCase()}
+                </Text>
+              )}
+            </View>
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Ionicons name="at" size={13} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                <Text style={[styles.taggedTitleText, { color: isDark ? '#3ADFAB' : '#2E7D5B' }]} numberOfLines={1}>
+                  Mentioning {taggedMember.name}
+                </Text>
+              </View>
+              <Text style={[styles.taggedSubtitleText, { color: colors.textMuted }]} numberOfLines={1}>
+                Member will be notified and tagged directly in this message
+              </Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.dismissTagBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}
+            onPress={handleClearTag}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityLabel="Remove mention tag"
+          >
+            <Ionicons name="close" size={16} color={colors.foreground} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Input Bar */}
       <View style={[styles.inputBar, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
         <TouchableOpacity
@@ -979,6 +1342,7 @@ export default function ChatScreen() {
         </TouchableOpacity>
 
         <TextInput
+          ref={inputRef}
           style={[
             styles.textInput, 
             { 
@@ -989,7 +1353,7 @@ export default function ChatScreen() {
               borderWidth: 1,
             }
           ]}
-          placeholder="Write a message..."
+          placeholder={taggedMember ? `Message @${taggedMember.name.split(' ')[0]}...` : "Write a message..."}
           placeholderTextColor={colors.textMuted}
           value={inputText}
           onChangeText={handleInputChange}
@@ -1271,5 +1635,157 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '700',
+  },
+  membersTagStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+  },
+  tagStripLabelBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingRight: 8,
+  },
+  tagStripLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  membersTagScroll: {
+    gap: 8,
+    alignItems: 'center',
+  },
+  memberTagChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+  },
+  memberTagAvatar: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  memberTagAvatarImg: {
+    width: '100%',
+    height: '100%',
+  },
+  memberTagAvatarInitial: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  memberTagChipText: {
+    fontSize: 11,
+  },
+  taggedMemberBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+  },
+  taggedMemberLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  taggedAvatarCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  taggedAvatarImg: {
+    width: '100%',
+    height: '100%',
+  },
+  taggedAvatarInitial: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  taggedTitleText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  taggedSubtitleText: {
+    fontSize: 10,
+    marginTop: 1,
+  },
+  dismissTagBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  mentionSuggestBox: {
+    borderTopWidth: 1,
+    paddingTop: 6,
+    paddingBottom: 2,
+  },
+  mentionSuggestHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+  },
+  mentionSuggestHeaderText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  mentionSuggestScroll: {
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 6,
+  },
+  mentionSuggestItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+  },
+  suggestAvatarWrap: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  suggestAvatarImg: {
+    width: '100%',
+    height: '100%',
+  },
+  suggestAvatarInitial: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  suggestMemberName: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  mentionInBubble: {
+    fontWeight: '800',
+    borderRadius: 4,
+    paddingHorizontal: 4,
   },
 });

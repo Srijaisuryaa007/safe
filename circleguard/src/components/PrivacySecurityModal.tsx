@@ -188,6 +188,23 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
         console.warn('Failed to sync hide online presence to cloud:', err);
       }
     }
+    if (key === KEYS.SHAKE_SOS && profile?.id) {
+      try {
+        await supabase.from('profiles').update({ shake_sos_enabled: value }).eq('id', profile.id);
+        useAuthStore.getState().updateProfileFields({ shake_sos_enabled: value });
+      } catch (err) {
+        console.warn('Failed to sync shake sos to cloud:', err);
+      }
+    }
+
+    if (key === KEYS.APP_LOCK && profile?.id) {
+      try {
+        await supabase.from('profiles').update({ app_lock_enabled: value }).eq('id', profile.id);
+        useAuthStore.getState().updateProfileFields({ app_lock_enabled: value });
+      } catch (err) {
+        console.warn('Failed to sync app lock to cloud:', err);
+      }
+    }
   };
 
   const handlePurgeLocationHistory = async () => {
