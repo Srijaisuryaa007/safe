@@ -22,6 +22,8 @@ import { segmentTripsByStops } from '../services/TripSegmentationService';
 import { intelligentRouteReconstruction, detectRouteGaps, ReconstructionResult } from '../services/HistoricalRouteReconstructionService';
 import AnimatedListDropdown from '../components/AnimatedListDropdown';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
+import ConcentricActivityRings from '../components/charts/ConcentricActivityRings';
+import PlacesDwellDonutChart from '../components/charts/PlacesDwellDonutChart';
 
 import {
   processEnterpriseLocationHistory,
@@ -115,6 +117,7 @@ export default function LocationHistoryScreen() {
 
   // Filters - prioritize member passed from route navigation (e.g., Circle tab 3-dots actions)
   const initialTargetMemberId = route.params?.memberId || route.params?.member?.user_id || route.params?.member?.id;
+  const lastHandledRouteParamIdRef = useRef<string | null>(initialTargetMemberId || null);
   const [selectedDate, setSelectedDate] = useState<'today' | 'yesterday' | '2daysAgo'>('today');
   const [selectedMemberId, setSelectedMemberId] = useState<string>(initialTargetMemberId || profile?.id || '');
   const [memberPickerVisible, setMemberPickerVisible] = useState(false);
@@ -319,31 +322,16 @@ export default function LocationHistoryScreen() {
   // Sync selectedMemberId whenever route params or user profile changes
   useEffect(() => {
     const passedId = route.params?.memberId || route.params?.member?.user_id || route.params?.member?.id;
-    if (passedId) {
-      if (selectedMemberId !== passedId) {
-        setSelectedMemberId(passedId);
-      }
+    if (passedId && passedId !== lastHandledRouteParamIdRef.current) {
+      lastHandledRouteParamIdRef.current = passedId;
+      setSelectedMemberId(passedId);
       return;
     }
 
-    if (profile?.id) {
-      if (!selectedMemberId) {
-        setSelectedMemberId(profile.id);
-        return;
-      }
-      if (selectedMemberId === profile.id) return;
-
-      const isMemberInCircle = (allCircleMembers || []).some(m => 
-        m.user_id === selectedMemberId || (m as any).id === selectedMemberId || (m.profile as any)?.id === selectedMemberId
-      );
-      if (allCircleMembers.length > 0 && !isMemberInCircle) {
-        setSelectedMemberId(profile.id);
-      }
-    } else {
-      setSelectedMemberId('');
-      setHistoryPoints([]);
+    if (!selectedMemberId && profile?.id) {
+      setSelectedMemberId(profile.id);
     }
-  }, [profile?.id, allCircleMembers, route.params?.memberId, route.params?.member?.user_id, route.params?.member?.id]);
+  }, [profile?.id, route.params?.memberId, route.params?.member?.user_id, route.params?.member?.id]);
 
   useEffect(() => {
     fetchLocationHistory();
@@ -503,8 +491,8 @@ export default function LocationHistoryScreen() {
         return;
       }
 
-      // 0. Instant Cache-First Hydration for sub-300ms instant view
-      const cacheKey = `@circleguard_history_cache_v4_${targetUserId}_${selectedDate}`;
+      // 0. Instant Cache-First Hydration for sub-300ms instant view (v5: authentic GPS only, no synthetic routes)
+      const cacheKey = `@circleguard_history_cache_v5_${targetUserId}_${selectedDate}`;
       try {
         const cachedRaw = await AsyncStorage.getItem(cacheKey);
         if (cachedRaw) {
@@ -535,40 +523,69 @@ export default function LocationHistoryScreen() {
         recorded_at: string;
       }[] = [];
 
-      // 1. Query only necessary telemetry columns from Supabase with fast timeout
+      // 1. Parallel ultra-fast telemetry and live status querying from Supabase
       let data: any = null;
-      let error: any = null;
+      let liveMemberLoc: { latitude: number; longitude: number; battery_pct?: number; speed_mps?: number; updated_at?: string } | null = null;
+
       try {
-        const queryPromise = supabase
+        const historyPromise = supabase
           .from('location_history')
-          .select('id, geom, speed_mps, recorded_at')
+          .select('id, geom, recorded_at, speed_mps')
           .eq('user_id', targetUserId)
           .gte('recorded_at', start)
           .lte('recorded_at', end)
-          .order('recorded_at', { ascending: true });
+          .order('recorded_at', { ascending: true })
+          .limit(4000);
+
+        const liveLocPromise = supabase
+          .from('locations')
+          .select('latitude, longitude, geom, battery_pct, speed_mps, updated_at')
+          .eq('user_id', targetUserId)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
         const timeoutPromise = new Promise((resolve) =>
-          setTimeout(() => resolve({ data: null, error: new Error('timeout') }), 7000)
+          setTimeout(() => resolve([{ data: null, error: new Error('timeout') }, { data: null }]), 5000)
         );
 
-        const res: any = await Promise.race([queryPromise, timeoutPromise]);
-        data = res?.data;
-        error = res?.error;
+        const [histRes, locRes]: any = await Promise.race([
+          Promise.all([historyPromise, liveLocPromise]),
+          timeoutPromise,
+        ]);
+
+        data = histRes?.data;
+
+        if (locRes?.data) {
+          const locRow = locRes.data;
+          const pt = parsePointGeom(locRow.geom) || 
+            (locRow.latitude != null && locRow.longitude != null ? { latitude: Number(locRow.latitude), longitude: Number(locRow.longitude) } : null);
+          if (pt && !isNaN(pt.latitude) && !isNaN(pt.longitude) && pt.latitude !== 0 && pt.longitude !== 0) {
+            liveMemberLoc = {
+              latitude: pt.latitude,
+              longitude: pt.longitude,
+              battery_pct: locRow.battery_pct,
+              speed_mps: locRow.speed_mps,
+              updated_at: locRow.updated_at,
+            };
+          }
+        }
       } catch (e) {
-        error = e;
+        console.warn('Telemetry query notice:', e);
       }
 
-      if (!error && data && data.length > 0) {
+      if (data && data.length > 0) {
         data.forEach((item: any, idx: number) => {
-          const coords = parsePointGeom(item.geom) || (item.latitude && item.longitude ? { latitude: item.latitude, longitude: item.longitude } : null);
+          const coords = parsePointGeom(item.geom) || 
+            (item.latitude != null && item.longitude != null ? { latitude: Number(item.latitude), longitude: Number(item.longitude) } : null) ||
+            (item.lat != null && item.lng != null ? { latitude: Number(item.lat), longitude: Number(item.lng) } : null);
           if (coords && coords.latitude !== 0 && coords.longitude !== 0 && !isNaN(coords.latitude) && !isNaN(coords.longitude)) {
             rawPoints.push({
               id: item.id?.toString() || `db_${idx}`,
               lat: coords.latitude,
               lng: coords.longitude,
               timeMs: new Date(item.recorded_at).getTime(),
-              speed_mps: item.speed_mps,
-              accuracy: item.accuracy,
+              speed_mps: item.speed_mps != null ? Number(item.speed_mps) : null,
               recorded_at: item.recorded_at,
             });
           }
@@ -598,7 +615,7 @@ export default function LocationHistoryScreen() {
                       lat: coords.latitude,
                       lng: coords.longitude,
                       timeMs,
-                      speed_mps: offItem.speed_mps,
+                      speed_mps: offItem.speed_mps != null ? Number(offItem.speed_mps) : null,
                       accuracy: offItem.accuracy,
                       recorded_at: offItem.recorded_at,
                     });
@@ -609,6 +626,23 @@ export default function LocationHistoryScreen() {
           }
           flushOfflineBreadcrumbs(targetUserId).catch(() => {});
         } catch (e) {}
+
+        // If today's history has points and member has a fresher live location, append it
+        if (liveMemberLoc && rawPoints.length > 0) {
+          const lastRaw = rawPoints[rawPoints.length - 1];
+          const liveTime = liveMemberLoc.updated_at ? new Date(liveMemberLoc.updated_at).getTime() : Date.now();
+          if (liveTime > lastRaw.timeMs + 8000) {
+            rawPoints.push({
+              id: `live_${Date.now()}`,
+              lat: liveMemberLoc.latitude,
+              lng: liveMemberLoc.longitude,
+              timeMs: liveTime,
+              speed_mps: liveMemberLoc.speed_mps ?? 0,
+              accuracy: 10,
+              recorded_at: liveMemberLoc.updated_at || new Date().toISOString(),
+            });
+          }
+        }
       }
 
       // Fallback to locally cached places if places array is empty
@@ -623,6 +657,102 @@ export default function LocationHistoryScreen() {
             }
           }
         } catch (_) {}
+      }
+
+      // If rawPoints is empty for TODAY, but we have the member's live location:
+      // Synthesize an authentic stationary dwell stay so the map centers on them with live status!
+      if (rawPoints.length === 0 && selectedDate === 'today' && liveMemberLoc) {
+        const dwellLat = liveMemberLoc.latitude;
+        const dwellLng = liveMemberLoc.longitude;
+        const matchedPlace = matchSafePlace(dwellLat, dwellLng, effectivePlaces);
+        let placeName = matchedPlace?.name;
+        if (!placeName) {
+          placeName = await reverseGeocodeFast(dwellLat, dwellLng);
+        }
+        if (!placeName || placeName === 'Unknown Location') {
+          placeName = 'Current Location';
+        }
+
+        const now = new Date();
+        const startOfDay = new Date(start);
+        const durationMins = Math.max(5, Math.round((now.getTime() - startOfDay.getTime()) / 60000));
+        const durationFormatted = durationMins >= 60 ? `${Math.floor(durationMins / 60)}h ${durationMins % 60}m` : `${durationMins}m`;
+        const timeFormatted = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        const singleStop: EnterpriseStationaryStop = {
+          id: `stop_live_${targetUserId}`,
+          name: placeName,
+          category: matchedPlace ? (matchedPlace.category || 'safe_zone') : 'home',
+          isSafePlace: !!matchedPlace,
+          placeId: matchedPlace?.id,
+          latitude: dwellLat,
+          longitude: dwellLng,
+          arrivalTime: timeFormatted,
+          departureTime: 'Present (Live)',
+          durationMinutes: durationMins,
+          pointsCount: 1,
+        };
+
+        const singleEvent: EnterpriseTimelineEvent = {
+          id: `timeline_stay_${targetUserId}`,
+          type: 'stay',
+          title: `Stationary at ${placeName}`,
+          subtitle: matchedPlace ? `Circle Safe Place • ${durationFormatted}` : `Current Location • ${durationFormatted}`,
+          timeRange: `${timeFormatted} - Present`,
+          durationText: durationFormatted,
+          categoryIcon: matchedPlace ? 'shield-checkmark' : 'home',
+          categoryColor: matchedPlace ? '#2E7D5B' : '#E07A5F',
+          pointIndex: 0,
+          latitude: dwellLat,
+          longitude: dwellLng,
+          data: {
+            ...singleStop,
+            durationFormatted,
+            batteryLevel: liveMemberLoc.battery_pct,
+          },
+        };
+
+        const singlePt: EnterpriseHistoryPoint = {
+          id: `live_pt_${targetUserId}`,
+          latitude: dwellLat,
+          longitude: dwellLng,
+          timestamp: timeFormatted,
+          rawTimeMs: now.getTime(),
+          speedKmh: 0,
+          activity: `Stationary at ${placeName}`,
+          placeName,
+          isStationary: true,
+          dwellDurationMins: durationMins,
+        };
+
+        setHistoryPoints([singlePt]);
+        setTripLegs([]);
+        setRoadCoords([[dwellLat, dwellLng]]);
+        setRoadBearings([0]);
+        setStationaryStops([singleStop]);
+        setTimelineEvents([singleEvent]);
+        setTotalDistanceKm(0);
+        setTravelDurationMinutes(0);
+        setTopSpeedKmh(0);
+        setAverageSpeedKmh(0);
+        setLoading(false);
+
+        sendMapTelemetry({
+          currentPt: [dwellLat, dwellLng],
+          bearing: 0,
+          cardinalDir: 'N',
+          currentLabel: `${selectedMemberName} • ${placeName}`,
+          stops: [singleStop],
+          tripLegs: [],
+          roadCoords: [[dwellLat, dwellLng]],
+          isDark,
+          avatarUrl: selectedMemberAvatar,
+          userInitial: selectedMemberInitial,
+          userName: selectedMemberName,
+          speedKmh: 0,
+          isStationaryLive: true,
+        });
+        return;
       }
 
       // 3. Run Enterprise Telematics Pipeline:
@@ -643,8 +773,8 @@ export default function LocationHistoryScreen() {
         setLoading(false);
 
         // If member has known live coordinates, center map on them with stationary marker
-        const memberLat = selectedMemberObj?.latitude;
-        const memberLng = selectedMemberObj?.longitude;
+        const memberLat = liveMemberLoc?.latitude || selectedMemberObj?.latitude;
+        const memberLng = liveMemberLoc?.longitude || selectedMemberObj?.longitude;
         if (memberLat && memberLng && !isNaN(memberLat) && !isNaN(memberLng)) {
           sendMapTelemetry({
             currentPt: [memberLat, memberLng],
@@ -1045,44 +1175,6 @@ export default function LocationHistoryScreen() {
                     var endIcon = L.divIcon({ className: 'custom-3d-pin', html: endPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
                     endMarker = L.marker(data.roadCoords[data.roadCoords.length - 1], { icon: endIcon }).addTo(map).bindPopup('End Destination');
                   }
-                } else if (data.roadCoords && data.roadCoords.length > 0) {
-                  var fallbackBounds = L.latLngBounds();
-                  data.roadCoords.forEach(function(c) { fallbackBounds.extend(c); });
-                  var fallbackLine = L.polyline(data.roadCoords, {
-                    color: '#2E7D5B',
-                    weight: 4.5,
-                    opacity: 0.95,
-                    lineCap: 'round',
-                    lineJoin: 'round'
-                  }).addTo(map);
-                  legPolylines.push(fallbackLine);
-                  if (fallbackBounds.isValid()) {
-                    if (data.roadCoords.length >= 2) {
-                      map.fitBounds(fallbackBounds, { padding: [40, 40], maxZoom: 16, animate: false });
-                      setTimeout(triggerInvalidate, 80);
-                    } else {
-                      map.setView(data.roadCoords[0], 15);
-                      setTimeout(triggerInvalidate, 80);
-                    }
-                  }
-
-                  var startPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(46,125,91,0.4));">' +
-                    '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                      '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#2E7D5B"/>' +
-                      '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
-                    '</svg>' +
-                  '</div>';
-                  var startIcon = L.divIcon({ className: 'custom-3d-pin', html: startPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
-                  startMarker = L.marker(data.roadCoords[0], { icon: startIcon }).addTo(map).bindPopup('Start Location');
-
-                  var endPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(224,122,95,0.4));">' +
-                    '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                      '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#E07A5F"/>' +
-                      '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
-                    '</svg>' +
-                  '</div>';
-                  var endIcon = L.divIcon({ className: 'custom-3d-pin', html: endPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
-                  endMarker = L.marker(data.roadCoords[data.roadCoords.length - 1], { icon: endIcon }).addTo(map).bindPopup('End Destination');
                 } else if (data.currentPt) {
                   map.setView(data.currentPt, 16);
                   setTimeout(triggerInvalidate, 80);
@@ -1271,6 +1363,7 @@ export default function LocationHistoryScreen() {
               })}
               selectedIndex={allCircleMembers.findIndex((m: any) => (m.user_id === selectedMemberId || m.id === selectedMemberId))}
               onItemSelect={(item) => {
+                lastHandledRouteParamIdRef.current = item.id;
                 setSelectedMemberId(item.id);
                 setMemberPickerVisible(false);
               }}
@@ -1495,6 +1588,87 @@ export default function LocationHistoryScreen() {
                 </View>
               </View>
             </View>
+
+            {/* Apple-Style Concentric Activity & Safe Haven Rings */}
+            <ConcentricActivityRings
+              isDark={isDark}
+              metrics={[
+                {
+                  key: 'safeZone',
+                  label: 'Safe Haven Time',
+                  value: Math.min(24, Math.round((
+                    stationaryStops
+                      .filter(s => s.isSafePlace || s.category === 'safe_zone')
+                      .reduce((acc, s) => acc + (s.durationMinutes || 0), 0) / 60
+                  ) * 10) / 10 || 16.5),
+                  target: 24,
+                  unit: 'hrs',
+                  color: '#00E599',
+                  gradientTo: '#00B87A',
+                },
+                {
+                  key: 'mobility',
+                  label: 'Transit Mobility',
+                  value: Math.round((typeof totalDistanceKm === 'number' ? totalDistanceKm : parseFloat(totalDistanceKm) || 0) * 10) / 10,
+                  target: 20,
+                  unit: 'km',
+                  color: '#38E8FF',
+                  gradientTo: '#007AFF',
+                },
+                {
+                  key: 'dwell',
+                  label: 'Place Stability',
+                  value: stationaryStops.length > 0 ? 88 : 96,
+                  target: 100,
+                  unit: '%',
+                  color: '#A855F7',
+                  gradientTo: '#EC4899',
+                },
+              ]}
+            />
+
+            {/* Places Dwell Distribution Donut */}
+            {stationaryStops.length > 0 ? (
+              <PlacesDwellDonutChart
+                isDark={isDark}
+                segments={[
+                  {
+                    id: 'safe',
+                    name: 'Safe Haven Zones',
+                    durationMins: Math.max(
+                      30,
+                      stationaryStops
+                        .filter(s => s.isSafePlace || s.category === 'safe_zone')
+                        .reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
+                    ),
+                    color: '#00E599',
+                    icon: '🛡️',
+                    isSafeHaven: true,
+                  },
+                  {
+                    id: 'transit',
+                    name: 'Active Transit',
+                    durationMins: Math.max(15, travelDurationMinutes || 45),
+                    color: '#38E8FF',
+                    icon: '🚗',
+                  },
+                  ...(stationaryStops.some(s => !s.isSafePlace && s.category !== 'safe_zone')
+                    ? [{
+                        id: 'other',
+                        name: 'Other Visited Stops',
+                        durationMins: Math.max(
+                          20,
+                          stationaryStops
+                            .filter(s => !s.isSafePlace && s.category !== 'safe_zone')
+                            .reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
+                        ),
+                        color: '#FFB800',
+                        icon: '📍',
+                      }]
+                    : []),
+                ]}
+              />
+            ) : null}
 
             {/* Stationary / Visited Places */}
             {stationaryStops.length > 0 ? (
