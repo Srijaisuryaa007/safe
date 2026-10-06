@@ -24,6 +24,9 @@ import AnimatedListDropdown from '../components/AnimatedListDropdown';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import { usePaywall } from '../hooks/usePaywall';
 import PaywallModal from '../components/PaywallModal';
+import HeatlineAreaChart from '../components/charts/HeatlineAreaChart';
+
+import { reverseGeocodeLive } from '../services/GeocodingService';
 
 const drivingGeocodeCache: { [key: string]: string } = {};
 
@@ -33,14 +36,9 @@ async function reverseGeocodeFastDriving(lat: number, lng: number): Promise<stri
 
   let addr = `Location • ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   try {
-    const geoPromise = Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1800));
-    const geoRes: any = await Promise.race([geoPromise, timeoutPromise]).catch(() => null);
-
-    if (geoRes && geoRes.length > 0) {
-      const p = geoRes[0];
-      const nameParts = [p.name, p.street, p.district || p.subregion || p.city].filter(Boolean);
-      if (nameParts.length > 0) addr = nameParts.join(', ');
+    const res = await reverseGeocodeLive(lat, lng);
+    if (res?.headline) {
+      addr = res.subtitle ? `${res.headline}, ${res.subtitle}` : res.headline;
     }
   } catch (e) {}
 
@@ -282,12 +280,52 @@ export default function DrivingReportsScreen() {
         return;
       }
 
-      const { data: userLocData } = await supabase
-        .from('locations')
-        .select('*')
-        .eq('user_id', targetUserId)
-        .single();
+      // 0. Cache-First Instant Hydration (< 50ms render)
+      const drivingCacheKey = `@circleguard_driving_cache_v2_${targetUserId}_${selectedDate}`;
+      try {
+        const cachedRaw = await AsyncStorage.getItem(drivingCacheKey);
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw);
+          if (cached && Array.isArray(cached.trips)) {
+            setTrips(cached.trips);
+            setTotalDistanceKm(cached.totalDist || 0);
+            setTotalDriveMins(cached.totalMins || 0);
+            setTopSpeedKmh(cached.maxSpeed || 0);
+            setAvgSpeedKmh(cached.avgSpeed || 0);
+            setTotalHardBrakes(cached.hardBrakes || 0);
+            setTotalRapidAccels(cached.rapidAccels || 0);
+            setTotalSpeedingEvents(cached.speedingEvents || 0);
+            setDriverScore(cached.score !== undefined ? cached.score : null);
+            setLoading(false);
+          }
+        }
+      } catch (_) {}
 
+      // 1. Parallel query for location & telemetry with selective columns
+      const dayOffset = selectedDate === 'today' ? 0 : (selectedDate === 'yesterday' ? 1 : 2);
+      const start = new Date();
+      start.setDate(start.getDate() - dayOffset);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setHours(23, 59, 59, 999);
+
+      const [userLocRes, histRes] = await Promise.all([
+        supabase
+          .from('locations')
+          .select('latitude, longitude, geom')
+          .eq('user_id', targetUserId)
+          .maybeSingle(),
+        supabase
+          .from('location_history')
+          .select('id, geom, speed_mps, recorded_at')
+          .eq('user_id', targetUserId)
+          .gte('recorded_at', start.toISOString())
+          .lte('recorded_at', end.toISOString())
+          .order('recorded_at', { ascending: true })
+          .limit(4000),
+      ]);
+
+      const userLocData = userLocRes?.data;
       if (userLocData?.geom) {
         const coords = parsePointGeom(userLocData.geom);
         if (coords) {
@@ -299,14 +337,6 @@ export default function DrivingReportsScreen() {
         baseLng = userLocData.longitude;
       }
 
-      // 2. Query Supabase location_history table for selectedDate
-      const dayOffset = selectedDate === 'today' ? 0 : (selectedDate === 'yesterday' ? 1 : 2);
-      const start = new Date();
-      start.setDate(start.getDate() - dayOffset);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setHours(23, 59, 59, 999);
-
       const rawHistPoints: {
         lat: number;
         lng: number;
@@ -314,14 +344,7 @@ export default function DrivingReportsScreen() {
         speed: number;
       }[] = [];
 
-      const { data: histData } = await supabase
-        .from('location_history')
-        .select('*')
-        .eq('user_id', targetUserId)
-        .gte('recorded_at', start.toISOString())
-        .lte('recorded_at', end.toISOString())
-        .order('recorded_at', { ascending: true });
-
+      const histData = histRes?.data;
       if (histData && histData.length > 0) {
         histData.forEach((h: any) => {
           const coords = parsePointGeom(h.geom) || (h.latitude && h.longitude ? { latitude: h.latitude, longitude: h.longitude } : null);
@@ -538,6 +561,22 @@ export default function DrivingReportsScreen() {
       const hasDrives = generatedTrips.length > 0 && totDist > 0;
       const calculatedScore = hasDrives ? Math.round(sumScore / generatedTrips.length) : null;
       setDriverScore(calculatedScore);
+
+      // Persist to local cache for instant future loads
+      AsyncStorage.setItem(
+        drivingCacheKey,
+        JSON.stringify({
+          trips: generatedTrips,
+          totalDist: parseFloat(totDist.toFixed(1)),
+          totalMins: totDur,
+          maxSpeed: maxSpd,
+          avgSpeed: totDur > 0 && totDist > 0 ? Math.round(totDist / (totDur / 60)) : (generatedTrips.length > 0 ? Math.round(sumAvgSpd / generatedTrips.length) : 0),
+          hardBrakes: hb,
+          rapidAccels: ra,
+          speedingEvents: spdEvt,
+          score: calculatedScore,
+        })
+      ).catch(() => {});
     } catch (e) {
       console.error('Error fetching driving reports:', e);
     } finally {
@@ -1089,6 +1128,37 @@ export default function DrivingReportsScreen() {
                   This map displays <Text style={{ fontWeight: '800' }}>only the authentic GPS path</Text> travelled by the user. Tap any green waypoint marker on the route to inspect its recorded timestamp, telemetry speed, and coordinates.
                 </Text>
               </View>
+
+              {/* Telemetry Heatline Area Chart */}
+              {selectedTrip ? (
+                <HeatlineAreaChart
+                  data={
+                    selectedTrip.routeCoords && selectedTrip.routeCoords.length > 0
+                      ? selectedTrip.routeCoords.map((pt, idx) => {
+                          const total = selectedTrip.routeCoords.length;
+                          const mins = Math.round(
+                            (idx / Math.max(1, total - 1)) * (selectedTrip.durationMins || 1)
+                          );
+                          return {
+                            index: idx,
+                            lat: pt.lat,
+                            lng: pt.lng,
+                            speed: Math.round(pt.speed || 0),
+                            time: `${mins}m`,
+                            isHardBrake:
+                              idx > 0 &&
+                              selectedTrip.routeCoords[idx - 1].speed - pt.speed > 16,
+                            isSpeeding: pt.speed > (selectedTrip.topSpeedKmh * 0.9),
+                          };
+                        })
+                      : []
+                  }
+                  height={175}
+                  speedLimitKmh={selectedTrip.topSpeedKmh > 70 ? 70 : 50}
+                  isDark={isDark}
+                  title="CONTINUOUS SPEED PROFILE & HEATLINE"
+                />
+              ) : null}
 
               <View style={[styles.modalScoreCard, { backgroundColor: colors.surface, borderColor: colors.accentGold }]}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
