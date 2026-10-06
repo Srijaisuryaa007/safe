@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle, G, Defs, LinearGradient, Stop } from 'react-native-svg';
 
 export interface RingMetric {
@@ -164,7 +165,7 @@ export const ConcentricActivityRings: React.FC<ConcentricActivityRingsProps> = (
 
           {/* Center Activity Icon */}
           <View style={[styles.centerAura, { width: 44, height: 44, borderRadius: 22 }]}>
-            <Text style={{ fontSize: 16 }}>🛡️</Text>
+            <Ionicons name="shield-checkmark" size={20} color="#00E599" />
           </View>
         </View>
 

@@ -141,7 +141,9 @@ export function filterGpsSpikesAndOutliers<T extends {
     const pt = points[i];
     const acc = pt.accuracy;
     const speedMps = pt.speed_mps ?? (pt.speedKmh ? pt.speedKmh / 3.6 : 0);
-    const maxAllowedAcc = speedMps > 10 ? 45 : 35;
+    // Realistic mobile accuracy threshold: filter out gross cellular tower drift (> 65-75m)
+    // while strictly retaining legitimate in-vehicle GPS fixes that fluctuate between 30-65m
+    const maxAllowedAcc = speedMps > 8 ? 75 : 60;
 
     // Strict accuracy check
     if (typeof acc === 'number' && acc > maxAllowedAcc) {
@@ -318,12 +320,34 @@ export class KinematicKalmanFilter {
       return { latitude: lat, longitude: lng, speedKmh: 0 };
     }
 
-    const dt = Math.max(0.2, Math.min(60, (timeMs - this.lastTime) / 1000));
+    const rawDt = (timeMs - this.lastTime) / 1000;
+    // If there is an extended time gap (> 25s) or negative timestamp anomaly, reset filter
+    if (rawDt > 25 || rawDt < 0) {
+      this.reset();
+      this.lat0 = lat;
+      this.lng0 = lng;
+      this.cosLat = Math.cos((lat * Math.PI) / 180);
+      this.lastTime = timeMs;
+      return { latitude: lat, longitude: lng, speedKmh: 0 };
+    }
+
+    const dt = Math.max(0.2, Math.min(25, rawDt));
     this.lastTime = timeMs;
 
     // Measurement in meters relative to initial origin
     const zmX = (lng - this.lng0) * 111320 * this.cosLat;
     const zmY = (lat - this.lat0) * 110540;
+
+    // Distance jump guard: if jump from current estimated position is > 150m, reset origin to prevent overshoot
+    const distJumpM = Math.sqrt(Math.pow(zmX - this.x, 2) + Math.pow(zmY - this.y, 2));
+    if (distJumpM > 150) {
+      this.reset();
+      this.lat0 = lat;
+      this.lng0 = lng;
+      this.cosLat = Math.cos((lat * Math.PI) / 180);
+      this.lastTime = timeMs;
+      return { latitude: lat, longitude: lng, speedKmh: 0 };
+    }
 
     // Predict
     this.x += this.vx * dt;
@@ -351,8 +375,12 @@ export class KinematicKalmanFilter {
 
     this.x += kx * resX;
     this.y += ky * resY;
-    this.vx += (kx / dt) * resX * 0.35;
-    this.vy += (ky / dt) * resY * 0.35;
+    
+    // Clamp velocities to physically plausible vehicle limits (max 38 m/s = 137 km/h)
+    const rawVx = (kx / dt) * resX * 0.25;
+    const rawVy = (ky / dt) * resY * 0.25;
+    this.vx = Math.max(-38, Math.min(38, this.vx * 0.8 + rawVx));
+    this.vy = Math.max(-38, Math.min(38, this.vy * 0.8 + rawVy));
 
     this.px *= (1 - kx);
     this.py *= (1 - ky);

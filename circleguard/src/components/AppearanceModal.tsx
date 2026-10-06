@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   ScrollView,
   Switch,
+  Platform,
+  Vibration,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSafeTopInset } from '../utils/safeArea';
@@ -44,6 +46,9 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
   }, []);
 
   const handleSelectTheme = (mode: ThemeMode) => {
+    if (Platform.OS !== 'web') {
+      try { Vibration.vibrate(10); } catch (_) {}
+    }
     setThemeMode(mode);
   };
 

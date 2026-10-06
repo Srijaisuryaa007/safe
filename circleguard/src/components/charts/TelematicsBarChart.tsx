@@ -7,6 +7,7 @@ import {
   LayoutChangeEvent,
   Platform,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Svg, {
   Rect,
   Line,
@@ -310,13 +311,19 @@ export const TelematicsBarChart: React.FC<TelematicsBarChartProps> = ({
             ) : null}
           </View>
           <View style={styles.tooltipMetricsRow}>
-            <Text style={[styles.tooltipMetricVal, { color: isDark ? '#FFFFFF' : '#1A202C' }]}>
-              📍 {selectedItem.value.toFixed(1)} {unit} driven
-            </Text>
-            {selectedItem.secondaryValue ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <Ionicons name="navigate" size={13} color="#00E599" />
               <Text style={[styles.tooltipMetricVal, { color: isDark ? '#FFFFFF' : '#1A202C' }]}>
-                🚀 {selectedItem.secondaryValue} {secondaryUnit} top speed
+                {selectedItem.value.toFixed(1)} {unit} driven
               </Text>
+            </View>
+            {selectedItem.secondaryValue ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Ionicons name="speedometer" size={13} color="#38E8FF" />
+                <Text style={[styles.tooltipMetricVal, { color: isDark ? '#FFFFFF' : '#1A202C' }]}>
+                  {selectedItem.secondaryValue} {secondaryUnit} top speed
+                </Text>
+              </View>
             ) : null}
           </View>
         </View>

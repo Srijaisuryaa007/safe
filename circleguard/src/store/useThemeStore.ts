@@ -18,14 +18,18 @@ interface ThemeState {
   resetThemeToDefault: () => void;
 }
 
-const getStorageKey = (userId?: string | null) => userId ? `@circleguard_theme_mode_${userId}` : '@circleguard_theme_mode_default';
+const GLOBAL_THEME_KEY = '@circleguard_theme_mode_global';
+const getStorageKey = (userId?: string | null) => userId ? `@circleguard_theme_mode_${userId}` : GLOBAL_THEME_KEY;
 const getMapStyleKey = (userId?: string | null) => userId ? `@circleguard_map_style_${userId}` : '@circleguard_map_style_default';
 
-const getThemeConfig = (mode: ThemeMode, sysScheme: ColorSchemeName | null | undefined): { colors: ThemeColors; isDark: boolean } => {
+let appearanceListenerSubscribed = false;
+
+const getThemeConfig = (mode: ThemeMode, sysScheme?: ColorSchemeName | null): { colors: ThemeColors; isDark: boolean } => {
   if (mode === 'dark') return { colors: DARK_THEME.colors, isDark: true };
   if (mode === 'light' || mode === 'billion_dollar') return { colors: BILLION_DOLLAR_THEME.colors, isDark: false };
   if (mode === 'brand_green') return { colors: BRAND_GREEN_THEME.colors, isDark: false };
-  const isSysDark = sysScheme === 'dark';
+  const effectiveScheme = sysScheme || Appearance.getColorScheme();
+  const isSysDark = effectiveScheme === 'dark';
   return { colors: isSysDark ? DARK_THEME.colors : BILLION_DOLLAR_THEME.colors, isDark: isSysDark };
 };
 
@@ -42,19 +46,28 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       const themeKey = getStorageKey(activeUser);
       const mapKey = getMapStyleKey(activeUser);
 
-      const saved = await AsyncStorage.getItem(themeKey);
+      // Try user key first, fallback to global key
+      let saved = await AsyncStorage.getItem(themeKey);
+      if (!saved) {
+        saved = await AsyncStorage.getItem(GLOBAL_THEME_KEY);
+      }
       const savedMapStyle = await AsyncStorage.getItem(mapKey);
       let mode: ThemeMode = (saved as ThemeMode) || 'light';
       if (mode === 'billion_dollar' || (mode as any) === 'inspo_flagship') {
         mode = 'light';
-        await AsyncStorage.setItem(themeKey, 'light');
       }
-      await AsyncStorage.removeItem('@circleguard_inspo_ui_kept');
+
       const mapStyle: MapStyleType = (savedMapStyle as MapStyleType) || 'vector';
       const sysScheme = Appearance.getColorScheme();
       const config = getThemeConfig(mode, sysScheme);
 
       Object.assign(LUXURY_THEME.colors, config.colors);
+
+      if (typeof Appearance.setColorScheme === 'function') {
+        try {
+          (Appearance.setColorScheme as any)(mode === 'system' ? null : (mode === 'dark' ? 'dark' : 'light'));
+        } catch (_) {}
+      }
 
       set({
         themeMode: mode,
@@ -64,17 +77,20 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
         currentUserId: activeUser || null,
       });
 
-      Appearance.addChangeListener(({ colorScheme }) => {
-        const currentMode = get().themeMode;
-        if (currentMode === 'system') {
-          const newConfig = getThemeConfig('system', colorScheme);
-          Object.assign(LUXURY_THEME.colors, newConfig.colors);
-          set({
-            isDark: newConfig.isDark,
-            colors: newConfig.colors,
-          });
-        }
-      });
+      if (!appearanceListenerSubscribed) {
+        appearanceListenerSubscribed = true;
+        Appearance.addChangeListener(({ colorScheme }) => {
+          const currentMode = get().themeMode;
+          if (currentMode === 'system') {
+            const newConfig = getThemeConfig('system', colorScheme);
+            Object.assign(LUXURY_THEME.colors, newConfig.colors);
+            set({
+              isDark: newConfig.isDark,
+              colors: newConfig.colors,
+            });
+          }
+        });
+      }
     } catch (e) {
       console.error('Error initializing theme:', e);
     }
@@ -83,18 +99,31 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   setThemeMode: async (mode: ThemeMode, userId?: string) => {
     try {
       const activeUser = userId ?? get().currentUserId;
-      const themeKey = getStorageKey(activeUser);
-      await AsyncStorage.setItem(themeKey, mode);
       const sysScheme = Appearance.getColorScheme();
       const config = getThemeConfig(mode, sysScheme);
 
       Object.assign(LUXURY_THEME.colors, config.colors);
 
+      // Instant optimistic UI update
       set({
         themeMode: mode,
         isDark: config.isDark,
         colors: config.colors,
       });
+
+      // Update native appearance scheme
+      if (typeof Appearance.setColorScheme === 'function') {
+        try {
+          (Appearance.setColorScheme as any)(mode === 'system' ? null : (mode === 'dark' ? 'dark' : 'light'));
+        } catch (_) {}
+      }
+
+      // Persist to both specific user and global storage
+      const themeKey = getStorageKey(activeUser);
+      await Promise.all([
+        AsyncStorage.setItem(themeKey, mode).catch(() => {}),
+        AsyncStorage.setItem(GLOBAL_THEME_KEY, mode).catch(() => {}),
+      ]);
     } catch (e) {
       console.error('Error setting theme mode:', e);
     }

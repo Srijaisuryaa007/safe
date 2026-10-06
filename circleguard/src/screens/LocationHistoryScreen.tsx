@@ -986,7 +986,7 @@ export default function LocationHistoryScreen() {
           }
 
           function initMap() {
-            var tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+            var tileUrl = ${isDark ? "'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'" : "'https://tile.openstreetmap.org/{z}/{x}/{y}.png'"};
             var fallbackTileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
             map = L.map('map', { 
               minZoom: 3,
@@ -1007,6 +1007,7 @@ export default function LocationHistoryScreen() {
               minZoom: 3, 
               maxZoom: 18, 
               maxNativeZoom: 18, 
+              subdomains: ${isDark ? "'abcd'" : "'abc'"},
               crossOrigin: true 
             }).addTo(map);
 
@@ -1193,7 +1194,7 @@ export default function LocationHistoryScreen() {
 
                   var isSafe = st.isSafePlace || st.category === 'safe_zone';
                   var badgeHtml = isSafe
-                    ? '<div style="background:#2E7D5B; color:#FFFFFF; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; border:2.5px solid #FFFFFF; box-shadow:0 3px 10px rgba(46,125,91,0.5); font-size:12px; font-weight:bold;">🛡️</div>'
+                    ? '<div style="background:#2E7D5B; color:#FFFFFF; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; border:2.5px solid #FFFFFF; box-shadow:0 3px 10px rgba(46,125,91,0.5);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>'
                     : '<div class="stop-badge" style="background:#E07A5F; box-shadow:0 3px 10px rgba(224,122,95,0.4); width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:11px; border:2px solid #fff;">' + (i+1) + '</div>';
                   var icon = L.divIcon({ className: 'custom-stop-marker', html: badgeHtml, iconSize: [28, 28], iconAnchor: [14, 14] });
                   var popupContent = '<b>' + (st.name || 'Stationary Stay') + '</b>' +
@@ -1350,7 +1351,7 @@ export default function LocationHistoryScreen() {
                 const isSel = memberId === selectedMemberId;
                 const isMemberSelf = memberId === profile?.id;
                 const name = isMemberSelf ? `${profile?.full_name || 'Me'} (You)` : (m.profile?.full_name || m.name || 'Member');
-                const batteryText = m.batteryPct != null ? ` • 🔋${m.batteryPct}%` : '';
+                const batteryText = m.batteryPct != null ? ` • ${m.batteryPct}%` : '';
                 const subtitle = m.isOnline ? `Online now${batteryText}` : `Offline${batteryText}`;
                 return {
                   id: memberId,
@@ -1642,7 +1643,6 @@ export default function LocationHistoryScreen() {
                         .reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
                     ),
                     color: '#00E599',
-                    icon: '🛡️',
                     isSafeHaven: true,
                   },
                   {
@@ -1650,7 +1650,6 @@ export default function LocationHistoryScreen() {
                     name: 'Active Transit',
                     durationMins: Math.max(15, travelDurationMinutes || 45),
                     color: '#38E8FF',
-                    icon: '🚗',
                   },
                   ...(stationaryStops.some(s => !s.isSafePlace && s.category !== 'safe_zone')
                     ? [{
@@ -1663,7 +1662,6 @@ export default function LocationHistoryScreen() {
                             .reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
                         ),
                         color: '#FFB800',
-                        icon: '📍',
                       }]
                     : []),
                 ]}

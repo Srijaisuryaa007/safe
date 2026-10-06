@@ -6,7 +6,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -15,7 +15,8 @@
         "NSLocationAlwaysUsageDescription": "CircleGuard needs continuous location access to alert your circle when entering or leaving geofence zones.",
         "UIBackgroundModes": [
           "location",
-          "fetch"
+          "fetch",
+          "remote-notification"
         ]
       }
     },
@@ -55,6 +56,7 @@
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "CircleGuard tracks location in the background to keep your circle safe even when the app is closed.",
+          "isIosBackgroundLocationEnabled": true,
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }
