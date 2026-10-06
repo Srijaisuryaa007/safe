@@ -329,7 +329,7 @@ export default function LoginScreen() {
               styles.textInput, 
               { 
                 color: colors.foreground,
-                backgroundColor: isDark ? '#141A17' : '#FFFFFF',
+                backgroundColor: 'transparent',
               }
             ]}
             placeholder="name@domain.com"
@@ -338,6 +338,9 @@ export default function LoginScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="email-address"
+            autoComplete="off"
+            textContentType="none"
+            importantForAutofill="noExcludeDescendants"
             placeholderTextColor={colors.textMuted}
             underlineColorAndroid="transparent"
             cursorColor={isDark ? '#00E599' : '#2E7D5B'}
@@ -381,7 +384,7 @@ export default function LoginScreen() {
               styles.textInput, 
               { 
                 color: colors.foreground,
-                backgroundColor: isDark ? '#141A17' : '#FFFFFF',
+                backgroundColor: 'transparent',
               }
             ]}
             placeholder="••••••••"
@@ -390,6 +393,9 @@ export default function LoginScreen() {
             secureTextEntry={!showPassword}
             autoCapitalize="none"
             autoCorrect={false}
+            autoComplete="off"
+            textContentType="none"
+            importantForAutofill="noExcludeDescendants"
             placeholderTextColor={colors.textMuted}
             underlineColorAndroid="transparent"
             cursorColor={isDark ? '#00E599' : '#2E7D5B'}
