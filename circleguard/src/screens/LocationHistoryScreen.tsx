@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Modal, Platform, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Modal, Platform, StatusBar, Animated, PanResponder } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -122,6 +122,51 @@ export default function LocationHistoryScreen() {
   const [selectedMemberId, setSelectedMemberId] = useState<string>(initialTargetMemberId || profile?.id || '');
   const [memberPickerVisible, setMemberPickerVisible] = useState(false);
   const [historyViewTab, setHistoryViewTab] = useState<'timeline' | 'charts'>('timeline');
+
+  // Expandable Bottom Sheet for Charts & Telematics Visibility
+  const [isSheetExpanded, setIsSheetExpanded] = useState<boolean>(false);
+  const expandAnim = useRef(new Animated.Value(0)).current; // 0 = split view, 1 = fullscreen charts
+
+  const toggleSheetExpand = (targetState?: boolean) => {
+    setIsSheetExpanded(prev => {
+      const next = targetState !== undefined ? targetState : !prev;
+      Animated.spring(expandAnim, {
+        toValue: next ? 1 : 0,
+        useNativeDriver: false,
+        friction: 8,
+        tension: 45,
+      }).start();
+      return next;
+    });
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 10,
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dy < -20) {
+          // Dragged upward -> Expand charts!
+          toggleSheetExpand(true);
+        } else if (gesture.dy > 20) {
+          // Dragged downward -> Minimize/Close full view!
+          toggleSheetExpand(false);
+        } else {
+          toggleSheetExpand();
+        }
+      },
+    })
+  ).current;
+
+  const mapMaxHeight = expandAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [500, 0],
+  });
+
+  const mapOpacity = expandAnim.interpolate({
+    inputRange: [0, 0.7, 1],
+    outputRange: [1, 0.2, 0],
+  });
 
   // Robust Circle Members Aggregation (Self is guaranteed to be present)
   const allCircleMembers = useMemo(() => {
@@ -1380,9 +1425,17 @@ export default function LocationHistoryScreen() {
         </View>
       ) : (
         <>
-          {/* Main Map Viewport */}
-          <View 
-            style={styles.mapViewportWrapper}
+          {/* Main Map Viewport (Smoothly animates and collapses when sheet is expanded) */}
+          <Animated.View 
+            style={[
+              styles.mapViewportWrapper,
+              {
+                maxHeight: mapMaxHeight,
+                opacity: mapOpacity,
+                overflow: 'hidden',
+                marginBottom: isSheetExpanded ? 0 : 12,
+              }
+            ]}
             onTouchStart={() => setIsScrollEnabled(false)}
             onTouchEnd={() => setIsScrollEnabled(true)}
             onTouchCancel={() => setIsScrollEnabled(true)}
@@ -1477,6 +1530,81 @@ export default function LocationHistoryScreen() {
                 </View>
               </View>
             ) : null}
+          </Animated.View>
+
+          {/* Interactive Bottom Sheet Grab Handle ("-") for Expanding / Minimizing Charts & Metrics */}
+          <View
+            {...panResponder.panHandlers}
+            style={[
+              styles.sheetHandleContainer,
+              {
+                backgroundColor: isDark ? colors.surface : '#FFFFFF',
+                borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6',
+              },
+            ]}
+          >
+            {/* The tactile pill grabber bar ("-") */}
+            <TouchableOpacity
+              onPress={() => toggleSheetExpand()}
+              activeOpacity={0.7}
+              style={styles.sheetPillTouchArea}
+              accessibilityRole="button"
+              aria-label="Drag or tap handle to expand charts"
+            >
+              <View
+                style={[
+                  styles.sheetPillHandle,
+                  { backgroundColor: isDark ? 'rgba(255,255,255,0.35)' : '#94A3B8' },
+                ]}
+              />
+            </TouchableOpacity>
+
+            <View style={styles.sheetHandleRow}>
+              <TouchableOpacity
+                style={styles.sheetHandleToggleBtn}
+                onPress={() => toggleSheetExpand()}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={isSheetExpanded ? 'chevron-down-circle' : 'chevron-up-circle'}
+                  size={16}
+                  color="#2E7D5B"
+                />
+                <Text style={[styles.sheetHandleLabel, { color: colors.foreground }]}>
+                  {isSheetExpanded ? 'COLLAPSE TO MAP VIEW' : 'DRAG UP OR TAP TO EXPAND CHARTS'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.sheetExpandBadge,
+                  {
+                    backgroundColor: isSheetExpanded
+                      ? (isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEF2F2')
+                      : (isDark ? 'rgba(46, 125, 91, 0.15)' : '#E8F5EE'),
+                    borderColor: isSheetExpanded
+                      ? (isDark ? '#EF4444' : '#FCA5A5')
+                      : (isDark ? '#00E599' : '#C6E7D5'),
+                  },
+                ]}
+                onPress={() => toggleSheetExpand()}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={isSheetExpanded ? 'contract-outline' : 'expand-outline'}
+                  size={12}
+                  color={isSheetExpanded ? '#EF4444' : '#2E7D5B'}
+                />
+                <Text
+                  style={[
+                    styles.sheetExpandBadgeText,
+                    { color: isSheetExpanded ? '#EF4444' : '#2E7D5B' },
+                  ]}
+                >
+                  {isSheetExpanded ? 'MINIMIZE' : 'EXPAND'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Daily Metrics & Movement Timeline */}
@@ -1502,7 +1630,12 @@ export default function LocationHistoryScreen() {
 
               <TouchableOpacity
                 style={[styles.sectionTabBtn, historyViewTab === 'charts' && [styles.sectionTabBtnActive, { backgroundColor: '#2E7D5B' }]]}
-                onPress={() => setHistoryViewTab('charts')}
+                onPress={() => {
+                  setHistoryViewTab('charts');
+                  if (!isSheetExpanded) {
+                    toggleSheetExpand(true);
+                  }
+                }}
                 activeOpacity={0.75}
               >
                 <Ionicons name="pie-chart-outline" size={14} color={historyViewTab === 'charts' ? '#FFFFFF' : colors.textMuted} />
@@ -2294,6 +2427,62 @@ const styles = StyleSheet.create({
   scrubberFill: {
     height: '100%',
     borderRadius: 3,
+  },
+  sheetHandleContainer: {
+    paddingTop: 8,
+    paddingBottom: 10,
+    paddingHorizontal: 16,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    borderTopWidth: 1.5,
+    borderBottomWidth: 1,
+    marginBottom: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  sheetPillTouchArea: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 5,
+  },
+  sheetPillHandle: {
+    width: 46,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  sheetHandleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  sheetHandleToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  sheetHandleLabel: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  sheetExpandBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4.5,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  sheetExpandBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
   metricsScroll: {
     flex: 1,
