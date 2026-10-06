@@ -524,7 +524,7 @@ export default function MemberRoleModal({
                   ASSIGN ROLE & PRIVILEGES
                 </Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Ionicons name="sparkles" size={11} color="#D97706" />
+                  <Ionicons name="shield" size={11} color="#D97706" />
                   <Text style={{ fontSize: 10, fontWeight: '700', color: '#D97706', letterSpacing: 0.4 }}>
                     1 LEADER • UNLIMITED CO-LEADERS
                   </Text>

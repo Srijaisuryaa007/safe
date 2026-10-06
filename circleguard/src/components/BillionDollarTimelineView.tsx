@@ -805,9 +805,9 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
             activeOpacity={0.8}
             accessibilityLabel={`Showing ${filteredActivities.length}. Tap to view all ${activities.length} events`}
           >
-            <Ionicons name="sparkles" size={15} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+            <Ionicons name="calendar-outline" size={15} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
             <Text style={[styles.allEventsPromptText, isDark && styles.allEventsPromptTextDark]}>
-              Showing {filteredActivities.length} for {dateFilter}. Tap to view all {activities.length} events across all dates
+              Showing {filteredActivities.length} for {dateFilter}. Tap to view all {activities.length} events
             </Text>
             <Ionicons name="chevron-forward" size={14} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
           </TouchableOpacity>
@@ -925,15 +925,14 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
                           {event.title}
                         </Text>
                       </View>
-                      <Text style={[styles.cardItemTime, isDark && styles.textSubDark]}>
-                        {formatEventDisplayTime(event.timestamp, event.occurredAtIso)}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={[styles.cardItemTime, isDark && styles.textSubDark]}>
+                          {formatEventDisplayTime(event.timestamp, event.occurredAtIso)}
+                        </Text>
+                        <Ionicons name="chevron-forward" size={12} color={isDark ? '#6E7E74' : '#9EACA3'} />
+                      </View>
                     </View>
                     <Text style={[styles.cardItemSub, isDark && styles.textSubDark]}>{event.message}</Text>
-                    <View style={styles.cardActionHintRow}>
-                      <Text style={styles.cardActionHintText}>Tap for actions & map</Text>
-                      <Ionicons name="chevron-forward" size={12} color="#2E7D5B" />
-                    </View>
                   </View>
                 </TouchableOpacity>
               ))

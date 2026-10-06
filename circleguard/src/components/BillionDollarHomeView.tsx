@@ -506,7 +506,7 @@ export default function BillionDollarHomeView() {
     if (member.isDriving) {
       return {
         isInZone: false,
-        statusText: '🚗 Moving in vehicle',
+        statusText: 'In transit • Driving',
         color: isDark ? '#3ADFAB' : '#2E7D5B',
         zoneName: null,
         entryTimeStr: null,

@@ -184,7 +184,7 @@ export default function ActivityScreen() {
       title: 'CircleGuard 1.2 Update',
       message: 'New Apple Find My style design, smooth UI-thread animations, and automated emergency hotlines for India and international destinations.',
       time: 'Today • Version 1.2',
-      icon: 'sparkles' as const,
+      icon: 'shield-checkmark' as const,
       color: '#30D158',
       badgeText: 'Update',
     },
@@ -199,12 +199,12 @@ export default function ActivityScreen() {
     },
     {
       id: 'update_3',
-      title: 'Sub-Meter Geofence Alerts',
+      title: 'Safe Zone Boundary Alerts',
       message: 'Precise boundary detection with intelligent noise filtering to reduce false alarms.',
       time: 'Performance',
       icon: 'location' as const,
       color: '#30D158',
-      badgeText: 'Engine',
+      badgeText: 'Safety',
     },
     {
       id: 'update_4',

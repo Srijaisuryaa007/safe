@@ -344,10 +344,10 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
   const getAlertIcon = () => {
     if (isPlanLimit) {
       return {
-        name: 'sparkles' as const,
+        name: 'star' as const,
         color: isDark ? '#FBBF24' : '#D97706',
         bg: isDark ? 'rgba(251, 191, 36, 0.16)' : '#FEF3C7',
-        tag: '• PLAN LIMIT REACHED',
+        tag: '• PLAN LIMIT',
       };
     }
 

@@ -12,7 +12,6 @@ import { ENV } from '../constants/env';
 import { handleServiceError } from '../lib/errorHandler';
 
 import AnimatedCircleGuardLogo from '../components/AnimatedCircleGuardLogo';
-import ConstellationBackground from '../components/ConstellationBackground';
 import { useCountryStore } from '../store/useCountryStore';
 import CountrySelectorModal from '../components/CountrySelectorModal';
 import PasswordResetModal from '../components/PasswordResetModal';
@@ -261,7 +260,6 @@ export default function LoginScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ConstellationBackground opacity={0.45} />
       <ScrollView
         style={{ flex: 1, backgroundColor: 'transparent' }}
         contentContainerStyle={styles.container}
