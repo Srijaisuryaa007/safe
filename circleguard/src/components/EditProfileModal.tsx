@@ -266,9 +266,13 @@ export default function EditProfileModal({ visible, onClose, onProfileUpdated }:
         throw profileError;
       }
 
-      // 2. Persist DOB locally and in metadata
+      // 2. Persist DOB locally and in metadata (safe against local storage quota/disk issues)
       if (dob.trim()) {
-        await AsyncStorage.setItem(getDobStorageKey(profile.id), dob.trim());
+        try {
+          await AsyncStorage.setItem(getDobStorageKey(profile.id), dob.trim());
+        } catch (storageErr) {
+          console.warn('[EditProfileModal] DOB local cache notice:', storageErr);
+        }
       }
 
       // 3. Update Email if changed and valid
@@ -310,9 +314,10 @@ export default function EditProfileModal({ visible, onClose, onProfileUpdated }:
       onClose();
     } catch (err: any) {
       console.error('Save profile error:', err);
+      const cleanMessage = handleServiceError('EditProfileModal:saveProfile', err, 'Unable to update profile info.');
       showAlert({
         title: 'Update Failed',
-        message: err.message || 'Unable to update profile info.',
+        message: cleanMessage,
         type: 'error',
       });
     } finally {

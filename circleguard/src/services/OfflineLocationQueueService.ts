@@ -12,7 +12,7 @@ export interface QueuedLocationPoint {
 }
 
 const STORAGE_PREFIX = '@circleguard_offline_breadcrumbs_';
-const MAX_QUEUE_SIZE = 2500;
+const MAX_QUEUE_SIZE = 500;
 let isFlushing = false;
 
 /**
@@ -79,13 +79,24 @@ export async function queueAndSyncLocationHistory(point: QueuedLocationPoint): P
     // Append new point
     queue.push(pointToSave);
 
-    // Enforce max buffer size
+    // Enforce max buffer size (pruned to prevent SQLite bloat on Android)
     if (queue.length > MAX_QUEUE_SIZE) {
       queue = queue.slice(-MAX_QUEUE_SIZE);
     }
 
     // Always persist to local cache first so crash or abrupt connection loss never loses breadcrumbs
-    await AsyncStorage.setItem(storageKey, JSON.stringify(queue));
+    try {
+      await AsyncStorage.setItem(storageKey, JSON.stringify(queue));
+    } catch (storageErr: any) {
+      const errMsg = String(storageErr?.message || '');
+      if (errMsg.includes('SQLITE_FULL') || errMsg.includes('disk is full') || errMsg.includes('code 13')) {
+        // Emergency prune: keep only the latest 30 points to clear SQLite disk pressure
+        queue = queue.slice(-30);
+        try {
+          await AsyncStorage.setItem(storageKey, JSON.stringify(queue));
+        } catch (_) {}
+      }
+    }
 
     // 2. Try to sync entire batch to Supabase (with timeout guard)
     const syncPromise = supabase
