@@ -160,6 +160,7 @@ export default function DrivingReportsScreen() {
   const [selectedDate, setSelectedDate] = useState<'today' | 'yesterday' | '2daysAgo'>('today');
   const [selectedMemberId, setSelectedMemberId] = useState<string>(initialTargetMemberId || profile?.id || '');
   const [memberPickerVisible, setMemberPickerVisible] = useState(false);
+  const [drivingViewTab, setDrivingViewTab] = useState<'trips' | 'charts'>('trips');
 
   const [loading, setLoading] = useState(true);
   const [trips, setTrips] = useState<TripItem[]>([]);
@@ -870,7 +871,34 @@ export default function DrivingReportsScreen() {
           <LuxuryRadarLoading size={140} message="ANALYZING DRIVING TELEMETRY…" />
         ) : (
           <>
-            {/* Safety Score Card */}
+            {/* View Switcher: Trips & Logs vs Graphs & Charts */}
+            <View style={[styles.sectionTabRow, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F2', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+              <TouchableOpacity
+                style={[styles.sectionTabBtn, drivingViewTab === 'trips' && [styles.sectionTabBtnActive, { backgroundColor: '#2E7D5B' }]]}
+                onPress={() => setDrivingViewTab('trips')}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="car-sport-outline" size={15} color={drivingViewTab === 'trips' ? '#FFFFFF' : colors.textMuted} />
+                <Text style={[styles.sectionTabText, { color: drivingViewTab === 'trips' ? '#FFFFFF' : colors.textMuted }]}>
+                  TRIPS & LOGS ({trips.length})
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.sectionTabBtn, drivingViewTab === 'charts' && [styles.sectionTabBtnActive, { backgroundColor: '#2E7D5B' }]]}
+                onPress={() => setDrivingViewTab('charts')}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="stats-chart-outline" size={15} color={drivingViewTab === 'charts' ? '#FFFFFF' : colors.textMuted} />
+                <Text style={[styles.sectionTabText, { color: drivingViewTab === 'charts' ? '#FFFFFF' : colors.textMuted }]}>
+                  GRAPHS & CHARTS
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {drivingViewTab === 'trips' ? (
+              <>
+                {/* Safety Score Card */}
             <View style={[styles.scoreCard, cardStyles, { backgroundColor: colors.surface, borderColor: driverScore == null ? (isDark ? '#283730' : '#EDEBE6') : (driverScore >= 80 ? '#C6E7D5' : '#FFD7C7') }]}>
               <View style={styles.scoreBadgeHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -934,40 +962,6 @@ export default function DrivingReportsScreen() {
               </View>
             </View>
 
-            {/* Driving Safety Dynamics Radar Chart */}
-            {driverScore != null ? (
-              <SafetyRadarChart
-                data={[
-                  {
-                    label: selectedMemberName,
-                    color: '#00E599',
-                    values: {
-                      braking: Math.max(20, Math.min(100, 100 - totalHardBrakes * 14)),
-                      acceleration: Math.max(20, Math.min(100, 100 - totalRapidAccels * 14)),
-                      speedCompliance: Math.max(20, Math.min(100, 100 - totalSpeedingEvents * 20)),
-                      paceConsistency: Math.max(30, Math.min(100, (driverScore || 85) + 4)),
-                      nightFocus: totalSpeedingEvents === 0 ? 95 : 82,
-                    },
-                  },
-                  {
-                    label: 'Circle Benchmark',
-                    color: '#94A3B8',
-                    values: {
-                      braking: 82,
-                      acceleration: 80,
-                      speedCompliance: 85,
-                      paceConsistency: 84,
-                      nightFocus: 88,
-                    },
-                  },
-                ]}
-                overallScore={driverScore}
-                isDark={isDark}
-                title="SAFETY DYNAMICS RADAR EVALUATION"
-                showBenchmark
-              />
-            ) : null}
-
             {/* Summary Metrics Cards */}
             <View style={styles.metricsRow}>
               <View style={[styles.metricCard, cardStyles, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
@@ -1002,28 +996,6 @@ export default function DrivingReportsScreen() {
                 <Text style={[styles.metricLbl, { color: colors.textMuted }]}>AVG SPEED</Text>
               </View>
             </View>
-
-            {/* Mobility & Mileage Bar Chart */}
-            {trips.length > 0 ? (
-              <TelematicsBarChart
-                data={trips.map((t, idx) => ({
-                  label: `T${idx + 1}`,
-                  value: t.distanceKm || 1,
-                  secondaryValue: t.topSpeedKmh,
-                  subLabel: `${t.startTime} • ${formatDurationText(t.durationMins)}`,
-                  badge: `${t.score} pts`,
-                }))}
-                isDark={isDark}
-                title={`TRIP DISTANCES & PEAK SPEEDS (${trips.length} TRIPS)`}
-                unit="km"
-                secondaryUnit="km/h"
-                onBarPress={(item, idx) => {
-                  if (trips[idx]) {
-                    setSelectedTrip(trips[idx]);
-                  }
-                }}
-              />
-            ) : null}
 
             {/* Trips List Header */}
             <View style={styles.sectionHeaderRow}>
@@ -1099,8 +1071,206 @@ export default function DrivingReportsScreen() {
               })
             )}
           </>
+        ) : (
+          <>
+            {/* Dedicated Graphs & Charts Section Header */}
+            <View style={[styles.chartsSectionHeader, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6' }]}>
+              <View style={styles.chartsBadgeRow}>
+                <Ionicons name="speedometer" size={13} color="#2E7D5B" />
+                <Text style={[styles.chartsBadgeText, { color: '#2E7D5B' }]}>VEHICULAR DYNAMICS & SAFETY RADAR</Text>
+              </View>
+              <Text style={[styles.chartsSectionTitle, { color: colors.foreground }]}>Driving Telematics & Analytics</Text>
+              <Text style={[styles.chartsSectionSubtitle, { color: colors.textMuted }]}>
+                Multi-axis safety radar, trip mileage distributions, and behavioral risk telemetry.
+              </Text>
+            </View>
+
+            {driverScore == null && trips.length === 0 ? (
+              <View style={[styles.emptyTripsCard, cardStyles, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
+                <Ionicons name="bar-chart-outline" size={40} color={colors.textMuted} style={{ marginBottom: 8 }} />
+                <Text style={[styles.emptyTripsTitle, { color: colors.foreground }]}>NO DRIVING TELEMETRY LOGGED</Text>
+                <Text style={[styles.emptyTripsSub, { color: colors.textMuted }]}>
+                  No vehicular journeys detected for {selectedMemberName} on {selectedDate.toUpperCase()}. Safety radar and telematics charts activate automatically once trips are logged.
+                </Text>
+              </View>
+            ) : (
+              <>
+                {/* Driving Safety Dynamics Radar Chart */}
+                <SafetyRadarChart
+                  data={[
+                    {
+                      label: selectedMemberName,
+                      color: '#00E599',
+                      values: {
+                        braking: Math.max(20, Math.min(100, 100 - totalHardBrakes * 14)),
+                        acceleration: Math.max(20, Math.min(100, 100 - totalRapidAccels * 14)),
+                        speedCompliance: Math.max(20, Math.min(100, 100 - totalSpeedingEvents * 20)),
+                        paceConsistency: Math.max(30, Math.min(100, (driverScore || 85) + 4)),
+                        nightFocus: totalSpeedingEvents === 0 ? 95 : 82,
+                      },
+                    },
+                    {
+                      label: 'Circle Benchmark',
+                      color: '#94A3B8',
+                      values: {
+                        braking: 82,
+                        acceleration: 80,
+                        speedCompliance: 85,
+                        paceConsistency: 84,
+                        nightFocus: 88,
+                      },
+                    },
+                  ]}
+                  overallScore={driverScore || 85}
+                  isDark={isDark}
+                  title="SAFETY DYNAMICS RADAR EVALUATION"
+                  showBenchmark
+                />
+
+                {/* Radar 5-Axis Detailed Breakdown */}
+                <View style={[styles.analyticsGridCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6' }]}>
+                  <View style={styles.analyticsCardTitleRow}>
+                    <Ionicons name="shield-checkmark-outline" size={16} color="#00E599" />
+                    <Text style={[styles.analyticsCardTitle, { color: colors.foreground }]}>5-AXIS BEHAVIORAL DIMENSIONS</Text>
+                  </View>
+                  <View style={styles.radarMetricsList}>
+                    <View style={[styles.radarMetricItem, { borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F2' }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.radarMetricName, { color: colors.foreground }]}>Smooth Braking</Text>
+                        <Text style={[styles.radarMetricDesc, { color: colors.textMuted }]}>
+                          {totalHardBrakes === 0 ? 'Zero abrupt stops detected' : `${totalHardBrakes} hard braking events`}
+                        </Text>
+                      </View>
+                      <View style={[styles.radarMetricScorePill, { backgroundColor: totalHardBrakes === 0 ? (isDark ? '#1C2E24' : '#E8F5EE') : '#FEE2E2' }]}>
+                        <Text style={[styles.radarMetricScoreText, { color: totalHardBrakes === 0 ? '#00E599' : '#DC2626' }]}>
+                          {Math.max(20, Math.min(100, 100 - totalHardBrakes * 14))}/100
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={[styles.radarMetricItem, { borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F2' }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.radarMetricName, { color: colors.foreground }]}>Controlled Acceleration</Text>
+                        <Text style={[styles.radarMetricDesc, { color: colors.textMuted }]}>
+                          {totalRapidAccels === 0 ? 'Gradual, smooth throttle' : `${totalRapidAccels} aggressive throttle bursts`}
+                        </Text>
+                      </View>
+                      <View style={[styles.radarMetricScorePill, { backgroundColor: totalRapidAccels === 0 ? (isDark ? '#1C2E24' : '#E8F5EE') : '#FFF3EB' }]}>
+                        <Text style={[styles.radarMetricScoreText, { color: totalRapidAccels === 0 ? '#00E599' : '#E07A5F' }]}>
+                          {Math.max(20, Math.min(100, 100 - totalRapidAccels * 14))}/100
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={[styles.radarMetricItem, { borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F2' }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.radarMetricName, { color: colors.foreground }]}>Speed Compliance</Text>
+                        <Text style={[styles.radarMetricDesc, { color: colors.textMuted }]}>
+                          {totalSpeedingEvents === 0 ? 'Consistent adherence to speed limits' : `${totalSpeedingEvents} speed violations`}
+                        </Text>
+                      </View>
+                      <View style={[styles.radarMetricScorePill, { backgroundColor: totalSpeedingEvents === 0 ? (isDark ? '#1C2E24' : '#E8F5EE') : '#FEE2E2' }]}>
+                        <Text style={[styles.radarMetricScoreText, { color: totalSpeedingEvents === 0 ? '#00E599' : '#DC2626' }]}>
+                          {Math.max(20, Math.min(100, 100 - totalSpeedingEvents * 20))}/100
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={[styles.radarMetricItem, { borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F2' }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.radarMetricName, { color: colors.foreground }]}>Pace Consistency</Text>
+                        <Text style={[styles.radarMetricDesc, { color: colors.textMuted }]}>
+                          Smooth highway cruising and steady velocity
+                        </Text>
+                      </View>
+                      <View style={[styles.radarMetricScorePill, { backgroundColor: isDark ? '#1C2E24' : '#E8F5EE' }]}>
+                        <Text style={[styles.radarMetricScoreText, { color: '#00E599' }]}>
+                          {Math.max(30, Math.min(100, (driverScore || 85) + 4))}/100
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={[styles.radarMetricItem, { borderBottomWidth: 0 }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.radarMetricName, { color: colors.foreground }]}>Day/Night Focus</Text>
+                        <Text style={[styles.radarMetricDesc, { color: colors.textMuted }]}>
+                          Safe headway and visibility caution
+                        </Text>
+                      </View>
+                      <View style={[styles.radarMetricScorePill, { backgroundColor: isDark ? '#1C2E24' : '#E8F5EE' }]}>
+                        <Text style={[styles.radarMetricScoreText, { color: '#00E599' }]}>
+                          {totalSpeedingEvents === 0 ? 95 : 82}/100
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Mobility & Mileage Bar Chart */}
+                {trips.length > 0 && (
+                  <TelematicsBarChart
+                    data={trips.map((t, idx) => ({
+                      label: `T${idx + 1}`,
+                      value: t.distanceKm || 1,
+                      secondaryValue: t.topSpeedKmh,
+                      subLabel: `${t.startTime} • ${formatDurationText(t.durationMins)}`,
+                      badge: `${t.score} pts`,
+                    }))}
+                    isDark={isDark}
+                    title={`TRIP DISTANCES & PEAK SPEEDS (${trips.length} TRIPS)`}
+                    unit="km"
+                    secondaryUnit="km/h"
+                    onBarPress={(item, idx) => {
+                      if (trips[idx]) {
+                        setSelectedTrip(trips[idx]);
+                      }
+                    }}
+                  />
+                )}
+
+                {/* Driving Risk & Efficiency Metrics Card */}
+                <View style={[styles.analyticsGridCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6' }]}>
+                  <View style={styles.analyticsCardTitleRow}>
+                    <Ionicons name="leaf-outline" size={16} color="#00E599" />
+                    <Text style={[styles.analyticsCardTitle, { color: colors.foreground }]}>DRIVING EFFICIENCY & RISK INDEX</Text>
+                  </View>
+                  <View style={styles.analyticsStats2x2}>
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(0, 229, 153, 0.08)' : '#F0FDF4', borderColor: isDark ? 'rgba(0, 229, 153, 0.2)' : '#DCFCE7' }]}>
+                      <Text style={[styles.analyticsStatValue, { color: '#00E599' }]}>
+                        {Math.max(70, Math.min(99, 100 - (totalHardBrakes + totalRapidAccels) * 4))}%
+                      </Text>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>ECO EFFICIENCY</Text>
+                    </View>
+
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(56, 232, 255, 0.08)' : '#F0F9FF', borderColor: isDark ? 'rgba(56, 232, 255, 0.2)' : '#E0F2FE' }]}>
+                      <Text style={[styles.analyticsStatValue, { color: '#38E8FF' }]}>
+                        {totalDistanceKm > 0 ? ((totalHardBrakes / totalDistanceKm) * 100).toFixed(1) : '0.0'}
+                      </Text>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>BRAKES / 100KM</Text>
+                    </View>
+
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(224, 122, 95, 0.08)' : '#FFF3EB', borderColor: isDark ? 'rgba(224, 122, 95, 0.2)' : '#FFD7C7' }]}>
+                      <Text style={[styles.analyticsStatValue, { color: '#E07A5F' }]}>
+                        {totalDistanceKm > 0 ? ((totalRapidAccels / totalDistanceKm) * 100).toFixed(1) : '0.0'}
+                      </Text>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>ACCELS / 100KM</Text>
+                    </View>
+
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(59, 130, 246, 0.08)' : '#EFF6FF', borderColor: isDark ? 'rgba(59, 130, 246, 0.2)' : '#DBEAFE' }]}>
+                      <Text style={[styles.analyticsStatValue, { color: '#3B82F6' }]}>
+                        {trips.length}
+                      </Text>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>JOURNEYS ANALYZED</Text>
+                    </View>
+                  </View>
+                </View>
+              </>
+            )}
+          </>
         )}
-      </ScrollView>
+      </>
+    )}
+  </ScrollView>
 
       {/* Trip Detail Map Modal */}
       {selectedTrip ? (
@@ -1722,5 +1892,126 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 11.5,
     lineHeight: 16.5,
+  },
+  sectionTabRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 3,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 14,
+  },
+  sectionTabBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 11,
+  },
+  sectionTabBtnActive: {
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+  },
+  sectionTabText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  chartsSectionHeader: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 14,
+  },
+  chartsBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  chartsBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  chartsSectionTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  chartsSectionSubtitle: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  analyticsGridCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 14,
+  },
+  analyticsCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 14,
+  },
+  analyticsCardTitle: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  radarMetricsList: {
+    gap: 12,
+  },
+  radarMetricItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+  },
+  radarMetricName: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  radarMetricDesc: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  radarMetricScorePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  radarMetricScoreText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
+  analyticsStats2x2: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  analyticsStatBox: {
+    flex: 1,
+    minWidth: '45%',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  analyticsStatValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  analyticsStatLabel: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 });

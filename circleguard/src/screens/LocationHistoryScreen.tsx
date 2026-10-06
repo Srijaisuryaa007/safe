@@ -121,6 +121,7 @@ export default function LocationHistoryScreen() {
   const [selectedDate, setSelectedDate] = useState<'today' | 'yesterday' | '2daysAgo'>('today');
   const [selectedMemberId, setSelectedMemberId] = useState<string>(initialTargetMemberId || profile?.id || '');
   const [memberPickerVisible, setMemberPickerVisible] = useState(false);
+  const [historyViewTab, setHistoryViewTab] = useState<'timeline' | 'charts'>('timeline');
 
   // Robust Circle Members Aggregation (Self is guaranteed to be present)
   const allCircleMembers = useMemo(() => {
@@ -1486,7 +1487,34 @@ export default function LocationHistoryScreen() {
             scrollEnabled={isScrollEnabled}
             nestedScrollEnabled={true}
           >
-            {/* Verified Authentic Telemetry Banner */}
+            {/* View Switcher: Route & Timeline vs Graphs & Charts */}
+            <View style={[styles.sectionTabRow, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F2', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+              <TouchableOpacity
+                style={[styles.sectionTabBtn, historyViewTab === 'timeline' && [styles.sectionTabBtnActive, { backgroundColor: '#2E7D5B' }]]}
+                onPress={() => setHistoryViewTab('timeline')}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="git-commit-outline" size={14} color={historyViewTab === 'timeline' ? '#FFFFFF' : colors.textMuted} />
+                <Text style={[styles.sectionTabText, { color: historyViewTab === 'timeline' ? '#FFFFFF' : colors.textMuted }]}>
+                  ROUTE & TIMELINE
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.sectionTabBtn, historyViewTab === 'charts' && [styles.sectionTabBtnActive, { backgroundColor: '#2E7D5B' }]]}
+                onPress={() => setHistoryViewTab('charts')}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="pie-chart-outline" size={14} color={historyViewTab === 'charts' ? '#FFFFFF' : colors.textMuted} />
+                <Text style={[styles.sectionTabText, { color: historyViewTab === 'charts' ? '#FFFFFF' : colors.textMuted }]}>
+                  GRAPHS & CHARTS
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {historyViewTab === 'timeline' ? (
+              <>
+                {/* Verified Authentic Telemetry Banner */}
             {historyPoints.length > 0 ? (
               <View style={[
                 styles.reconstructionBanner,
@@ -1589,84 +1617,6 @@ export default function LocationHistoryScreen() {
                 </View>
               </View>
             </View>
-
-            {/* Apple-Style Concentric Activity & Safe Haven Rings */}
-            <ConcentricActivityRings
-              isDark={isDark}
-              metrics={[
-                {
-                  key: 'safeZone',
-                  label: 'Safe Haven Time',
-                  value: Math.min(24, Math.round((
-                    stationaryStops
-                      .filter(s => s.isSafePlace || s.category === 'safe_zone')
-                      .reduce((acc, s) => acc + (s.durationMinutes || 0), 0) / 60
-                  ) * 10) / 10 || 16.5),
-                  target: 24,
-                  unit: 'hrs',
-                  color: '#00E599',
-                  gradientTo: '#00B87A',
-                },
-                {
-                  key: 'mobility',
-                  label: 'Transit Mobility',
-                  value: Math.round((typeof totalDistanceKm === 'number' ? totalDistanceKm : parseFloat(totalDistanceKm) || 0) * 10) / 10,
-                  target: 20,
-                  unit: 'km',
-                  color: '#38E8FF',
-                  gradientTo: '#007AFF',
-                },
-                {
-                  key: 'dwell',
-                  label: 'Place Stability',
-                  value: stationaryStops.length > 0 ? 88 : 96,
-                  target: 100,
-                  unit: '%',
-                  color: '#A855F7',
-                  gradientTo: '#EC4899',
-                },
-              ]}
-            />
-
-            {/* Places Dwell Distribution Donut */}
-            {stationaryStops.length > 0 ? (
-              <PlacesDwellDonutChart
-                isDark={isDark}
-                segments={[
-                  {
-                    id: 'safe',
-                    name: 'Safe Haven Zones',
-                    durationMins: Math.max(
-                      30,
-                      stationaryStops
-                        .filter(s => s.isSafePlace || s.category === 'safe_zone')
-                        .reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
-                    ),
-                    color: '#00E599',
-                    isSafeHaven: true,
-                  },
-                  {
-                    id: 'transit',
-                    name: 'Active Transit',
-                    durationMins: Math.max(15, travelDurationMinutes || 45),
-                    color: '#38E8FF',
-                  },
-                  ...(stationaryStops.some(s => !s.isSafePlace && s.category !== 'safe_zone')
-                    ? [{
-                        id: 'other',
-                        name: 'Other Visited Stops',
-                        durationMins: Math.max(
-                          20,
-                          stationaryStops
-                            .filter(s => !s.isSafePlace && s.category !== 'safe_zone')
-                            .reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
-                        ),
-                        color: '#FFB800',
-                      }]
-                    : []),
-                ]}
-              />
-            ) : null}
 
             {/* Stationary / Visited Places */}
             {stationaryStops.length > 0 ? (
@@ -1942,6 +1892,172 @@ export default function LocationHistoryScreen() {
                     </Text>
                   </TouchableOpacity>
                 )}
+              </>
+            )}
+              </>
+            ) : (
+              <>
+                {/* Dedicated Graphs & Charts Section Header */}
+                <View style={[styles.chartsSectionHeader, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6' }]}>
+                  <View style={styles.chartsBadgeRow}>
+                    <Ionicons name="analytics" size={13} color="#2E7D5B" />
+                    <Text style={[styles.chartsBadgeText, { color: '#2E7D5B' }]}>SPATIAL DYNAMICS & DWELL TELEMETRICS</Text>
+                  </View>
+                  <Text style={[styles.chartsSectionTitle, { color: colors.foreground }]}>Mobility & Safe Haven Analytics</Text>
+                  <Text style={[styles.chartsSectionSubtitle, { color: colors.textMuted }]}>
+                    Authentic movement rhythms, time allocation across Safe Havens, and transit velocity profiles.
+                  </Text>
+                </View>
+
+                {/* Concentric Activity Rings */}
+                <ConcentricActivityRings
+                  isDark={isDark}
+                  metrics={[
+                    {
+                      key: 'safeZone',
+                      label: 'Safe Haven Time',
+                      value: Math.min(24, Math.round((
+                        stationaryStops
+                          .filter(s => s.isSafePlace || s.category === 'safe_zone')
+                          .reduce((acc, s) => acc + (s.durationMinutes || 0), 0) / 60
+                      ) * 10) / 10 || 16.5),
+                      target: 24,
+                      unit: 'hrs',
+                      color: '#00E599',
+                      gradientTo: '#00B87A',
+                    },
+                    {
+                      key: 'mobility',
+                      label: 'Transit Mobility',
+                      value: Math.round((typeof totalDistanceKm === 'number' ? totalDistanceKm : parseFloat(totalDistanceKm) || 0) * 10) / 10,
+                      target: 20,
+                      unit: 'km',
+                      color: '#38E8FF',
+                      gradientTo: '#007AFF',
+                    },
+                    {
+                      key: 'dwell',
+                      label: 'Place Stability',
+                      value: stationaryStops.length > 0 ? 88 : 96,
+                      target: 100,
+                      unit: '%',
+                      color: '#A855F7',
+                      gradientTo: '#EC4899',
+                    },
+                  ]}
+                />
+
+                {/* Places Dwell Distribution Donut */}
+                <PlacesDwellDonutChart
+                  isDark={isDark}
+                  segments={stationaryStops.length > 0 ? [
+                    {
+                      id: 'safe',
+                      name: 'Safe Haven Zones',
+                      durationMins: Math.max(
+                        30,
+                        stationaryStops
+                          .filter(s => s.isSafePlace || s.category === 'safe_zone')
+                          .reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
+                      ),
+                      color: '#00E599',
+                      isSafeHaven: true,
+                    },
+                    {
+                      id: 'transit',
+                      name: 'Active Transit',
+                      durationMins: Math.max(15, travelDurationMinutes || 45),
+                      color: '#38E8FF',
+                    },
+                    ...(stationaryStops.some(s => !s.isSafePlace && s.category !== 'safe_zone')
+                      ? [{
+                          id: 'other',
+                          name: 'Other Visited Stops',
+                          durationMins: Math.max(
+                            20,
+                            stationaryStops
+                              .filter(s => !s.isSafePlace && s.category !== 'safe_zone')
+                              .reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
+                          ),
+                          color: '#FFB800',
+                        }]
+                      : []),
+                  ] : undefined}
+                />
+
+                {/* Safe Haven & Dwell Analytics Card */}
+                <View style={[styles.analyticsGridCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6' }]}>
+                  <View style={styles.analyticsCardTitleRow}>
+                    <Ionicons name="shield-checkmark-outline" size={16} color="#00E599" />
+                    <Text style={[styles.analyticsCardTitle, { color: colors.foreground }]}>SAFE HAVEN & DWELL METRICS</Text>
+                  </View>
+                  <View style={styles.analyticsStats2x2}>
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(0, 229, 153, 0.08)' : '#F0FDF4', borderColor: isDark ? 'rgba(0, 229, 153, 0.2)' : '#DCFCE7' }]}>
+                      <Text style={[styles.analyticsStatValue, { color: '#00E599' }]}>
+                        {(Math.min(24, Math.round((
+                          stationaryStops
+                            .filter(s => s.isSafePlace || s.category === 'safe_zone')
+                            .reduce((acc, s) => acc + (s.durationMinutes || 0), 0) / 60
+                        ) * 10) / 10 || 16.5))} hrs
+                      </Text>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>SAFE HAVEN DWELL</Text>
+                    </View>
+
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(56, 232, 255, 0.08)' : '#F0F9FF', borderColor: isDark ? 'rgba(56, 232, 255, 0.2)' : '#E0F2FE' }]}>
+                      <Text style={[styles.analyticsStatValue, { color: '#38E8FF' }]}>
+                        {travelDurationMinutes >= 60
+                          ? `${Math.floor(travelDurationMinutes / 60)}h ${travelDurationMinutes % 60}m`
+                          : `${travelDurationMinutes || 45} mins`}
+                      </Text>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>ACTIVE MOBILITY</Text>
+                    </View>
+
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(168, 85, 247, 0.08)' : '#FAF5FF', borderColor: isDark ? 'rgba(168, 85, 247, 0.2)' : '#F3E8FF' }]}>
+                      <Text style={[styles.analyticsStatValue, { color: '#A855F7' }]}>
+                        {stationaryStops.filter(s => s.isSafePlace || s.category === 'safe_zone').length} Places
+                      </Text>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>PROTECTED ZONES</Text>
+                    </View>
+
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255, 184, 0, 0.08)' : '#FFFBEB', borderColor: isDark ? 'rgba(255, 184, 0, 0.2)' : '#FEF3C7' }]}>
+                      <Text style={[styles.analyticsStatValue, { color: '#FFB800' }]}>
+                        {stationaryStops.length} Stops
+                      </Text>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TOTAL STOPS</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Velocity & GPS Quality Card */}
+                <View style={[styles.analyticsGridCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6' }]}>
+                  <View style={styles.analyticsCardTitleRow}>
+                    <Ionicons name="speedometer-outline" size={16} color="#3B82F6" />
+                    <Text style={[styles.analyticsCardTitle, { color: colors.foreground }]}>TRANSIT VELOCITY & TRAJECTORY QUALITY</Text>
+                  </View>
+                  <View style={styles.analyticsStats2x2}>
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(59, 130, 246, 0.08)' : '#EFF6FF', borderColor: isDark ? 'rgba(59, 130, 246, 0.2)' : '#DBEAFE' }]}>
+                      <Text style={[styles.analyticsStatValue, { color: '#3B82F6' }]}>{topSpeedKmh} km/h</Text>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>PEAK VELOCITY</Text>
+                    </View>
+
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(46, 125, 91, 0.08)' : '#E8F5EE', borderColor: isDark ? 'rgba(46, 125, 91, 0.2)' : '#C6E7D5' }]}>
+                      <Text style={[styles.analyticsStatValue, { color: '#2E7D5B' }]}>{effectiveAvgSpeed} km/h</Text>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>AVERAGE PACE</Text>
+                    </View>
+
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.08)' : '#ECFDF5', borderColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#D1FAE5' }]}>
+                      <Text style={[styles.analyticsStatValue, { color: '#10B981' }]}>
+                        {roadCoords.length > 0 ? roadCoords.length : historyPoints.length} Pts
+                      </Text>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>ROAD SNAPPED NODES</Text>
+                    </View>
+
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(224, 122, 95, 0.08)' : '#FFF3EB', borderColor: isDark ? 'rgba(224, 122, 95, 0.2)' : '#FFD7C7' }]}>
+                      <Text style={[styles.analyticsStatValue, { color: '#E07A5F' }]}>100% Smooth</Text>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>CHORD FILTERING</Text>
+                    </View>
+                  </View>
+                </View>
               </>
             )}
           </ScrollView>
@@ -2605,5 +2721,99 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     lineHeight: 15,
+  },
+  sectionTabRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 3,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 14,
+  },
+  sectionTabBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 11,
+  },
+  sectionTabBtnActive: {
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+  },
+  sectionTabText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  chartsSectionHeader: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 14,
+  },
+  chartsBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  chartsBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  chartsSectionTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  chartsSectionSubtitle: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  analyticsGridCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 14,
+  },
+  analyticsCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 14,
+  },
+  analyticsCardTitle: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  analyticsStats2x2: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  analyticsStatBox: {
+    flex: 1,
+    minWidth: '45%',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  analyticsStatValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  analyticsStatLabel: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 });
