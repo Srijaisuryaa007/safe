@@ -1,18 +1,3 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Suppress browser / webview default yellow autofill highlight */
-input:-webkit-autofill,
-input:-webkit-autofill:hover, 
-input:-webkit-autofill:focus, 
-input:-webkit-autofill:active {
-  -webkit-background-clip: text !important;
-  -webkit-text-fill-color: inherit !important;
-  transition: background-color 500000s ease-in-out 0s !important;
-  box-shadow: inset 0 0 20px 20px transparent !important;
-}
-
-input {
-  outline: none !important;
-}
