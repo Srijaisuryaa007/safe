@@ -93,29 +93,40 @@ export default function ActivityScreen() {
         };
       });
 
-      const msgList = (msgRes.data || []).map((item) => {
-        let name = 'Member';
-        let phone = '';
-        if (item.profiles) {
-          const prof = Array.isArray(item.profiles) ? item.profiles[0] : (item.profiles as any);
-          name = prof?.full_name || 'Member';
-          phone = prof?.phone || '';
-        }
-        return {
-          id: item.id,
-          type: 'MESSAGE',
-          title: `Message from ${name}`,
-          message: item.content,
-          time: new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          icon: 'chatbubble-ellipses' as const,
-          color: '#0A84FF',
-          memberName: name,
-          phone,
-          timestamp: new Date(item.created_at).getTime(),
-          actionLabel: 'Reply',
-          actionIcon: 'chatbubbles',
-        };
-      });
+      const msgList = (msgRes.data || [])
+        .filter((item: any) => {
+          const content = (item.content || '').toUpperCase().trim();
+          return (
+            !content.startsWith('📍 LEFT ') &&
+            !content.startsWith('📍 ARRIVED ') &&
+            !content.startsWith('PERMISSION ') &&
+            !content.includes('CHIME ALERT:') &&
+            !content.includes('BATTERY NUDGE:')
+          );
+        })
+        .map((item: any) => {
+          let name = 'Member';
+          let phone = '';
+          if (item.profiles) {
+            const prof = Array.isArray(item.profiles) ? item.profiles[0] : (item.profiles as any);
+            name = prof?.full_name || 'Member';
+            phone = prof?.phone || '';
+          }
+          return {
+            id: item.id,
+            type: 'MESSAGE',
+            title: `Message from ${name}`,
+            message: item.content,
+            time: new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            icon: 'chatbubble-ellipses' as const,
+            color: '#0A84FF',
+            memberName: name,
+            phone,
+            timestamp: new Date(item.created_at).getTime(),
+            actionLabel: 'Reply',
+            actionIcon: 'chatbubbles',
+          };
+        });
 
       const rawEvents = (zoneEventsRes.data || []).sort(
         (a: any, b: any) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()

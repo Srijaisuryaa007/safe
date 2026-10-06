@@ -159,10 +159,27 @@ export default function DashboardScreen() {
         .is('deleted_at', null)
         .gte('created_at', cutoffTime)
         .order('created_at', { ascending: false })
-        .limit(1);
+        .limit(15);
 
-      if (data && data.length > 0) {
-        const msg = data[0] as any;
+      const isSystem = (content?: string, type?: string) => {
+        if (type && ['CHECKIN', 'CHECKIN_REQUEST', 'SYSTEM', 'GEOFENCE'].includes(type.toUpperCase())) return true;
+        if (!content) return false;
+        const upper = content.toUpperCase().trim();
+        return (
+          upper.includes('PERMISSION ') ||
+          upper.includes('SYSTEM NOTIFICATION') ||
+          upper.includes('CHIME ALERT:') ||
+          upper.includes('BATTERY NUDGE:') ||
+          upper.startsWith('📍 LEFT ') ||
+          upper.startsWith('📍 ARRIVED ') ||
+          upper.startsWith('📍 CHECK-IN')
+        );
+      };
+
+      const genuineMsg = (data || []).find((m: any) => !isSystem(m.content, m.message_type));
+
+      if (genuineMsg) {
+        const msg = genuineMsg as any;
         let prof = msg.profiles;
         if (Array.isArray(prof)) prof = prof[0];
         setLatestMessage({

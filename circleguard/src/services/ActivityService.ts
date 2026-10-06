@@ -547,7 +547,18 @@ export const fetchCircleActivities = async (
       .limit(60);
 
     if (!error && Array.isArray(data)) {
-      msgEvents = data.map((item: any) => {
+      msgEvents = data
+        .filter((item: any) => {
+          const content = (item.content || '').toUpperCase().trim();
+          return (
+            !content.startsWith('📍 LEFT ') &&
+            !content.startsWith('📍 ARRIVED ') &&
+            !content.startsWith('PERMISSION ') &&
+            !content.includes('CHIME ALERT:') &&
+            !content.includes('BATTERY NUDGE:')
+          );
+        })
+        .map((item: any) => {
         const member = memberMap.get(item.sender_id);
         const name = member?.profile?.full_name || 'Circle Member';
         const isCheckIn = item.message_type === 'CHECKIN';

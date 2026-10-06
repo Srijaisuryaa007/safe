@@ -231,15 +231,27 @@ export default function ChatScreen() {
     );
   }, [messages, activeFilterMemberId, profile?.id]);
 
-  const isPermissionOrSystemMsg = (content?: string) => {
+  const isPermissionOrSystemMsg = (content?: string, messageType?: string) => {
+    if (messageType && messageType !== 'text' && messageType !== 'TEXT') {
+      const upperType = messageType.toUpperCase();
+      if (['CHECKIN', 'CHECKIN_REQUEST', 'SYSTEM', 'GEOFENCE'].includes(upperType)) {
+        return true;
+      }
+    }
     if (!content) return false;
-    const upper = content.toUpperCase();
+    const upper = content.toUpperCase().trim();
     return (
       upper.includes('PERMISSION REQUEST') ||
       upper.includes('PERMISSION GRANTED') ||
       upper.includes('PERMISSION DENIED') ||
       upper.includes('PERMISSION REVOKED') ||
-      upper.includes('SYSTEM NOTIFICATION')
+      upper.includes('SYSTEM NOTIFICATION') ||
+      upper.includes('CHIME ALERT:') ||
+      upper.includes('BATTERY NUDGE:') ||
+      upper.startsWith('📍 LEFT ') ||
+      upper.startsWith('📍 ARRIVED ') ||
+      upper.startsWith('📍 CHECK-IN') ||
+      upper.includes('SAFE BOUNDARY AT')
     );
   };
 
@@ -300,7 +312,7 @@ export default function ChatScreen() {
       }
 
       const formatted: ChatMessage[] = (rawData || [])
-        .filter((msg: any) => !isPermissionOrSystemMsg(msg.content))
+        .filter((msg: any) => !isPermissionOrSystemMsg(msg.content, msg.message_type))
         .map((msg: any) => {
           let prof = msg.profiles;
           if (Array.isArray(prof)) prof = prof[0];
@@ -342,7 +354,7 @@ export default function ChatScreen() {
         async (payload) => {
           if (payload.eventType === 'INSERT') {
             const newMsg = payload.new as any;
-            if (newMsg.deleted_at || isPermissionOrSystemMsg(newMsg.content)) return;
+            if (newMsg.deleted_at || isPermissionOrSystemMsg(newMsg.content, newMsg.message_type)) return;
 
             const { data: prof } = await supabase
               .from('profiles')

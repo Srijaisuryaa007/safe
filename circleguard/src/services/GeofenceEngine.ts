@@ -830,19 +830,8 @@ export async function dispatchGeofencePushAlert(breach: GeofenceBreachEvent, pla
       ? `${breach.userName} left ${placeName} safe boundary at ${preciseTimeStr}.`
       : `${breach.userName} arrived at ${placeName} at ${preciseTimeStr}.`;
 
-    // 1. Post automated broadcast message to circle so members see it in Chat and Timeline
-    if (place.circle_id) {
-      Promise.resolve(
-        supabase
-          .from('circle_messages')
-          .insert({
-            circle_id: place.circle_id,
-            sender_id: breach.userId,
-            content: isExit ? `📍 Left ${placeName} at ${shortTimeStr}` : `📍 Arrived at ${placeName} at ${shortTimeStr}`,
-            created_at: eventDate.toISOString(),
-          })
-      ).catch(() => {});
-    }
+    // Note: Geofence breaches are recorded authoritatively in zone_events/place_events
+    // and broadcast via push notifications. We do NOT pollute circle_messages (the chat) with automated logs.
 
     // 2. Deliver local notification and notify in-app listeners
     notifyInAppGeofenceBreach(breach);
