@@ -117,8 +117,23 @@ export default function ActivityScreen() {
         };
       });
 
-      const rawEvents = zoneEventsRes.data || [];
-      const breachList = rawEvents.map((item: any) => {
+      const rawEvents = (zoneEventsRes.data || []).sort(
+        (a: any, b: any) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
+      );
+
+      const lastStatePerMemberPlace = new Map<string, string>();
+      const genuineEvents: any[] = [];
+      for (const ev of rawEvents) {
+        const key = `${ev.member_id}_${ev.zone_id}`;
+        const lastState = lastStatePerMemberPlace.get(key);
+        if (lastState && lastState === ev.type) continue;
+        lastStatePerMemberPlace.set(key, ev.type);
+        genuineEvents.push(ev);
+      }
+
+      const breachList = genuineEvents
+        .sort((a: any, b: any) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime())
+        .map((item: any) => {
         let name = 'Member';
         if (item.profiles) {
           const prof = Array.isArray(item.profiles) ? item.profiles[0] : (item.profiles as any);

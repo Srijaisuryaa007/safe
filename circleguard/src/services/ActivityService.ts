@@ -743,12 +743,35 @@ export const fetchCircleActivities = async (
         isAuthoritativeZoneEvent: false,
       }));
 
-      // Deduplicate: If an event has same user_id, place_id, and event_type within 60s, keep zone_event
-      const seenEventKeys = new Set<string>();
-      const mergedEvents = [...normalizedZe, ...normalizedPe].sort(
+      // 1. Sort chronologically ascending to trace genuine state transitions
+      const chronologicalEvents = [...normalizedZe, ...normalizedPe].sort(
+        (a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
+      );
+
+      // 2. Track previous state per (user_id, place_id) to eliminate repeated app-open departures
+      const lastStatePerMemberPlace = new Map<string, string>();
+      const validTransitions: any[] = [];
+
+      for (const ev of chronologicalEvents) {
+        const key = `${ev.user_id}_${ev.place_id}`;
+        const lastState = lastStatePerMemberPlace.get(key);
+
+        // If state is identical to prior recorded state (e.g. repeated departure without prior arrival),
+        // skip the bogus repeat! Only actual state alterations (arrival -> departure or vice versa) are authentic.
+        if (lastState && lastState === ev.event_type) {
+          continue;
+        }
+
+        lastStatePerMemberPlace.set(key, ev.event_type);
+        validTransitions.push(ev);
+      }
+
+      // 3. Sort back to descending order (newest first) for chronological display
+      const mergedEvents = validTransitions.sort(
         (a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime()
       );
 
+      const seenEventKeys = new Set<string>();
       for (const ev of mergedEvents) {
         const timeBucket = Math.floor(new Date(ev.occurred_at).getTime() / 60000); // 1-minute bucket
         const dedupKey = `${ev.user_id}_${ev.place_id}_${ev.event_type}_${timeBucket}`;

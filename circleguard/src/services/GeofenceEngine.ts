@@ -225,9 +225,10 @@ export async function canAndRecordGeofenceAlert(
         return false;
       }
 
-      // If same event type (e.g. exit followed by exit), allow if more than 3 minutes have elapsed
-      // This prevents a permanent deadlock if an intermediate entry wasn't recorded while phone was locked.
-      if (record.lastEventType === targetType && timeSinceLastAlert < 180000) {
+      // STRICT STATE ALTERNATION:
+      // A member who is outside cannot exit again. A member who is inside cannot enter again.
+      // NEVER allow duplicate consecutive alerts of the same type.
+      if (record.lastEventType === targetType) {
         return false;
       }
     }
@@ -347,27 +348,56 @@ export async function evaluateGeofenceBreaches(
 
       if (currentState === undefined) {
         try {
-          const { data: lastEventData } = await supabase
-            .from('place_events')
-            .select('event_type')
-            .eq('place_id', place.id)
-            .eq('user_id', userLoc.user_id)
-            .order('occurred_at', { ascending: false })
-            .limit(1);
+          const { data: stateRow } = await supabase
+            .from('member_zone_state')
+            .select('inside')
+            .eq('zone_id', place.id)
+            .eq('member_id', userLoc.user_id)
+            .maybeSingle();
 
-          if (lastEventData && lastEventData.length > 0) {
-            currentState = lastEventData[0].event_type === 'arrival' ? 'inside' : 'outside';
+          if (stateRow) {
+            currentState = stateRow.inside ? 'inside' : 'outside';
+          } else {
+            const { data: lastEventData } = await supabase
+              .from('zone_events')
+              .select('type')
+              .eq('zone_id', place.id)
+              .eq('member_id', userLoc.user_id)
+              .order('occurred_at', { ascending: false })
+              .limit(1);
+
+            if (lastEventData && lastEventData.length > 0) {
+              currentState = lastEventData[0].type === 'ENTER' ? 'inside' : 'outside';
+            }
           }
         } catch (e) {}
       }
 
-      // Initial bootstrap: If user is anywhere near the safe zone on cold start, initialize as inside
-      // and do NOT trigger an immediate departure or arrival alert
+      // Initial bootstrap: If state is unrecorded or app just launched, sync to current physical location
+      const initialPhysicalState = distMeters <= radius + Math.max(35, accuracy * 1.5) ? 'inside' : 'outside';
+
       if (currentState === undefined) {
-        currentState = distMeters <= radius + Math.max(35, accuracy * 1.5) ? 'inside' : 'outside';
-        confirmedStates.set(trackingKey, currentState);
+        confirmedStates.set(trackingKey, initialPhysicalState);
         try {
-          await AsyncStorage.setItem(`@circleguard_geofence_state_${trackingKey}`, currentState);
+          await AsyncStorage.setItem(`@circleguard_geofence_state_${trackingKey}`, initialPhysicalState);
+        } catch (e) {}
+        continue; // Never fire entry/exit alert on initial cold start
+      }
+
+      // If recorded state was 'inside', but user is currently already outside upon opening the app:
+      // The user did NOT leave right this second! They were already outside while app was closed.
+      // Silently sync state to 'outside' without generating a bogus breach event with current app-open time!
+      if (currentState === 'inside' && distMeters > radius + Math.max(40, accuracy * 1.5)) {
+        confirmedStates.set(trackingKey, 'outside');
+        try {
+          await AsyncStorage.setItem(`@circleguard_geofence_state_${trackingKey}`, 'outside');
+          await supabase.from('member_zone_state').upsert({
+            member_id: userLoc.user_id,
+            zone_id: place.id,
+            inside: false,
+            last_transition_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
         } catch (e) {}
         continue;
       }
@@ -502,10 +532,40 @@ export async function evaluateGeofenceBreaches(
 
     // Check authoritative database state before inserting duplicate arrival/departure
     const targetDbEvent = isExit ? 'departure' : 'arrival';
+    const targetZeType: 'EXIT' | 'ENTER' = isExit ? 'EXIT' : 'ENTER';
+
     try {
+      // 1. Check member_zone_state table: if state is already matches target state, skip!
+      const { data: currentZoneState } = await supabase
+        .from('member_zone_state')
+        .select('inside')
+        .eq('zone_id', place.id)
+        .eq('member_id', userLoc.user_id)
+        .maybeSingle();
+
+      if (currentZoneState && currentZoneState.inside === !isExit) {
+        // State is already outside (for exit) or inside (for enter) - not a transition!
+        continue;
+      }
+
+      // 2. Check authoritative zone_events: never repeat identical consecutive event type
+      const { data: latestZe } = await supabase
+        .from('zone_events')
+        .select('type')
+        .eq('zone_id', place.id)
+        .eq('member_id', userLoc.user_id)
+        .order('occurred_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (latestZe && latestZe.type === targetZeType) {
+        continue;
+      }
+
+      // 3. Check legacy place_events
       const { data: latestDbEvent } = await supabase
         .from('place_events')
-        .select('event_type, occurred_at')
+        .select('event_type')
         .eq('place_id', place.id)
         .eq('user_id', userLoc.user_id)
         .order('occurred_at', { ascending: false })
@@ -513,11 +573,7 @@ export async function evaluateGeofenceBreaches(
         .maybeSingle();
 
       if (latestDbEvent && latestDbEvent.event_type === targetDbEvent) {
-        const timeDiff = now - new Date(latestDbEvent.occurred_at).getTime();
-        if (timeDiff < 180000) {
-          // Within 3 minutes of previous identical event, skip duplicate
-          continue;
-        }
+        continue;
       }
     } catch (_) {}
 
