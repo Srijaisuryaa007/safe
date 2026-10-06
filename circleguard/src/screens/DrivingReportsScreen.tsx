@@ -25,6 +25,7 @@ import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import { usePaywall } from '../hooks/usePaywall';
 import PaywallModal from '../components/PaywallModal';
 import HeatlineAreaChart from '../components/charts/HeatlineAreaChart';
+import SafetyRadarChart from '../components/charts/SafetyRadarChart';
 
 import { reverseGeocodeLive } from '../services/GeocodingService';
 
@@ -931,6 +932,40 @@ export default function DrivingReportsScreen() {
                 </View>
               </View>
             </View>
+
+            {/* Driving Safety Dynamics Radar Chart */}
+            {driverScore != null ? (
+              <SafetyRadarChart
+                data={[
+                  {
+                    label: selectedMemberName,
+                    color: '#00E599',
+                    values: {
+                      braking: Math.max(20, Math.min(100, 100 - totalHardBrakes * 14)),
+                      acceleration: Math.max(20, Math.min(100, 100 - totalRapidAccels * 14)),
+                      speedCompliance: Math.max(20, Math.min(100, 100 - totalSpeedingEvents * 20)),
+                      paceConsistency: Math.max(30, Math.min(100, (driverScore || 85) + 4)),
+                      nightFocus: totalSpeedingEvents === 0 ? 95 : 82,
+                    },
+                  },
+                  {
+                    label: 'Circle Benchmark',
+                    color: '#94A3B8',
+                    values: {
+                      braking: 82,
+                      acceleration: 80,
+                      speedCompliance: 85,
+                      paceConsistency: 84,
+                      nightFocus: 88,
+                    },
+                  },
+                ]}
+                overallScore={driverScore}
+                isDark={isDark}
+                title="SAFETY DYNAMICS RADAR EVALUATION"
+                showBenchmark
+              />
+            ) : null}
 
             {/* Summary Metrics Cards */}
             <View style={styles.metricsRow}>
