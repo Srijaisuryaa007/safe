@@ -1311,15 +1311,28 @@ export default function LocationHistoryScreen() {
 
       {/* Date & Member Dropdown Control Row */}
       <View style={styles.controlsRow}>
-        {/* Date Selector Pills */}
-        <View style={[styles.dateSelectorContainer, { backgroundColor: '#E8F5EE', borderColor: '#C6E7D5', flex: 1 }]}>
+        {/* Date Selector Pills (Apple-style Segmented Control) */}
+        <View style={[styles.dateSelectorContainer, { 
+          backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9', 
+          borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0', 
+          flex: 1 
+        }]}>
           <TouchableOpacity
-            style={[styles.datePill, selectedDate === 'today' && [styles.datePillActive, { backgroundColor: '#2E7D5B' }]]}
+            style={[
+              styles.datePill, 
+              selectedDate === 'today' && [
+                styles.datePillActive, 
+                { backgroundColor: isDark ? '#27272A' : '#FFFFFF' }
+              ]
+            ]}
             onPress={() => setSelectedDate('today')}
             activeOpacity={0.8}
           >
             <Text 
-              style={[styles.datePillText, { color: selectedDate === 'today' ? '#FFFFFF' : '#2E7D5B' }]}
+              style={[
+                styles.datePillText, 
+                { color: selectedDate === 'today' ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#A1A1AA' : '#64748B') }
+              ]}
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.75}
@@ -1329,12 +1342,21 @@ export default function LocationHistoryScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.datePill, selectedDate === 'yesterday' && [styles.datePillActive, { backgroundColor: '#2E7D5B' }]]}
+            style={[
+              styles.datePill, 
+              selectedDate === 'yesterday' && [
+                styles.datePillActive, 
+                { backgroundColor: isDark ? '#27272A' : '#FFFFFF' }
+              ]
+            ]}
             onPress={() => setSelectedDate('yesterday')}
             activeOpacity={0.8}
           >
             <Text 
-              style={[styles.datePillText, { color: selectedDate === 'yesterday' ? '#FFFFFF' : '#2E7D5B' }]}
+              style={[
+                styles.datePillText, 
+                { color: selectedDate === 'yesterday' ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#A1A1AA' : '#64748B') }
+              ]}
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.75}
@@ -1344,12 +1366,21 @@ export default function LocationHistoryScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.datePill, selectedDate === '2daysAgo' && [styles.datePillActive, { backgroundColor: '#2E7D5B' }]]}
+            style={[
+              styles.datePill, 
+              selectedDate === '2daysAgo' && [
+                styles.datePillActive, 
+                { backgroundColor: isDark ? '#27272A' : '#FFFFFF' }
+              ]
+            ]}
             onPress={() => setSelectedDate('2daysAgo')}
             activeOpacity={0.8}
           >
             <Text 
-              style={[styles.datePillText, { color: selectedDate === '2daysAgo' ? '#FFFFFF' : '#2E7D5B' }]}
+              style={[
+                styles.datePillText, 
+                { color: selectedDate === '2daysAgo' ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#A1A1AA' : '#64748B') }
+              ]}
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.75}
@@ -1360,22 +1391,28 @@ export default function LocationHistoryScreen() {
         </View>
       </View>
 
-      {/* Member Scope Banner: Clearly highlights whose timeline is active and provides a 1-tap switcher */}
-      <View style={[styles.memberScopeBanner, { backgroundColor: isDark ? '#141E18' : '#F0F9F4', borderColor: isDark ? '#1E3226' : '#DCF0E5' }]}>
+      {/* Member Scope Banner: Executive neutral card */}
+      <View style={[styles.memberScopeBanner, { 
+        backgroundColor: isDark ? '#18181B' : '#FFFFFF', 
+        borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' 
+      }]}>
         <View style={styles.memberScopeLeft}>
-          <View style={[styles.memberScopeDot, { backgroundColor: selectedMemberObj?.isOnline ? '#10B981' : '#9CA3AF' }]} />
-          <Text style={[styles.memberScopeText, { color: colors.foreground }]} numberOfLines={1}>
-            Timeline for <Text style={{ fontWeight: '800', color: '#2E7D5B' }}>{selectedMemberName}</Text>
+          <View style={[styles.memberScopeDot, { backgroundColor: selectedMemberObj?.isOnline ? '#10B981' : '#94A3B8' }]} />
+          <Text style={[styles.memberScopeText, { color: colors.textMuted }]} numberOfLines={1}>
+            Timeline: <Text style={{ fontWeight: '700', color: colors.foreground }}>{selectedMemberName}</Text>
           </Text>
         </View>
         {allCircleMembers.length > 1 && (
           <TouchableOpacity
-            style={styles.memberScopeSwitchBtn}
+            style={[styles.memberScopeSwitchBtn, { 
+              backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9',
+              borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0',
+            }]}
             onPress={() => setMemberPickerVisible(true)}
             activeOpacity={0.7}
           >
-            <Text style={styles.memberScopeSwitchText}>Switch Member</Text>
-            <Ionicons name="swap-horizontal" size={12} color="#2E7D5B" />
+            <Text style={[styles.memberScopeSwitchText, { color: isDark ? '#CBD5E1' : '#475569' }]}>Switch Member</Text>
+            <Ionicons name="swap-horizontal" size={12} color={isDark ? '#CBD5E1' : '#475569'} />
           </TouchableOpacity>
         )}
       </View>
@@ -1579,12 +1616,8 @@ export default function LocationHistoryScreen() {
                 style={[
                   styles.sheetExpandBadge,
                   {
-                    backgroundColor: isSheetExpanded
-                      ? (isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEF2F2')
-                      : (isDark ? 'rgba(46, 125, 91, 0.15)' : '#E8F5EE'),
-                    borderColor: isSheetExpanded
-                      ? (isDark ? '#EF4444' : '#FCA5A5')
-                      : (isDark ? '#00E599' : '#C6E7D5'),
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
                   },
                 ]}
                 onPress={() => toggleSheetExpand()}
@@ -1593,12 +1626,12 @@ export default function LocationHistoryScreen() {
                 <Ionicons
                   name={isSheetExpanded ? 'contract-outline' : 'expand-outline'}
                   size={12}
-                  color={isSheetExpanded ? '#EF4444' : '#2E7D5B'}
+                  color={isDark ? '#CBD5E1' : '#475569'}
                 />
                 <Text
                   style={[
                     styles.sheetExpandBadgeText,
-                    { color: isSheetExpanded ? '#EF4444' : '#2E7D5B' },
+                    { color: isDark ? '#CBD5E1' : '#475569' },
                   ]}
                 >
                   {isSheetExpanded ? 'MINIMIZE' : 'EXPAND'}
@@ -1615,21 +1648,43 @@ export default function LocationHistoryScreen() {
             scrollEnabled={isScrollEnabled}
             nestedScrollEnabled={true}
           >
-            {/* View Switcher: Route & Timeline vs Graphs & Charts */}
-            <View style={[styles.sectionTabRow, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F2', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+            {/* View Switcher (Apple-style Segmented Control): Route & Timeline vs Graphs & Charts */}
+            <View style={[styles.sectionTabRow, { 
+              backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9', 
+              borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' 
+            }]}>
               <TouchableOpacity
-                style={[styles.sectionTabBtn, historyViewTab === 'timeline' && [styles.sectionTabBtnActive, { backgroundColor: '#2E7D5B' }]]}
+                style={[
+                  styles.sectionTabBtn, 
+                  historyViewTab === 'timeline' && [
+                    styles.sectionTabBtnActive, 
+                    { backgroundColor: isDark ? '#27272A' : '#FFFFFF' }
+                  ]
+                ]}
                 onPress={() => setHistoryViewTab('timeline')}
                 activeOpacity={0.75}
               >
-                <Ionicons name="git-commit-outline" size={14} color={historyViewTab === 'timeline' ? '#FFFFFF' : colors.textMuted} />
-                <Text style={[styles.sectionTabText, { color: historyViewTab === 'timeline' ? '#FFFFFF' : colors.textMuted }]}>
+                <Ionicons 
+                  name="git-commit-outline" 
+                  size={14} 
+                  color={historyViewTab === 'timeline' ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#A1A1AA' : '#64748B')} 
+                />
+                <Text style={[
+                  styles.sectionTabText, 
+                  { color: historyViewTab === 'timeline' ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#A1A1AA' : '#64748B') }
+                ]}>
                   ROUTE & TIMELINE
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.sectionTabBtn, historyViewTab === 'charts' && [styles.sectionTabBtnActive, { backgroundColor: '#2E7D5B' }]]}
+                style={[
+                  styles.sectionTabBtn, 
+                  historyViewTab === 'charts' && [
+                    styles.sectionTabBtnActive, 
+                    { backgroundColor: isDark ? '#27272A' : '#FFFFFF' }
+                  ]
+                ]}
                 onPress={() => {
                   setHistoryViewTab('charts');
                   if (!isSheetExpanded) {
@@ -1638,9 +1693,16 @@ export default function LocationHistoryScreen() {
                 }}
                 activeOpacity={0.75}
               >
-                <Ionicons name="pie-chart-outline" size={14} color={historyViewTab === 'charts' ? '#FFFFFF' : colors.textMuted} />
-                <Text style={[styles.sectionTabText, { color: historyViewTab === 'charts' ? '#FFFFFF' : colors.textMuted }]}>
-                  GRAPHS & CHARTS
+                <Ionicons 
+                  name="bar-chart-outline" 
+                  size={14} 
+                  color={historyViewTab === 'charts' ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#A1A1AA' : '#64748B')} 
+                />
+                <Text style={[
+                  styles.sectionTabText, 
+                  { color: historyViewTab === 'charts' ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#A1A1AA' : '#64748B') }
+                ]}>
+                  SUMMARY & STATS
                 </Text>
               </TouchableOpacity>
             </View>
@@ -2031,14 +2093,14 @@ export default function LocationHistoryScreen() {
             ) : (
               <>
                 {/* Dedicated Graphs & Charts Section Header */}
-                <View style={[styles.chartsSectionHeader, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6' }]}>
+                <View style={[styles.chartsSectionHeader, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                   <View style={styles.chartsBadgeRow}>
-                    <Ionicons name="analytics" size={13} color="#2E7D5B" />
-                    <Text style={[styles.chartsBadgeText, { color: '#2E7D5B' }]}>SPATIAL DYNAMICS & DWELL TELEMETRICS</Text>
+                    <Ionicons name="bar-chart-outline" size={13} color={colors.accentGold || '#475569'} />
+                    <Text style={[styles.chartsBadgeText, { color: colors.accentGold || '#475569' }]}>DAILY SUMMARY</Text>
                   </View>
-                  <Text style={[styles.chartsSectionTitle, { color: colors.foreground }]}>Mobility & Safe Haven Analytics</Text>
+                  <Text style={[styles.chartsSectionTitle, { color: colors.foreground }]}>Movement & Places Overview</Text>
                   <Text style={[styles.chartsSectionSubtitle, { color: colors.textMuted }]}>
-                    Authentic movement rhythms, time allocation across Safe Havens, and transit velocity profiles.
+                    Overview of time spent at saved locations, travel duration, and driving speeds today.
                   </Text>
                 </View>
 
@@ -2048,7 +2110,7 @@ export default function LocationHistoryScreen() {
                   metrics={[
                     {
                       key: 'safeZone',
-                      label: 'Safe Haven Time',
+                      label: 'Saved Places',
                       value: Math.min(24, Math.round((
                         stationaryStops
                           .filter(s => s.isSafePlace || s.category === 'safe_zone')
@@ -2056,26 +2118,26 @@ export default function LocationHistoryScreen() {
                       ) * 10) / 10 || 16.5),
                       target: 24,
                       unit: 'hrs',
-                      color: '#00E599',
-                      gradientTo: '#00B87A',
+                      color: '#10B981',
+                      gradientTo: '#059669',
                     },
                     {
                       key: 'mobility',
-                      label: 'Transit Mobility',
+                      label: 'Travel Time',
                       value: Math.round((typeof totalDistanceKm === 'number' ? totalDistanceKm : parseFloat(totalDistanceKm) || 0) * 10) / 10,
                       target: 20,
                       unit: 'km',
-                      color: '#38E8FF',
-                      gradientTo: '#007AFF',
+                      color: '#3B82F6',
+                      gradientTo: '#1D4ED8',
                     },
                     {
                       key: 'dwell',
-                      label: 'Place Stability',
+                      label: 'Time Stability',
                       value: stationaryStops.length > 0 ? 88 : 96,
                       target: 100,
                       unit: '%',
-                      color: '#A855F7',
-                      gradientTo: '#EC4899',
+                      color: '#6366F1',
+                      gradientTo: '#4F46E5',
                     },
                   ]}
                 />
@@ -2086,108 +2148,132 @@ export default function LocationHistoryScreen() {
                   segments={stationaryStops.length > 0 ? [
                     {
                       id: 'safe',
-                      name: 'Safe Haven Zones',
+                      name: 'Saved Places',
                       durationMins: Math.max(
                         30,
                         stationaryStops
                           .filter(s => s.isSafePlace || s.category === 'safe_zone')
                           .reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
                       ),
-                      color: '#00E599',
+                      color: '#10B981',
                       isSafeHaven: true,
                     },
                     {
                       id: 'transit',
-                      name: 'Active Transit',
+                      name: 'In Transit',
                       durationMins: Math.max(15, travelDurationMinutes || 45),
-                      color: '#38E8FF',
+                      color: '#3B82F6',
                     },
                     ...(stationaryStops.some(s => !s.isSafePlace && s.category !== 'safe_zone')
                       ? [{
                           id: 'other',
-                          name: 'Other Visited Stops',
+                          name: 'Other Stops',
                           durationMins: Math.max(
                             20,
                             stationaryStops
                               .filter(s => !s.isSafePlace && s.category !== 'safe_zone')
                               .reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
                           ),
-                          color: '#FFB800',
+                          color: '#F59E0B',
                         }]
                       : []),
                   ] : undefined}
                 />
 
-                {/* Safe Haven & Dwell Analytics Card */}
-                <View style={[styles.analyticsGridCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6' }]}>
+                {/* Time & Places Summary Card (Executive Monochrome Style) */}
+                <View style={[styles.analyticsGridCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                   <View style={styles.analyticsCardTitleRow}>
-                    <Ionicons name="shield-checkmark-outline" size={16} color="#00E599" />
-                    <Text style={[styles.analyticsCardTitle, { color: colors.foreground }]}>SAFE HAVEN & DWELL METRICS</Text>
+                    <Ionicons name="time-outline" size={16} color={colors.foreground} />
+                    <Text style={[styles.analyticsCardTitle, { color: colors.foreground }]}>TIME & PLACES</Text>
                   </View>
                   <View style={styles.analyticsStats2x2}>
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(0, 229, 153, 0.08)' : '#F0FDF4', borderColor: isDark ? 'rgba(0, 229, 153, 0.2)' : '#DCFCE7' }]}>
-                      <Text style={[styles.analyticsStatValue, { color: '#00E599' }]}>
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                      <View style={styles.analyticsStatHeaderRow}>
+                        <Ionicons name="home-outline" size={13} color={colors.textMuted} />
+                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>AT SAVED PLACES</Text>
+                      </View>
+                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
                         {(Math.min(24, Math.round((
                           stationaryStops
                             .filter(s => s.isSafePlace || s.category === 'safe_zone')
                             .reduce((acc, s) => acc + (s.durationMinutes || 0), 0) / 60
                         ) * 10) / 10 || 16.5))} hrs
                       </Text>
-                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>SAFE HAVEN DWELL</Text>
                     </View>
 
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(56, 232, 255, 0.08)' : '#F0F9FF', borderColor: isDark ? 'rgba(56, 232, 255, 0.2)' : '#E0F2FE' }]}>
-                      <Text style={[styles.analyticsStatValue, { color: '#38E8FF' }]}>
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                      <View style={styles.analyticsStatHeaderRow}>
+                        <Ionicons name="walk-outline" size={13} color={colors.textMuted} />
+                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TIME IN MOTION</Text>
+                      </View>
+                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
                         {travelDurationMinutes >= 60
                           ? `${Math.floor(travelDurationMinutes / 60)}h ${travelDurationMinutes % 60}m`
                           : `${travelDurationMinutes || 45} mins`}
                       </Text>
-                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>ACTIVE MOBILITY</Text>
                     </View>
 
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(168, 85, 247, 0.08)' : '#FAF5FF', borderColor: isDark ? 'rgba(168, 85, 247, 0.2)' : '#F3E8FF' }]}>
-                      <Text style={[styles.analyticsStatValue, { color: '#A855F7' }]}>
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                      <View style={styles.analyticsStatHeaderRow}>
+                        <Ionicons name="shield-checkmark-outline" size={13} color={colors.textMuted} />
+                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>SAVED PLACES</Text>
+                      </View>
+                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
                         {stationaryStops.filter(s => s.isSafePlace || s.category === 'safe_zone').length} Places
                       </Text>
-                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>PROTECTED ZONES</Text>
                     </View>
 
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255, 184, 0, 0.08)' : '#FFFBEB', borderColor: isDark ? 'rgba(255, 184, 0, 0.2)' : '#FEF3C7' }]}>
-                      <Text style={[styles.analyticsStatValue, { color: '#FFB800' }]}>
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                      <View style={styles.analyticsStatHeaderRow}>
+                        <Ionicons name="location-outline" size={13} color={colors.textMuted} />
+                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TOTAL STOPS</Text>
+                      </View>
+                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
                         {stationaryStops.length} Stops
                       </Text>
-                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TOTAL STOPS</Text>
                     </View>
                   </View>
                 </View>
 
-                {/* Velocity & GPS Quality Card */}
-                <View style={[styles.analyticsGridCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EDEBE6' }]}>
+                {/* Speed & Movement Card (Executive Monochrome Style) */}
+                <View style={[styles.analyticsGridCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                   <View style={styles.analyticsCardTitleRow}>
-                    <Ionicons name="speedometer-outline" size={16} color="#3B82F6" />
-                    <Text style={[styles.analyticsCardTitle, { color: colors.foreground }]}>TRANSIT VELOCITY & TRAJECTORY QUALITY</Text>
+                    <Ionicons name="speedometer-outline" size={16} color={colors.foreground} />
+                    <Text style={[styles.analyticsCardTitle, { color: colors.foreground }]}>SPEED & MOVEMENT</Text>
                   </View>
                   <View style={styles.analyticsStats2x2}>
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(59, 130, 246, 0.08)' : '#EFF6FF', borderColor: isDark ? 'rgba(59, 130, 246, 0.2)' : '#DBEAFE' }]}>
-                      <Text style={[styles.analyticsStatValue, { color: '#3B82F6' }]}>{topSpeedKmh} km/h</Text>
-                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>PEAK VELOCITY</Text>
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                      <View style={styles.analyticsStatHeaderRow}>
+                        <Ionicons name="flash-outline" size={13} color={colors.textMuted} />
+                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TOP SPEED</Text>
+                      </View>
+                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>{topSpeedKmh} km/h</Text>
                     </View>
 
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(46, 125, 91, 0.08)' : '#E8F5EE', borderColor: isDark ? 'rgba(46, 125, 91, 0.2)' : '#C6E7D5' }]}>
-                      <Text style={[styles.analyticsStatValue, { color: '#2E7D5B' }]}>{effectiveAvgSpeed} km/h</Text>
-                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>AVERAGE PACE</Text>
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                      <View style={styles.analyticsStatHeaderRow}>
+                        <Ionicons name="trending-up-outline" size={13} color={colors.textMuted} />
+                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>AVERAGE SPEED</Text>
+                      </View>
+                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>{effectiveAvgSpeed} km/h</Text>
                     </View>
 
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.08)' : '#ECFDF5', borderColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#D1FAE5' }]}>
-                      <Text style={[styles.analyticsStatValue, { color: '#10B981' }]}>
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                      <View style={styles.analyticsStatHeaderRow}>
+                        <Ionicons name="navigate-outline" size={13} color={colors.textMuted} />
+                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>ROUTE WAYPOINTS</Text>
+                      </View>
+                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
                         {roadCoords.length > 0 ? roadCoords.length : historyPoints.length} Pts
                       </Text>
-                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>ROAD SNAPPED NODES</Text>
                     </View>
 
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(224, 122, 95, 0.08)' : '#FFF3EB', borderColor: isDark ? 'rgba(224, 122, 95, 0.2)' : '#FFD7C7' }]}>
-                      <Text style={[styles.analyticsStatValue, { color: '#E07A5F' }]}>100% Smooth</Text>
-                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>CHORD FILTERING</Text>
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                      <View style={styles.analyticsStatHeaderRow}>
+                        <Ionicons name="radio-outline" size={13} color={colors.textMuted} />
+                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>GPS PRECISION</Text>
+                      </View>
+                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>High Precision</Text>
                     </View>
                   </View>
                 </View>
@@ -2967,20 +3053,25 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   analyticsGridCard: {
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     padding: 16,
     marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
   },
   analyticsCardTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
     marginBottom: 14,
   },
   analyticsCardTitle: {
-    fontSize: 11.5,
-    fontWeight: '800',
+    fontSize: 12,
+    fontWeight: '700',
     letterSpacing: 0.8,
   },
   analyticsStats2x2: {
@@ -2995,14 +3086,20 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
   },
+  analyticsStatHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 6,
+  },
   analyticsStatValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    marginBottom: 2,
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: -0.3,
   },
   analyticsStatLabel: {
     fontSize: 9.5,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontWeight: '600',
+    letterSpacing: 0.6,
   },
 });
