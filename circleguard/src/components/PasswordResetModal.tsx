@@ -416,6 +416,12 @@ export default function PasswordResetModal({
                   onChangeText={setEmail}
                   autoCapitalize="none"
                   keyboardType="email-address"
+                  underlineColorAndroid="transparent"
+                  autoComplete="off"
+                  textContentType="none"
+                  importantForAutofill="no"
+                  cursorColor={isDark ? '#3ADFAB' : '#006C4F'}
+                  selectionColor={isDark ? 'rgba(58, 223, 171, 0.3)' : 'rgba(0, 108, 79, 0.3)'}
                 />
 
                 <TouchableOpacity
@@ -569,6 +575,12 @@ export default function PasswordResetModal({
                     secureTextEntry={!showPassword}
                     value={newPassword}
                     onChangeText={setNewPassword}
+                    underlineColorAndroid="transparent"
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
+                    cursorColor={isDark ? '#3ADFAB' : '#006C4F'}
+                    selectionColor={isDark ? 'rgba(58, 223, 171, 0.3)' : 'rgba(0, 108, 79, 0.3)'}
                   />
                   <TouchableOpacity
                     onPress={() => setShowPassword(!showPassword)}
@@ -606,6 +618,12 @@ export default function PasswordResetModal({
                     secureTextEntry={!showConfirmPassword}
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
+                    underlineColorAndroid="transparent"
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
+                    cursorColor={isDark ? '#3ADFAB' : '#006C4F'}
+                    selectionColor={isDark ? 'rgba(58, 223, 171, 0.3)' : 'rgba(0, 108, 79, 0.3)'}
                   />
                   <TouchableOpacity
                     onPress={() => setShowConfirmPassword(!showConfirmPassword)}

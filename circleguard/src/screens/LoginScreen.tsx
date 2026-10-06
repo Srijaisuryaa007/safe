@@ -28,6 +28,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
   const navigation = useNavigation();
 
   // Rate Limiting with Exponential Backoff (Per-Account & Per-Device)
@@ -302,34 +303,79 @@ export default function LoginScreen() {
           <Ionicons name="chevron-forward" size={16} color={colors.accentGold} />
         </TouchableOpacity>
 
-        <Text style={[styles.inputLabel, { color: colors.foreground, marginTop: 4 }]}>EMAIL ADDRESS</Text>
-        <TextInput
-          style={[styles.underlineInput, { borderBottomColor: colors.foreground, color: colors.foreground }]}
-          placeholder="name@domain.com"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          placeholderTextColor={colors.textMuted}
-        />
-
-        <Text style={[styles.inputLabel, { color: colors.foreground }]}>PASSWORD</Text>
-        <View style={[styles.passwordContainer, { borderBottomColor: colors.foreground }]}>
+        <Text style={[styles.inputLabel, { color: colors.textMuted, marginTop: 4 }]}>EMAIL ADDRESS</Text>
+        <View style={[
+          styles.inputContainer,
+          {
+            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+            borderColor: focusedField === 'email' ? '#00E599' : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0'),
+          },
+          focusedField === 'email' && styles.inputContainerFocused,
+        ]}>
+          <Ionicons 
+            name="mail-outline" 
+            size={18} 
+            color={focusedField === 'email' ? '#00E599' : colors.textMuted} 
+            style={styles.inputLeadingIcon}
+          />
           <TextInput
-            style={[styles.underlineInput, { flex: 1, marginBottom: 0, borderBottomWidth: 0, color: colors.foreground }]}
+            style={[styles.textInput, { color: colors.foreground }]}
+            placeholder="name@domain.com"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            placeholderTextColor={colors.textMuted}
+            underlineColorAndroid="transparent"
+            cursorColor={isDark ? '#00E599' : '#2E7D5B'}
+            selectionColor={isDark ? 'rgba(0, 229, 153, 0.3)' : 'rgba(46, 125, 91, 0.3)'}
+            autoComplete="off"
+            textContentType="none"
+            importantForAutofill="no"
+            onFocus={() => setFocusedField('email')}
+            onBlur={() => setFocusedField(null)}
+          />
+        </View>
+
+        <Text style={[styles.inputLabel, { color: colors.textMuted }]}>PASSWORD</Text>
+        <View style={[
+          styles.inputContainer,
+          {
+            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+            borderColor: focusedField === 'password' ? '#00E599' : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0'),
+          },
+          focusedField === 'password' && styles.inputContainerFocused,
+        ]}>
+          <Ionicons 
+            name="lock-closed-outline" 
+            size={18} 
+            color={focusedField === 'password' ? '#00E599' : colors.textMuted} 
+            style={styles.inputLeadingIcon}
+          />
+          <TextInput
+            style={[styles.textInput, { color: colors.foreground }]}
             placeholder="••••••••"
             value={password}
             onChangeText={setPassword}
             secureTextEntry={!showPassword}
             placeholderTextColor={colors.textMuted}
+            underlineColorAndroid="transparent"
+            cursorColor={isDark ? '#00E599' : '#2E7D5B'}
+            selectionColor={isDark ? 'rgba(0, 229, 153, 0.3)' : 'rgba(46, 125, 91, 0.3)'}
+            autoComplete="off"
+            textContentType="none"
+            importantForAutofill="no"
+            onFocus={() => setFocusedField('password')}
+            onBlur={() => setFocusedField(null)}
           />
           <TouchableOpacity 
             accessibilityRole="button"
             aria-label={showPassword ? 'Hide password' : 'Show password'}
             style={styles.eyeBtn} 
             onPress={() => setShowPassword(!showPassword)}
+            activeOpacity={0.7}
           >
-            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.accentGold} />
+            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={19} color={focusedField === 'password' ? '#00E599' : colors.textMuted} />
           </TouchableOpacity>
         </View>
 
@@ -487,21 +533,38 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 1.5,
+    marginBottom: 6,
   },
-  passwordContainer: {
+  inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    marginBottom: 8,
+    height: 52,
+    borderRadius: 14,
+    borderWidth: 1.2,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+  },
+  inputContainerFocused: {
+    shadowColor: '#00E599',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  inputLeadingIcon: {
+    marginRight: 10,
+  },
+  textInput: {
+    flex: 1,
+    height: '100%',
+    fontSize: 14.5,
+    fontWeight: '500',
+    paddingVertical: 0,
+    backgroundColor: 'transparent',
   },
   eyeBtn: {
-    padding: 8,
-  },
-  underlineInput: {
-    borderBottomWidth: 1,
-    paddingVertical: 10,
-    fontSize: 15,
-    marginBottom: 8,
+    padding: 6,
+    marginLeft: 6,
   },
   button: {
     height: 50,
