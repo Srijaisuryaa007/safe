@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Non-build folders
+.claude/
+.agent/
+.agents/
+agent/
+skills-lock.json
+supabase/
+scratch/
+playwright_screenshots/
+tests/
+*.log
+.expo/
+dist/
+
+# Generated native directories
+android/
+ios/
+circleguard/android/
+circleguard/ios/
+
+# Android / Gradle cache & build artifacts
+**/.gradle/
+**/.gradle
+**/build/
+**/android/.gradle/
+**/android/build/
+**/android/app/build/
+*.lock

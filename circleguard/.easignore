@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Local artifacts
+.expo/
+dist/
+web-build/
+scratch/
+playwright_screenshots/
+tests/
+*.log
+
+# Agent & Claude folders
+.claude/
+.agent/
+.agents/
+agent/
+skills-lock.json
+
+# Generated native directories
+android/
+ios/
+
+# Gradle cache & build artifacts
+**/.gradle/
+**/.gradle
+**/build/
+android/.gradle/
+android/build/
+android/app/build/
+*.lock

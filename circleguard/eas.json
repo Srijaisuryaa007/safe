@@ -9,6 +9,9 @@
       "distribution": "internal",
       "env": {
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+      },
+      "android": {
+        "buildType": "apk"
       }
     },
     "preview": {
@@ -23,6 +26,9 @@
     "production": {
       "env": {
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+      },
+      "android": {
+        "buildType": "apk"
       }
     }
   },
