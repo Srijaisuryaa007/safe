@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, ScrollView, Platform, NativeModules, TurboModuleRegistry } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, TextInput, TouchableOpacity, Pressable, StyleSheet, ActivityIndicator, Alert, ScrollView, Platform, NativeModules, TurboModuleRegistry } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as WebBrowser from 'expo-web-browser';
@@ -29,6 +29,9 @@ export default function SignUpScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
   const navigation = useNavigation<any>();
+
+  const emailInputRef = useRef<any>(null);
+  const passwordInputRef = useRef<any>(null);
 
   // Rate Limiting with Exponential Backoff (Per-Account & Per-Device)
   const signUpLimiter = useRateLimitCountdown('AUTH_SIGNUP', email.trim());
@@ -260,7 +263,7 @@ export default function SignUpScreen() {
       <ScrollView
         style={{ flex: 1, backgroundColor: 'transparent' }}
         contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         showsVerticalScrollIndicator={false}
       >
         {/* Brand Header */}
@@ -302,14 +305,17 @@ export default function SignUpScreen() {
         </TouchableOpacity>
 
         <Text style={[styles.inputLabel, { color: colors.textMuted, marginTop: 4 }]}>EMAIL ADDRESS</Text>
-        <View style={[
-          styles.inputContainer,
-          {
-            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
-            borderColor: focusedField === 'email' ? '#00E599' : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0'),
-          },
-          focusedField === 'email' && styles.inputContainerFocused,
-        ]}>
+        <Pressable 
+          style={[
+            styles.inputContainer,
+            {
+              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+              borderColor: focusedField === 'email' ? '#00E599' : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0'),
+            },
+            focusedField === 'email' && styles.inputContainerFocused,
+          ]}
+          onPress={() => emailInputRef.current?.focus()}
+        >
           <Ionicons 
             name="mail-outline" 
             size={18} 
@@ -317,33 +323,51 @@ export default function SignUpScreen() {
             style={styles.inputLeadingIcon}
           />
           <TextInput
-            style={[styles.textInput, { color: colors.foreground }]}
+            ref={emailInputRef}
+            style={[
+              styles.textInput, 
+              { 
+                color: colors.foreground,
+                backgroundColor: isDark ? '#141A17' : '#FFFFFF',
+              }
+            ]}
             placeholder="name@domain.com"
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
+            autoCorrect={false}
             keyboardType="email-address"
             placeholderTextColor={colors.textMuted}
             underlineColorAndroid="transparent"
             cursorColor={isDark ? '#00E599' : '#2E7D5B'}
             selectionColor={isDark ? 'rgba(0, 229, 153, 0.3)' : 'rgba(46, 125, 91, 0.3)'}
-            autoComplete="off"
-            textContentType="none"
-            importantForAutofill="no"
             onFocus={() => setFocusedField('email')}
             onBlur={() => setFocusedField(null)}
           />
-        </View>
+          {email.length > 0 && (
+            <TouchableOpacity 
+              onPress={() => setEmail('')}
+              style={{ padding: 4 }}
+              accessibilityRole="button"
+              aria-label="Clear email"
+            >
+              <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
+        </Pressable>
 
         <Text style={[styles.inputLabel, { color: colors.textMuted }]}>PASSWORD</Text>
-        <View style={[
-          styles.inputContainer,
-          {
-            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
-            borderColor: focusedField === 'password' ? '#00E599' : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0'),
-          },
-          focusedField === 'password' && styles.inputContainerFocused,
-        ]}>
+        <Pressable 
+          style={[
+            styles.inputContainer,
+            {
+              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+              borderColor: focusedField === 'password' ? '#00E599' : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0'),
+            },
+            focusedField === 'password' && styles.inputContainerFocused,
+          ]}
+          onPress={() => passwordInputRef.current?.focus()}
+        >
           <Ionicons 
             name="lock-closed-outline" 
             size={18} 
@@ -351,18 +375,24 @@ export default function SignUpScreen() {
             style={styles.inputLeadingIcon}
           />
           <TextInput
-            style={[styles.textInput, { color: colors.foreground }]}
+            ref={passwordInputRef}
+            style={[
+              styles.textInput, 
+              { 
+                color: colors.foreground,
+                backgroundColor: isDark ? '#141A17' : '#FFFFFF',
+              }
+            ]}
             placeholder="••••••••"
             value={password}
             onChangeText={setPassword}
             secureTextEntry={!showPassword}
+            autoCapitalize="none"
+            autoCorrect={false}
             placeholderTextColor={colors.textMuted}
             underlineColorAndroid="transparent"
             cursorColor={isDark ? '#00E599' : '#2E7D5B'}
             selectionColor={isDark ? 'rgba(0, 229, 153, 0.3)' : 'rgba(46, 125, 91, 0.3)'}
-            autoComplete="off"
-            textContentType="none"
-            importantForAutofill="no"
             onFocus={() => setFocusedField('password')}
             onBlur={() => setFocusedField(null)}
           />
@@ -375,7 +405,7 @@ export default function SignUpScreen() {
           >
             <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={19} color={focusedField === 'password' ? '#00E599' : colors.textMuted} />
           </TouchableOpacity>
-        </View>
+        </Pressable>
 
         {/* Live Exponential Backoff Warning Banner */}
         {signUpLimiter.isBlocked && (
@@ -563,11 +593,11 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    height: '100%',
+    height: 48,
     fontSize: 14.5,
     fontWeight: '500',
-    paddingVertical: 0,
-    backgroundColor: 'transparent',
+    paddingHorizontal: 8,
+    borderRadius: 8,
   },
   eyeBtn: {
     padding: 6,
