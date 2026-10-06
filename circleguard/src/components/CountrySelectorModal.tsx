@@ -61,12 +61,12 @@ export default function CountrySelectorModal({
           {/* Header */}
           <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <View style={[styles.headerIconBox, { backgroundColor: `${colors.accentGold}18` }]}>
-                <Ionicons name="globe-outline" size={18} color={colors.accentGold} />
+              <View style={[styles.headerIconBox, { backgroundColor: isDark ? 'rgba(0, 229, 153, 0.12)' : 'rgba(46, 125, 91, 0.08)' }]}>
+                <Ionicons name="globe-outline" size={18} color={isDark ? '#00E599' : '#2E7D5B'} />
               </View>
               <View>
-                <Text style={[styles.modalTitle, { color: colors.foreground }]}>SELECT REGION / COUNTRY</Text>
-                <Text style={[styles.modalSub, { color: colors.textMuted }]}>Configures emergency hotlines & dialing ({countriesList.length} countries)</Text>
+                <Text style={[styles.modalTitle, { color: colors.foreground }]}>SELECT COUNTRY</Text>
+                <Text style={[styles.modalSub, { color: colors.textMuted }]}>Choose your country or region</Text>
               </View>
             </View>
             <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7}>
@@ -80,11 +80,17 @@ export default function CountrySelectorModal({
               <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: 8 }} />
               <TextInput
                 style={[styles.searchInput, { color: colors.foreground }]}
-                placeholder="Search country, ISO code or dial code (e.g. India, +91, US)..."
+                placeholder="Search country or dial code (e.g. India, +91)..."
                 placeholderTextColor={colors.textMuted}
                 value={search}
                 onChangeText={setSearch}
                 autoCapitalize="none"
+                underlineColorAndroid="transparent"
+                autoComplete="off"
+                textContentType="none"
+                importantForAutofill="no"
+                cursorColor={isDark ? '#00E599' : '#2E7D5B'}
+                selectionColor={isDark ? 'rgba(0, 229, 153, 0.3)' : 'rgba(46, 125, 91, 0.3)'}
               />
               {search ? (
                 <TouchableOpacity onPress={() => setSearch('')}>
@@ -112,9 +118,9 @@ export default function CountrySelectorModal({
                     styles.countryItem,
                     {
                       backgroundColor: isSelected
-                        ? (isDark ? 'rgba(212, 175, 55, 0.12)' : 'rgba(212, 175, 55, 0.08)')
+                        ? (isDark ? 'rgba(0, 229, 153, 0.1)' : 'rgba(46, 125, 91, 0.06)')
                         : 'transparent',
-                      borderColor: isSelected ? colors.accentGold : colors.border,
+                      borderColor: isSelected ? (isDark ? '#00E599' : '#2E7D5B') : colors.border,
                     },
                   ]}
                   onPress={() => handleSelect(c)}
@@ -122,24 +128,22 @@ export default function CountrySelectorModal({
                 >
                   <View style={styles.countryLeft}>
                     <Text style={styles.flagText}>{c.flag}</Text>
-                    <View style={{ gap: 2, flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={[styles.countryName, { color: colors.foreground }]}>{c.name}</Text>
-                        <Text style={[styles.dialCode, { color: colors.accentGold }]}>({c.dialCode})</Text>
-                      </View>
-                      <Text style={[styles.emergencySummary, { color: colors.textMuted }]} numberOfLines={1}>
-                        {c.code === 'IN'
-                          ? 'Police (100) • Ambulance (108) • Fire (101) • ERSS (112)'
-                          : `Emergency Hotline: ${c.primaryEmergency}`}
-                      </Text>
-                    </View>
+                    <Text style={[styles.countryName, { color: colors.foreground }]} numberOfLines={1}>
+                      {c.name}
+                    </Text>
                   </View>
 
                   <View style={styles.countryRight}>
-                    {isSelected ? (
-                      <Ionicons name="checkmark-circle" size={22} color={colors.accentGold} />
-                    ) : (
-                      <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                    <Text
+                      style={[
+                        styles.dialCode,
+                        { color: isSelected ? (isDark ? '#00E599' : '#2E7D5B') : colors.textMuted },
+                      ]}
+                    >
+                      {c.dialCode}
+                    </Text>
+                    {isSelected && (
+                      <Ionicons name="checkmark-circle" size={18} color={isDark ? '#00E599' : '#2E7D5B'} />
                     )}
                   </View>
                 </TouchableOpacity>
@@ -238,14 +242,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   dialCode: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
   },
-  emergencySummary: {
-    fontSize: 10.5,
-    fontWeight: '500',
-  },
   countryRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginLeft: 10,
   },
 });

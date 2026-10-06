@@ -273,34 +273,33 @@ export default function LoginScreen() {
         <View style={styles.form}>
         {errorMsg ? <Text style={[styles.errorText, { color: colors.sosRed, borderColor: colors.sosRed }]}>{errorMsg}</Text> : null}
 
-        {/* Region / Country Selector */}
-        <Text style={[styles.inputLabel, { color: colors.foreground }]}>REGION & EMERGENCY DIAL</Text>
+        {/* Country / Region Selector */}
+        <Text style={[styles.inputLabel, { color: colors.textMuted }]}>COUNTRY / REGION</Text>
         <TouchableOpacity
           accessibilityRole="button"
-          aria-label="Select Region and Country"
+          aria-label="Select Country"
           style={[
             styles.countrySelectCard,
             {
-              borderColor: colors.border,
-              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F8FAFC',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0',
+              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
             },
           ]}
           onPress={() => setCountryModalVisible(true)}
           activeOpacity={0.7}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-            <Text style={{ fontSize: 24 }}>{country.flag}</Text>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={{ fontSize: 13, fontWeight: '800', color: colors.foreground }}>{country.name}</Text>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: colors.accentGold }}>({country.dialCode})</Text>
-              </View>
-              <Text style={{ fontSize: 10.5, color: colors.textMuted, marginTop: 2 }}>
-                {country.code === 'IN' ? 'Police 100 • Ambulance 108 • Fire 101 • ERSS 112' : `Emergency: ${country.primaryEmergency}`}
+          <View style={styles.countrySelectContent}>
+            <Text style={styles.countryFlagText}>{country.flag}</Text>
+            <Text style={[styles.countryNameText, { color: colors.foreground }]} numberOfLines={1}>
+              {country.name}
+            </Text>
+            <View style={[styles.dialCodeBadge, { backgroundColor: isDark ? 'rgba(0, 229, 153, 0.12)' : 'rgba(46, 125, 91, 0.08)' }]}>
+              <Text style={[styles.dialCodeBadgeText, { color: isDark ? '#00E599' : '#2E7D5B' }]}>
+                {country.dialCode}
               </Text>
             </View>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.accentGold} />
+          <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
         </TouchableOpacity>
 
         <Text style={[styles.inputLabel, { color: colors.textMuted, marginTop: 4 }]}>EMAIL ADDRESS</Text>
@@ -496,10 +495,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 4,
+    height: 52,
+    borderRadius: 14,
+    borderWidth: 1.2,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+  },
+  countrySelectContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 10,
+  },
+  countryFlagText: {
+    fontSize: 20,
+  },
+  countryNameText: {
+    fontSize: 14.5,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  dialCodeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  dialCodeBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   brandContainer: {
     alignItems: 'center',
