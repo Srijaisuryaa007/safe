@@ -57,9 +57,13 @@ Architectural Systems & Engineering Safeguards (Freshly Rectified):
    - Enforced database-level geographic check constraints (-90 to 90 lat, -180 to 180 lng) and sanitization triggers on all coordinate upserts.
 10. Monetization & Paywall Ethics:
     - Transparent free tier covering core live GPS, SOS, and emergency contacts. Extended driving history analytics and crash reports on premium (RevenueCatService.ts).
+11. Proactive Storage Recovery & Cache Pruning (StorageRecoveryService.ts):
+    - Automatically intercepts SQLite disk exhaustion (code 13 SQLITE_FULL), triggers emergency cache pruning, and safely degrades non-critical storage writes so joining circles, navigation, and SOS never crash on low-storage devices.
+12. Multi-Country Emergency Hotlines & Timezone Synchronization (useCountryStore.ts & EmergencyContactsModal.tsx):
+    - Automatically detects country dialing codes, localizes emergency dispatch numbers (India 112/100/108, US 911, UK 999), and normalizes UTC ISO timestamps across international timezones.
 """
 
-def call_ollama(prompt, model="llama3.2:1b", host="http://localhost:11434", timeout=40):
+def call_ollama(prompt, model="llama3.2:1b", host="http://localhost:11434", timeout=60):
     url = f"{host}/api/generate"
     payload = {
         "model": model,
