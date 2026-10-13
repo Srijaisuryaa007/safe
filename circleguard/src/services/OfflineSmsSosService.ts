@@ -1,8 +1,11 @@
 import { Linking, Platform } from 'react-native';
 import * as Location from 'expo-location';
+import * as Battery from 'expo-battery';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
+import { useCountryStore } from '../store/useCountryStore';
+import { DeadReckoningEngine } from './DeadReckoningEngine';
 
 export interface OfflineSmsResult {
   sent: boolean;
@@ -10,6 +13,7 @@ export interface OfflineSmsResult {
   recipientCount: number;
   latitude: number | null;
   longitude: number | null;
+  isDeadReckoning?: boolean;
   error?: string;
 }
 
@@ -51,15 +55,45 @@ class OfflineSmsSosService {
   }
 
   /**
+   * Get country-specific emergency hotline based on user's active regional store
+   */
+  getCountryEmergencyHotlines(): { police: string; ambulance: string; general: string } {
+    try {
+      const state = useCountryStore.getState();
+      const countryCode = state.countryCode || state.country?.code || 'IN';
+      const primaryEmergency = state.country?.primaryEmergency || '112';
+      switch (countryCode.toUpperCase()) {
+        case 'US':
+        case 'CA':
+          return { police: '911', ambulance: '911', general: '911' };
+        case 'GB':
+          return { police: '999', ambulance: '999', general: primaryEmergency };
+        case 'AU':
+          return { police: '000', ambulance: '000', general: primaryEmergency };
+        case 'JP':
+          return { police: '110', ambulance: '119', general: primaryEmergency };
+        case 'IN':
+          return { police: '100', ambulance: '108', general: primaryEmergency };
+        default:
+          return { police: primaryEmergency, ambulance: primaryEmergency, general: primaryEmergency };
+      }
+    } catch {
+      return { police: '112', ambulance: '112', general: '112' };
+    }
+  }
+
+  /**
    * Trigger offline SMS fallback with live map coordinates link.
    * Can be triggered when network fails or explicitly by SOS.
    */
   async triggerOfflineSmsSos(customMessage?: string): Promise<OfflineSmsResult> {
     try {
-      // 1. Get best available coordinates (fresh GPS fix or last known)
+      // 1. Get best available coordinates (fresh GPS fix, last known, or dead reckoning)
       let lat: number | null = null;
       let lng: number | null = null;
       let accuracy: number | null = null;
+      let isDeadReckoning = false;
+      let locationNote = '';
 
       try {
         const fix = await Location.getCurrentPositionAsync({
@@ -68,8 +102,9 @@ class OfflineSmsSosService {
         lat = fix.coords.latitude;
         lng = fix.coords.longitude;
         accuracy = Math.round(fix.coords.accuracy ?? 15);
+        DeadReckoningEngine.updateGpsFix(lat, lng, (fix.coords.speed || 0) * 3.6, fix.coords.heading || 0, accuracy);
       } catch {
-        // Fallback to last known position
+        // Fallback A: Try last known position
         try {
           const last = await Location.getLastKnownPositionAsync();
           if (last) {
@@ -78,25 +113,48 @@ class OfflineSmsSosService {
             accuracy = Math.round(last.coords.accuracy ?? 50);
           }
         } catch (_) {}
+
+        // Fallback B: If coordinates are unavailable (e.g. in road tunnel, dense canopy, or underground garage),
+        // use DeadReckoningEngine to project position
+        if (lat === null || lng === null) {
+          const projected = DeadReckoningEngine.projectPosition();
+          if (projected) {
+            lat = projected.latitude;
+            lng = projected.longitude;
+            accuracy = projected.accuracyMeters;
+            isDeadReckoning = true;
+            locationNote = ' [Est. Tunnel / Indoor Dead Reckoning]';
+          }
+        }
       }
 
-      // 2. Fetch emergency contact numbers
+      // 2. Fetch battery level
+      let batteryStr = '';
+      try {
+        const batteryLvl = await Battery.getBatteryLevelAsync();
+        if (batteryLvl >= 0) {
+          batteryStr = ` • Battery: ${Math.round(batteryLvl * 100)}%`;
+        }
+      } catch (_) {}
+
+      // 3. Fetch emergency contact numbers
       const contacts = await this.getCachedEmergencyContacts();
       const phoneNumbers = contacts.map(c => c.phone.replace(/[^\d+]/g, '')).filter(Boolean);
 
-      const userName = useAuthStore.getState().profile?.full_name || 'I';
+      const userName = useAuthStore.getState().profile?.full_name || 'Circle Member';
       const timestamp = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const hotlines = this.getCountryEmergencyHotlines();
 
-      // 3. Construct emergency SMS with live Google Maps navigation link
+      // 4. Construct emergency SMS with live Google Maps navigation link
       let locationLink = 'Location unavailable';
       if (lat !== null && lng !== null) {
         locationLink = `https://maps.google.com/?q=${lat},${lng}`;
       }
 
-      const defaultMsg = `EMERGENCY ALERT: ${userName} triggered an SOS distress alert at ${timestamp}. Immediate assistance may be required!\n\nLive GPS Map Link:\n${locationLink}\n(Accuracy: ~${accuracy ?? 25}m)\n\nSent via CircleGuard Offline SMS Fallback`;
+      const defaultMsg = `EMERGENCY SOS: ${userName} triggered a distress alert at ${timestamp}${batteryStr}.${locationNote}\n\nLive GPS Map Link:\n${locationLink}\n(Accuracy: ~${accuracy ?? 25}m)\nLocal Dispatch Hotline: ${hotlines.general}\n\nSent via CircleGuard Offline Emergency Protocol`;
       const finalMsg = customMessage ? `${customMessage}\n\n${locationLink}` : defaultMsg;
 
-      // 4. Open native SMS dialer with pre-populated recipients and body
+      // 5. Open native SMS dialer with pre-populated recipients and body
       const separator = Platform.OS === 'ios' ? '&' : '?';
       const recipientsStr = phoneNumbers.join(Platform.OS === 'ios' ? ',' : ';');
       const smsUri = `sms:${recipientsStr}${separator}body=${encodeURIComponent(finalMsg)}`;
@@ -110,9 +168,10 @@ class OfflineSmsSosService {
           recipientCount: phoneNumbers.length,
           latitude: lat,
           longitude: lng,
+          isDeadReckoning,
         };
       } else {
-        // Try without recipients (user selects contact)
+        // Fallback without pre-populated recipient list
         const fallbackUri = `sms:${separator}body=${encodeURIComponent(finalMsg)}`;
         await Linking.openURL(fallbackUri);
         return {
@@ -121,6 +180,7 @@ class OfflineSmsSosService {
           recipientCount: 0,
           latitude: lat,
           longitude: lng,
+          isDeadReckoning,
         };
       }
     } catch (err: any) {

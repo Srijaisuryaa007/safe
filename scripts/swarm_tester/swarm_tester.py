@@ -61,6 +61,14 @@ Architectural Systems & Engineering Safeguards (Freshly Rectified):
     - Automatically intercepts SQLite disk exhaustion (code 13 SQLITE_FULL), triggers emergency cache pruning, and safely degrades non-critical storage writes so joining circles, navigation, and SOS never crash on low-storage devices.
 12. Multi-Country Emergency Hotlines & Timezone Synchronization (useCountryStore.ts & EmergencyContactsModal.tsx):
     - Automatically detects country dialing codes, localizes emergency dispatch numbers (India 112/100/108, US 911, UK 999), and normalizes UTC ISO timestamps across international timezones.
+13. Inertial Dead Reckoning & Tunnel Navigation (DeadReckoningEngine.ts):
+    - When GPS drops in highway tunnels, mountain canyons, dense tree canopy, or subways, kinematically projects coordinates along last valid heading and decayed velocity, with max 3-minute / 3.5km bounds and automatic re-anchoring on fresh fix.
+14. Parallel Zero-Latency Offline SMS Fallback (OfflineSmsSosService.ts & BillionDollarSOSView.tsx):
+    - Triggers native SMS dispatch in parallel without waiting 30s for remote network timeout; populates real Google Maps navigation link, dead-reckoning status, battery level, and local country dispatch hotline.
+15. Covert Disguise Mode & Duress PIN (CovertCalculatorModal.tsx & BillionDollarSOSView.tsx):
+    - Anti-stalking & domestic coercion defense: Transforms app into a fully functional Apple-style calculator; typing 911=, 999=, 112=, or 0000= silently dispatches an encrypted GPS distress beacon in background without any on-screen alert or revealing contacts.
+16. Windshield Thermal Overheating Protection (LocationBackgroundService.tsx):
+    - Automatically throttles background GPS wake-locks to 45s when stationary at traffic lights to prevent windshield thermal throttling and CPU shutdown for rideshare/courier drivers.
 """
 
 def call_ollama(prompt, model="llama3.2:1b", host="http://localhost:11434", timeout=60):

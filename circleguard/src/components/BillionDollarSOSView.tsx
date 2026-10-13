@@ -29,7 +29,9 @@ import EmergencyContactsModal from './EmergencyContactsModal';
 import MedicalInfoModal from './MedicalInfoModal';
 import ShareLocationModal from './ShareLocationModal';
 import CountrySelectorModal from './CountrySelectorModal';
+import CovertCalculatorModal from './CovertCalculatorModal';
 import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
+import { offlineSmsSosService } from '../services/OfflineSmsSosService';
 import { getSafeTopInset } from '../utils/safeArea';
 
 const FONT_SANS = Platform.OS === 'web' ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' : undefined;
@@ -57,6 +59,7 @@ export default function BillionDollarSOSView() {
   const [medicalInfoVisible, setMedicalInfoVisible] = useState(false);
   const [shareLocationVisible, setShareLocationVisible] = useState(false);
   const [countryModalVisible, setCountryModalVisible] = useState(false);
+  const [covertCalculatorVisible, setCovertCalculatorVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Animation values
@@ -275,6 +278,11 @@ export default function BillionDollarSOSView() {
       ).catch(() => {});
     }
 
+    // Parallel Zero-Latency Offline SMS Fallback (SAR & Rural Dead-Zone Resilience)
+    offlineSmsSosService.triggerOfflineSmsSos(
+      discreet ? 'DISCREET ALERT: I need discreet assistance. Please check my live location.' : undefined
+    ).catch(() => {});
+
     if (discreet) {
       showToast(`Discreet GPS distress beacon dispatched to ${circleName} (Silent)`);
     } else {
@@ -310,6 +318,11 @@ export default function BillionDollarSOSView() {
         { type: 'SILENT_SOS' }
       ).catch(() => {});
     }
+
+    // Parallel Zero-Latency Offline SMS Fallback
+    offlineSmsSosService.triggerOfflineSmsSos(
+      'DISCREET ALERT: I need discreet assistance. Please check my live location quietly.'
+    ).catch(() => {});
 
     showToast(`Discreet GPS distress beacon dispatched to ${circleName} (Silent)`);
   };
@@ -1140,6 +1153,16 @@ export default function BillionDollarSOSView() {
         onClose={() => setCountryModalVisible(false)}
       />
 
+      <CovertCalculatorModal
+        visible={covertCalculatorVisible}
+        onClose={() => setCovertCalculatorVisible(false)}
+        onDuressSosTriggered={() => {
+          setCovertCalculatorVisible(false);
+          handleSilentAlert();
+          showToast('Silent Duress Distress Beacon Dispatched');
+        }}
+      />
+
       {/* 3-Dots Quick Emergency Options Sheet */}
       <Modal
         visible={emergencyMenuVisible}
@@ -1248,6 +1271,28 @@ export default function BillionDollarSOSView() {
                   </Text>
                   <Text style={[styles.menuItemDesc, { color: textSecondary }]}>
                     Blood group, allergies, medications
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={textTertiary} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.menuItem, { borderBottomColor: cardBorder }]}
+                onPress={() => {
+                  setEmergencyMenuVisible(false);
+                  setCovertCalculatorVisible(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.menuItemIcon, { backgroundColor: 'rgba(100, 116, 139, 0.16)' }]}>
+                  <Ionicons name="calculator-outline" size={20} color="#64748B" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.menuItemTitle, { color: textPrimary }]}>
+                    Covert Disguise Mode & Duress PIN
+                  </Text>
+                  <Text style={[styles.menuItemDesc, { color: textSecondary }]}>
+                    Disguises app as calculator; typing 911= triggers silent SOS
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={textTertiary} />

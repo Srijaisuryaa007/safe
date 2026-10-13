@@ -8,6 +8,7 @@ import { useCircleStore } from '../store/useCircleStore';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { validateAndSanitizeGpsFix } from '../utils/locationValidator';
+import { DeadReckoningEngine } from './DeadReckoningEngine';
 
 export const LOCATION_BACKGROUND_TASK = 'CIRCLEGUARD_BACKGROUND_LOCATION_TASK';
 const SESSION_CACHE_KEY = '@circleguard_active_session_cache';
@@ -105,6 +106,16 @@ try {
       const cleanLat = validation.sanitizedLat;
       const cleanLng = validation.sanitizedLng;
 
+      // Anchor DeadReckoningEngine with authentic satellite fix
+      DeadReckoningEngine.updateGpsFix(
+        cleanLat,
+        cleanLng,
+        (speed || 0) * 3.6,
+        latest.coords.heading || 0,
+        accuracy || 10,
+        latest.timestamp
+      );
+
       // Resilient GPS Accuracy Gate: allow genuine indoor-to-outdoor departure fixes (up to 55m stationary/walking, 65m driving)
       const maxAllowedAcc = (speed || 0) > 10 ? 65 : 55;
       if (typeof accuracy === 'number' && accuracy > maxAllowedAcc) {
@@ -115,10 +126,11 @@ try {
       const now = Date.now();
       const distFromLast = calculateHaversineMeters(lastProcessedLat, lastProcessedLng, cleanLat, cleanLng);
       
-      // Smart Stationary Battery Throttling: If stationary (< 0.75 m/s) and moved < 4m, throttle wake-locks to save battery
+      // Smart Stationary & Windshield Thermal Throttling:
+      // When stationary (< 0.75 m/s) and moved < 4m, throttle wake-locks to save battery and prevent windshield overheating
       const isStationary = (speed || 0) < 0.75 && distFromLast < 4.0;
       const timeSinceLastMs = now - lastProcessedTimestamp;
-      if (lastProcessedLat !== 0 && isStationary && timeSinceLastMs < 60000) {
+      if (lastProcessedLat !== 0 && isStationary && timeSinceLastMs < 45000) {
         return;
       }
       lastProcessedLat = cleanLat;
