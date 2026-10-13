@@ -8,6 +8,7 @@ import {
   flushZoneTransitionQueue,
 } from '../services/ZoneTransitionQueueService';
 import { validateAndSanitizeGpsFix } from '../utils/locationValidator';
+import { StorageRecoveryService } from '../services/StorageRecoveryService';
 
 export const GEOFENCE_TASK = 'CIRCLEGUARD_GEOFENCE_TASK';
 export const LOCATION_TASK = 'CIRCLEGUARD_LOCATION_FALLBACK_TASK';
@@ -159,7 +160,7 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK)) {
 
           // Cold start bootstrap: if state is unrecorded, sync to current physical location and do NOT fire breach
           if (lastInsideRaw === null) {
-            await AsyncStorage.setItem(stateKey, isOutside ? 'outside' : 'inside');
+            await StorageRecoveryService.safeSetItem(stateKey, isOutside ? 'outside' : 'inside');
             continue;
           }
 
@@ -173,7 +174,7 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK)) {
               const dwellRaw = await AsyncStorage.getItem(dwellKey);
               if (!dwellRaw) {
                 // Record first moment outside zone
-                await AsyncStorage.setItem(dwellKey, String(fixTimestampMs));
+                await StorageRecoveryService.safeSetItem(dwellKey, String(fixTimestampMs));
               } else {
                 const firstDwellMs = parseInt(dwellRaw, 10);
                 const dwellDurationSec = (fixTimestampMs - firstDwellMs) / 1000;
@@ -193,7 +194,7 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK)) {
                     accuracy: accuracy ?? undefined,
                   });
 
-                  await AsyncStorage.setItem(stateKey, 'outside');
+                  await StorageRecoveryService.safeSetItem(stateKey, 'outside');
                   await AsyncStorage.removeItem(dwellKey);
                 }
               }
@@ -212,7 +213,7 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK)) {
                 accuracy: accuracy ?? undefined,
               });
 
-              await AsyncStorage.setItem(stateKey, 'inside');
+              await StorageRecoveryService.safeSetItem(stateKey, 'inside');
             }
             // Reset dwell outside timer since user is currently inside
             await AsyncStorage.removeItem(dwellKey);
@@ -222,8 +223,13 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK)) {
 
       // Flush any queued offline events
       await flushZoneTransitionQueue();
-    } catch (err) {
-      console.error('[LocationFallback] Error in background location fallback task:', err);
+    } catch (err: any) {
+      if (StorageRecoveryService.isDiskFullError(err)) {
+        console.warn('[LocationFallback] SQLite storage full. Pruning transient caches...');
+        await StorageRecoveryService.pruneTransientCacheAsync();
+      } else {
+        console.error('[LocationFallback] Error in background location fallback task:', err);
+      }
     }
   });
 }

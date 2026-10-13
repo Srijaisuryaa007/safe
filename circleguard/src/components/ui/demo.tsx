@@ -1,4 +1,4 @@
-import SphereImageGrid, { ImageData } from "@/components/ui/img-sphere";
+import SphereImageGrid, { ImageData } from "./img-sphere";
 import React from 'react';
 
 // ==========================================
