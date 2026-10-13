@@ -423,7 +423,7 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
             {/* Timed Ghost Controls & Family Status Reason (Shows when Ghost Mode is ON) */}
             {ghostMode && (
               <View style={styles.ghostSubCard}>
-                <Text style={styles.ghostSubHeader}>⏱️ PAUSE DURATION</Text>
+                <Text style={styles.ghostSubHeader}>PAUSE DURATION</Text>
                 <View style={styles.chipRow}>
                   {(['1h', '4h', '8h', 'always'] as const).map((dur) => (
                     <TouchableOpacity

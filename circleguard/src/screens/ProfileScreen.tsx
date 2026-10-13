@@ -398,7 +398,7 @@ export default function ProfileScreen() {
       title: 'SAFETY & EMERGENCY PROTOCOLS',
       items: [
         { icon: 'call-outline', label: 'Emergency Contacts' },
-        { icon: 'globe-outline', label: `Emergency Region & Hotlines (${country.flag} ${country.name})` },
+        { icon: 'globe-outline', label: `Emergency Services (${country.name})` },
         { icon: 'medical-outline', label: 'Medical Information' },
         { icon: 'notifications-outline', label: 'Phone & Notifications' },
       ],
@@ -433,7 +433,7 @@ export default function ProfileScreen() {
 
   // Modern unified interface for both Light and Dark mode
   return (
-    <View style={{ flex: 1, backgroundColor: isDark ? '#111317' : '#FAF9F6' }}>
+    <View style={{ flex: 1, backgroundColor: isDark ? '#000000' : '#F2F2F7' }}>
       <BillionDollarProfileView
           profile={profile}
           userPhone={userPhone}

@@ -6,11 +6,9 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
-  Dimensions,
   Platform,
   ActivityIndicator,
   RefreshControl,
-  StatusBar,
   Vibration,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,10 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useCircleStore } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
-import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
 import { getSafeTopInset } from '../utils/safeArea';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface BillionDollarProfileViewProps {
   profile: any;
@@ -84,536 +79,346 @@ export default function BillionDollarProfileView({
   const insets = useSafeAreaInsets();
   const topInset = getSafeTopInset(insets.top);
   const { activeCircle, members } = useCircleStore();
-  const { isDark, themeMode } = useThemeStore();
-  const initial = String(profile?.full_name || 'U').charAt(0).toUpperCase();
+  const { isDark } = useThemeStore();
+  const navigation = useNavigation<any>();
 
   const [toastText, setToastText] = useState<string | null>(null);
 
   const displayToast = (msg: string) => {
     setToastText(msg);
-    setTimeout(() => {
-      setToastText(null);
-    }, 2800);
-    if (showToast) {
-      showToast(msg);
-    }
+    setTimeout(() => setToastText(null), 2500);
+    if (showToast) showToast(msg);
   };
 
   const circleName = activeCircle?.name || 'My Circle';
   const inviteCode = activeCircle?.invite_code || '------';
+  const isLeader = activeCircle?.owner_id === profile?.id;
+  const initial = String(profile?.full_name || 'U').charAt(0).toUpperCase();
 
   const handleCopyCode = async () => {
     if (!inviteCode || inviteCode === '------') return;
     await Clipboard.setStringAsync(inviteCode);
-    displayToast(`Circle code ${inviteCode} copied to clipboard!`);
+    displayToast(`Circle invite code copied`);
   };
 
-  const navigation = useNavigation<any>();
-  const canGoBack = Boolean(navigation?.canGoBack && navigation.canGoBack());
+  const handleBack = () => {
+    if (Platform.OS !== 'web') {
+      try { Vibration.vibrate(10); } catch (_) {}
+    }
+    if (navigation?.canGoBack && navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      const parent = navigation.getParent?.();
+      if (parent && typeof parent.navigate === 'function') {
+        parent.navigate('MainTabs', { screen: 'Circle' });
+      } else if (navigation && typeof navigation.navigate === 'function') {
+        navigation.navigate('MainTabs', { screen: 'Circle' });
+      }
+    }
+  };
+
+  // Color tokens
+  const bgScreen = isDark ? '#000000' : '#F2F2F7';
+  const bgCard = isDark ? '#101114' : '#FFFFFF';
+  const borderColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+  const dividerColor = isDark ? 'rgba(255, 255, 255, 0.06)' : '#E5E5EA';
+  const textPrimary = isDark ? '#FFFFFF' : '#000000';
+  const textSecondary = isDark ? '#94A3B8' : '#8E8E93';
+  const chevronColor = isDark ? '#475569' : '#C7C7CC';
 
   return (
-    <View style={[styles.container, isDark && { backgroundColor: '#0F1411' }]}>
-      {/* Top Header */}
+    <View style={[styles.container, { backgroundColor: bgScreen }]}>
+      {/* Navigation Header */}
       <View
         style={[
           styles.header,
-          { paddingTop: topInset, height: 62 + topInset },
-          isDark && { backgroundColor: '#141A17', borderBottomColor: '#212C26' },
+          {
+            paddingTop: topInset,
+            height: 52 + topInset,
+            backgroundColor: bgScreen,
+            borderBottomColor: borderColor,
+          },
         ]}
       >
-        <View style={styles.headerLeft}>
-          <TouchableOpacity
-            style={[styles.backBtn, isDark && { backgroundColor: '#1C2621', borderColor: '#2E3D35' }]}
-            onPress={() => {
-              if (Platform.OS !== 'web') {
-                try { Vibration.vibrate(10); } catch (_) {}
-              }
-              if (navigation?.canGoBack && navigation.canGoBack()) {
-                navigation.goBack();
-              } else {
-                const parent = navigation.getParent?.();
-                if (parent && typeof parent.navigate === 'function') {
-                  parent.navigate('MainTabs', { screen: 'Circle' });
-                } else if (navigation && typeof navigation.navigate === 'function') {
-                  navigation.navigate('MainTabs', { screen: 'Circle' });
-                }
-              }
-            }}
-            activeOpacity={0.7}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            accessibilityLabel="Go back"
-            accessibilityRole="button"
-          >
-            <Ionicons name="arrow-back" size={18} color={isDark ? '#FFFFFF' : '#1F2A24'} />
-          </TouchableOpacity>
-          <OrbitalGoldenLogoBadge
-            size={34}
-            accessibilityLabel="CircleGuard Logo"
-          />
-          <View>
-            <Text style={[styles.headerTitle, isDark && { color: '#FFFFFF' }]}>Profile & Settings</Text>
-            <Text style={[styles.headerSub, isDark && { color: '#9EACA3' }]}>Account · Security · Preferences</Text>
-          </View>
-        </View>
+        <TouchableOpacity
+          style={styles.headerBackBtn}
+          onPress={handleBack}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Ionicons name="chevron-back" size={24} color={isDark ? '#FFFFFF' : '#007AFF'} />
+          <Text style={[styles.headerBackText, { color: isDark ? '#FFFFFF' : '#007AFF' }]}>Back</Text>
+        </TouchableOpacity>
+
+        <Text style={[styles.headerTitle, { color: textPrimary }]}>Profile</Text>
 
         <TouchableOpacity
-          style={[styles.circleInviteBadge, isDark && { backgroundColor: '#261C18', borderColor: '#452A20' }]}
-          onPress={handleCopyCode}
-          activeOpacity={0.8}
+          style={styles.headerRightAction}
+          onPress={onEditProfile}
+          activeOpacity={0.7}
         >
-          <Ionicons name="key" size={13} color="#E07A5F" />
-          <Text style={[styles.circleInviteBadgeText, isDark && { color: '#FFB199' }]}>{inviteCode}</Text>
+          <Text style={[styles.headerActionText, { color: isDark ? '#30D158' : '#007AFF' }]}>Edit</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView
         style={styles.scrollArea}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 60 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#2E7D5B']} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={isDark ? '#30D158' : '#007AFF'}
+          />
         }
       >
-        {/* 1. Profile Identity Hero Card */}
-        <View style={[styles.heroCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
-          <View style={styles.heroTopRow}>
-            {/* Avatar with Camera Overlay */}
-            <TouchableOpacity
-              style={styles.avatarWrapper}
-              onPress={onPickAvatar}
-              disabled={uploading}
-              activeOpacity={0.85}
-            >
-              <View style={[styles.avatarHalo, isDark && { borderColor: '#3ADFAB' }]} />
-              {profile?.avatar_url && !imageError ? (
-                <Image
-                  source={{ uri: profile.avatar_url }}
-                  style={styles.avatarImg}
-                  onError={() => setImageError(true)}
-                />
-              ) : (
-                <View style={[styles.avatarImg, styles.avatarFallback, isDark && { backgroundColor: '#26342D' }]}>
-                  <Text style={[styles.avatarFallbackText, isDark && { color: '#3ADFAB' }]}>{initial}</Text>
-                </View>
-              )}
-              <View style={[styles.cameraBadge, isDark && { backgroundColor: '#3ADFAB', borderColor: '#0F1411' }]}>
-                {uploading ? (
-                  <ActivityIndicator size="small" color="#002116" />
-                ) : (
-                  <Ionicons name="camera" size={12} color={isDark ? '#002116' : '#FFFFFF'} />
-                )}
+        {/* Profile Identity Card */}
+        <View style={[styles.accountCard, { backgroundColor: bgCard, borderColor }]}>
+          <TouchableOpacity
+            style={styles.avatarWrap}
+            onPress={onPickAvatar}
+            disabled={uploading}
+            activeOpacity={0.8}
+          >
+            {profile?.avatar_url && !imageError ? (
+              <Image
+                source={{ uri: profile.avatar_url }}
+                style={styles.avatarImg}
+                onError={() => setImageError(true)}
+              />
+            ) : (
+              <View style={[styles.avatarFallback, { backgroundColor: isDark ? '#1E2028' : '#E5E7EB' }]}>
+                <Text style={[styles.avatarInitial, { color: isDark ? '#30D158' : '#10B981' }]}>
+                  {initial}
+                </Text>
               </View>
-            </TouchableOpacity>
+            )}
 
-            {/* User Title & Role */}
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.userName, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
-                {profile?.full_name || 'CircleGuard User'}
-              </Text>
-              <View
-                style={[
-                  styles.roleTagPill,
-                  isDark && { backgroundColor: 'rgba(58, 223, 171, 0.15)', borderColor: '#3ADFAB' },
-                ]}
-              >
-                <View style={[styles.roleTagDot, isDark && { backgroundColor: '#3ADFAB' }]} />
-                <Text style={[styles.roleTagText, isDark && { color: '#3ADFAB' }]}>
-                  {activeCircle?.owner_id === profile?.id ? 'CIRCLE LEADER' : 'VERIFIED MEMBER'}
+            <View style={[styles.cameraBadge, { backgroundColor: isDark ? '#30D158' : '#007AFF' }]}>
+              {uploading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Ionicons name="camera" size={11} color="#FFFFFF" />
+              )}
+            </View>
+          </TouchableOpacity>
+
+          <View style={styles.accountInfo}>
+            <Text style={[styles.accountName, { color: textPrimary }]} numberOfLines={1}>
+              {profile?.full_name || 'Family Member'}
+            </Text>
+            <Text style={[styles.accountContact, { color: textSecondary }]} numberOfLines={1}>
+              {userPhone || userEmail}
+            </Text>
+            <View style={styles.roleBadgeRow}>
+              <View style={[styles.rolePill, { backgroundColor: isDark ? 'rgba(48, 209, 88, 0.12)' : '#E8F5EE' }]}>
+                <Text style={[styles.rolePillText, { color: isDark ? '#30D158' : '#059669' }]}>
+                  {isLeader ? 'Circle Leader' : 'Circle Member'}
                 </Text>
               </View>
             </View>
-
-            {/* Edit Profile Button */}
-            <TouchableOpacity
-              style={[
-                styles.editProfileBtn,
-                isDark && { backgroundColor: '#26342D', borderColor: '#33463C', borderWidth: 1 },
-              ]}
-              onPress={onEditProfile}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="pencil" size={16} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-            </TouchableOpacity>
           </View>
 
-          {/* Contact Details Column */}
-          <View style={[styles.contactDetailsBox, isDark && { backgroundColor: '#141A17', borderColor: '#232F28' }]}>
-            <View style={styles.detailRow}>
-              <View style={[styles.detailIconSquircle, isDark && { backgroundColor: '#202D26' }]}>
-                <Ionicons name="call-outline" size={14} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-              </View>
-              <Text style={[styles.detailText, isDark && { color: '#E8EDE9' }]}>{userPhone}</Text>
-            </View>
-
-            <View style={styles.detailRow}>
-              <View style={[styles.detailIconSquircle, isDark && { backgroundColor: '#202D26' }]}>
-                <Ionicons name="mail-outline" size={14} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-              </View>
-              <Text style={[styles.detailText, isDark && { color: '#E8EDE9' }]}>{userEmail}</Text>
-            </View>
-
-            <View style={styles.detailRow}>
-              <View
-                style={[
-                  styles.detailIconSquircle,
-                  { backgroundColor: isDark ? '#2D1F1A' : '#FFF3EB' },
-                ]}
-              >
-                <Ionicons name="calendar-outline" size={14} color="#E07A5F" />
-              </View>
-              <Text style={[styles.detailText, isDark && { color: '#E8EDE9' }]}>
-                Date of Birth: {userDob || (profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : '07/08/2004')}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* 2. Active Circle Status Banner */}
-        <View style={[styles.circleStatusCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
-          <View style={styles.circleStatusLeft}>
-            <View style={[styles.circleIconBox, isDark && { backgroundColor: '#202D26' }]}>
-              <Ionicons name="people" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.circleStatusTitle, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
-                {circleName}
-              </Text>
-              <Text style={[styles.circleStatusSub, isDark && { color: '#9EACA3' }]}>
-                {members.length} active family {members.length === 1 ? 'member' : 'members'}
-              </Text>
-            </View>
-          </View>
           <TouchableOpacity
-            style={[
-              styles.copyInviteBtn,
-              isDark && { backgroundColor: '#202D26', borderColor: '#33463C' },
-            ]}
-            onPress={handleCopyCode}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="copy-outline" size={13} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-            <Text style={[styles.copyInviteText, isDark && { color: '#3ADFAB' }]}>Code: {inviteCode}</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* 3. Primary Emergency Responder Card */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionHeaderTitle, isDark && { color: '#9EACA3' }]}>PRIMARY EMERGENCY RESPONDER</Text>
-        </View>
-
-        <View style={[styles.emergencyCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
-          <View style={styles.emergencyCardLeft}>
-            <View style={[styles.emergencyIconBox, isDark && { backgroundColor: '#2D1F1A' }]}>
-              <Ionicons name="shield" size={18} color="#E07A5F" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.emergencyCardTitle, isDark && { color: '#FFFFFF' }]}>
-                {emergencyContact ? emergencyContact.name : 'No Primary Contact Set'}
-              </Text>
-              <Text style={[styles.emergencyCardSub, isDark && { color: '#9EACA3' }]}>
-                {emergencyContact ? emergencyContact.phone : 'Designate contact for 1-tap dispatch'}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.emergencyActions}>
-            {emergencyContact ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <TouchableOpacity
-                  onPress={onPickContactFromPhone}
-                  style={[styles.actionIconBtn, isDark && { backgroundColor: '#26342D' }]}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="pencil-outline" size={15} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={onDeleteContact}
-                  style={[styles.actionIconBtn, { backgroundColor: isDark ? '#2D1F1A' : '#FFF3EB' }]}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="trash-outline" size={15} color="#E07A5F" />
-                </TouchableOpacity>
-
-                <TouchableOpacity onPress={onOpenContacts} style={styles.chevronBtn}>
-                  <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#757688'} />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <TouchableOpacity
-                  onPress={onPickContactFromPhone}
-                  style={[styles.addEmergencyBtn, isDark && { backgroundColor: '#2D1F1A', borderColor: '#483026' }]}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="add" size={14} color="#E07A5F" />
-                  <Text style={styles.addEmergencyText}>Add</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity onPress={onOpenContacts} style={styles.chevronBtn}>
-                  <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#757688'} />
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {/* 4. Grouped Settings Menus */}
-        {/* Section: SAFETY & MEDICAL PROTOCOLS */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionHeaderTitle, isDark && { color: '#9EACA3' }]}>SAFETY & MEDICAL PROTOCOLS</Text>
-        </View>
-
-        <View style={[styles.menuGroupCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
-          {/* Emergency Contacts */}
-          <TouchableOpacity
-            style={styles.menuItemRow}
-            onPress={onOpenContacts}
+            style={styles.editBtnChevron}
+            onPress={onEditProfile}
             activeOpacity={0.7}
           >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#2D1F1A' : '#FFF3EB' }]}>
-                <Ionicons name="call-outline" size={18} color="#E07A5F" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>Emergency Contacts</Text>
-                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Manage priority responders & notification chimes</Text>
-              </View>
+            <Ionicons name="chevron-forward" size={18} color={chevronColor} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Section 1: Safety & Emergency */}
+        <Text style={[styles.sectionHeader, { color: textSecondary }]}>SAFETY & EMERGENCY</Text>
+        <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
+          {/* Emergency Contacts */}
+          <TouchableOpacity
+            style={styles.tableRow}
+            onPress={onOpenContacts}
+            activeOpacity={0.65}
+          >
+            <View style={[styles.rowIconSquircle, { backgroundColor: '#FF3B30' }]}>
+              <Ionicons name="call" size={16} color="#FFFFFF" />
             </View>
-            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
+            <Text style={[styles.rowTitle, { color: textPrimary }]}>Emergency Contacts</Text>
+            <Text style={[styles.rowDetail, { color: textSecondary }]} numberOfLines={1}>
+              {emergencyContact ? emergencyContact.name : 'Not Set'}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
           </TouchableOpacity>
 
-          <View style={[styles.menuDivider, isDark && { backgroundColor: '#25322B' }]} />
+          <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
           {/* Regional Emergency Hotlines */}
           <TouchableOpacity
-            style={styles.menuItemRow}
+            style={styles.tableRow}
             onPress={onOpenCountry}
-            activeOpacity={0.7}
+            activeOpacity={0.65}
           >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#202D26' : '#E8F5EE' }]}>
-                <Ionicons name="globe-outline" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>
-                  Emergency Hotlines ({country.flag} {country.name})
-                </Text>
-                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Local dispatch: {country.primaryEmergency}</Text>
-              </View>
+            <View style={[styles.rowIconSquircle, { backgroundColor: '#007AFF' }]}>
+              <Ionicons name="shield-checkmark" size={16} color="#FFFFFF" />
             </View>
-            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
+            <Text style={[styles.rowTitle, { color: textPrimary }]}>Emergency Services</Text>
+            <Text style={[styles.rowDetail, { color: textSecondary }]}>{country.name}</Text>
+            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
           </TouchableOpacity>
 
-          <View style={[styles.menuDivider, isDark && { backgroundColor: '#25322B' }]} />
+          <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
           {/* Medical Information */}
           <TouchableOpacity
-            style={styles.menuItemRow}
+            style={styles.tableRow}
             onPress={onOpenMedical}
-            activeOpacity={0.7}
+            activeOpacity={0.65}
           >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#202D26' : '#E8F5EE' }]}>
-                <Ionicons name="medical-outline" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>Medical Information</Text>
-                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Blood type, allergies, conditions & first responder ID</Text>
-              </View>
+            <View style={[styles.rowIconSquircle, { backgroundColor: '#FF9500' }]}>
+              <Ionicons name="medical" size={16} color="#FFFFFF" />
             </View>
-            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
+            <Text style={[styles.rowTitle, { color: textPrimary }]}>Medical ID</Text>
+            <Text style={[styles.rowDetail, { color: textSecondary }]}>Health Profile</Text>
+            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
           </TouchableOpacity>
         </View>
 
-        {/* Section: SYSTEM & PREFERENCES */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionHeaderTitle, isDark && { color: '#9EACA3' }]}>SYSTEM & PREFERENCES</Text>
-        </View>
-
-        <View style={[styles.menuGroupCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
-          {/* Appearance & Theme */}
+        {/* Section 2: Preferences */}
+        <Text style={[styles.sectionHeader, { color: textSecondary }]}>PREFERENCES</Text>
+        <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
+          {/* Appearance */}
           <TouchableOpacity
-            style={styles.menuItemRow}
+            style={styles.tableRow}
             onPress={onOpenAppearance}
-            activeOpacity={0.7}
+            activeOpacity={0.65}
           >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#2D1F1A' : '#FFF3EB' }]}>
-                <Ionicons name="color-palette-outline" size={18} color="#E07A5F" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>Appearance & Theme</Text>
-                  <View
-                    style={[
-                      styles.billionDollarPill,
-                      {
-                        backgroundColor: isDark
-                          ? 'rgba(58, 223, 171, 0.15)'
-                          : '#E8F5EE',
-                        borderColor: isDark
-                          ? '#3ADFAB'
-                          : '#C6E7D5',
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.billionDollarPillText,
-                        {
-                          color: isDark
-                            ? '#3ADFAB'
-                            : '#2E7D5B',
-                        },
-                      ]}
-                    >
-                      {isDark ? 'DARK UI' : 'LIGHT UI'}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>
-                  Light UI mode, Dark UI mode, map styles
-                </Text>
-              </View>
+            <View style={[styles.rowIconSquircle, { backgroundColor: '#AF52DE' }]}>
+              <Ionicons name="color-palette" size={16} color="#FFFFFF" />
             </View>
-            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
+            <Text style={[styles.rowTitle, { color: textPrimary }]}>Appearance</Text>
+            <Text style={[styles.rowDetail, { color: textSecondary }]}>
+              {isDark ? 'Dark Mode' : 'Light Mode'}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
           </TouchableOpacity>
 
-          <View style={[styles.menuDivider, isDark && { backgroundColor: '#25322B' }]} />
+          <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
           {/* Notifications */}
           <TouchableOpacity
-            style={styles.menuItemRow}
+            style={styles.tableRow}
             onPress={onOpenNotifications}
-            activeOpacity={0.7}
+            activeOpacity={0.65}
           >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#202D26' : '#F0EFEA' }]}>
-                <Ionicons name="notifications-outline" size={18} color={isDark ? '#3ADFAB' : '#1F2A24'} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>Notifications & Alerts</Text>
-                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Geofence entry/exit, battery warnings & pings</Text>
-              </View>
+            <View style={[styles.rowIconSquircle, { backgroundColor: '#FF2D55' }]}>
+              <Ionicons name="notifications" size={16} color="#FFFFFF" />
             </View>
-            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
+            <Text style={[styles.rowTitle, { color: textPrimary }]}>Notifications & Alerts</Text>
+            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
           </TouchableOpacity>
 
-          <View style={[styles.menuDivider, isDark && { backgroundColor: '#25322B' }]} />
+          <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
           {/* Privacy & Security */}
           <TouchableOpacity
-            style={styles.menuItemRow}
+            style={styles.tableRow}
             onPress={onOpenPrivacy}
-            activeOpacity={0.7}
+            activeOpacity={0.65}
           >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#202D26' : '#F0EFEA' }]}>
-                <Ionicons name="lock-closed-outline" size={18} color={isDark ? '#3ADFAB' : '#1F2A24'} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>Privacy & Security</Text>
-                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Encrypted telemetry, ghost mode & app lock</Text>
-              </View>
+            <View style={[styles.rowIconSquircle, { backgroundColor: '#34C759' }]}>
+              <Ionicons name="lock-closed" size={16} color="#FFFFFF" />
             </View>
-            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
+            <Text style={[styles.rowTitle, { color: textPrimary }]}>Privacy & Ghost Mode</Text>
+            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
           </TouchableOpacity>
 
-          <View style={[styles.menuDivider, isDark && { backgroundColor: '#25322B' }]} />
+          <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
           {/* App Settings */}
           <TouchableOpacity
-            style={styles.menuItemRow}
+            style={styles.tableRow}
             onPress={onOpenSettings}
-            activeOpacity={0.7}
+            activeOpacity={0.65}
           >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#202D26' : '#F0EFEA' }]}>
-                <Ionicons name="settings-outline" size={18} color={isDark ? '#3ADFAB' : '#1F2A24'} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>Settings</Text>
-                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Distance units, GPS sync rate & local cache</Text>
-              </View>
+            <View style={[styles.rowIconSquircle, { backgroundColor: '#8E8E93' }]}>
+              <Ionicons name="settings" size={16} color="#FFFFFF" />
             </View>
-            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
+            <Text style={[styles.rowTitle, { color: textPrimary }]}>Settings</Text>
+            <Text style={[styles.rowDetail, { color: textSecondary }]}>Units & GPS</Text>
+            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
           </TouchableOpacity>
         </View>
 
-        {/* Section: APPLICATION INFO */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionHeaderTitle, isDark && { color: '#9EACA3' }]}>APPLICATION INFO</Text>
+        {/* Section 3: Family Circle */}
+        <Text style={[styles.sectionHeader, { color: textSecondary }]}>FAMILY CIRCLE</Text>
+        <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
+          <TouchableOpacity
+            style={styles.tableRow}
+            onPress={handleCopyCode}
+            activeOpacity={0.65}
+          >
+            <View style={[styles.rowIconSquircle, { backgroundColor: '#5856D6' }]}>
+              <Ionicons name="people" size={16} color="#FFFFFF" />
+            </View>
+            <Text style={[styles.rowTitle, { color: textPrimary }]}>{circleName}</Text>
+            <Text style={[styles.rowDetail, { color: isDark ? '#30D158' : '#007AFF' }]}>
+              Code: {inviteCode}
+            </Text>
+            <Ionicons name="copy-outline" size={15} color={chevronColor} />
+          </TouchableOpacity>
         </View>
 
-        <View style={[styles.menuGroupCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
+        {/* Section 4: Application Info */}
+        <Text style={[styles.sectionHeader, { color: textSecondary }]}>ABOUT</Text>
+        <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
           <TouchableOpacity
-            style={styles.menuItemRow}
+            style={styles.tableRow}
             onPress={onOpenAbout}
-            activeOpacity={0.7}
+            activeOpacity={0.65}
           >
-            <View style={styles.menuItemLeft}>
-              <View style={[styles.menuIconSquircle, { backgroundColor: isDark ? '#202D26' : '#E8F5EE' }]}>
-                <Ionicons name="information-circle-outline" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.menuItemTitle, isDark && { color: '#FFFFFF' }]}>About CircleGuard</Text>
-                <Text style={[styles.menuItemDesc, isDark && { color: '#9EACA3' }]}>Version 1.2.0 • Flagship Safety Platform</Text>
-              </View>
+            <View style={[styles.rowIconSquircle, { backgroundColor: '#64748B' }]}>
+              <Ionicons name="information-circle" size={16} color="#FFFFFF" />
             </View>
-            <Ionicons name="chevron-forward" size={16} color={isDark ? '#CAD5CE' : '#8E9992'} />
+            <Text style={[styles.rowTitle, { color: textPrimary }]}>About CircleGuard</Text>
+            <Text style={[styles.rowDetail, { color: textSecondary }]}>Version 1.2.0</Text>
+            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
           </TouchableOpacity>
         </View>
 
-        {/* Section: SESSION & ACCOUNT SECURITY */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionHeaderTitle, isDark && { color: '#9EACA3' }]}>SESSION & ACCOUNT SECURITY</Text>
-        </View>
-
-        <View style={styles.actionButtonsCol}>
-          {/* Logout Button */}
+        {/* Section 5: Account Actions */}
+        <Text style={[styles.sectionHeader, { color: textSecondary }]}>ACCOUNT</Text>
+        <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
           <TouchableOpacity
-            style={[styles.actionBoxBtn, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}
+            style={styles.tableRow}
             onPress={onOpenLogout}
-            activeOpacity={0.8}
+            activeOpacity={0.65}
           >
-            <View style={[styles.actionIconCircle, isDark && { backgroundColor: '#2D1F1A' }]}>
-              <Ionicons name="log-out-outline" size={18} color="#E07A5F" />
+            <View style={[styles.rowIconSquircle, { backgroundColor: isDark ? '#27272A' : '#E4E4E7' }]}>
+              <Ionicons name="log-out-outline" size={16} color={isDark ? '#F4F4F5' : '#18181B'} />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.actionBtnTitle, isDark && { color: '#FFFFFF' }]}>Log Out</Text>
-              <Text style={[styles.actionBtnSub, isDark && { color: '#9EACA3' }]}>Sign out of your session on this device</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color="#E07A5F" />
+            <Text style={[styles.rowTitle, { color: textPrimary }]}>Log Out</Text>
+            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
           </TouchableOpacity>
 
-          {/* Delete Account Button */}
+          <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
+
           <TouchableOpacity
-            style={[
-              styles.actionBoxBtn,
-              styles.deleteActionBox,
-              isDark && { backgroundColor: '#231414', borderColor: '#4A1D1D' },
-            ]}
+            style={styles.tableRow}
             onPress={onOpenDeleteAccount}
-            activeOpacity={0.8}
+            activeOpacity={0.65}
           >
-            <View style={[styles.actionIconCircle, { backgroundColor: isDark ? '#3D1B1B' : '#FEE2E2' }]}>
-              <Ionicons name="trash-outline" size={18} color="#EF4444" />
+            <View style={[styles.rowIconSquircle, { backgroundColor: '#FEE2E2' }]}>
+              <Ionicons name="trash-outline" size={16} color="#EF4444" />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.actionBtnTitle, { color: '#EF4444' }]}>Delete Account</Text>
-              <Text style={[styles.actionBtnSub, isDark && { color: '#CAD5CE' }]}>Permanently erase your account and telemetry data</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color="#EF4444" />
+            <Text style={[styles.rowTitle, { color: '#EF4444' }]}>Delete Account</Text>
+            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
           </TouchableOpacity>
         </View>
       </ScrollView>
 
       {/* Floating In-App Toast */}
       {toastText && (
-        <View style={[styles.toastContainer, isDark && { backgroundColor: '#1A231F', borderColor: '#283730', borderWidth: 1 }]}>
-          <Ionicons name="checkmark-circle" size={15} color={isDark ? '#3ADFAB' : '#2E7D5B'} style={{ marginRight: 6 }} />
-          <Text style={[styles.toastText, isDark && { color: '#FFFFFF' }]}>{toastText}</Text>
+        <View style={[styles.toastContainer, { backgroundColor: isDark ? '#1C1D22' : '#1F2937' }]}>
+          <Ionicons name="checkmark-circle" size={16} color="#30D158" style={{ marginRight: 8 }} />
+          <Text style={styles.toastText}>{toastText}</Text>
         </View>
       )}
     </View>
@@ -623,73 +428,36 @@ export default function BillionDollarProfileView({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAF9F6',
   },
   header: {
-    height: 62,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    backgroundColor: 'rgba(250, 249, 246, 0.97)',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECEAE4',
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerLeft: {
+  headerBackBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    flex: 1,
+    minWidth: 60,
   },
-  backBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#F0EFEA',
-    borderWidth: 1,
-    borderColor: '#E2E0D8',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 2,
-  },
-  logoBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
-    backgroundColor: '#E8F5EE',
-    alignItems: 'center',
-    justifyContent: 'center',
+  headerBackText: {
+    fontSize: 16,
+    fontWeight: '400',
+    marginLeft: 2,
   },
   headerTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontSize: 17,
+    fontWeight: '600',
+    letterSpacing: -0.4,
+  },
+  headerRightAction: {
+    minWidth: 60,
+    alignItems: 'flex-end',
+  },
+  headerActionText: {
     fontSize: 16,
-    fontWeight: '800',
-    color: '#1F2A24',
-    letterSpacing: -0.2,
-  },
-  headerSub: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    color: '#5C665F',
-    marginTop: 1,
-  },
-  circleInviteBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#FFF3EB',
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#FFD7C7',
-  },
-  circleInviteBadgeText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#E07A5F',
-    letterSpacing: 0.5,
+    fontWeight: '600',
   },
   scrollArea: {
     flex: 1,
@@ -697,40 +465,25 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 110,
   },
-  heroCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#ECEAE4',
-    marginBottom: 14,
-    shadowColor: '#1F2A24',
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  heroTopRow: {
+
+  // Account Card
+  accountCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    marginBottom: 14,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  avatarWrapper: {
+  avatarWrap: {
     position: 'relative',
-    width: 64,
-    height: 64,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarHalo: {
-    position: 'absolute',
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    borderWidth: 2,
-    borderColor: '#2E7D5B',
+    marginRight: 14,
   },
   avatarImg: {
     width: 60,
@@ -738,354 +491,121 @@ const styles = StyleSheet.create({
     borderRadius: 30,
   },
   avatarFallback: {
-    backgroundColor: '#2E7D5B',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarFallbackText: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '800',
+  avatarInitial: {
+    fontSize: 24,
+    fontWeight: '700',
   },
   cameraBadge: {
     position: 'absolute',
     bottom: -1,
     right: -1,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#2E7D5B',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#FFFFFF',
   },
-  userName: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  accountInfo: {
+    flex: 1,
+  },
+  accountName: {
     fontSize: 18,
-    fontWeight: '800',
-    color: '#1F2A24',
-    letterSpacing: -0.2,
+    fontWeight: '700',
+    letterSpacing: -0.3,
   },
-  roleTagPill: {
+  accountContact: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  roleBadgeRow: {
+    marginTop: 6,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#E8F5EE',
+  },
+  rolePill: {
     paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    alignSelf: 'flex-start',
-    marginTop: 5,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
-  roleTagDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#2E7D5B',
+  rolePillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
-  roleTagText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#2E7D5B',
+  editBtnChevron: {
+    paddingLeft: 8,
+  },
+
+  // Grouped Table
+  sectionHeader: {
+    fontSize: 12,
+    fontWeight: '600',
     letterSpacing: 0.4,
+    marginLeft: 12,
+    marginBottom: 6,
   },
-  editProfileBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#E8F5EE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  contactDetailsBox: {
-    backgroundColor: '#FAF9F6',
-    borderRadius: 16,
-    padding: 12,
-    gap: 8,
+  groupedTable: {
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#ECEAE4',
+    marginBottom: 24,
+    overflow: 'hidden',
   },
-  detailRow: {
+  tableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
   },
-  detailIconSquircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
-    backgroundColor: '#E8F5EE',
+  rowIconSquircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 12,
   },
-  detailText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 12,
-    color: '#1F2A24',
+  rowTitle: {
+    fontSize: 15,
     fontWeight: '500',
     flex: 1,
   },
-  circleStatusCard: {
-    backgroundColor: '#E8F5EE',
-    borderRadius: 18,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#C6E7D5',
-  },
-  circleStatusLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-  },
-  circleIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  circleStatusTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  rowDetail: {
     fontSize: 14,
-    fontWeight: '700',
-    color: '#1F2A24',
+    marginRight: 6,
+    maxWidth: 140,
   },
-  circleStatusSub: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    color: '#5C665F',
-    marginTop: 1,
+  rowDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 54,
   },
-  copyInviteBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#C6E7D5',
-  },
-  copyInviteText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#2E7D5B',
-  },
-  sectionHeaderRow: {
-    marginBottom: 8,
-    marginTop: 10,
-    paddingHorizontal: 4,
-  },
-  sectionHeaderTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#5C665F',
-    letterSpacing: 0.6,
-  },
-  emergencyCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#ECEAE4',
-    marginBottom: 14,
-    shadowColor: '#1F2A24',
-    shadowOpacity: 0.03,
-    shadowRadius: 6,
-  },
-  emergencyCardLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-  },
-  emergencyIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 13,
-    backgroundColor: '#FFF3EB',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emergencyCardTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1F2A24',
-  },
-  emergencyCardSub: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    color: '#5C665F',
-    marginTop: 2,
-  },
-  emergencyActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  actionIconBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#E8F5EE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chevronBtn: {
-    paddingLeft: 4,
-  },
-  addEmergencyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#FFF3EB',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#FFD7C7',
-  },
-  addEmergencyText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#E07A5F',
-  },
-  menuGroupCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#ECEAE4',
-    marginBottom: 14,
-    overflow: 'hidden',
-    shadowColor: '#1F2A24',
-    shadowOpacity: 0.03,
-    shadowRadius: 6,
-  },
-  menuItemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  menuItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-  },
-  menuIconSquircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  menuItemTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1F2A24',
-  },
-  menuItemDesc: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    color: '#5C665F',
-    marginTop: 2,
-  },
-  menuDivider: {
-    height: 1,
-    backgroundColor: '#F0EFEA',
-    marginLeft: 66,
-  },
-  billionDollarPill: {
-    backgroundColor: '#E8F5EE',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 999,
-  },
-  billionDollarPillText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#2E7D5B',
-    letterSpacing: 0.4,
-  },
-  actionButtonsCol: {
-    gap: 10,
-    marginTop: 4,
-    marginBottom: 20,
-  },
-  actionBoxBtn: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderWidth: 1,
-    borderColor: '#ECEAE4',
-  },
-  deleteActionBox: {
-    borderColor: '#FFD7C7',
-    backgroundColor: '#FFF5F5',
-  },
-  actionIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFF3EB',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionBtnTitle: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#E07A5F',
-  },
-  actionBtnSub: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    fontSize: 11,
-    color: '#5C665F',
-    marginTop: 2,
-  },
+
+  // Toast
   toastContainer: {
     position: 'absolute',
-    top: 74,
-    alignSelf: 'center',
-    backgroundColor: '#1F2A24',
+    bottom: 24,
+    left: 20,
+    right: 20,
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 999,
+    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    zIndex: 9999,
     shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 4,
   },
   toastText: {
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-    color: '#FAF9F6',
-    fontSize: 12,
+    color: '#FFFFFF',
+    fontSize: 13,
     fontWeight: '600',
   },
 });
