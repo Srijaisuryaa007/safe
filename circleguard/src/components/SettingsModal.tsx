@@ -249,7 +249,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                   High accuracy tracking during movement
                 </Text>
               </View>
-              {syncRate === 'high' && <Ionicons name="checkmark" size={20} color={accentColor} />}
+              {syncRate === 'high' && <Text style={[styles.checkMarkText, { color: accentColor }]}>✓</Text>}
             </TouchableOpacity>
 
             <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
@@ -265,7 +265,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                   Recommended balance of accuracy & battery
                 </Text>
               </View>
-              {syncRate === 'balanced' && <Ionicons name="checkmark" size={20} color={accentColor} />}
+              {syncRate === 'balanced' && <Text style={[styles.checkMarkText, { color: accentColor }]}>✓</Text>}
             </TouchableOpacity>
 
             <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
@@ -281,7 +281,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                   Conserves device power with 30s intervals
                 </Text>
               </View>
-              {syncRate === 'saver' && <Ionicons name="checkmark" size={20} color={accentColor} />}
+              {syncRate === 'saver' && <Text style={[styles.checkMarkText, { color: accentColor }]}>✓</Text>}
             </TouchableOpacity>
           </View>
 
@@ -318,7 +318,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                   Calibrated for everyday commutes
                 </Text>
               </View>
-              {drivingSensitivity === 'balanced' && <Ionicons name="checkmark" size={20} color={accentColor} />}
+              {drivingSensitivity === 'balanced' && <Text style={[styles.checkMarkText, { color: accentColor }]}>✓</Text>}
             </TouchableOpacity>
 
             <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
@@ -334,7 +334,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                   Anti-vibration filter for cup holders & rough roads
                 </Text>
               </View>
-              {drivingSensitivity === 'low' && <Ionicons name="checkmark" size={20} color={accentColor} />}
+              {drivingSensitivity === 'low' && <Text style={[styles.checkMarkText, { color: accentColor }]}>✓</Text>}
             </TouchableOpacity>
 
             <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
@@ -350,7 +350,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                   Strict detection for new or teen drivers
                 </Text>
               </View>
-              {drivingSensitivity === 'high' && <Ionicons name="checkmark" size={20} color={accentColor} />}
+              {drivingSensitivity === 'high' && <Text style={[styles.checkMarkText, { color: accentColor }]}>✓</Text>}
             </TouchableOpacity>
           </View>
 
@@ -368,7 +368,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                   Ensure persistent background location permissions
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={16} color={isDark ? '#475569' : '#C7C7CC'} />
+              <Text style={[styles.chevronArrow, { color: isDark ? '#475569' : '#9CA3AF' }]}>›</Text>
             </TouchableOpacity>
           </View>
 
@@ -390,7 +390,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
               {clearing ? (
                 <ActivityIndicator size="small" color={accentColor} />
               ) : (
-                <Ionicons name="chevron-forward" size={16} color={isDark ? '#475569' : '#C7C7CC'} />
+                <Text style={[styles.chevronArrow, { color: isDark ? '#475569' : '#9CA3AF' }]}>›</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -511,5 +511,15 @@ const styles = StyleSheet.create({
   rowDivider: {
     height: StyleSheet.hairlineWidth,
     marginLeft: 16,
+  },
+  checkMarkText: {
+    fontSize: 16,
+    fontWeight: '700',
+    paddingLeft: 8,
+  },
+  chevronArrow: {
+    fontSize: 18,
+    fontWeight: '400',
+    lineHeight: 18,
   },
 });

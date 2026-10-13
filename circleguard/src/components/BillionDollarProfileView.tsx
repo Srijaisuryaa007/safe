@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
-import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useCircleStore } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
@@ -98,7 +97,7 @@ export default function BillionDollarProfileView({
   const handleCopyCode = async () => {
     if (!inviteCode || inviteCode === '------') return;
     await Clipboard.setStringAsync(inviteCode);
-    displayToast(`Circle invite code copied`);
+    displayToast(`Circle code copied to clipboard`);
   };
 
   const handleBack = () => {
@@ -117,24 +116,26 @@ export default function BillionDollarProfileView({
     }
   };
 
-  // Color tokens
-  const bgScreen = isDark ? '#000000' : '#F2F2F7';
-  const bgCard = isDark ? '#101114' : '#FFFFFF';
+  // Ultra-clean design tokens
+  const bgScreen = isDark ? '#000000' : '#F6F7F9';
+  const bgCard = isDark ? '#0F1014' : '#FFFFFF';
   const borderColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
-  const dividerColor = isDark ? 'rgba(255, 255, 255, 0.06)' : '#E5E5EA';
-  const textPrimary = isDark ? '#FFFFFF' : '#000000';
-  const textSecondary = isDark ? '#94A3B8' : '#8E8E93';
-  const chevronColor = isDark ? '#475569' : '#C7C7CC';
+  const dividerColor = isDark ? 'rgba(255, 255, 255, 0.05)' : '#F0F2F5';
+  const textPrimary = isDark ? '#FFFFFF' : '#111827';
+  const textSecondary = isDark ? '#94A3B8' : '#6B7280';
+  const textMuted = isDark ? '#64748B' : '#9CA3AF';
+  const accentColor = isDark ? '#30D158' : '#059669';
+  const chevronColor = isDark ? '#475569' : '#9CA3AF';
 
   return (
     <View style={[styles.container, { backgroundColor: bgScreen }]}>
-      {/* Navigation Header */}
+      {/* Sleek Minimal Header */}
       <View
         style={[
           styles.header,
           {
             paddingTop: topInset,
-            height: 52 + topInset,
+            height: 54 + topInset,
             backgroundColor: bgScreen,
             borderBottomColor: borderColor,
           },
@@ -146,8 +147,8 @@ export default function BillionDollarProfileView({
           activeOpacity={0.7}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
-          <Ionicons name="chevron-back" size={24} color={isDark ? '#FFFFFF' : '#007AFF'} />
-          <Text style={[styles.headerBackText, { color: isDark ? '#FFFFFF' : '#007AFF' }]}>Back</Text>
+          <Text style={[styles.headerBackArrow, { color: textPrimary }]}>‹</Text>
+          <Text style={[styles.headerBackText, { color: textPrimary }]}>Back</Text>
         </TouchableOpacity>
 
         <Text style={[styles.headerTitle, { color: textPrimary }]}>Profile</Text>
@@ -157,7 +158,7 @@ export default function BillionDollarProfileView({
           onPress={onEditProfile}
           activeOpacity={0.7}
         >
-          <Text style={[styles.headerActionText, { color: isDark ? '#30D158' : '#007AFF' }]}>Edit</Text>
+          <Text style={[styles.headerActionText, { color: accentColor }]}>Edit</Text>
         </TouchableOpacity>
       </View>
 
@@ -169,11 +170,11 @@ export default function BillionDollarProfileView({
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={isDark ? '#30D158' : '#007AFF'}
+            tintColor={accentColor}
           />
         }
       >
-        {/* Profile Identity Card */}
+        {/* User Monogram & Account Card */}
         <View style={[styles.accountCard, { backgroundColor: bgCard, borderColor }]}>
           <TouchableOpacity
             style={styles.avatarWrap}
@@ -188,20 +189,18 @@ export default function BillionDollarProfileView({
                 onError={() => setImageError(true)}
               />
             ) : (
-              <View style={[styles.avatarFallback, { backgroundColor: isDark ? '#1E2028' : '#E5E7EB' }]}>
-                <Text style={[styles.avatarInitial, { color: isDark ? '#30D158' : '#10B981' }]}>
+              <View style={[styles.avatarFallback, { backgroundColor: isDark ? '#1C1E26' : '#E5E7EB' }]}>
+                <Text style={[styles.avatarInitial, { color: accentColor }]}>
                   {initial}
                 </Text>
               </View>
             )}
 
-            <View style={[styles.cameraBadge, { backgroundColor: isDark ? '#30D158' : '#007AFF' }]}>
-              {uploading ? (
+            {uploading && (
+              <View style={styles.uploadingOverlay}>
                 <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Ionicons name="camera" size={11} color="#FFFFFF" />
-              )}
-            </View>
+              </View>
+            )}
           </TouchableOpacity>
 
           <View style={styles.accountInfo}>
@@ -212,25 +211,25 @@ export default function BillionDollarProfileView({
               {userPhone || userEmail}
             </Text>
             <View style={styles.roleBadgeRow}>
-              <View style={[styles.rolePill, { backgroundColor: isDark ? 'rgba(48, 209, 88, 0.12)' : '#E8F5EE' }]}>
-                <Text style={[styles.rolePillText, { color: isDark ? '#30D158' : '#059669' }]}>
-                  {isLeader ? 'Circle Leader' : 'Circle Member'}
+              <View style={[styles.rolePill, { backgroundColor: isDark ? 'rgba(48, 209, 88, 0.12)' : '#ECFDF5' }]}>
+                <Text style={[styles.rolePillText, { color: accentColor }]}>
+                  {isLeader ? 'Circle Leader' : 'Verified Member'}
                 </Text>
               </View>
             </View>
           </View>
 
           <TouchableOpacity
-            style={styles.editBtnChevron}
+            style={[styles.editPillBtn, { borderColor }]}
             onPress={onEditProfile}
             activeOpacity={0.7}
           >
-            <Ionicons name="chevron-forward" size={18} color={chevronColor} />
+            <Text style={[styles.editPillText, { color: textPrimary }]}>Edit</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Section 1: Safety & Emergency */}
-        <Text style={[styles.sectionHeader, { color: textSecondary }]}>SAFETY & EMERGENCY</Text>
+        {/* Section: Safety & Medical */}
+        <Text style={[styles.sectionHeader, { color: textMuted }]}>SAFETY & MEDICAL</Text>
         <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
           {/* Emergency Contacts */}
           <TouchableOpacity
@@ -238,30 +237,34 @@ export default function BillionDollarProfileView({
             onPress={onOpenContacts}
             activeOpacity={0.65}
           >
-            <View style={[styles.rowIconSquircle, { backgroundColor: '#FF3B30' }]}>
-              <Ionicons name="call" size={16} color="#FFFFFF" />
+            <View style={styles.rowTextCol}>
+              <Text style={[styles.rowTitle, { color: textPrimary }]}>Emergency Contacts</Text>
+              <Text style={[styles.rowSub, { color: textSecondary }]}>Designated family responders</Text>
             </View>
-            <Text style={[styles.rowTitle, { color: textPrimary }]}>Emergency Contacts</Text>
-            <Text style={[styles.rowDetail, { color: textSecondary }]} numberOfLines={1}>
-              {emergencyContact ? emergencyContact.name : 'Not Set'}
-            </Text>
-            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
+            <View style={styles.rowRightCol}>
+              <Text style={[styles.rowDetail, { color: textSecondary }]} numberOfLines={1}>
+                {emergencyContact ? emergencyContact.name : 'Not set'}
+              </Text>
+              <Text style={[styles.chevronArrow, { color: chevronColor }]}>›</Text>
+            </View>
           </TouchableOpacity>
 
           <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
-          {/* Regional Emergency Hotlines */}
+          {/* Regional Emergency Services */}
           <TouchableOpacity
             style={styles.tableRow}
             onPress={onOpenCountry}
             activeOpacity={0.65}
           >
-            <View style={[styles.rowIconSquircle, { backgroundColor: '#007AFF' }]}>
-              <Ionicons name="shield-checkmark" size={16} color="#FFFFFF" />
+            <View style={styles.rowTextCol}>
+              <Text style={[styles.rowTitle, { color: textPrimary }]}>Emergency Services</Text>
+              <Text style={[styles.rowSub, { color: textSecondary }]}>Local police, ambulance & fire</Text>
             </View>
-            <Text style={[styles.rowTitle, { color: textPrimary }]}>Emergency Services</Text>
-            <Text style={[styles.rowDetail, { color: textSecondary }]}>{country.name}</Text>
-            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
+            <View style={styles.rowRightCol}>
+              <Text style={[styles.rowDetail, { color: textSecondary }]}>{country.name}</Text>
+              <Text style={[styles.chevronArrow, { color: chevronColor }]}>›</Text>
+            </View>
           </TouchableOpacity>
 
           <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
@@ -272,17 +275,19 @@ export default function BillionDollarProfileView({
             onPress={onOpenMedical}
             activeOpacity={0.65}
           >
-            <View style={[styles.rowIconSquircle, { backgroundColor: '#FF9500' }]}>
-              <Ionicons name="medical" size={16} color="#FFFFFF" />
+            <View style={styles.rowTextCol}>
+              <Text style={[styles.rowTitle, { color: textPrimary }]}>Medical Information</Text>
+              <Text style={[styles.rowSub, { color: textSecondary }]}>Blood type, allergies & first response</Text>
             </View>
-            <Text style={[styles.rowTitle, { color: textPrimary }]}>Medical ID</Text>
-            <Text style={[styles.rowDetail, { color: textSecondary }]}>Health Profile</Text>
-            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
+            <View style={styles.rowRightCol}>
+              <Text style={[styles.rowDetail, { color: textSecondary }]}>Medical ID</Text>
+              <Text style={[styles.chevronArrow, { color: chevronColor }]}>›</Text>
+            </View>
           </TouchableOpacity>
         </View>
 
-        {/* Section 2: Preferences */}
-        <Text style={[styles.sectionHeader, { color: textSecondary }]}>PREFERENCES</Text>
+        {/* Section: Preferences */}
+        <Text style={[styles.sectionHeader, { color: textMuted }]}>PREFERENCES</Text>
         <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
           {/* Appearance */}
           <TouchableOpacity
@@ -290,14 +295,16 @@ export default function BillionDollarProfileView({
             onPress={onOpenAppearance}
             activeOpacity={0.65}
           >
-            <View style={[styles.rowIconSquircle, { backgroundColor: '#AF52DE' }]}>
-              <Ionicons name="color-palette" size={16} color="#FFFFFF" />
+            <View style={styles.rowTextCol}>
+              <Text style={[styles.rowTitle, { color: textPrimary }]}>Appearance</Text>
+              <Text style={[styles.rowSub, { color: textSecondary }]}>Theme, map style & display</Text>
             </View>
-            <Text style={[styles.rowTitle, { color: textPrimary }]}>Appearance</Text>
-            <Text style={[styles.rowDetail, { color: textSecondary }]}>
-              {isDark ? 'Dark Mode' : 'Light Mode'}
-            </Text>
-            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
+            <View style={styles.rowRightCol}>
+              <Text style={[styles.rowDetail, { color: textSecondary }]}>
+                {isDark ? 'Dark' : 'Light'}
+              </Text>
+              <Text style={[styles.chevronArrow, { color: chevronColor }]}>›</Text>
+            </View>
           </TouchableOpacity>
 
           <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
@@ -308,26 +315,32 @@ export default function BillionDollarProfileView({
             onPress={onOpenNotifications}
             activeOpacity={0.65}
           >
-            <View style={[styles.rowIconSquircle, { backgroundColor: '#FF2D55' }]}>
-              <Ionicons name="notifications" size={16} color="#FFFFFF" />
+            <View style={styles.rowTextCol}>
+              <Text style={[styles.rowTitle, { color: textPrimary }]}>Notifications</Text>
+              <Text style={[styles.rowSub, { color: textSecondary }]}>Geofence alerts, arrival chimes & SOS</Text>
             </View>
-            <Text style={[styles.rowTitle, { color: textPrimary }]}>Notifications & Alerts</Text>
-            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
+            <View style={styles.rowRightCol}>
+              <Text style={[styles.rowDetail, { color: textSecondary }]}>Active</Text>
+              <Text style={[styles.chevronArrow, { color: chevronColor }]}>›</Text>
+            </View>
           </TouchableOpacity>
 
           <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
-          {/* Privacy & Security */}
+          {/* Privacy & Ghost Mode */}
           <TouchableOpacity
             style={styles.tableRow}
             onPress={onOpenPrivacy}
             activeOpacity={0.65}
           >
-            <View style={[styles.rowIconSquircle, { backgroundColor: '#34C759' }]}>
-              <Ionicons name="lock-closed" size={16} color="#FFFFFF" />
+            <View style={styles.rowTextCol}>
+              <Text style={[styles.rowTitle, { color: textPrimary }]}>Privacy & Security</Text>
+              <Text style={[styles.rowSub, { color: textSecondary }]}>Ghost Mode, telemetry & app lock</Text>
             </View>
-            <Text style={[styles.rowTitle, { color: textPrimary }]}>Privacy & Ghost Mode</Text>
-            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
+            <View style={styles.rowRightCol}>
+              <Text style={[styles.rowDetail, { color: textSecondary }]}>Configured</Text>
+              <Text style={[styles.chevronArrow, { color: chevronColor }]}>›</Text>
+            </View>
           </TouchableOpacity>
 
           <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
@@ -338,64 +351,73 @@ export default function BillionDollarProfileView({
             onPress={onOpenSettings}
             activeOpacity={0.65}
           >
-            <View style={[styles.rowIconSquircle, { backgroundColor: '#8E8E93' }]}>
-              <Ionicons name="settings" size={16} color="#FFFFFF" />
+            <View style={styles.rowTextCol}>
+              <Text style={[styles.rowTitle, { color: textPrimary }]}>System Settings</Text>
+              <Text style={[styles.rowSub, { color: textSecondary }]}>Units of measure & GPS frequency</Text>
             </View>
-            <Text style={[styles.rowTitle, { color: textPrimary }]}>Settings</Text>
-            <Text style={[styles.rowDetail, { color: textSecondary }]}>Units & GPS</Text>
-            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
+            <View style={styles.rowRightCol}>
+              <Text style={[styles.rowDetail, { color: textSecondary }]}>Manage</Text>
+              <Text style={[styles.chevronArrow, { color: chevronColor }]}>›</Text>
+            </View>
           </TouchableOpacity>
         </View>
 
-        {/* Section 3: Family Circle */}
-        <Text style={[styles.sectionHeader, { color: textSecondary }]}>FAMILY CIRCLE</Text>
+        {/* Section: Family Circle */}
+        <Text style={[styles.sectionHeader, { color: textMuted }]}>FAMILY CIRCLE</Text>
         <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
           <TouchableOpacity
             style={styles.tableRow}
             onPress={handleCopyCode}
             activeOpacity={0.65}
           >
-            <View style={[styles.rowIconSquircle, { backgroundColor: '#5856D6' }]}>
-              <Ionicons name="people" size={16} color="#FFFFFF" />
+            <View style={styles.rowTextCol}>
+              <Text style={[styles.rowTitle, { color: textPrimary }]}>{circleName}</Text>
+              <Text style={[styles.rowSub, { color: textSecondary }]}>
+                {members.length} connected family {members.length === 1 ? 'member' : 'members'}
+              </Text>
             </View>
-            <Text style={[styles.rowTitle, { color: textPrimary }]}>{circleName}</Text>
-            <Text style={[styles.rowDetail, { color: isDark ? '#30D158' : '#007AFF' }]}>
-              Code: {inviteCode}
-            </Text>
-            <Ionicons name="copy-outline" size={15} color={chevronColor} />
+            <View style={styles.rowRightCol}>
+              <Text style={[styles.rowDetail, { color: accentColor, fontWeight: '600' }]}>
+                Code: {inviteCode}
+              </Text>
+              <Text style={[styles.chevronArrow, { color: chevronColor }]}>›</Text>
+            </View>
           </TouchableOpacity>
         </View>
 
-        {/* Section 4: Application Info */}
-        <Text style={[styles.sectionHeader, { color: textSecondary }]}>ABOUT</Text>
+        {/* Section: About & Info */}
+        <Text style={[styles.sectionHeader, { color: textMuted }]}>ABOUT</Text>
         <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
           <TouchableOpacity
             style={styles.tableRow}
             onPress={onOpenAbout}
             activeOpacity={0.65}
           >
-            <View style={[styles.rowIconSquircle, { backgroundColor: '#64748B' }]}>
-              <Ionicons name="information-circle" size={16} color="#FFFFFF" />
+            <View style={styles.rowTextCol}>
+              <Text style={[styles.rowTitle, { color: textPrimary }]}>About CircleGuard</Text>
+              <Text style={[styles.rowSub, { color: textSecondary }]}>Version 1.2.0 • Family Safety Architecture</Text>
             </View>
-            <Text style={[styles.rowTitle, { color: textPrimary }]}>About CircleGuard</Text>
-            <Text style={[styles.rowDetail, { color: textSecondary }]}>Version 1.2.0</Text>
-            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
+            <View style={styles.rowRightCol}>
+              <Text style={[styles.chevronArrow, { color: chevronColor }]}>›</Text>
+            </View>
           </TouchableOpacity>
         </View>
 
-        {/* Section 5: Account Actions */}
-        <Text style={[styles.sectionHeader, { color: textSecondary }]}>ACCOUNT</Text>
+        {/* Section: Account Actions */}
+        <Text style={[styles.sectionHeader, { color: textMuted }]}>ACCOUNT</Text>
         <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
           <TouchableOpacity
             style={styles.tableRow}
             onPress={onOpenLogout}
             activeOpacity={0.65}
           >
-            <View style={[styles.rowIconSquircle, { backgroundColor: isDark ? '#27272A' : '#E4E4E7' }]}>
-              <Ionicons name="log-out-outline" size={16} color={isDark ? '#F4F4F5' : '#18181B'} />
+            <View style={styles.rowTextCol}>
+              <Text style={[styles.rowTitle, { color: textPrimary }]}>Log Out</Text>
+              <Text style={[styles.rowSub, { color: textSecondary }]}>Sign out of your session on this device</Text>
             </View>
-            <Text style={[styles.rowTitle, { color: textPrimary }]}>Log Out</Text>
-            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
+            <View style={styles.rowRightCol}>
+              <Text style={[styles.chevronArrow, { color: chevronColor }]}>›</Text>
+            </View>
           </TouchableOpacity>
 
           <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
@@ -405,19 +427,22 @@ export default function BillionDollarProfileView({
             onPress={onOpenDeleteAccount}
             activeOpacity={0.65}
           >
-            <View style={[styles.rowIconSquircle, { backgroundColor: '#FEE2E2' }]}>
-              <Ionicons name="trash-outline" size={16} color="#EF4444" />
+            <View style={styles.rowTextCol}>
+              <Text style={[styles.rowTitle, { color: '#EF4444' }]}>Delete Account</Text>
+              <Text style={[styles.rowSub, { color: isDark ? '#7F1D1D' : '#DC2626' }]}>
+                Permanently erase data & membership
+              </Text>
             </View>
-            <Text style={[styles.rowTitle, { color: '#EF4444' }]}>Delete Account</Text>
-            <Ionicons name="chevron-forward" size={16} color={chevronColor} />
+            <View style={styles.rowRightCol}>
+              <Text style={[styles.chevronArrow, { color: '#EF4444' }]}>›</Text>
+            </View>
           </TouchableOpacity>
         </View>
       </ScrollView>
 
       {/* Floating In-App Toast */}
       {toastText && (
-        <View style={[styles.toastContainer, { backgroundColor: isDark ? '#1C1D22' : '#1F2937' }]}>
-          <Ionicons name="checkmark-circle" size={16} color="#30D158" style={{ marginRight: 8 }} />
+        <View style={[styles.toastContainer, { backgroundColor: isDark ? '#1C1D24' : '#1F2937' }]}>
           <Text style={styles.toastText}>{toastText}</Text>
         </View>
       )}
@@ -441,22 +466,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minWidth: 60,
   },
+  headerBackArrow: {
+    fontSize: 26,
+    fontWeight: '300',
+    lineHeight: 28,
+    marginRight: 4,
+  },
   headerBackText: {
-    fontSize: 16,
-    fontWeight: '400',
-    marginLeft: 2,
+    fontSize: 15,
+    fontWeight: '500',
   },
   headerTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '600',
-    letterSpacing: -0.4,
+    letterSpacing: -0.3,
   },
   headerRightAction: {
     minWidth: 60,
     alignItems: 'flex-end',
   },
   headerActionText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
   },
   scrollArea: {
@@ -471,55 +501,49 @@ const styles = StyleSheet.create({
   accountCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
-    borderRadius: 14,
+    padding: 16,
+    borderRadius: 16,
     borderWidth: 1,
     marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
   },
   avatarWrap: {
     position: 'relative',
     marginRight: 14,
   },
   avatarImg: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
   },
   avatarFallback: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarInitial: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
   },
-  cameraBadge: {
+  uploadingOverlay: {
     position: 'absolute',
-    bottom: -1,
-    right: -1,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
   },
   accountInfo: {
     flex: 1,
   },
   accountName: {
-    fontSize: 18,
-    fontWeight: '700',
-    letterSpacing: -0.3,
+    fontSize: 17,
+    fontWeight: '600',
+    letterSpacing: -0.2,
   },
   accountContact: {
     fontSize: 13,
@@ -531,7 +555,7 @@ const styles = StyleSheet.create({
   },
   rolePill: {
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 2.5,
     borderRadius: 6,
   },
   rolePillText: {
@@ -539,51 +563,69 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.2,
   },
-  editBtnChevron: {
-    paddingLeft: 8,
+  editPillBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginLeft: 8,
+  },
+  editPillText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 
   // Grouped Table
   sectionHeader: {
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.4,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
     marginLeft: 12,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   groupedTable: {
     borderRadius: 14,
     borderWidth: 1,
-    marginBottom: 24,
+    marginBottom: 22,
     overflow: 'hidden',
   },
   tableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    justifyContent: 'space-between',
+    paddingVertical: 13,
+    paddingHorizontal: 16,
   },
-  rowIconSquircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
+  rowTextCol: {
+    flex: 1,
+    paddingRight: 10,
   },
   rowTitle: {
     fontSize: 15,
     fontWeight: '500',
-    flex: 1,
+    letterSpacing: -0.2,
+  },
+  rowSub: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  rowRightCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   rowDetail: {
-    fontSize: 14,
-    marginRight: 6,
-    maxWidth: 140,
+    fontSize: 13,
+    maxWidth: 120,
+  },
+  chevronArrow: {
+    fontSize: 18,
+    fontWeight: '400',
+    lineHeight: 18,
   },
   rowDivider: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: 54,
+    marginLeft: 16,
   },
 
   // Toast
@@ -595,8 +637,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 12,
-    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
