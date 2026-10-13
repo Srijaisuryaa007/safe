@@ -243,7 +243,9 @@ export default function ChatScreen() {
     return (
       upper.includes('PERMISSION REQUEST') ||
       upper.includes('PERMISSION GRANTED') ||
+      upper.includes('PERMISSION AUTHORIZED') ||
       upper.includes('PERMISSION DENIED') ||
+      upper.includes('PERMISSION DECLINED') ||
       upper.includes('PERMISSION REVOKED') ||
       upper.includes('SYSTEM NOTIFICATION') ||
       upper.includes('CHIME ALERT:') ||
@@ -712,7 +714,7 @@ export default function ChatScreen() {
       if (taggedTokens.length > 0) {
         await sendExpoPushNotification(
           taggedTokens,
-          `🔔 ${senderName} tagged you in Circle Chat`,
+          `${senderName} mentioned you in Circle Chat`,
           cleanBody,
           { screen: 'Chat', circle_id: activeCircle.id, tagged: true }
         );

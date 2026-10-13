@@ -15,7 +15,7 @@ const CATEGORY_OPTIONS = [
   { id: 'home', icon: 'home', label: 'Home', color: '#10B981' },
   { id: 'work', icon: 'briefcase', label: 'Work', color: '#3B82F6' },
   { id: 'school', icon: 'school', label: 'School', color: '#F59E0B' },
-  { id: 'fitness', icon: 'fitness', label: 'Gym', color: '#8B5CF6' },
+  { id: 'fitness', icon: 'fitness', label: 'Gym', color: '#0D9488' },
   { id: 'danger', icon: 'alert-circle', label: 'Danger Zone', color: '#EF4444' },
   { id: 'custom', icon: 'shield-checkmark', label: 'Custom', color: '#D4AF37' },
 ];

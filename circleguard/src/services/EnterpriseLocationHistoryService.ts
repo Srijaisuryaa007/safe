@@ -27,7 +27,6 @@ import {
   calculateBearing,
   getCardinalDirection,
   fetchMapMatchedRoute,
-  fetchRoadSnappedRoute,
   generateCatmullRomSpline,
 } from './RoadRoutingService';
 import {
@@ -182,44 +181,60 @@ export function matchSafePlace(lat: number, lng: number, places: Place[] = []): 
 }
 
 /**
- * Detects if a trip leg corresponds to an underground Metro or Railway track corridor
+ * Detects if a trip leg corresponds to an underground Metro or Railway track corridor.
+ * Strictly scoped to registered safe places with category 'station' to prevent fake curves on normal roads.
  */
 export function detectLegTransit(
   leg: EnterpriseTripLeg,
   places: Place[] = []
 ): { isTransit: boolean; transitType: 'metro' | 'rail' | 'road' } {
-  const metroRegex = /metro|subway|underground|mrt|tube/i;
-  const railRegex = /railway|rail|train|station|junction|cantt|central|terminus/i;
-
-  const namesToCheck = [
-    leg.startStopName || '',
-    leg.endStopName || '',
-    leg.points[0]?.placeName || '',
-    leg.points[0]?.address || '',
-    leg.points[leg.points.length - 1]?.placeName || '',
-    leg.points[leg.points.length - 1]?.address || '',
-  ];
-
-  const fullStr = namesToCheck.join(' ');
-  if (metroRegex.test(fullStr)) {
-    return { isTransit: true, transitType: 'metro' };
+  if (!places || places.length === 0 || !leg.points || leg.points.length < 2) {
+    return { isTransit: false, transitType: 'road' };
   }
-  if (railRegex.test(fullStr)) {
+
+  const pStart = leg.points[0];
+  const pEnd = leg.points[leg.points.length - 1];
+  const plStart = matchSafePlace(pStart.latitude, pStart.longitude, places);
+  const plEnd = matchSafePlace(pEnd.latitude, pEnd.longitude, places);
+
+  if (plStart?.category === 'station' && plEnd?.category === 'station') {
     return { isTransit: true, transitType: 'rail' };
   }
 
-  // Check against registered circle safe places
-  for (const p of [leg.points[0], leg.points[leg.points.length - 1]]) {
-    const pl = matchSafePlace(p.latitude, p.longitude, places);
-    if (pl?.category === 'station' || metroRegex.test(pl?.name || '')) {
-      return { isTransit: true, transitType: 'metro' };
-    }
-    if (railRegex.test(pl?.name || '')) {
-      return { isTransit: true, transitType: 'rail' };
+  return { isTransit: false, transitType: 'road' };
+}
+
+/**
+ * Validates whether a candidate sequence of breadcrumbs constitutes an actual trip
+ * versus stationary indoor/parking GPS drift wander.
+ */
+export function isValidTripLeg(points: EnterpriseHistoryPoint[]): boolean {
+  if (!points || points.length < 2) return false;
+  const first = points[0];
+  const last = points[points.length - 1];
+
+  const netDisplacementMeters = calculateHaversineDistanceMeters(
+    first.latitude, first.longitude,
+    last.latitude, last.longitude
+  );
+
+  let totalDistanceMeters = 0;
+  let hasMovingSpeed = false;
+  for (let i = 1; i < points.length; i++) {
+    totalDistanceMeters += calculateHaversineDistanceMeters(
+      points[i - 1].latitude, points[i - 1].longitude,
+      points[i].latitude, points[i].longitude
+    );
+    if (points[i].speedKmh >= 3.5) {
+      hasMovingSpeed = true;
     }
   }
 
-  return { isTransit: false, transitType: 'road' };
+  // A genuine trip requires:
+  // EITHER net displacement >= 75m and total path distance >= 90m,
+  // OR total path >= 140m with confirmed moving speed (>= 3.5 km/h)
+  return (netDisplacementMeters >= 75 && totalDistanceMeters >= 90) ||
+         (totalDistanceMeters >= 140 && hasMovingSpeed);
 }
 
 /**
@@ -544,8 +559,10 @@ export async function processEnterpriseLocationHistory(
         if (isStopAnchor) {
           currentLegPoints.push(pt);
         }
-        const leg = compileTripLeg(currentLegPoints, tripLegs.length);
-        tripLegs.push(leg);
+        if (isValidTripLeg(currentLegPoints)) {
+          const leg = compileTripLeg(currentLegPoints, tripLegs.length);
+          tripLegs.push(leg);
+        }
         currentLegPoints = [];
       } else {
         currentLegPoints = [];
@@ -558,7 +575,7 @@ export async function processEnterpriseLocationHistory(
     }
   }
 
-  if (currentLegPoints.length >= 2) {
+  if (currentLegPoints.length >= 2 && isValidTripLeg(currentLegPoints)) {
     const leg = compileTripLeg(currentLegPoints, tripLegs.length);
     tripLegs.push(leg);
   }
@@ -580,13 +597,13 @@ export async function processEnterpriseLocationHistory(
         if (dtMs <= 8 * 60 * 1000 && dM <= 1500) {
           candidateLeg.push(cur);
         } else {
-          if (candidateLeg.length >= 2) {
+          if (candidateLeg.length >= 2 && isValidTripLeg(candidateLeg)) {
             tripLegs.push(compileTripLeg(candidateLeg, tripLegs.length));
           }
           candidateLeg = [cur];
         }
       }
-      if (candidateLeg.length >= 2) {
+      if (candidateLeg.length >= 2 && isValidTripLeg(candidateLeg)) {
         tripLegs.push(compileTripLeg(candidateLeg, tripLegs.length));
       }
     }
@@ -594,11 +611,11 @@ export async function processEnterpriseLocationHistory(
 
   // Step 7: Strict Transport Network Snapping (Roads, Tracks, Metro)
   // Guarantees all routes strictly follow real street networks, rail tracks, or metro corridors.
-  // NEVER draws random straight lines cutting through buildings or across town!
+  // NEVER generates dummy detour loops, synthetic routes, or phantom lines across town!
   let allRoadCoords: [number, number][] = [];
   let allRoadBearings: number[] = [];
 
-  // Parallelize road snapping across trip legs for 4-5x faster processing
+  // Parallelize road snapping across trip legs for fast processing
   await Promise.all(tripLegs.map(async (leg) => {
     if (leg.points.length < 2) return;
 
@@ -641,9 +658,8 @@ export async function processEnterpriseLocationHistory(
       leg.roadCoords = transitCoords;
       snappedToPath = true;
     } else {
-      // Standard Road Route: Snaps directly to OpenStreetMap street network centerlines
+      // Standard Road Route: Snaps directly to OpenStreetMap street network centerlines via HMM
       try {
-        // Attempt 1: Fast HMM Map Matching with concurrent chunks
         const matchPromise = fetchMapMatchedRoute(
           leg.points.map(p => ({
             latitude: p.latitude,
@@ -659,7 +675,8 @@ export async function processEnterpriseLocationHistory(
         if (matchRes && matchRes.roadCoords && matchRes.roadCoords.length >= 2 && matchRes.isMapMatched) {
           const rawLegKm = leg.distanceKm;
           const matchKm = matchRes.totalDistanceKm || 0;
-          const isReasonable = rawLegKm <= 0.15 || (matchKm <= Math.max(rawLegKm * 1.35, rawLegKm + 0.30) && matchKm >= rawLegKm * 0.65);
+          // Stricter detour check: reject matches that take unreasonable loops around blocks
+          const isReasonable = rawLegKm <= 0.15 || (matchKm <= Math.max(rawLegKm * 1.25, rawLegKm + 0.20) && matchKm >= rawLegKm * 0.70);
           if (isReasonable) {
             leg.roadCoords = matchRes.roadCoords;
             leg.bearings = matchRes.bearings || [];
@@ -669,29 +686,9 @@ export async function processEnterpriseLocationHistory(
         }
       } catch (_) {}
 
-      // Attempt 2: High-Precision Road Snapping via OSRM Street Network Routing
-      if (!snappedToPath) {
-        try {
-          const snapRoute = await fetchRoadSnappedRoute(
-            leg.points.map(p => ({ latitude: p.latitude, longitude: p.longitude }))
-          );
-          if (snapRoute && snapRoute.roadCoords && snapRoute.roadCoords.length >= 2) {
-            const rawLegKm = leg.distanceKm;
-            const snapKm = snapRoute.totalDistanceKm || 0;
-            const isReasonable = rawLegKm <= 0.2 || (snapKm <= Math.max(rawLegKm * 1.5, rawLegKm + 0.8));
-            if (isReasonable) {
-              leg.roadCoords = snapRoute.roadCoords;
-              leg.bearings = snapRoute.bearings || [];
-              leg.distanceKm = snapRoute.totalDistanceKm || leg.distanceKm;
-              snappedToPath = true;
-            }
-          }
-        } catch (_) {}
-      }
-
       // Authentic High-Precision Fallback:
       // Strictly preserves 100% of authentic recorded GPS fixes!
-      // NEVER drops vehicle points simply because points are > 50m apart!
+      // NEVER calls /route/v1/driving which invents phantom detour loops around city blocks!
       if (!snappedToPath) {
         const rawCoords: [number, number][] = leg.points.map(p => [p.latitude, p.longitude]);
         leg.roadCoords = densifyRoadCoordinates(rawCoords, 14);
@@ -718,6 +715,11 @@ export async function processEnterpriseLocationHistory(
     }
   }));
 
+  // Post-snapping filter: eliminate any residual micro-jitter trips (< 0.08 km)
+  const genuineTripLegs = tripLegs.filter(leg => leg.distanceKm >= 0.08 && leg.roadCoords && leg.roadCoords.length >= 2);
+  tripLegs.length = 0;
+  tripLegs.push(...genuineTripLegs);
+
   // Assemble unified allRoadCoords and allRoadBearings chronologically
   for (const leg of tripLegs) {
     if (leg.roadCoords && leg.roadCoords.length >= 2) {
@@ -725,7 +727,7 @@ export async function processEnterpriseLocationHistory(
         const prevEnd = allRoadCoords[allRoadCoords.length - 1];
         const newStart = leg.roadCoords[0];
         const stitchDist = calculateHaversineKm(prevEnd[0], prevEnd[1], newStart[0], newStart[1]) * 1000;
-        if (stitchDist < 15) {
+        if (stitchDist < 20) {
           allRoadCoords.push(...leg.roadCoords.slice(1));
         } else {
           allRoadCoords.push(...leg.roadCoords);
@@ -875,7 +877,7 @@ export async function processEnterpriseLocationHistory(
         timeRange: `${nextStop.arrivalTime} – ${nextStop.departureTime}`,
         durationText: `${nextStop.durationMinutes} mins`,
         categoryIcon: nextStop.isSafePlace ? 'shield-checkmark' : 'location',
-        categoryColor: nextStop.isSafePlace ? '#2E7D5B' : '#E07A5F',
+        categoryColor: nextStop.isSafePlace ? '#4ADE80' : '#E07A5F',
         pointIndex: 0,
         latitude: nextStop.latitude,
         longitude: nextStop.longitude,
@@ -896,7 +898,7 @@ export async function processEnterpriseLocationHistory(
         durationText: `${nextLeg.durationMinutes} mins`,
         speedText: `${nextLeg.topSpeedKmh} km/h max`,
         categoryIcon: isFast ? 'car-sport' : 'navigate',
-        categoryColor: '#2E7D5B',
+        categoryColor: '#4ADE80',
         pointIndex: 0,
         latitude: nextLeg.roadCoords[0]?.[0] || 0,
         longitude: nextLeg.roadCoords[0]?.[1] || 0,

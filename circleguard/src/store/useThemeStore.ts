@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Appearance, ColorSchemeName } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { StorageRecoveryService } from '../services/StorageRecoveryService';
 import { BRAND_GREEN_THEME, LIGHT_THEME, DARK_THEME, BILLION_DOLLAR_THEME, INSPO_FLAGSHIP_THEME, ThemeColors, LUXURY_THEME } from '../constants/theme';
 
 export type ThemeMode = 'dark' | 'light' | 'brand_green' | 'billion_dollar' | 'system';
@@ -11,12 +12,16 @@ interface ThemeState {
   isDark: boolean;
   colors: ThemeColors;
   mapStyle: MapStyleType;
+  isSeniorSimpleMode: boolean;
   currentUserId?: string | null;
   setThemeMode: (mode: ThemeMode, userId?: string) => Promise<void>;
   setMapStyle: (style: MapStyleType, userId?: string) => Promise<void>;
+  setSeniorSimpleMode: (enabled: boolean) => Promise<void>;
   initTheme: (userId?: string | null) => Promise<void>;
   resetThemeToDefault: () => void;
 }
+
+const SENIOR_MODE_KEY = '@circleguard_senior_simple_mode';
 
 const GLOBAL_THEME_KEY = '@circleguard_theme_mode_global';
 const getStorageKey = (userId?: string | null) => userId ? `@circleguard_theme_mode_${userId}` : GLOBAL_THEME_KEY;
@@ -33,11 +38,34 @@ const getThemeConfig = (mode: ThemeMode, sysScheme?: ColorSchemeName | null): { 
   return { colors: isSysDark ? DARK_THEME.colors : BILLION_DOLLAR_THEME.colors, isDark: isSysDark };
 };
 
+const applyNativeColorScheme = (mode: ThemeMode) => {
+  if (typeof Appearance.setColorScheme === 'function') {
+    try {
+      if (mode === 'system') {
+        // Modern React Native (RN 0.82+) TurboModules require 'auto' or 'unspecified'.
+        // Passing null causes a fatal TurboModule TypeError / NullPointerException crash.
+        (Appearance.setColorScheme as any)('auto');
+      } else if (mode === 'dark') {
+        (Appearance.setColorScheme as any)('dark');
+      } else {
+        (Appearance.setColorScheme as any)('light');
+      }
+    } catch (_) {
+      try {
+        if (mode === 'system') {
+          (Appearance.setColorScheme as any)('unspecified');
+        }
+      } catch (__) {}
+    }
+  }
+};
+
 export const useThemeStore = create<ThemeState>((set, get) => ({
   themeMode: 'light',
   isDark: false,
   colors: BILLION_DOLLAR_THEME.colors,
   mapStyle: 'vector',
+  isSeniorSimpleMode: false,
   currentUserId: null,
 
   initTheme: async (userId?: string | null) => {
@@ -52,28 +80,27 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
         saved = await AsyncStorage.getItem(GLOBAL_THEME_KEY);
       }
       const savedMapStyle = await AsyncStorage.getItem(mapKey);
+      const savedSenior = await AsyncStorage.getItem(SENIOR_MODE_KEY);
       let mode: ThemeMode = (saved as ThemeMode) || 'light';
       if (mode === 'billion_dollar' || (mode as any) === 'inspo_flagship') {
         mode = 'light';
       }
 
       const mapStyle: MapStyleType = (savedMapStyle as MapStyleType) || 'vector';
+      const isSenior = savedSenior === 'true';
       const sysScheme = Appearance.getColorScheme();
       const config = getThemeConfig(mode, sysScheme);
 
       Object.assign(LUXURY_THEME.colors, config.colors);
 
-      if (typeof Appearance.setColorScheme === 'function') {
-        try {
-          (Appearance.setColorScheme as any)(mode === 'system' ? null : (mode === 'dark' ? 'dark' : 'light'));
-        } catch (_) {}
-      }
+      applyNativeColorScheme(mode);
 
       set({
         themeMode: mode,
         isDark: config.isDark,
         colors: config.colors,
         mapStyle: mapStyle,
+        isSeniorSimpleMode: isSenior,
         currentUserId: activeUser || null,
       });
 
@@ -111,12 +138,8 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
         colors: config.colors,
       });
 
-      // Update native appearance scheme
-      if (typeof Appearance.setColorScheme === 'function') {
-        try {
-          (Appearance.setColorScheme as any)(mode === 'system' ? null : (mode === 'dark' ? 'dark' : 'light'));
-        } catch (_) {}
-      }
+      // Update native appearance scheme safely without crashing TurboModule
+      applyNativeColorScheme(mode);
 
       // Persist to both specific user and global storage
       const themeKey = getStorageKey(activeUser);
@@ -140,6 +163,15 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     }
   },
 
+  setSeniorSimpleMode: async (enabled: boolean) => {
+    try {
+      set({ isSeniorSimpleMode: enabled });
+      await StorageRecoveryService.safeSetItem(SENIOR_MODE_KEY, enabled ? 'true' : 'false').catch(() => {});
+    } catch (e) {
+      console.error('Error saving senior simple mode:', e);
+    }
+  },
+
   resetThemeToDefault: () => {
     const config = getThemeConfig('light', 'light');
     Object.assign(LUXURY_THEME.colors, config.colors);
@@ -148,6 +180,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       isDark: false,
       colors: BILLION_DOLLAR_THEME.colors,
       mapStyle: 'vector',
+      isSeniorSimpleMode: false,
       currentUserId: null,
     });
   },

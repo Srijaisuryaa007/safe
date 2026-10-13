@@ -80,13 +80,34 @@ function PrivacyPermissionListener() {
         { event: 'INSERT', schema: 'public', table: 'circle_messages' },
         async (payload) => {
           const content = payload.new?.content || '';
-          if (content.startsWith('PERMISSION REQUEST:')) {
+
+          // 1. Leader listener: incoming requests to approve or decline
+          if (content.startsWith('PERMISSION REQUEST')) {
             const senderId = payload.new.sender_id;
             if (senderId === profile.id) return; // Don't show request to self
 
+            // STRICT ROLE ISOLATION: Only prompt if the user is ACTUALLY the owner/leader of THIS circle!
+            const circleId = payload.new.circle_id;
+            const knownCircles = useCircleStore.getState().circles;
+            const targetCircle = knownCircles.find((c: any) => c.id === circleId);
+            let isCircleOwner = targetCircle?.owner_id === profile.id;
+            if (!isCircleOwner && (!targetCircle || !targetCircle.owner_id)) {
+              try {
+                const { data: circleRow } = await supabase.from('circles').select('owner_id').eq('id', circleId).single();
+                if (circleRow?.owner_id === profile.id) {
+                  isCircleOwner = true;
+                }
+              } catch (_) {}
+            }
+
+            if (!isCircleOwner) return; // Not the leader of this circle! Do not prompt!
+
             const { data: senderProf } = await supabase.from('profiles').select('full_name').eq('id', senderId).single();
             const senderName = senderProf?.full_name || 'Circle Member';
-            const featureName = content.replace('PERMISSION REQUEST: Requesting Circle Leader authorization to enable ', '').replace('.', '');
+            const featureName = content
+              .replace(/^PERMISSION REQUEST\s*(\[target:[^\]]+\])?:\s*(Requesting Circle Leader authorization to enable\s*)?/i, '')
+              .replace(/\.$/, '')
+              .trim() || 'Ghost Mode';
 
             showPrivacyRequest({
               requesterName: senderName,
@@ -99,12 +120,11 @@ function PrivacyPermissionListener() {
                 if (featureLower.includes('ghost')) updateField.is_ghost_mode = true;
                 if (featureLower.includes('online')) updateField.hide_online_presence = true;
 
-                await supabase.from('profiles').update(updateField).eq('id', senderId);
-
+                // Broadcast authorization to circle messages (member device will receive and activate)
                 await supabase.from('circle_messages').insert({
                   circle_id: payload.new.circle_id,
                   sender_id: profile.id,
-                  content: `PERMISSION AUTHORIZED: Approved ${featureName} for ${senderName}.`,
+                  content: `PERMISSION AUTHORIZED [target:${senderId}]: Approved ${featureName} for ${senderName}.`,
                 });
 
                 // Dispatch push notification outside the app to requested member
@@ -125,14 +145,14 @@ function PrivacyPermissionListener() {
                 await supabase.from('circle_messages').insert({
                   circle_id: payload.new.circle_id,
                   sender_id: profile.id,
-                  content: `PERMISSION DECLINED: Circle Leader declined ${featureName} request for ${senderName}.`,
+                  content: `PERMISSION DECLINED [target:${senderId}]: Circle Leader declined ${featureName} request for ${senderName}. Option B Continuous 24/7 Safety Mode remains active.`,
                 });
 
                 // Dispatch push notification to requested member
                 await sendPushNotificationToUser(
                   senderId,
-                  'Privacy Request Maintained',
-                  `Circle Leader maintained 24/7 Safety Mode for ${featureName}.`,
+                  'Privacy Request Declined',
+                  `Your Circle Leader declined your request to activate ${featureName}. Option B Continuous 24/7 Safety Mode remains active.`,
                   { type: 'privacy_declined', feature: featureName }
                 );
 
@@ -143,6 +163,86 @@ function PrivacyPermissionListener() {
                 });
               },
             });
+          }
+
+          // 2. Member listener: incoming response when Leader authorizes request
+          if (content.startsWith('PERMISSION AUTHORIZED') || content.startsWith('PERMISSION GRANTED')) {
+            const senderId = payload.new?.sender_id;
+            if (senderId === profile.id) return; // Don't notify the leader who approved it
+
+            const isTarget =
+              content.includes(`[target:${profile.id}]`) ||
+              (profile.full_name && content.includes(profile.full_name));
+
+            if (isTarget) {
+              const isGhost = content.toLowerCase().includes('ghost');
+              const isOnline = content.toLowerCase().includes('online');
+              const updateField: any = {};
+              if (isGhost) updateField.is_ghost_mode = true;
+              if (isOnline) updateField.hide_online_presence = true;
+
+              // Member updates own profile in cloud (Allowed by Supabase RLS)
+              await supabase.from('profiles').update(updateField).eq('id', profile.id);
+              if (isGhost) await AsyncStorage.setItem('@circleguard_ghost_mode', 'true');
+              if (isOnline) await AsyncStorage.setItem('@circleguard_hide_online', 'true');
+
+              useAuthStore.getState().setProfile({
+                ...useAuthStore.getState().profile!,
+                ...updateField,
+              });
+
+              if (activeCircle?.id) {
+                useCircleStore.getState().fetchMembers(activeCircle.id).catch(() => {});
+              }
+
+              const approvedFeatureName = isGhost ? 'Ghost Mode' : 'Hide Online Presence';
+              showAlert({
+                title: `${approvedFeatureName} Approved`,
+                message: `Your Circle Leader approved your request. ${approvedFeatureName} is now active.`,
+                type: 'success',
+                tag: '• LEADER AUTHORIZED',
+                buttonText: 'Awesome',
+              });
+
+              scheduleLocalNotification(
+                `${approvedFeatureName} Approved`,
+                `Circle Leader has approved your request to activate ${approvedFeatureName}.`,
+                { type: 'privacy_approved' }
+              );
+            }
+          }
+
+          // 3. Member listener: incoming response when Leader declines request
+          if (content.startsWith('PERMISSION DECLINED') || content.startsWith('PERMISSION DENIED')) {
+            const senderId = payload.new?.sender_id;
+            if (senderId === profile.id) return; // Don't notify the leader who declined it
+
+            const isTarget =
+              content.includes(`[target:${profile.id}]`) ||
+              (profile.full_name && content.includes(profile.full_name));
+
+            if (isTarget) {
+              const cleanReason = content
+                .replace(/^PERMISSION (DECLINED|DENIED)\s*(\[target:[^\]]+\])?:\s*/i, '')
+                .trim();
+
+              showAlert({
+                title: 'Permission Request Declined',
+                message:
+                  cleanReason ||
+                  'Your Circle Leader declined your permission request. Continuous 24/7 Safety Mode remains active for your circle.',
+                type: 'warning',
+                tag: '• LEADER GOVERNANCE',
+                buttonText: 'Understood',
+              });
+
+              scheduleLocalNotification(
+                'Permission Request Declined',
+                cleanReason ||
+                  'Your Circle Leader declined your permission request to maintain 24/7 Safety Mode.',
+                { type: 'privacy_declined' }
+              );
+            }
           }
         }
       )
@@ -263,25 +363,47 @@ function GlobalChatNotificationListener() {
   }, [profile?.id, activeCircle?.id]);
 
   return null;
-}
-
-function GlobalGeofenceNotificationListener() {
+}function GlobalGeofenceNotificationListener() {
   const { showToast } = useLuxuryAlert();
   const { activeCircle } = useCircleStore();
   const { profile } = useAuthStore();
+  const sessionStartTime = React.useRef(Date.now()).current;
+  const notifiedEventsRef = React.useRef(new Set<string>());
 
-  // 1. In-app breach listener (for local engine evaluations)
+  // 1. In-app breach listener (for local engine evaluations on THIS device)
   React.useEffect(() => {
     const unsubscribe = addInAppGeofenceBreachListener((breach) => {
+      // Mark this breach as notified so Realtime does not duplicate it
+      const breachKey = `${breach.userId}_${breach.placeId}_${breach.type}`;
+      if (notifiedEventsRef.current.has(breachKey)) {
+        return;
+      }
+      notifiedEventsRef.current.add(breachKey);
+
       // If MapScreen is active, MapScreen displays its own rich interactive breach modal
       if (typeof window !== 'undefined' && (window as any).__isMapScreenActive) {
         return;
       }
       const isExit = breach.type === 'exit';
+      const eventDate = breach.timestamp ? new Date(breach.timestamp) : new Date();
+      const eventTimeMs = eventDate.getTime();
+
+      // STRICT TIMING GATE:
+      // Only show in-app toast if the event happened LIVE while the app is active
+      // (occurred after session started). Opening/reloading the app NEVER replays toasts!
+      const isLiveNow = !isNaN(eventTimeMs) && (eventTimeMs >= sessionStartTime - 3000 || Math.abs(Date.now() - eventTimeMs) < 30000);
+      if (!isLiveNow) {
+        return;
+      }
+
+      const shortTime = !isNaN(eventTimeMs)
+        ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+        : 'Just now';
+
       showToast(
         isExit
-          ? `🚶 ${breach.userName} departed ${breach.placeName}`
-          : `📍 ${breach.userName} arrived at ${breach.placeName}`,
+          ? `🚶 You left ${breach.placeName} • ${shortTime}`
+          : `📍 You arrived at ${breach.placeName} • ${shortTime}`,
         isExit ? 'warning' : 'success'
       );
     });
@@ -289,24 +411,41 @@ function GlobalGeofenceNotificationListener() {
     return unsubscribe;
   }, [showToast]);
 
-  // 2. Realtime subscription to `place_events` across all circle members
+  // 2. Realtime subscription to `zone_events` across all circle members
   React.useEffect(() => {
     if (!activeCircle?.id) return;
 
-    const handledEvents = new Set<string>();
     const channelUid = Math.random().toString(36).substring(2, 8);
 
     const channel = supabase
       .channel(`global_geofence_rt_${activeCircle.id}_${channelUid}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'zone_events', filter: `circle_id=eq.${activeCircle.id}` },
+        { event: 'INSERT', schema: 'public', table: 'zone_events' },
         async (payload: any) => {
           const newEv = payload?.new;
           if (!newEv || !newEv.id) return;
+          // Ensure event belongs to the active circle
+          if (newEv.circle_id && newEv.circle_id !== activeCircle.id) {
+            return;
+          }
           const evId = String(newEv.id);
-          if (handledEvents.has(evId)) return;
-          handledEvents.add(evId);
+          const transitionKey = `${newEv.member_id}_${newEv.zone_id}_${newEv.type}`;
+
+          if (notifiedEventsRef.current.has(evId) || notifiedEventsRef.current.has(transitionKey)) {
+            return;
+          }
+          notifiedEventsRef.current.add(evId);
+          notifiedEventsRef.current.add(transitionKey);
+
+          // Refresh circle members in store so live pins update
+          useCircleStore.getState().fetchMembers(activeCircle.id);
+
+          const isSelf = profile?.id === newEv.member_id;
+          // If event was triggered on this device, listener 1 already showed the toast!
+          if (isSelf) {
+            return;
+          }
 
           const currentMembers = useCircleStore.getState().members || [];
           const currentPlaces = useCircleStore.getState().places || [];
@@ -327,145 +466,38 @@ function GlobalGeofenceNotificationListener() {
           }
 
           const place = currentPlaces.find((p) => p.id === newEv.zone_id);
-          let placeName = place?.name || 'Safe Zone';
+          const placeName = place?.name || 'Safe Zone';
 
           const eventDate = newEv.occurred_at ? new Date(newEv.occurred_at) : new Date();
-          const isLiveNow = !isNaN(eventDate.getTime()) && Math.abs(Date.now() - eventDate.getTime()) < 180000;
+          const eventTimeMs = eventDate.getTime();
           const shortTimeStr = !isNaN(eventDate.getTime())
             ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
             : 'Just now';
-
-          const isExit = newEv.type === 'EXIT';
-          const isSelf = profile?.id === newEv.member_id;
-
-          const title = isExit
-            ? (isSelf ? `You left ${placeName} • ${shortTimeStr}` : `${memberName} left ${placeName} • ${shortTimeStr}`)
-            : (isSelf ? `You arrived at ${placeName} • ${shortTimeStr}` : `${memberName} arrived at ${placeName} • ${shortTimeStr}`);
-
-          // Refresh circle members in store
-          useCircleStore.getState().fetchMembers(activeCircle.id);
-
-          if (isLiveNow) {
-            showToast(
-              isExit ? `🚶 ${title}` : `📍 ${title}`,
-              isExit ? 'warning' : 'success'
-            );
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'place_events' },
-        async (payload: any) => {
-          const newEv = payload?.new;
-          if (!newEv || !newEv.id) return;
-          const evId = String(newEv.id);
-          if (handledEvents.has(evId)) return;
-          handledEvents.add(evId);
-
-          const currentMembers = useCircleStore.getState().members || [];
-          const currentPlaces = useCircleStore.getState().places || [];
-
-          const isMember = currentMembers.some((m) => m.user_id === newEv.user_id);
-          const isPlace = currentPlaces.some((p) => p.id === newEv.place_id);
-
-          // If event does not belong to active circle, ignore
-          if (!isMember && !isPlace) return;
-
-          const member = currentMembers.find((m) => m.user_id === newEv.user_id);
-          let memberName = member?.profile?.full_name;
-          if (!memberName) {
-            try {
-              const { data: pData } = await supabase
-                .from('profiles')
-                .select('full_name')
-                .eq('id', newEv.user_id)
-                .single();
-              memberName = pData?.full_name || 'Circle Member';
-            } catch (_) {
-              memberName = 'Circle Member';
-            }
-          }
-
-          const place = currentPlaces.find((p) => p.id === newEv.place_id);
-          let placeName = place?.name;
-          if (!placeName) {
-            try {
-              const { data: plData } = await supabase
-                .from('places')
-                .select('name')
-                .eq('id', newEv.place_id)
-                .single();
-              placeName = plData?.name || 'Safe Zone';
-            } catch (_) {
-              placeName = 'Safe Zone';
-            }
-          }
-
-          const eventDate = newEv.occurred_at ? new Date(newEv.occurred_at) : new Date();
-          const isLiveNow = !isNaN(eventDate.getTime()) && Math.abs(Date.now() - eventDate.getTime()) < 180000;
           const preciseTimeStr = !isNaN(eventDate.getTime())
             ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })
             : 'Just now';
-          const shortTimeStr = !isNaN(eventDate.getTime())
-            ? eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
-            : 'Just now';
 
-          const isExit = newEv.event_type === 'departure';
-          const isSelf = profile?.id === newEv.user_id;
-
+          const isExit = newEv.type === 'EXIT';
           const title = isExit
-            ? (isSelf ? `You left ${placeName} • ${shortTimeStr}` : `${memberName} left ${placeName} • ${shortTimeStr}`)
-            : (isSelf ? `You arrived at ${placeName} • ${shortTimeStr}` : `${memberName} arrived at ${placeName} • ${shortTimeStr}`);
-
+            ? `${memberName} left ${placeName} • ${shortTimeStr}`
+            : `${memberName} arrived at ${placeName} • ${shortTimeStr}`;
           const body = isExit
-            ? `${isSelf ? 'You departed' : `${memberName} departed`} ${placeName} safe boundary at ${preciseTimeStr}. Tap to view activity.`
-            : `${isSelf ? 'You safely entered' : `${memberName} safely entered`} ${placeName} at ${preciseTimeStr}.`;
+            ? `${memberName} departed ${placeName} safe boundary at ${preciseTimeStr}.`
+            : `${memberName} arrived at ${placeName} at ${preciseTimeStr}.`;
 
-          // A. Native OS Notification Banner with sound and vibration (only for live events)
+          // STRICT TIMING GATE:
+          // Only show in-app toast if the event happened LIVE while the app is active
+          // (i.e. occurred after this session started OR within the last 120 seconds).
+          // Opening the app NEVER replays toasts for events that happened while app was closed!
+          const isLiveNow = !isNaN(eventTimeMs) && (eventTimeMs >= sessionStartTime - 3000 || Math.abs(Date.now() - eventTimeMs) < 120000);
           if (isLiveNow) {
-            try {
-              const notifEnabled = await AsyncStorage.getItem('@circleguard_notif_geofence');
-              if (notifEnabled !== 'false') {
-                await scheduleLocalNotification(title, body, {
-                  screen: 'Activity',
-                  type: 'GEOFENCE',
-                  eventType: newEv.event_type,
-                  placeId: newEv.place_id,
-                  userId: newEv.user_id,
-                  preciseTime: preciseTimeStr,
-                });
-              }
-            } catch (e) {
-              console.warn('[GlobalGeofence] scheduleLocalNotification note:', e);
-            }
-
-            // B. Show in-app toast banner (only for live events)
             showToast(
               isExit ? `🚶 ${title}` : `📍 ${title}`,
               isExit ? 'warning' : 'success'
             );
           }
 
-          // C. Notify in-app breach listeners (for Map animations)
-          try {
-            const { notifyInAppGeofenceBreach } = require('../services/GeofenceEngine');
-            notifyInAppGeofenceBreach({
-              id: evId,
-              type: isExit ? 'exit' : 'entry',
-              placeId: newEv.place_id,
-              placeName,
-              userId: newEv.user_id,
-              userName: memberName,
-              distanceMeters: place?.radius_m || 150,
-              formattedDistance: `${place?.radius_m || 150}m`,
-              timestamp: newEv.occurred_at || new Date().toISOString(),
-              latitude: place?.latitude || 0,
-              longitude: place?.longitude || 0,
-            });
-          } catch (_) {}
-
-          // D. Cache in local storage for instant Activity timeline rendering
+          // Cache in local storage for instant Activity timeline rendering
           try {
             const { saveLocalActivityEvent } = require('../services/ActivityService');
             saveLocalActivityEvent(activeCircle.id, {
@@ -481,10 +513,10 @@ function GlobalGeofenceNotificationListener() {
               memberName,
               avatarUrl: member?.profile?.avatar_url,
               phone: member?.profile?.phone,
-              userId: newEv.user_id,
-              timestamp: new Date(newEv.occurred_at || Date.now()).getTime(),
+              userId: newEv.member_id,
+              timestamp: eventTimeMs || Date.now(),
               placeName,
-              placeId: newEv.place_id,
+              placeId: newEv.zone_id,
               radiusMeters: place?.radius_m || 150,
               occurredAtIso: newEv.occurred_at || new Date().toISOString(),
               latitude: place?.latitude,
@@ -499,7 +531,7 @@ function GlobalGeofenceNotificationListener() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [activeCircle?.id, profile?.id, showToast]);
+  }, [profile?.id, activeCircle?.id, showToast, sessionStartTime]);
 
   return null;
 }

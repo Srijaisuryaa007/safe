@@ -14,6 +14,7 @@ import { flushZoneTransitionQueue } from './src/services/ZoneTransitionQueueServ
 import { useThemeStore } from './src/store/useThemeStore';
 import { useCountryStore } from './src/store/useCountryStore';
 import { RevenueCatService } from './src/services/RevenueCatService';
+import { StorageRecoveryService } from './src/services/StorageRecoveryService';
 
 import { StatusBar } from 'expo-status-bar';
 import { LogBox } from 'react-native';
@@ -27,7 +28,10 @@ function App() {
   const { setSession, setProfile, setLoading } = useAuthStore();
 
   useEffect(() => {
-    // 0. Initialize visual theme & country regional preferences & push listeners
+    // 0. Proactively prune transient SQLite caches to prevent SQLITE_FULL
+    StorageRecoveryService.pruneTransientCacheAsync().catch(() => {});
+
+    // Initialize visual theme & country regional preferences & push listeners
     useThemeStore.getState().initTheme().catch(() => { });
     useCountryStore.getState().initCountry().catch(() => { });
     setupPushNotificationListeners();
@@ -245,7 +249,6 @@ function App() {
             if (places && places.length > 0) {
               await registerSafeZoneGeofences(places);
             }
-            await startSafeZoneLocationFallback();
           }
         }).catch(() => {});
         registerForPushNotificationsAsync(userId);

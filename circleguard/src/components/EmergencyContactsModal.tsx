@@ -549,7 +549,7 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
               </View>
             </View>
             {contacts.length > 1 && (
-              <Text style={styles.primaryHintText}>Tap ★ to set primary</Text>
+              <Text style={styles.primaryHintText}>Tap star to set primary</Text>
             )}
           </View>
 

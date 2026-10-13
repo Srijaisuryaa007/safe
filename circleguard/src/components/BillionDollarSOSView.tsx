@@ -41,12 +41,14 @@ export default function BillionDollarSOSView() {
   const { profile } = useAuthStore();
   const { activeCircle, members } = useCircleStore();
   const { country } = useCountryStore();
-  const { isDark } = useThemeStore();
+  const { isDark, isSeniorSimpleMode } = useThemeStore();
 
   const [sosHolding, setSosHolding] = useState(false);
   const [sosSent, setSosSent] = useState(false);
   const [silentAlertSent, setSilentAlertSent] = useState(false);
   const [isSirenActive, setIsSirenActive] = useState(false);
+  const [countdownSec, setCountdownSec] = useState<number | null>(null);
+  const [isDiscreetMode, setIsDiscreetMode] = useState(false);
 
   // Modals
   const [fakeCallVisible, setFakeCallVisible] = useState(false);
@@ -63,6 +65,37 @@ export default function BillionDollarSOSView() {
   const rippleAnim1 = useRef(new Animated.Value(0)).current;
   const rippleAnim2 = useRef(new Animated.Value(0)).current;
   const menuTranslateY = useRef(new Animated.Value(0)).current;
+
+  // 5-Second False Alarm Protection Countdown Timer with Immediate Cancellation
+  useEffect(() => {
+    if (countdownSec === null) {
+      if (Platform.OS !== 'web') {
+        Vibration.cancel();
+      }
+      return;
+    }
+    if (countdownSec <= 0) {
+      if (Platform.OS !== 'web') {
+        Vibration.cancel();
+      }
+      setCountdownSec(null);
+      triggerSOS(isDiscreetMode);
+      return;
+    }
+
+    // Gentle single tick buzz
+    if (Platform.OS !== 'web' && !isDiscreetMode) {
+      Vibration.vibrate(45);
+    }
+
+    const timer = setTimeout(() => {
+      setCountdownSec((prev) => (prev !== null ? prev - 1 : null));
+    }, 1000);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [countdownSec, isDiscreetMode]);
 
   // Continuous subtle pulse effect for SOS hero aura
   useEffect(() => {
@@ -155,7 +188,7 @@ export default function BillionDollarSOSView() {
   );
 
   const handleStartHold = () => {
-    if (sosSent) return;
+    if (sosSent || countdownSec !== null) return;
     setSosHolding(true);
     if (Platform.OS !== 'web') {
       Vibration.vibrate(60);
@@ -168,23 +201,47 @@ export default function BillionDollarSOSView() {
       useNativeDriver: false,
     }).start(({ finished }) => {
       if (finished) {
-        triggerSOS();
+        setSosHolding(false);
+        holdProgress.setValue(0);
+        // Adaptive false-alarm buffer: 8 seconds for Senior Easy Mode (accommodating tremors/cognitive delay), 5s standard
+        const bufferSeconds = isSeniorSimpleMode ? 8 : 5;
+        setCountdownSec(bufferSeconds);
+        if (Platform.OS !== 'web' && !isDiscreetMode) {
+          Vibration.vibrate([0, 150, 100, 150]);
+        }
       }
     });
   };
 
   const handleCancelHold = () => {
-    if (sosSent) return;
+    if (sosSent || countdownSec !== null) return;
     setSosHolding(false);
     holdProgress.stopAnimation();
     holdProgress.setValue(0);
   };
 
-  const triggerSOS = async () => {
+  const handleCancelCountdown = () => {
+    if (Platform.OS !== 'web') {
+      Vibration.cancel();
+    }
+    setCountdownSec(null);
+    holdProgress.stopAnimation();
+    holdProgress.setValue(0);
+    showToast('False Alarm Cancelled • No emergency alerts were sent');
+  };
+
+  const handleImmediateDispatch = () => {
+    setCountdownSec(null);
+    triggerSOS(isDiscreetMode);
+  };
+
+  const triggerSOS = async (discreet: boolean = isDiscreetMode) => {
     setSosHolding(false);
     setSosSent(true);
-    if (Platform.OS !== 'web') {
+    if (Platform.OS !== 'web' && !discreet) {
       Vibration.vibrate([0, 350, 150, 350, 150, 600]);
+    } else if (Platform.OS !== 'web' && discreet) {
+      Vibration.vibrate(100);
     }
 
     // Persist real SOS alert to Supabase
@@ -193,7 +250,7 @@ export default function BillionDollarSOSView() {
         await supabase.from('sos_alerts').insert({
           circle_id: activeCircle.id,
           user_id: profile.id,
-          status: 'ACTIVE',
+          status: discreet ? 'SILENT' : 'ACTIVE',
         });
       } catch (e) {
         console.warn('Supabase SOS insert error:', e);
@@ -206,15 +263,23 @@ export default function BillionDollarSOSView() {
       .map((m) => m.user_id);
 
     if (responderIds.length > 0) {
+      const title = discreet ? 'Silent Safety Alert' : 'CRITICAL EMERGENCY SOS';
+      const body = discreet
+        ? `${profile?.full_name || 'A family member'} sent a discreet safety ping. Please check in with them quietly.`
+        : `${profile?.full_name || 'A family member'} triggered an EMERGENCY SOS alert! Respond immediately!`;
       sendExpoPushNotification(
         responderIds,
-        '🚨 CRITICAL EMERGENCY SOS',
-        `${profile?.full_name || 'A family member'} triggered an EMERGENCY SOS alert! Respond immediately!`,
-        { type: 'SOS' }
+        title,
+        body,
+        { type: discreet ? 'SILENT_SOS' : 'SOS' }
       ).catch(() => {});
     }
 
-    showToast(`🚨 Priority SOS Dispatched to ${circleName} & Emergency Contacts!`);
+    if (discreet) {
+      showToast(`Discreet GPS distress beacon dispatched to ${circleName} (Silent)`);
+    } else {
+      showToast(`Priority SOS Dispatched to ${circleName} & Emergency Contacts!`);
+    }
   };
 
   const handleSilentAlert = async () => {
@@ -240,7 +305,7 @@ export default function BillionDollarSOSView() {
     if (responderIds.length > 0) {
       sendExpoPushNotification(
         responderIds,
-        '⚠️ Silent Safety Alert',
+        'Silent Safety Alert',
         `${profile?.full_name || 'A family member'} sent a discreet safety ping. Please check in with them quietly.`,
         { type: 'SILENT_SOS' }
       ).catch(() => {});
@@ -254,7 +319,7 @@ export default function BillionDollarSOSView() {
     if (Platform.OS !== 'web') {
       Vibration.vibrate([100, 200, 100, 200, 100, 200]);
     }
-    showToast('🔊 Acoustic Siren & Strobe Alarm Triggered (Self-Test)');
+    showToast('Acoustic Siren & Strobe Alarm Triggered (Self-Test)');
     setTimeout(() => {
       setIsSirenActive(false);
     }, 4500);
@@ -273,7 +338,7 @@ export default function BillionDollarSOSView() {
           .eq('circle_id', activeCircle.id);
       } catch (e) {}
     }
-    showToast('✅ Emergency Alert Resolved — Circle Notified You Are Safe');
+    showToast('Emergency Alert Resolved — Circle Notified You Are Safe');
   };
 
   const circleName = activeCircle?.name || 'Your Circle';
@@ -369,7 +434,11 @@ export default function BillionDollarSOSView() {
               onPress={() => setCountryModalVisible(true)}
               activeOpacity={0.75}
             >
-              <Text style={styles.countryFlagText}>{country?.flag || '🌐'}</Text>
+              {country?.flag ? (
+                <Text style={styles.countryFlagText}>{country.flag}</Text>
+              ) : (
+                <Ionicons name="globe-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
+              )}
               <Text style={styles.countryEmergencyNumber}>{emergencyNumber}</Text>
             </TouchableOpacity>
 
@@ -580,15 +649,85 @@ export default function BillionDollarSOSView() {
                 </TouchableOpacity>
               ) : (
                 <View style={styles.protectionHintRow}>
-                  <Ionicons name="finger-print-outline" size={15} color={isDark ? '#F87171' : '#DC2626'} />
-                  <Text style={[styles.protectionHintText, { color: textSecondary }]}>
+                  <Ionicons name={isSeniorSimpleMode ? 'shield-checkmark' : 'finger-print-outline'} size={15} color={isSeniorSimpleMode ? '#16A34A' : (isDark ? '#F87171' : '#DC2626')} />
+                  <Text style={[styles.protectionHintText, { color: textSecondary }, isSeniorSimpleMode && { fontSize: 13, fontWeight: '700' }]}>
                     {sosHolding
-                      ? 'Keep holding to dispatch distress signal...'
+                      ? (isSeniorSimpleMode ? 'Keep holding to trigger 8-second countdown...' : 'Keep holding to trigger 5-second countdown...')
+                      : isSeniorSimpleMode
+                      ? 'Senior Easy Mode Active • 100% false-alarm protected with 8-second cancel buffer.'
                       : 'Continuous 3s hold prevents accidental false alarms.'}
                   </Text>
                 </View>
               )}
             </View>
+
+            {/* Discreet / Silent SOS Toggle Pill */}
+            <TouchableOpacity
+                style={[
+                  styles.discreetToggleCard,
+                  {
+                    backgroundColor: isDiscreetMode
+                      ? (isDark ? 'rgba(100, 116, 139, 0.18)' : '#F1F5F9')
+                      : cardBg,
+                    borderColor: isDiscreetMode
+                      ? (isDark ? '#64748B' : '#475569')
+                      : cardBorder,
+                  },
+                ]}
+                onPress={() => {
+                  const nextVal = !isDiscreetMode;
+                  setIsDiscreetMode(nextVal);
+                  if (Platform.OS !== 'web') Vibration.vibrate(40);
+                  showToast(
+                    nextVal
+                      ? 'Silent & Discreet SOS Mode Enabled (No siren audio)'
+                      : 'Standard Audible SOS Enabled'
+                  );
+                }}
+                activeOpacity={0.8}
+              >
+                <View style={styles.discreetToggleLeft}>
+                  <View
+                    style={[
+                      styles.discreetIconBox,
+                      {
+                        backgroundColor: isDiscreetMode
+                          ? (isDark ? 'rgba(100, 116, 139, 0.25)' : '#E2E8F0')
+                          : chipBg,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={isDiscreetMode ? 'volume-mute' : 'volume-high'}
+                      size={18}
+                      color={isDiscreetMode ? (isDark ? '#94A3B8' : '#475569') : textSecondary}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.discreetToggleTitle, { color: textPrimary }]}>
+                      {isDiscreetMode ? 'Silent & Discreet SOS Mode' : 'Audible Siren SOS Mode'}
+                    </Text>
+                    <Text style={[styles.discreetToggleSub, { color: textSecondary }]}>
+                      {isDiscreetMode
+                        ? 'Dispatches live GPS quietly without sounding loud sirens'
+                        : 'Sounds acoustic siren & alerts emergency circle'}
+                    </Text>
+                  </View>
+                </View>
+                <View
+                  style={[
+                    styles.discreetSwitchTrack,
+                    { backgroundColor: isDiscreetMode ? (isDark ? '#64748B' : '#475569') : (isDark ? '#26332C' : '#CBD5E1') },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.discreetSwitchThumb,
+                      { transform: [{ translateX: isDiscreetMode ? 18 : 0 }] },
+                    ]}
+                  />
+                </View>
+              </TouchableOpacity>
           </View>
 
           {/* Symmetrical 2x2 Emergency Actions Grid */}
@@ -669,11 +808,11 @@ export default function BillionDollarSOSView() {
               activeOpacity={0.8}
             >
               <View style={styles.gridCardTop}>
-                <View style={[styles.gridIconBox, { backgroundColor: 'rgba(99, 102, 241, 0.12)' }]}>
-                  <Ionicons name="shield-checkmark" size={22} color="#6366F1" />
+                <View style={[styles.gridIconBox, { backgroundColor: isDark ? 'rgba(46, 125, 91, 0.20)' : '#E8F5EE' }]}>
+                  <Ionicons name="shield-checkmark" size={22} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
                 </View>
-                <View style={[styles.gridTag, { backgroundColor: 'rgba(99, 102, 241, 0.12)' }]}>
-                  <Text style={[styles.gridTagText, { color: '#6366F1' }]}>DETERRENT</Text>
+                <View style={[styles.gridTag, { backgroundColor: isDark ? 'rgba(46, 125, 91, 0.20)' : '#E8F5EE' }]}>
+                  <Text style={[styles.gridTagText, { color: isDark ? '#3ADFAB' : '#2E7D5B' }]}>DETERRENT</Text>
                 </View>
               </View>
               <Text style={[styles.gridCardTitle, { color: textPrimary }]}>
@@ -827,11 +966,11 @@ export default function BillionDollarSOSView() {
                           try {
                             await sendExpoPushNotification(
                               [member.user_id],
-                              '🚨 URGENT SOS ALERT',
+                              'URGENT SOS ALERT',
                               `${profile?.full_name || 'A family member'} is alerting you urgently from Emergency SOS!`,
                               { type: 'SOS_DIRECT', senderId: profile?.id }
                             );
-                            showToast(`🚨 Priority SOS ping dispatched to ${name.split(' ')[0]}!`);
+                            showToast(`Priority SOS ping dispatched to ${name.split(' ')[0]}!`);
                           } catch (e) {
                             showToast(`Priority alert dispatched to ${name.split(' ')[0]}`);
                           }
@@ -1177,6 +1316,102 @@ export default function BillionDollarSOSView() {
             </TouchableOpacity>
           </Animated.View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* 5-Second False Alarm Protection Countdown Modal */}
+      <Modal visible={countdownSec !== null} transparent animationType="fade">
+        <View style={styles.countdownModalOverlay}>
+          <View
+            style={[
+              styles.countdownModalBox,
+              {
+                backgroundColor: isDark ? '#111815' : '#FFFFFF',
+                borderColor: isDiscreetMode ? (isDark ? '#64748B' : '#475569') : '#EF4444',
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.countdownBadge,
+                {
+                  backgroundColor: isDiscreetMode
+                    ? (isDark ? 'rgba(100, 116, 139, 0.18)' : '#F1F5F9')
+                    : 'rgba(239, 68, 68, 0.15)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.countdownBadgeText,
+                  { color: isDiscreetMode ? (isDark ? '#94A3B8' : '#475569') : '#EF4444' },
+                ]}
+              >
+                {isDiscreetMode ? 'SILENT EMERGENCY BEACON' : 'CRITICAL EMERGENCY SOS'}
+              </Text>
+            </View>
+
+            <Text style={[styles.countdownHeading, { color: textPrimary }]}>
+              Dispatching In
+            </Text>
+
+            <View
+              style={[
+                styles.countdownCircle,
+                {
+                  borderColor: isDiscreetMode ? (isDark ? '#64748B' : '#475569') : '#EF4444',
+                  backgroundColor: isDiscreetMode
+                    ? (isDark ? 'rgba(100, 116, 139, 0.12)' : '#F1F5F9')
+                    : 'rgba(239, 68, 68, 0.1)',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.countdownNumber,
+                  { color: isDiscreetMode ? (isDark ? '#94A3B8' : '#334155') : '#EF4444' },
+                ]}
+              >
+                {countdownSec}
+              </Text>
+              <Text style={[styles.countdownUnitText, { color: textSecondary }]}>
+                SECONDS
+              </Text>
+            </View>
+
+            <Text style={[styles.countdownExplainer, { color: textSecondary }]}>
+              No emergency alerts have been dispatched yet. If this was accidental, tap Cancel now.
+            </Text>
+
+            <View style={styles.countdownActions}>
+              <TouchableOpacity
+                style={[
+                  styles.countdownCancelBtn,
+                  { backgroundColor: isDark ? '#1C2621' : '#E2E8F0', borderColor: brandGreen },
+                  isSeniorSimpleMode && { minHeight: 62, paddingVertical: 14, borderWidth: 2.5 },
+                ]}
+                onPress={handleCancelCountdown}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="close-circle" size={isSeniorSimpleMode ? 24 : 18} color={brandGreen} />
+                <Text style={[styles.countdownCancelText, { color: textPrimary }, isSeniorSimpleMode && { fontSize: 16, fontWeight: '800', letterSpacing: 0.5 }]}>
+                  CANCEL (I AM SAFE)
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.countdownSendNowBtn,
+                  { backgroundColor: isDiscreetMode ? (isDark ? '#475569' : '#334155') : '#DC2626' },
+                ]}
+                onPress={handleImmediateDispatch}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="flash" size={16} color="#FFFFFF" />
+                <Text style={styles.countdownSendNowText}>DISPATCH</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* Floating Feedback Toast */}
@@ -1793,5 +2028,159 @@ const styles = StyleSheet.create({
     fontFamily: FONT_SANS,
     fontSize: 14,
     fontWeight: '700',
+  },
+  discreetToggleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 14,
+    width: '100%',
+  },
+  discreetToggleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    marginRight: 12,
+  },
+  discreetIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  discreetToggleTitle: {
+    fontFamily: FONT_SANS,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  discreetToggleSub: {
+    fontFamily: FONT_SANS,
+    fontSize: 11,
+    marginTop: 1,
+  },
+  discreetSwitchTrack: {
+    width: 44,
+    height: 26,
+    borderRadius: 13,
+    padding: 3,
+    justifyContent: 'center',
+  },
+  discreetSwitchThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000000',
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  },
+  countdownModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.82)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  countdownModalBox: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 24,
+    borderWidth: 2,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#EF4444',
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
+  },
+  countdownBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    marginBottom: 12,
+  },
+  countdownBadgeText: {
+    fontFamily: FONT_SANS,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  countdownHeading: {
+    fontFamily: FONT_SANS,
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 16,
+    textTransform: 'uppercase',
+  },
+  countdownCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  countdownNumber: {
+    fontFamily: FONT_SANS,
+    fontSize: 44,
+    fontWeight: '900',
+    lineHeight: 48,
+  },
+  countdownUnitText: {
+    fontFamily: FONT_SANS,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  countdownExplainer: {
+    fontFamily: FONT_SANS,
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 20,
+  },
+  countdownActions: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  countdownCancelBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+  },
+  countdownCancelText: {
+    fontFamily: FONT_SANS,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  countdownSendNowBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  countdownSendNowText: {
+    fontFamily: FONT_SANS,
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
 });

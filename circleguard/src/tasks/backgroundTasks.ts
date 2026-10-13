@@ -7,6 +7,7 @@ import {
   reportZoneTransitionAuthoritative,
   flushZoneTransitionQueue,
 } from '../services/ZoneTransitionQueueService';
+import { validateAndSanitizeGpsFix } from '../utils/locationValidator';
 
 export const GEOFENCE_TASK = 'CIRCLEGUARD_GEOFENCE_TASK';
 export const LOCATION_TASK = 'CIRCLEGUARD_LOCATION_FALLBACK_TASK';
@@ -115,7 +116,24 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK)) {
       if (!Array.isArray(places) || places.length === 0) return;
 
       for (const loc of locations) {
-        const { latitude, longitude, accuracy } = loc.coords;
+        // Anti-Spoofing & GPS Sanitization Gate (Red-Team Audit)
+        const validation = validateAndSanitizeGpsFix({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          accuracy: loc.coords.accuracy,
+          speed: loc.coords.speed,
+          timestamp: loc.timestamp,
+          mocked: (loc as any).mocked,
+        }, userId);
+
+        if (!validation.isValid) {
+          console.warn('[LocationFallback] Discarded invalid GPS fix:', validation.reason);
+          continue;
+        }
+
+        const latitude = validation.sanitizedLat;
+        const longitude = validation.sanitizedLng;
+        const accuracy = loc.coords.accuracy;
 
         // GPS Jitter filter: ignore fixes with accuracy worse than 100m
         if (typeof accuracy === 'number' && accuracy > 100) {
@@ -136,9 +154,16 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK)) {
           const distMeters = calculateHaversineMeters(placeLat, placeLng, latitude, longitude);
           const isOutside = distMeters > radius;
 
-          const stateKey = `${LAST_KNOWN_INSIDE_PREFIX}${userId}_${place.id}`;
+          const stateKey = `@circleguard_geofence_state_${userId}_${place.id}`;
           const lastInsideRaw = await AsyncStorage.getItem(stateKey);
-          const wasInside = lastInsideRaw === null || lastInsideRaw === 'true';
+
+          // Cold start bootstrap: if state is unrecorded, sync to current physical location and do NOT fire breach
+          if (lastInsideRaw === null) {
+            await AsyncStorage.setItem(stateKey, isOutside ? 'outside' : 'inside');
+            continue;
+          }
+
+          const wasInside = lastInsideRaw === 'inside' || lastInsideRaw === 'true';
 
           const dwellKey = `${DWELL_OUTSIDE_PREFIX}${userId}_${place.id}`;
 
@@ -168,7 +193,7 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK)) {
                     accuracy: accuracy ?? undefined,
                   });
 
-                  await AsyncStorage.setItem(stateKey, 'false');
+                  await AsyncStorage.setItem(stateKey, 'outside');
                   await AsyncStorage.removeItem(dwellKey);
                 }
               }
@@ -187,7 +212,7 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK)) {
                 accuracy: accuracy ?? undefined,
               });
 
-              await AsyncStorage.setItem(stateKey, 'true');
+              await AsyncStorage.setItem(stateKey, 'inside');
             }
             // Reset dwell outside timer since user is currently inside
             await AsyncStorage.removeItem(dwellKey);
@@ -281,6 +306,13 @@ export async function startSafeZoneLocationFallback(): Promise<boolean> {
   if (Platform.OS === 'web') return false;
 
   try {
+    // Avoid running duplicate background tasks if the primary LocationBackgroundService is active
+    const isPrimaryActive = await TaskManager.isTaskRegisteredAsync('CIRCLEGUARD_BACKGROUND_LOCATION_TASK');
+    if (isPrimaryActive) {
+      console.log('[LocationFallback] Primary background service already active; skipping duplicate listener to preserve battery.');
+      return true;
+    }
+
     const isStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK);
     if (isStarted) return true;
 

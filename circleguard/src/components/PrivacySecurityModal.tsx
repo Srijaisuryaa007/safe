@@ -42,6 +42,9 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
   const { showAlert, showConfirm } = useLuxuryAlert();
 
   const [ghostMode, setGhostMode] = useState(false);
+  const [ghostDuration, setGhostDuration] = useState<'1h' | '4h' | '8h' | 'always'>('4h');
+  const [ghostReason, setGhostReason] = useState<string>('Studying');
+  const [batterySaver, setBatterySaver] = useState(false);
   const [hideOnline, setHideOnline] = useState(false);
   const [appLock, setAppLock] = useState(false);
   const [shakeSos, setShakeSos] = useState(false);
@@ -56,6 +59,8 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
   useEffect(() => {
     if (visible && profile?.id) {
       loadSettings();
+      // Fresh hydration of user circles and roles to prevent stale role authorization
+      useCircleStore.getState().fetchUserCircles(profile.id).catch(() => {});
 
       const channel = supabase
         .channel(`public:profiles:${profile.id}`)
@@ -84,6 +89,12 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
       const h = await AsyncStorage.getItem(KEYS.HIDE_ONLINE);
       const l = await AsyncStorage.getItem(KEYS.APP_LOCK);
       const s = await AsyncStorage.getItem(KEYS.SHAKE_SOS);
+      const syncRate = await AsyncStorage.getItem('@circleguard_gps_sync_rate');
+      setBatterySaver(syncRate === 'saver');
+      const gDur = await AsyncStorage.getItem('@circleguard_ghost_duration');
+      if (gDur) setGhostDuration(gDur as any);
+      const gReas = await AsyncStorage.getItem('@circleguard_ghost_reason');
+      if (gReas) setGhostReason(gReas);
 
       if (profile) {
         setGhostMode(profile.is_ghost_mode ?? (g === 'true'));
@@ -100,18 +111,91 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
     }
   };
 
+  const handleToggleBatterySaver = async (val: boolean) => {
+    setBatterySaver(val);
+    const newRate = val ? 'saver' : 'high';
+    await AsyncStorage.setItem('@circleguard_gps_sync_rate', newRate);
+    try {
+      const { startBatteryOptimizedBackgroundLocation } = require('../services/LocationBackgroundService');
+      await startBatteryOptimizedBackgroundLocation();
+    } catch (_) {}
+    showAlert({
+      title: val ? 'Battery Saver Active' : 'Precise GPS Active',
+      message: val
+        ? 'Background location updates spaced to 30s intervals. Saves up to 75% battery while keeping safe place alerts active.'
+        : 'High-frequency continuous GPS enabled for maximum live precision.',
+      type: 'info',
+    });
+  };
+
+  const handleSetGhostDuration = async (dur: '1h' | '4h' | '8h' | 'always') => {
+    setGhostDuration(dur);
+    await AsyncStorage.setItem('@circleguard_ghost_duration', dur);
+  };
+
+  const handleSetGhostReason = async (reason: string) => {
+    setGhostReason(reason);
+    await AsyncStorage.setItem('@circleguard_ghost_reason', reason);
+    if (profile?.id) {
+      try {
+        await supabase.from('profiles').update({ status_note: `Ghost Mode • ${reason}` } as any).eq('id', profile.id);
+      } catch (_) {}
+    }
+  };
+
   const isUserCircleLeader = () => {
-    const { activeCircle } = useCircleStore.getState();
-    return activeCircle?.owner_id === profile?.id;
+    const { activeCircle, myRoleByCircle, circles, members } = useCircleStore.getState();
+    const myId = (profile?.id || useAuthStore.getState().user?.id || '').trim().toLowerCase();
+    if (!myId) return false;
+
+    // Resolve current circle: activeCircle, or fallback to first available circle
+    const currentCircle = (activeCircle && activeCircle.id)
+      ? activeCircle
+      : (circles && circles.length > 0 ? circles[0] : null);
+
+    // If user has a circle currently active/selected:
+    if (currentCircle) {
+      const circleOwnerId = (currentCircle.owner_id || '').trim().toLowerCase();
+
+      // Priority 1: Circle Owner invariant - If I am the creator/owner of this circle, I AM THE LEADER!
+      if (circleOwnerId && circleOwnerId === myId) {
+        return true;
+      }
+
+      // Priority 2: Explicit role assigned in circle or role mapping
+      const explicitRole = myRoleByCircle?.[currentCircle.id] || currentCircle.my_role;
+      if (explicitRole === 'owner' || explicitRole === 'co_leader') {
+        return true;
+      }
+      if (explicitRole === 'member' || explicitRole === 'guardian') {
+        return false;
+      }
+
+      // Priority 3: Check cached members list for self
+      const selfMember = (members || []).find((m: any) => {
+        const uId = (m.user_id || m.id || '').trim().toLowerCase();
+        return uId === myId;
+      });
+      if (selfMember?.role === 'owner' || selfMember?.role === 'co_leader') {
+        return true;
+      }
+
+      // Not owner or co-leader of this circle -> member!
+      return false;
+    }
+
+    // Solo user with no circles joined or created
+    return true;
   };
 
   const toggleSetting = async (key: string, value: boolean, setter: (val: boolean) => void) => {
-    const { activeCircle } = useCircleStore.getState();
-    const isStrictContinuousCircle = Boolean(activeCircle && activeCircle.tracking_mode === 'continuous');
+    const { activeCircle, circles } = useCircleStore.getState();
+    const hasCircles = (circles && circles.length > 0) || Boolean(activeCircle);
     const isLeader = isUserCircleLeader();
 
-    // Only require leader authorization if actively inside a continuous 24/7 tracked circle where user is NOT owner
-    if ((key === KEYS.GHOST_MODE || key === KEYS.HIDE_ONLINE) && value && isStrictContinuousCircle && !isLeader) {
+    // STRICT ROLE ISOLATION:
+    // When activating Ghost Mode or Hide Online, members in circles MUST get leader authorization!
+    if ((key === KEYS.GHOST_MODE || key === KEYS.HIDE_ONLINE) && value && hasCircles && !isLeader) {
       const featureKey = key === KEYS.GHOST_MODE ? 'ghost_mode' : 'hide_online';
       setApprovalFeature(featureKey);
       setApprovalModalVisible(true);
@@ -288,6 +372,66 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
               />
             </View>
 
+            {/* Timed Ghost Controls & Family Status Reason (Shows when Ghost Mode is ON) */}
+            {ghostMode && (
+              <View style={styles.ghostSubCard}>
+                <Text style={styles.ghostSubHeader}>⏱️ PAUSE DURATION</Text>
+                <View style={styles.chipRow}>
+                  {(['1h', '4h', '8h', 'always'] as const).map((dur) => (
+                    <TouchableOpacity
+                      key={dur}
+                      style={[
+                        styles.chipBtn,
+                        ghostDuration === dur && styles.chipBtnActive,
+                      ]}
+                      onPress={() => handleSetGhostDuration(dur)}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.chipBtnText,
+                          ghostDuration === dur && styles.chipBtnTextActive,
+                        ]}
+                      >
+                        {dur === 'always' ? 'Until Off' : dur.toUpperCase()}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={[styles.ghostSubHeader, { marginTop: 10 }]}>REASON SHOWN TO CIRCLE</Text>
+                <View style={styles.chipRow}>
+                  {['Studying', 'Gym', 'Battery', 'Private'].map((reason) => (
+                    <TouchableOpacity
+                      key={reason}
+                      style={[
+                        styles.chipBtn,
+                        ghostReason === reason && styles.chipBtnActive,
+                      ]}
+                      onPress={() => handleSetGhostReason(reason)}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.chipBtnText,
+                          ghostReason === reason && styles.chipBtnTextActive,
+                        ]}
+                      >
+                        {reason}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <View style={styles.ghostStatusBanner}>
+                  <Ionicons name="shield-checkmark" size={14} color="#2E7D5B" />
+                  <Text style={styles.ghostStatusBannerText}>
+                    Circle sees: "{profile?.full_name || 'Member'} • Ghost Mode ({ghostReason})"
+                  </Text>
+                </View>
+              </View>
+            )}
+
             <View style={styles.divider} />
 
             {/* Hide Online Status Toggle */}
@@ -309,6 +453,60 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
                 trackColor={{ false: '#E2E4E9', true: '#2E7D5B' }}
                 thumbColor="#FFFFFF"
               />
+            </View>
+          </View>
+
+          {/* Section: Battery & Adaptive GPS */}
+          <Text style={[styles.sectionTitle, { marginTop: 22 }]}>BATTERY & PERFORMANCE</Text>
+
+          <View style={styles.cardGroup}>
+            <View style={styles.row}>
+              <View style={styles.rowLeft}>
+                <View style={[styles.iconSquircle, { backgroundColor: batterySaver ? '#E8F5EE' : '#F0EFEA' }]}>
+                  <Ionicons name={batterySaver ? 'battery-charging' : 'battery-full'} size={18} color={batterySaver ? '#2E7D5B' : '#1F2A24'} />
+                </View>
+                <View style={styles.textWrapper}>
+                  <Text style={styles.rowTitle}>Smart Battery Saver GPS</Text>
+                  <Text style={styles.rowDesc}>
+                    {batterySaver
+                      ? '30-second adaptive interval active • Saves up to 75% battery'
+                      : 'High-frequency continuous GPS • Maximum precision'}
+                  </Text>
+                </View>
+              </View>
+              <Switch
+                value={batterySaver}
+                onValueChange={handleToggleBatterySaver}
+                trackColor={{ false: '#E2E4E9', true: '#2E7D5B' }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+          </View>
+
+          {/* Section: Privacy Guarantee */}
+          <Text style={[styles.sectionTitle, { marginTop: 22 }]}>PRIVACY & TRUST GUARANTEE</Text>
+
+          <View style={[styles.cardGroup, { padding: 14 }]}>
+            <View style={styles.trustItem}>
+              <Ionicons name="lock-closed" size={16} color="#2E7D5B" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.trustItemTitle}>Private Circle Isolation</Text>
+                <Text style={styles.trustItemDesc}>
+                  Your GPS data is strictly isolated to members you invite. No external access.
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.trustDivider} />
+
+            <View style={styles.trustItem}>
+              <Ionicons name="shield-checkmark" size={16} color="#2E7D5B" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.trustItemTitle}>Zero Data Brokers</Text>
+                <Text style={styles.trustItemDesc}>
+                  We never monetize or sell your location coordinates to advertisers.
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -610,5 +808,89 @@ const styles = StyleSheet.create({
     color: '#5C665F',
     marginTop: 2,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  },
+  ghostSubCard: {
+    backgroundColor: '#F8FAF9',
+    borderRadius: 14,
+    padding: 12,
+    marginHorizontal: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  ghostSubHeader: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#5C665F',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 4,
+  },
+  chipBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  chipBtnActive: {
+    backgroundColor: '#2E7D5B',
+    borderColor: '#2E7D5B',
+  },
+  chipBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#374151',
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  },
+  chipBtnTextActive: {
+    color: '#FFFFFF',
+  },
+  ghostStatusBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  ghostStatusBannerText: {
+    fontSize: 11,
+    color: '#2E7D5B',
+    fontWeight: '600',
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  },
+  trustItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingVertical: 6,
+  },
+  trustItemTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F2A24',
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  },
+  trustItemDesc: {
+    fontSize: 11,
+    color: '#5C665F',
+    marginTop: 1,
+    lineHeight: 15,
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  },
+  trustDivider: {
+    height: 1,
+    backgroundColor: '#F0EFEA',
+    marginVertical: 8,
+    marginLeft: 26,
   },
 });

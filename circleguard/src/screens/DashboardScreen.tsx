@@ -255,7 +255,7 @@ export default function DashboardScreen() {
       await supabase.from('circle_messages').insert({
         circle_id: activeCircle?.id,
         sender_id: profile?.id,
-        content: `PERMISSION GRANTED: Leader approved ${req.feature} for ${req.memberName}.`,
+        content: `PERMISSION AUTHORIZED [target:${req.user_id}]: Leader approved ${req.feature} for ${req.memberName}.`,
       });
       await supabase.from('circle_messages').delete().eq('id', req.id);
 
@@ -289,12 +289,19 @@ export default function DashboardScreen() {
       await supabase.from('circle_messages').insert({
         circle_id: activeCircle?.id,
         sender_id: profile?.id,
-        content: `PERMISSION DENIED: Leader maintained 24/7 Safety Mode for ${req.memberName}.`,
+        content: `PERMISSION DECLINED [target:${req.user_id}]: Circle Leader declined ${req.feature || 'privacy'} request for ${req.memberName}. Option B 24/7 Safety Mode remains active.`,
       });
       await supabase.from('circle_messages').delete().eq('id', req.id);
 
+      await sendExpoPushNotification(
+        req.user_id,
+        'Privacy Request Declined',
+        `Your Circle Leader declined your request to activate ${req.feature || 'privacy mode'}. Option B 24/7 Safety Mode remains active.`,
+        { type: 'privacy_declined', feature: req.feature }
+      );
+
       showAlert({
-        title: 'Request Denied',
+        title: 'Request Declined',
         message: `Maintained 24/7 Safety Mode for ${req.memberName}.`,
         type: 'warning',
       });

@@ -17,6 +17,7 @@ export default function ShakeSOSListener() {
   const navigation = useNavigation<any>();
   const lastShakeTime = useRef<number>(0);
   const subscriptionRef = useRef<any>(null);
+  const shakeHistoryRef = useRef<{ time: number; dir: number }[]>([]);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
@@ -26,17 +27,38 @@ export default function ShakeSOSListener() {
       try {
         Accelerometer.setUpdateInterval(100); // 10 samples per second
 
+        let lastDirection = 0;
+
         subscriptionRef.current = Accelerometer.addListener(({ x, y, z }) => {
           if (!isMounted) return;
 
           // Calculate magnitude G-force
           const gForce = Math.sqrt(x * x + y * y + z * z);
+          const now = Date.now();
 
-          if (gForce > SHAKE_THRESHOLD) {
-            const now = Date.now();
-            if (now - lastShakeTime.current > SHAKE_COOLDOWN_MS) {
-              lastShakeTime.current = now;
-              handleShakeDetected();
+          // Purge events older than 1200ms
+          shakeHistoryRef.current = shakeHistoryRef.current.filter((e) => now - e.time < 1200);
+
+          // Human shake generates alternating positive/negative acceleration along a dominant axis
+          // Identify primary axis direction
+          const primaryAcc = Math.abs(x) > Math.abs(y) ? x : y;
+          const currentDir = primaryAcc > 0 ? 1 : -1;
+
+          if (gForce > 2.6) {
+            // Check for directional reversal (human back-and-forth shake gesture)
+            if (lastDirection !== 0 && currentDir !== lastDirection) {
+              shakeHistoryRef.current.push({ time: now, dir: currentDir });
+            }
+            lastDirection = currentDir;
+
+            // Require at least 3 distinct directional reversals within 1.2 seconds!
+            // Single potholes, bumps, or cup holder rattling only produce 1 unidirectional impulse.
+            if (shakeHistoryRef.current.length >= 3) {
+              if (now - lastShakeTime.current > SHAKE_COOLDOWN_MS) {
+                lastShakeTime.current = now;
+                shakeHistoryRef.current = [];
+                handleShakeDetected();
+              }
             }
           }
         });

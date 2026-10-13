@@ -9,6 +9,7 @@ import { useCircleStore } from '../store/useCircleStore';
 import { useNavigation } from '@react-navigation/native';
 import AnimatedListDropdown, { AnimatedDropdownItem } from './AnimatedListDropdown';
 import { reverseGeocodeLive } from '../services/GeocodingService';
+import { useCountryStore } from '../store/useCountryStore';
 
 interface SwiggyHeaderBarProps {
   onNotificationPress?: () => void;
@@ -23,6 +24,7 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
 
   const [addressTitle, setAddressTitle] = useState('CURRENT LOCATION');
   const [formattedAddress, setFormattedAddress] = useState('Locating live address...');
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [fullAddressDetails, setFullAddressDetails] = useState<any>(null);
   const [loadingAddress, setLoadingAddress] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
@@ -58,6 +60,10 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
       if (loc && loc.coords) {
         const lat = loc.coords.latitude;
         const lng = loc.coords.longitude;
+        if (typeof loc.coords.accuracy === 'number') {
+          setGpsAccuracy(Math.round(loc.coords.accuracy));
+        }
+        useCountryStore.getState().autoDetectFromCoordinates(lat, lng).catch(() => {});
 
         const resolved = await reverseGeocodeLive(lat, lng, {
           accuracyMeters: loc.coords.accuracy ?? undefined,
@@ -139,6 +145,28 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
               >
                 {addressTitle}
               </Text>
+              {gpsAccuracy != null && (
+                <View
+                  style={[
+                    styles.accuracyPill,
+                    {
+                      backgroundColor:
+                        gpsAccuracy <= 15
+                          ? (isDark ? 'rgba(34, 197, 94, 0.2)' : '#DCFCE7')
+                          : (isDark ? 'rgba(234, 179, 8, 0.2)' : '#FEF9C3'),
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.accuracyText,
+                      { color: gpsAccuracy <= 15 ? (isDark ? '#4ADE80' : '#16A34A') : (isDark ? '#FACC15' : '#CA8A04') },
+                    ]}
+                  >
+                    ±{gpsAccuracy}m
+                  </Text>
+                </View>
+              )}
               <Ionicons name="chevron-down" size={13} color={isDark ? '#94A3B8' : '#64748B'} />
             </View>
             <Text
@@ -450,6 +478,17 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.3,
     flexShrink: 1,
+  },
+  accuracyPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 8,
+    marginLeft: 3,
+  },
+  accuracyText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
   addressText: {
     fontSize: 11.5,

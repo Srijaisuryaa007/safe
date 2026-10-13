@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuthStore } from './useAuthStore';
 import { isValidUuid } from '../lib/utils';
 import { resolveAuthenticPlaceEventTime } from '../services/ActivityService';
+import { StorageRecoveryService } from '../services/StorageRecoveryService';
 
 export interface Circle {
   id: string;
@@ -12,6 +13,7 @@ export interface Circle {
   invite_code: string;
   tracking_mode?: string;
   created_at: string;
+  my_role?: 'owner' | 'co_leader' | 'guardian' | 'member';
 }
 
 export interface CircleMember {
@@ -269,6 +271,7 @@ interface CircleState {
   places: Place[];
   membersByCircle: Record<string, CircleMember[]>;
   placesByCircle: Record<string, Place[]>;
+  myRoleByCircle: Record<string, 'owner' | 'co_leader' | 'guardian' | 'member'>;
   isLoading: boolean;
   circleFetched: boolean;
   isSwitchingCircle: boolean;
@@ -312,6 +315,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
   places: [],
   membersByCircle: {},
   placesByCircle: {},
+  myRoleByCircle: {},
   isLoading: false,
   circleFetched: false,
   isSwitchingCircle: false,
@@ -326,6 +330,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       places: [],
       membersByCircle: {},
       placesByCircle: {},
+      myRoleByCircle: {},
       circleFetched: false,
       isLoading: false,
       isSwitchingCircle: false,
@@ -378,29 +383,36 @@ export const useCircleStore = create<CircleState>((set, get) => ({
   switchActiveCircle: async (targetCircle: Circle) => {
     if (!targetCircle) return;
     const startTime = Date.now();
+    const myId = useAuthStore.getState().profile?.id || useAuthStore.getState().user?.id;
+    const targetRole: 'owner' | 'co_leader' | 'guardian' | 'member' = get().myRoleByCircle[targetCircle.id] || targetCircle.my_role || (targetCircle.owner_id === myId ? 'owner' : 'member');
+    const resolvedTargetCircle: Circle = {
+      ...targetCircle,
+      my_role: targetRole,
+    };
 
     // 1. Show the rotating globe loading animation immediately with initial status
     // Strict privacy isolation: immediately clear/decouple previous circle's places and members
-    const initialTargetMembers = get().membersByCircle[targetCircle.id] || [];
-    const initialTargetPlaces = (get().placesByCircle[targetCircle.id] || []).filter(
-      p => p && p.circle_id === targetCircle.id
+    const initialTargetMembers = get().membersByCircle[resolvedTargetCircle.id] || [];
+    const initialTargetPlaces = (get().placesByCircle[resolvedTargetCircle.id] || []).filter(
+      p => p && p.circle_id === resolvedTargetCircle.id
     );
 
     set({
       isSwitchingCircle: true,
-      switchingTargetName: targetCircle.name,
+      switchingTargetName: resolvedTargetCircle.name,
       switchingStepText: 'Connecting satellite telemetry...',
       members: initialTargetMembers,
       places: initialTargetPlaces,
     });
 
-    // 2. Persist target selection in storage
-    await AsyncStorage.setItem('@circleguard_active_circle_id', targetCircle.id).catch(() => {});
+    // 2. Persist target selection in storage with disk-full protection
+    await StorageRecoveryService.safeSetItem('@circleguard_active_circle_id', resolvedTargetCircle.id).catch(() => {});
+    StorageRecoveryService.safeSetItem('@circleguard_cached_active_circle_v2', JSON.stringify(resolvedTargetCircle)).catch(() => {});
 
     // 3. Concurrently fetch fresh members and places for the target circle behind the globe
     const [fetchedMembers, fetchedPlaces] = await Promise.all([
-      get().fetchMembers(targetCircle.id),
-      get().fetchPlaces(targetCircle.id),
+      get().fetchMembers(resolvedTargetCircle.id),
+      get().fetchPlaces(resolvedTargetCircle.id),
     ]).catch(e => {
       console.warn('Error loading circle data on switch:', e);
       return [[], []];
@@ -432,30 +444,36 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     }
 
     const currentCircles = get().circles;
-    const exists = currentCircles.some(c => c.id === targetCircle.id);
-    const updatedCircles = exists ? currentCircles : [targetCircle, ...currentCircles];
+    const exists = currentCircles.some(c => c.id === resolvedTargetCircle.id);
+    const updatedCircles = exists
+      ? currentCircles.map(c => c.id === resolvedTargetCircle.id ? resolvedTargetCircle : c)
+      : [resolvedTargetCircle, ...currentCircles];
 
     const finalMembers = (Array.isArray(fetchedMembers) && fetchedMembers.length > 0)
       ? fetchedMembers
-      : (get().membersByCircle[targetCircle.id] || []);
+      : (get().membersByCircle[resolvedTargetCircle.id] || []);
 
     const finalPlaces = (Array.isArray(fetchedPlaces) && fetchedPlaces.length > 0)
       ? fetchedPlaces
-      : (get().placesByCircle[targetCircle.id] || []);
+      : (get().placesByCircle[resolvedTargetCircle.id] || []);
 
     // 5. ATOMIC COMMIT: Commit fully synchronized circle, members, and places simultaneously
     set({
-      activeCircle: targetCircle,
+      activeCircle: resolvedTargetCircle,
       circles: updatedCircles,
       members: finalMembers,
       places: finalPlaces,
       membersByCircle: {
         ...get().membersByCircle,
-        [targetCircle.id]: finalMembers,
+        [resolvedTargetCircle.id]: finalMembers,
       },
       placesByCircle: {
         ...get().placesByCircle,
-        [targetCircle.id]: finalPlaces,
+        [resolvedTargetCircle.id]: finalPlaces,
+      },
+      myRoleByCircle: {
+        ...get().myRoleByCircle,
+        [resolvedTargetCircle.id]: targetRole,
       },
       isSwitchingCircle: false,
       switchingTargetName: null,
@@ -465,7 +483,8 @@ export const useCircleStore = create<CircleState>((set, get) => ({
   },
   setActiveCircle: (activeCircle) => {
     if (activeCircle) {
-      AsyncStorage.setItem('@circleguard_active_circle_id', activeCircle.id).catch(() => {});
+      StorageRecoveryService.safeSetItem('@circleguard_active_circle_id', activeCircle.id).catch(() => {});
+      StorageRecoveryService.safeSetItem('@circleguard_cached_active_circle_v2', JSON.stringify(activeCircle)).catch(() => {});
       const currentCircles = get().circles;
       const exists = currentCircles.some(c => c.id === activeCircle.id);
       const updatedCircles = exists ? currentCircles : [activeCircle, ...currentCircles];
@@ -514,14 +533,19 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     const currentCircles = get().circles;
     const exists = currentCircles.some(c => c.id === newCircle.id);
     const updatedCircles = exists ? currentCircles.map(c => c.id === newCircle.id ? newCircle : c) : [newCircle, ...currentCircles];
-    await AsyncStorage.setItem('@circleguard_active_circle_id', newCircle.id);
+    await StorageRecoveryService.safeSetItem('@circleguard_active_circle_id', newCircle.id).catch(() => {});
 
-    // Initial member for newly created circle is creator
+    // Initial member for newly created or joined circle
     const selfProfile = useAuthStore.getState().profile;
+    const myId = selfProfile?.id || useAuthStore.getState().user?.id || userId;
+    const isOwner = Boolean(myId && newCircle.owner_id === myId);
+    const myRole: 'owner' | 'co_leader' | 'guardian' | 'member' = isOwner ? 'owner' : 'member';
+    newCircle.my_role = myRole;
+
     const initialMembers: CircleMember[] = selfProfile?.id ? [{
       circle_id: newCircle.id,
       user_id: selfProfile.id,
-      role: 'owner',
+      role: myRole,
       joined_at: new Date().toISOString(),
       profile: selfProfile,
       isOnline: true,
@@ -529,6 +553,10 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     }] : [];
 
     const updatedMembersCache = { ...get().membersByCircle, [newCircle.id]: initialMembers };
+    const updatedRoleMap: Record<string, 'owner' | 'co_leader' | 'guardian' | 'member'> = {
+      ...get().myRoleByCircle,
+      [newCircle.id]: myRole,
+    };
 
     set({
       activeCircle: newCircle,
@@ -537,6 +565,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       places: [],
       membersByCircle: updatedMembersCache,
       placesByCircle: { ...get().placesByCircle, [newCircle.id]: [] },
+      myRoleByCircle: updatedRoleMap,
       circleFetched: true,
     });
 
@@ -976,6 +1005,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
         : (useAuthStore.getState().profile?.id || useAuthStore.getState().user?.id);
 
       if (effectiveUid && isValidUuid(effectiveUid)) {
+        const roleMap: Record<string, 'owner' | 'co_leader' | 'guardian' | 'member'> = {};
         const { data: memberData, error: memberError } = await supabase
           .from('circle_members')
           .select('circle_id, role, circles(*)')
@@ -986,6 +1016,16 @@ export const useCircleStore = create<CircleState>((set, get) => ({
             .map(m => {
               let c = m.circles as unknown as Circle;
               if (Array.isArray(c)) c = c[0];
+              if (c && c.id) {
+                const isCircleOwner = Boolean(
+                  c.owner_id && effectiveUid && c.owner_id.trim().toLowerCase() === effectiveUid.trim().toLowerCase()
+                );
+                const assignedRole: 'owner' | 'co_leader' | 'guardian' | 'member' = isCircleOwner
+                  ? 'owner'
+                  : ((m.role as any) || 'member');
+                c.my_role = assignedRole;
+                roleMap[c.id] = assignedRole;
+              }
               return c;
             })
             .filter(Boolean);
@@ -996,6 +1036,11 @@ export const useCircleStore = create<CircleState>((set, get) => ({
             .eq('user_id', effectiveUid);
 
           if (cmRows && cmRows.length > 0) {
+            cmRows.forEach(r => {
+              if (r.circle_id && r.role) {
+                roleMap[r.circle_id] = r.role as any;
+              }
+            });
             const circleIds = cmRows.map(c => c.circle_id);
             const { data: circleRows } = await supabase
               .from('circles')
@@ -1003,47 +1048,22 @@ export const useCircleStore = create<CircleState>((set, get) => ({
               .in('id', circleIds);
 
             if (circleRows && circleRows.length > 0) {
-              allCircles = circleRows as Circle[];
+              allCircles = (circleRows as Circle[]).map(c => {
+                const isCircleOwner = Boolean(
+                  c.owner_id && effectiveUid && c.owner_id.trim().toLowerCase() === effectiveUid.trim().toLowerCase()
+                );
+                const assignedRole: 'owner' | 'co_leader' | 'guardian' | 'member' = isCircleOwner
+                  ? 'owner'
+                  : (roleMap[c.id] || 'member');
+                roleMap[c.id] = assignedRole;
+                return {
+                  ...c,
+                  my_role: assignedRole,
+                };
+              });
             }
           }
         }
-      }
-
-      // GUARANTEED PRIMARY CIRCLE RETRIEVAL:
-      // Always ensure the primary family circle "Test app" is included in allCircles!
-      const testAppCircleId = 'af00325e-7e26-4b5d-856d-907085b326d2';
-      const hasTestApp = allCircles.some(
-        c => c && (c.id === testAppCircleId || c.name?.trim().toLowerCase() === 'test app')
-      );
-
-      let defaultCircle: any = null;
-      if (!hasTestApp) {
-        console.log('[useCircleStore] Primary family "Test app" circle not in user membership, fetching directly...');
-        const res = await supabase
-          .from('circles')
-          .select('*')
-          .eq('id', testAppCircleId)
-          .maybeSingle();
-
-        if (res.data) {
-          defaultCircle = res.data;
-          allCircles = [defaultCircle as Circle, ...allCircles];
-        }
-      }
-
-      // Automatically enroll authenticated user into circle if needed
-      if (effectiveUid && isValidUuid(effectiveUid)) {
-        // Universal Rule: only the circle creator (circle.owner_id) is 'owner', all others are 'member'
-        const isOwnerAccount = defaultCircle ? defaultCircle.owner_id === effectiveUid : false;
-        Promise.resolve(
-          supabase
-            .from('circle_members')
-            .upsert({
-              circle_id: testAppCircleId,
-              user_id: effectiveUid,
-              role: isOwnerAccount ? 'owner' : 'member',
-            }, { onConflict: 'circle_id,user_id' })
-        ).catch(() => {});
       }
 
       // Deduplicate circles by unique ID
@@ -1055,48 +1075,86 @@ export const useCircleStore = create<CircleState>((set, get) => ({
 
       if (allCircles.length > 0) {
         const currentActive = get().activeCircle;
-        const savedId = await AsyncStorage.getItem('@circleguard_active_circle_id');
 
-        // Locate "Test app" circle (the primary family circle with members)
-        const testAppCircle = allCircles.find(
-          c => c.id === testAppCircleId || c.name?.trim().toLowerCase() === 'test app'
-        );
-
-        // Helper to detect any empty / testing circle that should not isolate the user from family members
-        const isTestingCircle = (id?: string | null, name?: string | null) => {
-          if (!id) return false;
-          if (id === 'c0f87a9d-7bd8-45d2-9fc5-2670e9b72745' || id === 'c962c24d-70cb-4328-adee-285738a8c3d7') return true;
-          if (name && name.trim().toLowerCase() === 'testing') return true;
-          return false;
-        };
-
-        // INTELLIGENT CIRCLE RESOLUTION:
-        // Priority 1: If current active circle is valid and NOT an empty/1-member test circle, keep it.
-        // Priority 2: If testAppCircle is available (with all family members), choose testAppCircle!
-        // Priority 3: Saved circle from AsyncStorage (if not a testing circle).
-        // Priority 4: First available circle.
+        // Standard Production Resolution:
+        // Priority 1: Respect the user's active circle in session memory if it exists and is valid in allCircles.
+        // Never override the user's actively viewed circle behind their back!
         let activeToKeep: Circle | null = null;
 
-        if (currentActive && allCircles.some(c => c.id === currentActive.id) && !isTestingCircle(currentActive.id, currentActive.name)) {
-          activeToKeep = allCircles.find(c => c.id === currentActive.id) || null;
-        } else if (testAppCircle) {
-          activeToKeep = testAppCircle;
-        } else if (savedId && allCircles.some(c => c.id === savedId) && !isTestingCircle(savedId)) {
-          activeToKeep = allCircles.find(c => c.id === savedId) || null;
+        if (currentActive && allCircles.some(c => c.id === currentActive.id)) {
+          const freshCurrent = allCircles.find(c => c.id === currentActive.id);
+          activeToKeep = freshCurrent ? { ...currentActive, ...freshCurrent } : currentActive;
         } else {
-          activeToKeep = allCircles[0] || null;
+          // Priority 2: Only on fresh app boot or if current circle was deleted, resolve from saved storage
+          const savedId = await AsyncStorage.getItem('@circleguard_active_circle_id');
+          if (savedId && allCircles.some(c => c.id === savedId)) {
+            activeToKeep = allCircles.find(c => c.id === savedId) || null;
+          } else {
+            activeToKeep = allCircles[0] || null;
+          }
         }
+
+        const combinedRoles: Record<string, 'owner' | 'co_leader' | 'guardian' | 'member'> = {
+          ...get().myRoleByCircle,
+        };
+        allCircles.forEach(c => {
+          if (c && c.id) {
+            const isCircleOwner = Boolean(
+              c.owner_id && effectiveUid && c.owner_id.trim().toLowerCase() === effectiveUid.trim().toLowerCase()
+            );
+            const r: 'owner' | 'co_leader' | 'guardian' | 'member' = isCircleOwner
+              ? 'owner'
+              : (c.my_role || 'member');
+            combinedRoles[c.id] = r;
+            c.my_role = r;
+          }
+        });
 
         if (activeToKeep) {
-          AsyncStorage.setItem('@circleguard_active_circle_id', activeToKeep.id).catch(() => {});
+          const isCircleOwner = Boolean(
+            activeToKeep.owner_id && effectiveUid && activeToKeep.owner_id.trim().toLowerCase() === effectiveUid.trim().toLowerCase()
+          );
+          activeToKeep.my_role = isCircleOwner
+            ? 'owner'
+            : (combinedRoles[activeToKeep.id] || activeToKeep.my_role || 'member');
+          StorageRecoveryService.safeSetItem('@circleguard_active_circle_id', activeToKeep.id).catch(() => {});
+          StorageRecoveryService.safeSetItem('@circleguard_cached_active_circle_v2', JSON.stringify(activeToKeep)).catch(() => {});
         }
+        StorageRecoveryService.safeSetItem('@circleguard_cached_circles_v2', JSON.stringify(allCircles)).catch(() => {});
+        StorageRecoveryService.safeSetItem('@circleguard_my_roles', JSON.stringify(combinedRoles)).catch(() => {});
 
-        set({ circles: allCircles, activeCircle: activeToKeep, circleFetched: true });
+        set({ circles: allCircles, activeCircle: activeToKeep, myRoleByCircle: combinedRoles, circleFetched: true });
         return allCircles;
       }
+
+      // Resilience Fallback: If Supabase returned empty (e.g. temporary RLS recursion error or offline),
+      // restore circles and active circle from local storage so the user's circle NEVER disappears!
+      try {
+        const cachedCirclesRaw = await AsyncStorage.getItem('@circleguard_cached_circles_v2');
+        const cachedActiveRaw = await AsyncStorage.getItem('@circleguard_cached_active_circle_v2');
+        if (cachedCirclesRaw) {
+          const parsedCircles: Circle[] = JSON.parse(cachedCirclesRaw);
+          if (Array.isArray(parsedCircles) && parsedCircles.length > 0) {
+            let activeToRestore = get().activeCircle;
+            if (!activeToRestore && cachedActiveRaw) {
+              activeToRestore = JSON.parse(cachedActiveRaw);
+            }
+            if (!activeToRestore) {
+              activeToRestore = parsedCircles[0];
+            }
+            set({ circles: parsedCircles, activeCircle: activeToRestore, circleFetched: true });
+            return parsedCircles;
+          }
+        }
+      } catch (_) {}
+
+      set({ circles: [], activeCircle: null, circleFetched: true });
       return [];
     } catch (e) {
       console.warn('fetchUserCircles error:', e);
+      // Even on exception, retain existing activeCircle
+      const currentActive = get().activeCircle;
+      if (currentActive) return [currentActive];
       return [];
     }
   },
@@ -1104,6 +1162,19 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     let resolvedUserId = userId;
     if (!resolvedUserId || !isValidUuid(resolvedUserId)) {
       resolvedUserId = useAuthStore.getState().profile?.id || useAuthStore.getState().user?.id || '';
+    }
+
+    // Instant local cache recovery: hydrate activeCircle immediately if not already in state
+    if (!get().activeCircle) {
+      try {
+        const cachedRaw = await AsyncStorage.getItem('@circleguard_cached_active_circle_v2');
+        if (cachedRaw) {
+          const parsed = JSON.parse(cachedRaw);
+          if (parsed && parsed.id) {
+            set({ activeCircle: parsed, circleFetched: true });
+          }
+        }
+      } catch (_) {}
     }
 
     set({ isLoading: true });
@@ -1124,7 +1195,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     } catch (err) {
       console.error('Error fetching active circle:', err);
       set({ circleFetched: true });
-      return null;
+      return get().activeCircle;
     } finally {
       set({ isLoading: false });
     }
@@ -1349,10 +1420,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       delete updatedPlacesByCircle[circleId];
 
       const wasActive = get().activeCircle?.id === circleId;
-      const testApp = remainingCircles.find(
-        c => c.id === 'af00325e-7e26-4b5d-856d-907085b326d2' || c.name?.trim().toLowerCase() === 'test app'
-      );
-      const nextActive = wasActive ? (testApp || remainingCircles[0] || null) : get().activeCircle;
+      const nextActive = wasActive ? (remainingCircles[0] || null) : get().activeCircle;
 
       if (nextActive) {
         await AsyncStorage.setItem('@circleguard_active_circle_id', nextActive.id).catch(() => {});

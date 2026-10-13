@@ -132,13 +132,16 @@ export default function ActivityScreen() {
         (a: any, b: any) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
       );
 
-      const lastStatePerMemberPlace = new Map<string, string>();
+      const lastStatePerMemberPlace = new Map<string, { state: string; timeMs: number }>();
       const genuineEvents: any[] = [];
       for (const ev of rawEvents) {
         const key = `${ev.member_id}_${ev.zone_id}`;
-        const lastState = lastStatePerMemberPlace.get(key);
-        if (lastState && lastState === ev.type) continue;
-        lastStatePerMemberPlace.set(key, ev.type);
+        const lastEntry = lastStatePerMemberPlace.get(key);
+        const evTimeMs = new Date(ev.occurred_at).getTime();
+        if (lastEntry && lastEntry.state === ev.type && Math.abs(evTimeMs - lastEntry.timeMs) < 15 * 60 * 1000) {
+          continue;
+        }
+        lastStatePerMemberPlace.set(key, { state: ev.type, timeMs: evTimeMs });
         genuineEvents.push(ev);
       }
 

@@ -24,3 +24,5 @@ tests/*.png
 **/.gradle/
 **/build/
 *.lock
+supabase/.temp/
+

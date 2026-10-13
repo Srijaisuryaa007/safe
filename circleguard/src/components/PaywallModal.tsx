@@ -153,6 +153,14 @@ export default function PaywallModal({ visible, onClose, gatedFeatureName }: Pay
               <Ionicons name="shield-checkmark" size={16} color={colors.accentGold} />
               <Text style={[styles.headerBadgeText, { color: colors.accentGold }]}>CIRCLE GUARD PLUS</Text>
             </View>
+            <TouchableOpacity
+              style={styles.closeBtn}
+              onPress={onClose}
+              accessibilityLabel="Close Paywall and continue free"
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Ionicons name="close-circle" size={26} color={colors.textMuted} />
+            </TouchableOpacity>
           </View>
 
           <ScrollView contentContainerStyle={styles.content}>
@@ -233,7 +241,18 @@ export default function PaywallModal({ visible, onClose, gatedFeatureName }: Pay
               <View style={[styles.freeNoticeBox, { borderColor: colors.border }]}>
                 <Ionicons name="shield-checkmark" size={16} color="#10B981" />
                 <Text style={[styles.freeNoticeText, { color: colors.textMuted }]}>
-                  Manual SOS distress alerts & live location sharing are always 100% FREE.
+                  Manual SOS distress alerts, crash detection & live location sharing are always 100% FREE.
+                </Text>
+              </View>
+
+              {/* 100% Subscription Transparency & Anti-Dark Pattern Guarantee */}
+              <View style={[styles.transparencyBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <Ionicons name="information-circle-outline" size={15} color={colors.textMuted} />
+                  <Text style={[styles.transparencyTitle, { color: colors.foreground }]}>Subscription Transparency</Text>
+                </View>
+                <Text style={[styles.transparencyText, { color: colors.textMuted }]}>
+                  14-day free trial on annual plan, then $4.99/mo ($59.99/year) or $6.99/mo. Cancel anytime in your device app store settings with zero penalty. No hidden daily charges.
                 </Text>
               </View>
             </View>
@@ -250,8 +269,18 @@ export default function PaywallModal({ visible, onClose, gatedFeatureName }: Pay
               {loading ? (
                 <ActivityIndicator size="small" color="#1A1A1A" />
               ) : (
-                <Text style={styles.subscribeBtnText}>SUBSCRIBE ({selectedPkg.priceString})</Text>
+                <Text style={styles.subscribeBtnText}>START 14-DAY TRIAL ({selectedPkg.priceString})</Text>
               )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.continueFreeBtn, { borderColor: colors.border }]}
+              onPress={onClose}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.continueFreeText, { color: colors.textMuted }]}>
+                Continue with 100% Free Plan
+              </Text>
             </TouchableOpacity>
 
             <View style={styles.footerSubRow}>
@@ -298,6 +327,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 6,
     paddingBottom: 10,
@@ -436,6 +466,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
+  },
+  continueFreeBtn: {
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  continueFreeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  transparencyBox: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  transparencyTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  transparencyText: {
+    fontSize: 10.5,
+    lineHeight: 15,
   },
   restoreText: {
     fontSize: 10,

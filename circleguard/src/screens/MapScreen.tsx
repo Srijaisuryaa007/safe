@@ -526,8 +526,8 @@ const LEAFLET_HTML = `
         vector: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         standard: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        midnight: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        dark: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        midnight: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         terrain: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}'
       };
 
@@ -540,6 +540,14 @@ const LEAFLET_HTML = `
         document.body.style.backgroundColor = c;
         var el = document.querySelector('.leaflet-container');
         if (el) el.style.backgroundColor = c;
+        var tilePane = document.querySelector('.leaflet-tile-pane');
+        if (tilePane) {
+          if (st === 'dark' || st === 'midnight') {
+            tilePane.style.filter = 'brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7)';
+          } else {
+            tilePane.style.filter = 'none';
+          }
+        }
       }
 
       var initialTileUrl = tileUrls[savedStyle] || tileUrls.vector;
@@ -1018,18 +1026,18 @@ const LEAFLET_HTML = `
             var roleBadgeSymbol = '';
 
             if (m.isGhost) {
-              roleColor = '#A855F7';
+              roleColor = '#64748B';
               roleBadgeSymbol = '';
             } else if (m.role === 'owner') {
-              roleColor = '#D4AF37';
+              roleColor = '#F5A623';
             } else if (m.role === 'co_leader') {
-              roleColor = '#A855F7';
+              roleColor = '#3ADFAB';
             } else if (m.role === 'guardian') {
-              roleColor = '#3B82F6';
+              roleColor = '#2E7D5B';
             }
 
             var pulseStyle = m.isGhost
-              ? 'border: 2.5px dashed #A855F7; box-shadow: 0 0 16px rgba(168,85,247,0.75); opacity: 0.88;'
+              ? 'border: 2px dashed #64748B; box-shadow: 0 0 10px rgba(100,116,139,0.4); opacity: 0.85;'
               : (m.isOnline 
                 ? 'border: 2.5px solid ' + roleColor + '; box-shadow: 0 0 16px ' + roleColor + 'CC;' 
                 : 'border: 2px solid #9CA3AF; opacity: 0.85;');
@@ -2332,8 +2340,8 @@ export default function MapScreen() {
       case 'school': return '#3B82F6';
       case 'fuel': return '#10B981';
       case 'restaurant': return '#F59E0B';
-      case 'member': return '#8B5CF6';
-      case 'place': return '#EC4899';
+      case 'member': return '#2E7D5B';
+      case 'place': return '#10B981';
       default: return '#6B7280';
     }
   };
@@ -2516,6 +2524,11 @@ export default function MapScreen() {
         },
         async (loc) => {
           if (!profile) return;
+          // Security & Anti-Spoofing: Discard coordinates from mock GPS providers
+          if ((loc as any).mocked === true) {
+            console.warn('[MapScreen] Discarding spoofed GPS fix from mock location provider.');
+            return;
+          }
           const rawLat = loc.coords.latitude;
           const rawLng = loc.coords.longitude;
           const rawSpeed = Math.max(0, loc.coords.speed || 0);
@@ -3464,28 +3477,21 @@ export default function MapScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Quick Switch Banner if on 1-person testing circle */}
-        {members.length <= 1 && useCircleStore.getState().circles.some(c => (c.id === 'af00325e-7e26-4b5d-856d-907085b326d2' || c.name?.trim().toLowerCase() === 'test app') && c.id !== activeCircle?.id) && (
+        {/* Quick Switch Banner if on 1-person circle and other circles exist */}
+        {members.length <= 1 && useCircleStore.getState().circles.some(c => c.id !== activeCircle?.id) && (
           <TouchableOpacity
             style={[
               styles.quickSwitchBanner,
               { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: 'rgba(212, 175, 55, 0.3)' }
             ]}
-            onPress={() => {
-              const target = useCircleStore.getState().circles.find(c => c.id === 'af00325e-7e26-4b5d-856d-907085b326d2' || c.name?.trim().toLowerCase() === 'test app');
-              if (target) {
-                useCircleStore.getState().switchActiveCircle(target);
-              } else {
-                setShowCircleSwitcherModal(true);
-              }
-            }}
+            onPress={() => setShowCircleSwitcherModal(true)}
             activeOpacity={0.8}
           >
             <Ionicons name="swap-horizontal" size={14} color="#D4AF37" />
             <Text style={[styles.quickSwitchBannerText, { color: colors.foreground }]} numberOfLines={1}>
-              Switch to <Text style={{ fontWeight: '700', color: '#D4AF37' }}>Test app</Text> to see family members
+              Switch circle or select family group
             </Text>
-            <Ionicons name="chevron-forward" size={13} color="#D4AF37" />
+            <Ionicons name="chevron-forward" size={14} color="#D4AF37" />
           </TouchableOpacity>
         )}
 
@@ -4103,7 +4109,7 @@ export default function MapScreen() {
           catIcon = 'school';
           catLabel = 'SCHOOL ZONE';
         } else if (cat === 'fitness' || cat === 'gym') {
-          catColor = '#8B5CF6';
+          catColor = '#0D9488';
           catIcon = 'fitness';
           catLabel = 'GYM ZONE';
         } else if (cat === 'danger') {

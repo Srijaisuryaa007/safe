@@ -8,6 +8,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Platform,
+  Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +20,9 @@ import { startBatteryOptimizedBackgroundLocation } from '../services/LocationBac
 import { useLuxuryAlert } from './LuxuryAlertModal';
 import BatteryOptimizationGuideModal from './BatteryOptimizationGuideModal';
 
+import { useThemeStore } from '../store/useThemeStore';
+import { StorageRecoveryService } from '../services/StorageRecoveryService';
+
 interface SettingsModalProps {
   visible: boolean;
   onClose: () => void;
@@ -28,6 +32,7 @@ const KEYS = {
   DISTANCE_UNIT: '@circleguard_distance_unit',
   GPS_SYNC_RATE: '@circleguard_gps_sync_rate',
   MAP_STYLE: '@circleguard_map_style',
+  DRIVING_SENSITIVITY: '@circleguard_driving_sensitivity',
 };
 
 export default function SettingsModal({ visible, onClose }: SettingsModalProps) {
@@ -35,10 +40,12 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
   const topInset = getSafeTopInset(insets.top);
   const { showAlert, showConfirm } = useLuxuryAlert();
   const profile = useAuthStore((s) => s.profile);
+  const { isSeniorSimpleMode, setSeniorSimpleMode } = useThemeStore();
 
   const [unit, setUnit] = useState<'km' | 'mi'>('km');
   const [syncRate, setSyncRate] = useState<'balanced' | 'high' | 'saver'>('balanced');
   const [mapStyle, setMapStyle] = useState<'vector' | 'satellite'>('vector');
+  const [drivingSensitivity, setDrivingSensitivity] = useState<'low' | 'balanced' | 'high'>('balanced');
   const [clearing, setClearing] = useState(false);
   const [batteryGuideVisible, setBatteryGuideVisible] = useState(false);
 
@@ -53,10 +60,16 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
       const u = await AsyncStorage.getItem(KEYS.DISTANCE_UNIT);
       const s = await AsyncStorage.getItem(KEYS.GPS_SYNC_RATE);
       const m = await AsyncStorage.getItem(KEYS.MAP_STYLE);
+      const ds = await AsyncStorage.getItem(KEYS.DRIVING_SENSITIVITY);
+      const seniorSaved = await AsyncStorage.getItem('@circleguard_senior_simple_mode');
 
       if (u) setUnit(u as 'km' | 'mi');
       if (s) setSyncRate(s as 'balanced' | 'high' | 'saver');
       if (m) setMapStyle(m as 'vector' | 'satellite');
+      if (ds) setDrivingSensitivity(ds as 'low' | 'balanced' | 'high');
+      if (seniorSaved !== null) {
+        useThemeStore.getState().setSeniorSimpleMode(seniorSaved === 'true');
+      }
     } catch (e) {
       console.error('Error loading settings:', e);
     }
@@ -65,6 +78,24 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
   const handleSelectUnit = async (newUnit: 'km' | 'mi') => {
     setUnit(newUnit);
     await AsyncStorage.setItem(KEYS.DISTANCE_UNIT, newUnit);
+  };
+
+  const handleSelectDrivingSensitivity = async (sens: 'low' | 'balanced' | 'high') => {
+    setDrivingSensitivity(sens);
+    await AsyncStorage.setItem(KEYS.DRIVING_SENSITIVITY, sens);
+  };
+
+  const handleToggleSeniorMode = async () => {
+    const nextVal = !isSeniorSimpleMode;
+    await setSeniorSimpleMode(nextVal);
+    showAlert({
+      title: nextVal ? 'Senior Easy Mode Active' : 'Standard Mode Restored',
+      message: nextVal
+        ? 'High-contrast large touch targets, simplified safety controls, and 8-second false-alarm buffer are now active.'
+        : 'Standard display layout and 5-second SOS countdown restored.',
+      type: 'success',
+      buttonText: 'DONE',
+    });
   };
 
   const handleSelectSyncRate = async (newRate: 'balanced' | 'high' | 'saver') => {
@@ -91,11 +122,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
       onConfirm: async () => {
         setClearing(true);
         try {
-          const keys = await AsyncStorage.getAllKeys();
-          const itemsToRemove = keys.filter((k) => k.startsWith('@circleguard_cache_'));
-          if (itemsToRemove.length > 0) {
-            await AsyncStorage.multiRemove(itemsToRemove);
-          }
+          await StorageRecoveryService.pruneTransientCacheAsync();
           showAlert({
             title: 'Cache Optimized',
             message: 'Local tile and telemetry buffers have been successfully cleared.',
@@ -211,11 +238,101 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                   <Ionicons name="battery-charging-outline" size={18} color="#1F2A24" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.syncTitle}>Battery Saver (60s)</Text>
-                  <Text style={styles.syncDesc}>Conserves battery on long trips</Text>
+                  <Text style={styles.syncTitle}>Battery Saver (30s)</Text>
+                  <Text style={styles.syncDesc}>Conserves battery with optimized 30s background location sync</Text>
                 </View>
               </View>
               {syncRate === 'saver' && <Ionicons name="checkmark-circle" size={20} color="#2E7D5B" />}
+            </TouchableOpacity>
+          </View>
+
+          {/* Section: Senior & Accessibility Easy Mode */}
+          <Text style={[styles.sectionTitle, { marginTop: 22 }]}>ACCESSIBILITY & EASY MODE</Text>
+          <TouchableOpacity
+            style={[styles.actionCardBtn, isSeniorSimpleMode && { borderColor: '#2E7D5B', borderWidth: 1.5, backgroundColor: '#F0FAF4' }]}
+            onPress={handleToggleSeniorMode}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.iconSquircle, { backgroundColor: isSeniorSimpleMode ? '#E8F5EE' : '#F0EFEA' }]}>
+              <Ionicons name="accessibility-outline" size={20} color={isSeniorSimpleMode ? '#2E7D5B' : '#1F2A24'} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.actionCardTitle}>Senior Easy Mode</Text>
+                {isSeniorSimpleMode && (
+                  <View style={{ backgroundColor: '#2E7D5B', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6 }}>
+                    <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>ACTIVE</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.actionCardDesc}>
+                Extra-large high-contrast buttons, larger text scaling, and simplified safety dashboard.
+              </Text>
+            </View>
+            <Switch
+              value={isSeniorSimpleMode}
+              onValueChange={handleToggleSeniorMode}
+              trackColor={{ false: '#E2E4E9', true: '#2E7D5B' }}
+              thumbColor="#FFFFFF"
+            />
+          </TouchableOpacity>
+
+          {/* Section: Driving Telematics Sensitivity */}
+          <Text style={[styles.sectionTitle, { marginTop: 22 }]}>DRIVING SENSOR CALIBRATION</Text>
+          <View style={styles.cardGroup}>
+            <TouchableOpacity
+              style={[styles.syncRow, drivingSensitivity === 'low' && styles.syncRowActive]}
+              onPress={() => handleSelectDrivingSensitivity('low')}
+              activeOpacity={0.8}
+            >
+              <View style={styles.syncLeft}>
+                <View style={[styles.iconSquircle, { backgroundColor: '#FFF3EB' }]}>
+                  <Ionicons name="car-outline" size={18} color="#E07A5F" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.syncTitle}>Cup Holder & Fleet Mode (Low)</Text>
+                  <Text style={styles.syncDesc}>Anti-vibration filter. Eliminates false braking penalties caused by bumps and rattles</Text>
+                </View>
+              </View>
+              {drivingSensitivity === 'low' && <Ionicons name="checkmark-circle" size={20} color="#2E7D5B" />}
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            <TouchableOpacity
+              style={[styles.syncRow, drivingSensitivity === 'balanced' && styles.syncRowActive]}
+              onPress={() => handleSelectDrivingSensitivity('balanced')}
+              activeOpacity={0.8}
+            >
+              <View style={styles.syncLeft}>
+                <View style={[styles.iconSquircle, { backgroundColor: '#E8F5EE' }]}>
+                  <Ionicons name="speedometer-outline" size={18} color="#2E7D5B" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.syncTitle}>Balanced Standard</Text>
+                  <Text style={styles.syncDesc}>Recommended for everyday commutes and standard vehicle mounts</Text>
+                </View>
+              </View>
+              {drivingSensitivity === 'balanced' && <Ionicons name="checkmark-circle" size={20} color="#2E7D5B" />}
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            <TouchableOpacity
+              style={[styles.syncRow, drivingSensitivity === 'high' && styles.syncRowActive]}
+              onPress={() => handleSelectDrivingSensitivity('high')}
+              activeOpacity={0.8}
+            >
+              <View style={styles.syncLeft}>
+                <View style={[styles.iconSquircle, { backgroundColor: '#F0EFEA' }]}>
+                  <Ionicons name="alert-circle-outline" size={18} color="#1F2A24" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.syncTitle}>Strict Driver Training (High)</Text>
+                  <Text style={styles.syncDesc}>High-sensitivity alerts for new teen drivers and student pilots</Text>
+                </View>
+              </View>
+              {drivingSensitivity === 'high' && <Ionicons name="checkmark-circle" size={20} color="#2E7D5B" />}
             </TouchableOpacity>
           </View>
 

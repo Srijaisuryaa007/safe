@@ -174,7 +174,7 @@ export default function CurrentAddressModal({
     try {
       const mapsUrl = `https://maps.google.com/?q=${targetLoc.latitude},${targetLoc.longitude}`;
       await Share.share({
-        message: `📍 My Current Live Location on CircleGuard:\n${streetName}\n${areaDetails}\n\nLive Map Link: ${mapsUrl}`,
+        message: `My Current Live Location on CircleGuard:\n${streetName}\n${areaDetails}\n\nLive Map Link: ${mapsUrl}`,
       });
     } catch (e) {}
   };

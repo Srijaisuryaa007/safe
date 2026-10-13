@@ -11,6 +11,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RATE_LIMIT_CONFIG, RateLimitActionType, EndpointRateLimitRule } from '../constants/rateLimitConfig';
+import { StorageRecoveryService } from './StorageRecoveryService';
 
 export interface RateLimitResult {
   /** Whether the requested operation is currently allowed to execute */
@@ -105,7 +106,7 @@ class RateLimiterService {
             obj[k] = v;
           }
         }
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+        await StorageRecoveryService.safeSetItem(STORAGE_KEY, JSON.stringify(obj));
       } catch (e) {
         console.warn('[RateLimiter] Failed to persist state:', e);
       }

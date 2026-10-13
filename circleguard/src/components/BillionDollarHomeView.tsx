@@ -28,6 +28,7 @@ import { calculateHaversineDistanceMeters } from '../services/LocationSmoothingS
 import CircleSwitcherModal from './CircleSwitcherModal';
 import CurrentAddressModal from './CurrentAddressModal';
 import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
+import { validateAndSanitizeGpsFix } from '../utils/locationValidator';
 import { getSafeTopInset } from '../utils/safeArea';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { navigationRef } from '../navigation/AppNavigator';
@@ -64,7 +65,7 @@ export default function BillionDollarHomeView() {
 
   const { profile } = useAuthStore();
   const { activeCircle, members, places, fetchMembers, fetchPlaces } = useCircleStore();
-  const { isDark } = useThemeStore();
+  const { isDark, isSeniorSimpleMode, setSeniorSimpleMode } = useThemeStore();
 
   const webViewRef = useRef<any>(null);
   const scrollViewRef = useRef<any>(null);
@@ -205,12 +206,27 @@ export default function BillionDollarHomeView() {
             { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 3 },
             (pos) => {
               if (isMounted && pos?.coords) {
+                // Anti-Spoofing & Integrity Sanitization Gate
+                const validation = validateAndSanitizeGpsFix({
+                  latitude: pos.coords.latitude,
+                  longitude: pos.coords.longitude,
+                  accuracy: pos.coords.accuracy,
+                  speed: pos.coords.speed,
+                  timestamp: pos.timestamp,
+                  mocked: (pos as any).mocked,
+                });
+
+                if (!validation.isValid) {
+                  console.warn('[HomeView] Discarding invalid/mock GPS fix:', validation.reason);
+                  return;
+                }
+
                 // Reject degraded cell tower fixes (> 65m) if we already have a better satellite lock
                 if (pos.coords.accuracy && pos.coords.accuracy > 65 && userLoc) {
                   return;
                 }
                 updateUserLocation(
-                  { latitude: pos.coords.latitude, longitude: pos.coords.longitude },
+                  { latitude: validation.sanitizedLat, longitude: validation.sanitizedLng },
                   false,
                   pos.coords.accuracy ?? undefined
                 );
@@ -226,8 +242,9 @@ export default function BillionDollarHomeView() {
                 );
                 const isMoving = (pos.coords.speed || 0) >= 0.8 || distMoved >= 3.5;
                 const timeDiff = now - lastBroadcastTime;
+                const minBroadcastInterval = isMoving ? 3000 : 60000;
 
-                if (profile?.id && (isMoving || timeDiff >= 15000) && timeDiff >= 2800) {
+                if (profile?.id && timeDiff >= minBroadcastInterval) {
                   lastBroadcastTime = now;
                   lastBroadcastLat = pos.coords.latitude;
                   lastBroadcastLng = pos.coords.longitude;
@@ -370,7 +387,7 @@ export default function BillionDollarHomeView() {
           window.map.setView([${target.latitude}, ${target.longitude}], 16);
         }
       `);
-      showToast(`📍 Focused on ${name}'s location`);
+      showToast(`Focused on ${name}'s location`);
       return;
     }
 
@@ -388,14 +405,14 @@ export default function BillionDollarHomeView() {
           window.map.setView([${target.latitude}, ${target.longitude}], 16);
         }
       `);
-      showToast(`📍 (${nextIdx + 1}/${otherMembersWithLocation.length}) Focused on ${name}`);
+      showToast(`(${nextIdx + 1}/${otherMembersWithLocation.length}) Focused on ${name}`);
     } else {
       executeMapScript(`
         if (window.fitAllMembers) {
           window.fitAllMembers();
         }
       `);
-      showToast(`🌐 Viewing all ${otherMembersWithLocation.length + 1} circle members`);
+      showToast(`Viewing all ${otherMembersWithLocation.length + 1} circle members`);
     }
   };
 
@@ -416,7 +433,7 @@ export default function BillionDollarHomeView() {
         window.map.setView([${lat}, ${lng}], 16);
       }
     `);
-    showToast(`📍 Focused on ${name}'s location`);
+    showToast(`Focused on ${name}'s location`);
   };
 
   const handleCheckIn = async () => {
@@ -1001,14 +1018,14 @@ export default function BillionDollarHomeView() {
           }
 
           var initialFitDone = false;
+          var memberMarkerMap = {};
 
           function renderMemberMarkers(pins) {
-            memberLayerGroup.clearLayers();
-            if (!pins || pins.length === 0) return;
+            if (!pins) pins = [];
+            var activeIds = {};
 
-            var bounds = [];
             pins.forEach(function(m) {
-              bounds.push([m.lat, m.lng]);
+              activeIds[m.id] = true;
               var innerContent = m.avatarUrl
                 ? '<img src="' + m.avatarUrl + '" />'
                 : '<span>' + m.initial + '</span>';
@@ -1027,29 +1044,54 @@ export default function BillionDollarHomeView() {
                 '</div>' +
                 '</div>';
 
-              var icon = L.divIcon({
-                className: 'custom-member-marker',
-                html: html,
-                iconSize: [120, 60],
-                iconAnchor: [60, 24]
-              });
+              var existing = memberMarkerMap[m.id];
+              if (existing) {
+                // In-place coordinate update avoids DOM churn & prevents memory leak
+                existing.marker.setLatLng([m.lat, m.lng]);
+                if (existing.lastHtml !== html) {
+                  existing.marker.setIcon(L.divIcon({
+                    className: 'custom-member-marker',
+                    html: html,
+                    iconSize: [120, 60],
+                    iconAnchor: [60, 24]
+                  }));
+                  existing.lastHtml = html;
+                }
+              } else {
+                var icon = L.divIcon({
+                  className: 'custom-member-marker',
+                  html: html,
+                  iconSize: [120, 60],
+                  iconAnchor: [60, 24]
+                });
 
-              var marker = L.marker([m.lat, m.lng], { icon: icon }).addTo(memberLayerGroup);
-              marker.on('click', function(e) {
-                if (e) {
-                  L.DomEvent.stopPropagation(e);
-                }
-                initialFitDone = true;
-                try {
-                  var curPos = this.getLatLng();
-                  var tLat = curPos ? curPos.lat : m.lat;
-                  var tLng = curPos ? curPos.lng : m.lng;
-                  map.stop();
-                  map.panTo([tLat, tLng], { animate: true, duration: 0.35, easeLinearity: 0.2 });
-                } catch(e) {
-                  map.setView([m.lat, m.lng], 16);
-                }
-              });
+                var marker = L.marker([m.lat, m.lng], { icon: icon }).addTo(memberLayerGroup);
+                marker.on('click', function(e) {
+                  if (e) {
+                    L.DomEvent.stopPropagation(e);
+                  }
+                  initialFitDone = true;
+                  try {
+                    var curPos = this.getLatLng();
+                    var tLat = curPos ? curPos.lat : m.lat;
+                    var tLng = curPos ? curPos.lng : m.lng;
+                    map.stop();
+                    map.panTo([tLat, tLng], { animate: true, duration: 0.35, easeLinearity: 0.2 });
+                  } catch(e) {
+                    map.setView([m.lat, m.lng], 16);
+                  }
+                });
+
+                memberMarkerMap[m.id] = { marker: marker, lastHtml: html };
+              }
+            });
+
+            // Cleanup removed members
+            Object.keys(memberMarkerMap).forEach(function(id) {
+              if (!activeIds[id]) {
+                memberLayerGroup.removeLayer(memberMarkerMap[id].marker);
+                delete memberMarkerMap[id];
+              }
             });
 
             // Automatically focus on the user's location on initial load
@@ -1526,6 +1568,45 @@ export default function BillionDollarHomeView() {
               <Ionicons name="locate" size={19} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
             </TouchableOpacity>
           </View>
+
+          {/* Live GPS Satellite Lock & Telematics Signal Strength Badge */}
+          <TouchableOpacity
+            style={[
+              styles.gpsSignalBadge,
+              isDark && { backgroundColor: 'rgba(28, 38, 33, 0.92)', borderColor: '#2A3A32' },
+            ]}
+            onPress={() => {
+              const acc = userAccuracy != null ? `±${Math.round(userAccuracy)}m` : 'Acquiring satellite lock';
+              showToast(`GPS Precision: ${acc} • Zero-False-Alarm Buffer Active`);
+            }}
+            activeOpacity={0.8}
+            accessibilityLabel="Live GPS Satellite Signal Precision"
+          >
+            <View
+              style={[
+                styles.gpsSignalDot,
+                {
+                  backgroundColor:
+                    userAccuracy == null
+                      ? '#EAB308'
+                      : userAccuracy <= 15
+                      ? '#22C55E'
+                      : userAccuracy <= 40
+                      ? '#3B82F6'
+                      : '#F97316',
+                },
+              ]}
+            />
+            <Text style={[styles.gpsSignalText, isDark && { color: '#CAD5CE' }]}>
+              {userAccuracy == null
+                ? 'GPS: Acquiring...'
+                : userAccuracy <= 15
+                ? `GPS 100% (±${Math.round(userAccuracy)}m)`
+                : userAccuracy <= 40
+                ? `GPS Good (±${Math.round(userAccuracy)}m)`
+                : `GPS Fair (±${Math.round(userAccuracy)}m)`}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* 3. Refined Bottom Sheet Container */}
@@ -1548,40 +1629,81 @@ export default function BillionDollarHomeView() {
             </View>
           </View>
 
-          {/* Quick Switch Suggestion if on empty/testing circle while Test app exists */}
-          {members.length <= 1 && useCircleStore.getState().circles.some(c => (c.id === 'af00325e-7e26-4b5d-856d-907085b326d2' || c.name?.trim().toLowerCase() === 'test app') && c.id !== activeCircle?.id) && (
+          {/* Quick Switch Suggestion if on 1-member circle while other circles exist */}
+          {members.length <= 1 && useCircleStore.getState().circles.some(c => c.id !== activeCircle?.id) && (
             <TouchableOpacity
               style={[
                 styles.quickSwitchBanner,
                 isDark && { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: 'rgba(212, 175, 55, 0.3)' }
               ]}
-              onPress={() => {
-                const target = useCircleStore.getState().circles.find(c => c.id === 'af00325e-7e26-4b5d-856d-907085b326d2' || c.name?.trim().toLowerCase() === 'test app');
-                if (target) {
-                  useCircleStore.getState().switchActiveCircle(target);
-                } else {
-                  setCircleModalVisible(true);
-                }
-              }}
+              onPress={() => setCircleModalVisible(true)}
               activeOpacity={0.8}
             >
               <Ionicons name="swap-horizontal" size={15} color={isDark ? '#D4AF37' : '#926C15'} />
               <Text style={[styles.quickSwitchBannerText, isDark && { color: '#E8EDE9' }]}>
-                Switch to <Text style={{ fontWeight: '700', color: isDark ? '#D4AF37' : '#926C15' }}>Test app</Text> circle to see family members
+                Switch circle or select family group
               </Text>
               <Ionicons name="chevron-forward" size={14} color={isDark ? '#D4AF37' : '#926C15'} />
             </TouchableOpacity>
           )}
 
-          {/* Quick Safety Check-in Bar */}
-          <View style={[styles.checkInBanner, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
-            <View style={styles.checkInLeft}>
-              <View style={[styles.checkInIconBox, isDark && { backgroundColor: '#23352B' }]}>
-                <Ionicons name="checkmark-done" size={19} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+          {/* Senior Easy Mode Active Banner */}
+          {isSeniorSimpleMode && (
+            <View style={{
+              backgroundColor: isDark ? 'rgba(46, 125, 91, 0.2)' : '#E8F5EE',
+              borderWidth: 1.5,
+              borderColor: '#2E7D5B',
+              borderRadius: 14,
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 10,
+              marginBottom: 12,
+            }}>
+              <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: isDark ? '#23352B' : '#CEEAD6', justifyContent: 'center', alignItems: 'center' }}>
+                <Ionicons name="accessibility" size={20} color="#2E7D5B" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.checkInTitle, isDark && { color: '#FFFFFF' }]}>Safety Check-in</Text>
-                <Text style={[styles.checkInSub, isDark && { color: '#9EACA3' }]}>Broadcast your safe status to all circle members</Text>
+                <Text style={{ fontSize: 14, fontWeight: '800', color: isDark ? '#3ADFAB' : '#2E7D5B' }}>
+                  Senior Easy Mode Active
+                </Text>
+                <Text style={{ fontSize: 12, fontWeight: '500', color: isDark ? '#CAD5CE' : '#4A554F', marginTop: 1 }}>
+                  Large text, high-contrast buttons & false-alarm protected safety active
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Quick Safety Check-in Bar */}
+          <View style={[
+            styles.checkInBanner,
+            isDark && { backgroundColor: '#1A231F', borderColor: '#283730' },
+            isSeniorSimpleMode && { paddingVertical: 16, borderWidth: 1.5, borderColor: '#2E7D5B' }
+          ]}>
+            <View style={styles.checkInLeft}>
+              <View style={[
+                styles.checkInIconBox,
+                isDark && { backgroundColor: '#23352B' },
+                isSeniorSimpleMode && { width: 44, height: 44, borderRadius: 14 }
+              ]}>
+                <Ionicons name="checkmark-done" size={isSeniorSimpleMode ? 24 : 19} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[
+                  styles.checkInTitle,
+                  isDark && { color: '#FFFFFF' },
+                  isSeniorSimpleMode && { fontSize: 17, fontWeight: '800' }
+                ]}>
+                  Safety Check-in
+                </Text>
+                <Text style={[
+                  styles.checkInSub,
+                  isDark && { color: '#9EACA3' },
+                  isSeniorSimpleMode && { fontSize: 13, fontWeight: '600', color: isDark ? '#CAD5CE' : '#3C4942' }
+                ]}>
+                  Broadcast your safe status to all circle members
+                </Text>
               </View>
             </View>
             <TouchableOpacity
@@ -1589,19 +1711,21 @@ export default function BillionDollarHomeView() {
                 styles.checkInBtn,
                 { backgroundColor: '#2E7D5B' },
                 checkInState === 'sent' && { backgroundColor: '#3ADFAB' },
+                isSeniorSimpleMode && { paddingVertical: 14, paddingHorizontal: 18, borderRadius: 14 }
               ]}
               onPress={handleCheckIn}
               activeOpacity={0.8}
             >
               <Ionicons
                 name={checkInState === 'sent' ? 'checkmark-circle' : 'send-outline'}
-                size={14}
+                size={isSeniorSimpleMode ? 18 : 14}
                 color={checkInState === 'sent' && isDark ? '#002116' : '#FFFFFF'}
               />
               <Text
                 style={[
                   styles.checkInBtnText,
                   { color: checkInState === 'sent' && isDark ? '#002116' : '#FFFFFF' },
+                  isSeniorSimpleMode && { fontSize: 15, fontWeight: '800' }
                 ]}
               >
                 {checkInState === 'sent'
@@ -1788,7 +1912,7 @@ export default function BillionDollarHomeView() {
                             { color: member.isOnline ? (isDark ? '#3ADFAB' : '#2E7D5B') : (isDark ? '#CAD5CE' : '#5C665F') },
                           ]}
                         >
-                          {member.isOnline ? '🟢 Active now' : (member.lastActiveShort || 'Recent')}
+                          {member.isOnline ? 'Active now' : (member.lastActiveShort || 'Recent')}
                         </Text>
                       </View>
                       {zoneStatus.isInZone && zoneStatus.entryTimeStr ? (
@@ -2484,5 +2608,77 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#151C27',
     fontWeight: '500',
+  },
+  quickProtectionStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  quickProtectionPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  quickProtectionPillActiveGhost: {
+    backgroundColor: '#334155',
+    borderColor: '#1E293B',
+  },
+  quickProtectionPillActiveBatt: {
+    backgroundColor: '#16A34A',
+    borderColor: '#15803D',
+  },
+  quickProtectionText: {
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  quickProtectionTextActive: {
+    color: '#FFFFFF',
+  },
+  gpsSignalBadge: {
+    position: 'absolute',
+    bottom: 14,
+    left: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  gpsSignalDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  gpsSignalText: {
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#334155',
+    letterSpacing: 0.2,
   },
 });

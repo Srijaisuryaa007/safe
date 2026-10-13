@@ -269,7 +269,7 @@ export default function PasswordResetModal({
 
       setIsSuccess(true);
       setIsError(false);
-      setStatusMsg('🎉 Password changed successfully in database! Logging you in...');
+      setStatusMsg('Password changed successfully. Logging you in...');
       setPasswordRecovery(false);
 
       if (updateData?.user) {

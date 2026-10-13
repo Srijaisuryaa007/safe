@@ -1393,7 +1393,7 @@ export default function SafePlacesScreen() {
               bounds.push([lat, lng]);
 
               var isCurrentSelf = m.isSelf;
-              var roleColor = m.role === 'owner' ? '#D4AF37' : (m.role === 'co_leader' ? '#A855F7' : (m.role === 'guardian' ? '#3B82F6' : '#10B981'));
+              var roleColor = m.role === 'owner' ? '#F5A623' : (m.role === 'co_leader' ? '#3ADFAB' : (m.role === 'guardian' ? '#2E7D5B' : '#64748B'));
 
               var avatarHtml = m.avatarUrl 
                 ? '<img src="' + m.avatarUrl + '" style="width:100%;height:100%;object-fit:cover;' + (hasLoc ? '' : 'filter:grayscale(100%);opacity:0.6;') + '" />' 
@@ -1577,15 +1577,15 @@ export default function SafePlacesScreen() {
 
       {/* Active Member Filter Banner */}
       {filterMemberId && (
-        <View style={[styles.filterBanner, { backgroundColor: isDark ? '#16231D' : '#EAF5EE', borderBottomColor: isDark ? '#23372B' : '#C7E8D6' }]}>
+        <View style={[styles.filterBanner, { backgroundColor: isDark ? '#142B1E' : '#F0FDF4', borderBottomColor: isDark ? '#1F4730' : '#BBF7D0' }]}>
           <View style={styles.filterBannerLeft}>
-            <Ionicons name="location" size={13} color="#2E7D5B" />
-            <Text style={[styles.filterBannerText, { color: isDark ? '#E2FBEF' : '#065F46' }]} numberOfLines={1}>
+            <Ionicons name="location" size={13} color="#16A34A" />
+            <Text style={[styles.filterBannerText, { color: isDark ? '#E2FBEF' : '#15803D' }]} numberOfLines={1}>
               Geofences for: {initialTargetMemberName || 'Selected Member'}
             </Text>
           </View>
           <TouchableOpacity
-            style={[styles.filterBannerClearBtn, { backgroundColor: isDark ? '#2E7D5B' : '#047857' }]}
+            style={[styles.filterBannerClearBtn, { backgroundColor: '#16A34A' }]}
             onPress={() => setFilterMemberId(null)}
             activeOpacity={0.7}
           >
@@ -1747,7 +1747,7 @@ export default function SafePlacesScreen() {
             <Text style={styles.inputLabel}>PIN GEOFENCE TO MEMBER'S LIVE LOCATION</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {memberLocations.map(m => {
-                const roleColor = m.role === 'owner' ? '#D4AF37' : (m.role === 'co_leader' ? '#A855F7' : (m.role === 'guardian' ? '#3B82F6' : '#10B981'));
+                const roleColor = m.role === 'owner' ? '#F5A623' : (m.role === 'co_leader' ? '#3ADFAB' : (m.role === 'guardian' ? '#2E7D5B' : '#64748B'));
                 const firstName = m.name.split(' ')[0];
                 return (
                   <TouchableOpacity
@@ -2081,7 +2081,7 @@ export default function SafePlacesScreen() {
             </Text>
             {filterMemberId && (
               <TouchableOpacity
-                style={{ marginTop: 14, backgroundColor: '#2E7D5B', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10, alignSelf: 'center' }}
+                style={{ marginTop: 14, backgroundColor: '#16A34A', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10, alignSelf: 'center' }}
                 onPress={() => setFilterMemberId(null)}
               >
                 <Text style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 }}>SHOW ALL CIRCLE GEOFENCES</Text>

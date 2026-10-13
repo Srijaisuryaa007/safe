@@ -19,8 +19,8 @@ export const BRAND_GREEN_THEME = {
     surface: '#FFFFFF',
     surfaceMuted: '#F5F5F5', // Soft Container Grey
     textMuted: '#666666', // Subtle Charcoal Muted
-    accentGold: '#3DBE6C', // Primary Brand Green
-    accentGoldLight: '#E8F8EE', // Light Green Tint
+    accentGold: '#4ADE80', // Soft Pastel Light Apple Green
+    accentGoldLight: '#F0FDF4', // Light Apple Green Tint
     sosRed: '#E53E3E', // Crisp Red
     border: '#E0E0E0', // 1.5px Clean Border
     borderDark: '#111111',
@@ -49,10 +49,10 @@ export const BILLION_DOLLAR_THEME = {
     background: '#FAF9F6', // Minimal Creamy Paper Canvas
     foreground: '#1F2A24', // Deep Crisp Charcoal Ink
     surface: '#FFFFFF', // Crisp White Cards
-    surfaceMuted: '#E8F5EE', // Subtle Light Sage Container
+    surfaceMuted: '#F0FDF4', // Subtle Light Apple Green Container
     textMuted: '#5C665F', // Muted Sage Grey
-    accentGold: '#2E7D5B', // Primary Botanical Sage Green
-    accentGoldLight: '#E8F5EE', // Soft Sage Tint
+    accentGold: '#4ADE80', // Soft Pastel Light Apple Green
+    accentGoldLight: '#F0FDF4', // Soft Apple Green Tint
     sosRed: '#DC2626', // Vibrant Emergency Red
     border: '#EDEBE6', // Light Warm Neutral Rim
     borderDark: '#1F2A24',
@@ -199,9 +199,9 @@ export const getThemeCardStyles = (themeMode?: string) => {
       borderRadius: 20,
       borderColor: '#EDEBE6',
       backgroundColor: '#FFFFFF',
-      shadowColor: '#2E7D5B',
+      shadowColor: '#4ADE80',
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.04,
+      shadowOpacity: 0.08,
       shadowRadius: 12,
       elevation: 2,
     };
@@ -212,7 +212,7 @@ export const getThemeCardStyles = (themeMode?: string) => {
       borderRadius: 16,
       borderColor: '#E0E0E0',
       backgroundColor: '#FFFFFF',
-      shadowColor: '#3DBE6C',
+      shadowColor: '#4ADE80',
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.08,
       shadowRadius: 12,
@@ -263,33 +263,33 @@ export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 's
     };
   }
   if (themeMode === 'billion_dollar') {
-    const bg = variant === 'danger' ? '#DC2626' : variant === 'secondary' ? '#FFF3EB' : '#2E7D5B';
-    const text = variant === 'secondary' ? '#E07A5F' : '#FFFFFF';
+    const bg = variant === 'danger' ? '#DC2626' : variant === 'secondary' ? '#FFF3EB' : '#4ADE80';
+    const text = variant === 'secondary' ? '#E07A5F' : (variant === 'danger' ? '#FFFFFF' : '#0F291E');
     return {
       borderWidth: 0,
       borderRadius: 9999,
       borderColor: 'transparent',
       backgroundColor: bg,
       textColor: text,
-      shadowColor: '#2E7D5B',
+      shadowColor: '#4ADE80',
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: variant === 'primary' ? 0.2 : 0,
+      shadowOpacity: variant === 'primary' ? 0.25 : 0,
       shadowRadius: 8,
       elevation: 3,
     };
   }
   if (themeMode === 'brand_green') {
-    const bg = variant === 'danger' ? '#E53E3E' : variant === 'secondary' ? '#F5F5F5' : '#3DBE6C';
-    const text = variant === 'secondary' ? '#111111' : '#FFFFFF';
+    const bg = variant === 'danger' ? '#E53E3E' : variant === 'secondary' ? '#F5F5F5' : '#4ADE80';
+    const text = variant === 'secondary' ? '#111111' : (variant === 'danger' ? '#FFFFFF' : '#0F291E');
     return {
       borderWidth: 0,
       borderRadius: 12,
       borderColor: 'transparent',
       backgroundColor: bg,
       textColor: text,
-      shadowColor: '#3DBE6C',
+      shadowColor: '#4ADE80',
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: variant === 'primary' ? 0.2 : 0,
+      shadowOpacity: variant === 'primary' ? 0.25 : 0,
       shadowRadius: 8,
       elevation: 3,
     };
@@ -338,9 +338,9 @@ export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert
     };
   }
   if (themeMode === 'billion_dollar') {
-    const bg = variant === 'alert' ? '#FEE2E2' : variant === 'info' ? '#FFF3EB' : '#E8F5EE';
-    const border = variant === 'alert' ? '#FECACA' : variant === 'info' ? '#FFD7C7' : '#C6E7D5';
-    const text = variant === 'alert' ? '#DC2626' : variant === 'info' ? '#E07A5F' : '#2E7D5B';
+    const bg = variant === 'alert' ? '#FEE2E2' : variant === 'info' ? '#FFF3EB' : '#F0FDF4';
+    const border = variant === 'alert' ? '#FECACA' : variant === 'info' ? '#FFD7C7' : '#BBF7D0';
+    const text = variant === 'alert' ? '#DC2626' : variant === 'info' ? '#E07A5F' : '#15803D';
     return {
       backgroundColor: bg,
       borderWidth: 1,
@@ -350,9 +350,9 @@ export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert
     };
   }
   if (themeMode === 'brand_green') {
-    const bg = variant === 'alert' ? '#FEF2F2' : variant === 'info' ? '#FFFBEB' : '#E8F8EE';
-    const border = variant === 'alert' ? '#E53E3E' : variant === 'info' ? '#F5A623' : '#3DBE6C';
-    const text = variant === 'alert' ? '#E53E3E' : variant === 'info' ? '#D97706' : '#3DBE6C';
+    const bg = variant === 'alert' ? '#FEF2F2' : variant === 'info' ? '#FFFBEB' : '#F0FDF4';
+    const border = variant === 'alert' ? '#E53E3E' : variant === 'info' ? '#F5A623' : '#86EFAC';
+    const text = variant === 'alert' ? '#E53E3E' : variant === 'info' ? '#D97706' : '#15803D';
     return {
       backgroundColor: bg,
       borderWidth: 1,
@@ -415,10 +415,10 @@ export const getThemeSheetStyles = (themeMode?: string) => {
     return {
       backgroundColor: '#FFFFFF',
       borderTopWidth: 2,
-      borderTopColor: '#3DBE6C',
+      borderTopColor: '#4ADE80',
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
-      shadowColor: '#3DBE6C',
+      shadowColor: '#4ADE80',
       shadowOffset: { width: 0, height: -4 },
       shadowOpacity: 0.15,
       shadowRadius: 14,
@@ -486,7 +486,7 @@ export const getThemeFloatingControlStyles = (themeMode?: string) => {
       borderWidth: 1.5,
       borderColor: '#E0E0E0',
       borderRadius: 14,
-      shadowColor: '#3DBE6C',
+      shadowColor: '#4ADE80',
       shadowOffset: { width: 0, height: 3 },
       shadowOpacity: 0.15,
       shadowRadius: 8,
@@ -544,10 +544,10 @@ export const getThemeChatBubbleStyles = (themeMode?: string, isSelf: boolean = f
   }
   if (themeMode === 'brand_green') {
     return {
-      backgroundColor: isSelf ? '#3DBE6C' : '#F5F5F5',
-      textColor: isSelf ? '#FFFFFF' : '#111111',
+      backgroundColor: isSelf ? '#4ADE80' : '#F5F5F5',
+      textColor: isSelf ? '#0F291E' : '#111111',
       borderWidth: 1,
-      borderColor: isSelf ? '#3DBE6C' : '#E0E0E0',
+      borderColor: isSelf ? '#4ADE80' : '#E0E0E0',
       borderRadius: 16,
       borderBottomRightRadius: isSelf ? 2 : 16,
       borderBottomLeftRadius: isSelf ? 16 : 2,

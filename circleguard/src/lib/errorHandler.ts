@@ -466,5 +466,11 @@ export function handleServiceError(
   metadata?: Record<string, unknown>
 ): string {
   logInternalError(context, error, metadata);
+  try {
+    const { StorageRecoveryService } = require('../services/StorageRecoveryService');
+    if (StorageRecoveryService.isDiskFullError(error)) {
+      StorageRecoveryService.pruneTransientCacheAsync().catch(() => {});
+    }
+  } catch (_) {}
   return sanitizeUserErrorMessage(error, fallbackMessage);
 }

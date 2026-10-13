@@ -283,8 +283,8 @@ export default function MemberShortProfileModal({
       }
       const circleName = useCircleStore.getState().circles?.find((c) => c.id === circleId)?.name || 'our Circle';
       const message = hasValidLocation
-        ? `📍 CircleGuard Live Location: ${name}'s location in ${circleName}: ${mapsUrl} (Battery: ${battery})`
-        : `📍 CircleGuard: ${name} is a member of ${circleName}. Live location is currently syncing.`;
+        ? `CircleGuard Live Location: ${name}'s location in ${circleName}: ${mapsUrl} (Battery: ${battery})`
+        : `CircleGuard: ${name} is a member of ${circleName}. Live location is currently syncing.`;
 
       await Share.share({
         title: `${name}'s Location`,
@@ -311,7 +311,7 @@ export default function MemberShortProfileModal({
       const { error } = await supabase.from('circle_messages').insert({
         circle_id: circleId,
         sender_id: myId,
-        content: `📍 [Leader Share] ${name}'s Live Location:\n${mapsUrl || 'Coordinates updating...'}`,
+        content: `[Leader Share] ${name}'s Live Location:\n${mapsUrl || 'Coordinates updating...'}`,
       });
 
       if (error) throw error;
@@ -337,7 +337,7 @@ export default function MemberShortProfileModal({
         await supabase.from('circle_messages').insert({
           circle_id: circleId,
           sender_id: myId,
-          content: `📍 [Leader Broadcast] Shared ${name}'s live location with ${circleName}:\n${mapsUrl || 'Location currently updating'}`,
+          content: `[Leader Broadcast] Shared ${name}'s live location with ${circleName}:\n${mapsUrl || 'Location currently updating'}`,
         });
       }
 
@@ -355,7 +355,7 @@ export default function MemberShortProfileModal({
             if (token) {
               sendExpoPushNotification(
                 token,
-                `📍 ${leaderName} shared ${name}'s location`,
+                `${leaderName} shared ${name}'s location`,
                 `${name} is currently active. Tap to view on map.`,
                 {
                   type: 'leader_location_share',

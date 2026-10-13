@@ -142,7 +142,7 @@ export default function LocationHistoryScreen() {
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 10,
       onPanResponderRelease: (_, gesture) => {
         if (gesture.dy < -20) {
@@ -301,7 +301,8 @@ export default function LocationHistoryScreen() {
     } catch (_) {}
   };
 
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [historyPoints, setHistoryPoints] = useState<EnterpriseHistoryPoint[]>([]);
   const [tripLegs, setTripLegs] = useState<EnterpriseTripLeg[]>([]);
   const [roadCoords, setRoadCoords] = useState<[number, number][]>([]);
@@ -533,6 +534,7 @@ export default function LocationHistoryScreen() {
         setTotalDistanceKm(0);
         setTravelDurationMinutes(0);
         setTopSpeedKmh(0);
+        setInitialLoading(false);
         setLoading(false);
         return;
       }
@@ -553,6 +555,7 @@ export default function LocationHistoryScreen() {
             setTopSpeedKmh(cached.maxSpd || 0);
             setAverageSpeedKmh(cached.avgSpd || 0);
             setTravelDurationMinutes(cached.totalDur || 0);
+            setInitialLoading(false);
             setLoading(false);
           }
         }
@@ -677,7 +680,13 @@ export default function LocationHistoryScreen() {
         if (liveMemberLoc && rawPoints.length > 0) {
           const lastRaw = rawPoints[rawPoints.length - 1];
           const liveTime = liveMemberLoc.updated_at ? new Date(liveMemberLoc.updated_at).getTime() : Date.now();
-          if (liveTime > lastRaw.timeMs + 8000) {
+          const timeDiffMs = liveTime - lastRaw.timeMs;
+          const distMeters = calculateHaversineDistanceMeters(lastRaw.lat, lastRaw.lng, liveMemberLoc.latitude, liveMemberLoc.longitude);
+          const isReasonableSpeed = timeDiffMs > 0 ? (distMeters / (timeDiffMs / 1000)) <= 39 : false; // <= 140 km/h
+
+          // Only append if genuinely fresher AND continuous travel (< 6 mins gap, reasonable speed, moved >= 15m)
+          // NEVER stitch across large time gaps as that draws phantom lines across town!
+          if (timeDiffMs > 8000 && timeDiffMs < 6 * 60 * 1000 && isReasonableSpeed && distMeters >= 15) {
             rawPoints.push({
               id: `live_${Date.now()}`,
               lat: liveMemberLoc.latitude,
@@ -747,7 +756,7 @@ export default function LocationHistoryScreen() {
           timeRange: `${timeFormatted} - Present`,
           durationText: durationFormatted,
           categoryIcon: matchedPlace ? 'shield-checkmark' : 'home',
-          categoryColor: matchedPlace ? '#2E7D5B' : '#E07A5F',
+          categoryColor: matchedPlace ? '#4ADE80' : '#E07A5F',
           pointIndex: 0,
           latitude: dwellLat,
           longitude: dwellLng,
@@ -924,6 +933,7 @@ export default function LocationHistoryScreen() {
     } catch (err) {
       console.warn('Location history notice:', err);
     } finally {
+      setInitialLoading(false);
       setLoading(false);
     }
   };
@@ -989,7 +999,7 @@ export default function LocationHistoryScreen() {
     }
   }, [showAllPlaces, displayedStops]);
 
-  const htmlContent = `
+  const htmlContent = useMemo(() => `
     <!DOCTYPE html>
     <html>
       <head>
@@ -1009,6 +1019,11 @@ export default function LocationHistoryScreen() {
           }
           .leaflet-container { background-color: ${isDark ? '#0D0E12' : '#F4F5FB'} !important; }
           .leaflet-control-attribution { display: none !important; }
+          ${isDark ? `
+          .leaflet-tile-pane {
+            filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+          }
+          ` : ''}
           .stop-badge { background: #FF536A; color: #FFFFFF; font-weight: bold; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 11px; border: 2.5px solid #FFFFFF; box-shadow: 0 4px 10px rgba(255,83,106,0.4); }
           .custom-player-avatar {
             transition: transform 0.15s ease-out;
@@ -1032,7 +1047,7 @@ export default function LocationHistoryScreen() {
           }
 
           function initMap() {
-            var tileUrl = ${isDark ? "'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'" : "'https://tile.openstreetmap.org/{z}/{x}/{y}.png'"};
+            var tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
             var fallbackTileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
             map = L.map('map', { 
               minZoom: 3,
@@ -1053,7 +1068,7 @@ export default function LocationHistoryScreen() {
               minZoom: 3, 
               maxZoom: 18, 
               maxNativeZoom: 18, 
-              subdomains: ${isDark ? "'abcd'" : "'abc'"},
+              subdomains: 'abc',
               crossOrigin: true 
             }).addTo(map);
 
@@ -1137,16 +1152,20 @@ export default function LocationHistoryScreen() {
                 if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
                 if (endMarker) { map.removeLayer(endMarker); endMarker = null; }
 
-                if (data.tripLegs && data.tripLegs.length > 0) {
+                var validLegs = (data.tripLegs || []).filter(function(leg) {
+                  return (leg.distanceKm >= 0.08 || (leg.points && leg.points.length >= 3)) && leg.roadCoords && leg.roadCoords.length >= 2;
+                });
+
+                if (validLegs.length > 0) {
                   var allBounds = L.latLngBounds();
 
-                  data.tripLegs.forEach(function(leg) {
+                  validLegs.forEach(function(leg) {
                     var isOutbound = leg.isOutbound;
                     var isTransit = leg.isTransit || leg.transitType === 'metro' || leg.transitType === 'rail';
                     var isMetro = leg.transitType === 'metro';
                     var isRail = leg.transitType === 'rail';
 
-                    var color = isMetro ? '#8B5CF6' : (isRail ? '#0EA5E9' : (isOutbound ? '#2E7D5B' : '#E07A5F'));
+                    var color = isMetro ? '#0284C7' : (isRail ? '#0EA5E9' : (isOutbound ? '#4ADE80' : '#E07A5F'));
                     var offsetVal = isTransit ? 0 : (isOutbound ? 4 : -4);
 
                     var coords = leg.roadCoords;
@@ -1201,11 +1220,11 @@ export default function LocationHistoryScreen() {
                     setTimeout(triggerInvalidate, 80);
                   }
 
-                  // Start Marker
-                  if (data.roadCoords && data.roadCoords.length > 0) {
-                    var startPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(46,125,91,0.4));">' +
+                  // Start Marker (only if genuine travel took place)
+                  if (data.roadCoords && data.roadCoords.length > 1) {
+                    var startPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(74,222,128,0.45));">' +
                       '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                        '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#2E7D5B"/>' +
+                        '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#4ADE80"/>' +
                         '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
                       '</svg>' +
                     '</div>';
@@ -1222,6 +1241,10 @@ export default function LocationHistoryScreen() {
                     var endIcon = L.divIcon({ className: 'custom-3d-pin', html: endPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
                     endMarker = L.marker(data.roadCoords[data.roadCoords.length - 1], { icon: endIcon }).addTo(map).bindPopup('End Destination');
                   }
+                } else if (data.stops && data.stops.length > 0) {
+                  // Stationary / Dwell only: focus cleanly on stay location
+                  map.setView([data.stops[0].lat, data.stops[0].lng], 16);
+                  setTimeout(triggerInvalidate, 80);
                 } else if (data.currentPt) {
                   map.setView(data.currentPt, 16);
                   setTimeout(triggerInvalidate, 80);
@@ -1240,11 +1263,11 @@ export default function LocationHistoryScreen() {
 
                   var isSafe = st.isSafePlace || st.category === 'safe_zone';
                   var badgeHtml = isSafe
-                    ? '<div style="background:#2E7D5B; color:#FFFFFF; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; border:2.5px solid #FFFFFF; box-shadow:0 3px 10px rgba(46,125,91,0.5);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>'
+                    ? '<div style="background:#4ADE80; color:#FFFFFF; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; border:2.5px solid #FFFFFF; box-shadow:0 3px 10px rgba(74,222,128,0.5);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>'
                     : '<div class="stop-badge" style="background:#E07A5F; box-shadow:0 3px 10px rgba(224,122,95,0.4); width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:11px; border:2px solid #fff;">' + (i+1) + '</div>';
                   var icon = L.divIcon({ className: 'custom-stop-marker', html: badgeHtml, iconSize: [28, 28], iconAnchor: [14, 14] });
                   var popupContent = '<b>' + (st.name || 'Stationary Stay') + '</b>' +
-                    (isSafe ? '<br/><span style="color:#2E7D5B; font-weight:700; font-size:11px;">✓ Circle Safe Place</span>' : '') +
+                    (isSafe ? '<br/><span style="color:#16A34A; font-weight:700; font-size:11px;">✓ Circle Safe Place</span>' : '') +
                     '<br/><span style="font-size:11px;color:#666;">Dwell: ' + (st.durationMinutes || 0) + ' mins</span>';
                   var m = L.marker([st.lat, st.lng], { icon: icon }).addTo(map).bindPopup(popupContent);
                   stopMarkers.push(m);
@@ -1260,18 +1283,18 @@ export default function LocationHistoryScreen() {
 
               var imgOrInitial = avatarUrl
                 ? '<img src="' + avatarUrl + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display=\\'none\\'; this.nextElementSibling.style.display=\\'flex\\';" />' +
-                  '<div style="display:none;width:100%;height:100%;background:#2E7D5B;color:#FFFFFF;font-weight:900;font-size:16px;align-items:center;justify-content:center;border-radius:50%;">' + userInitial + '</div>'
-                : '<div style="width:100%;height:100%;background:#2E7D5B;color:#FFFFFF;font-weight:900;font-size:16px;display:flex;align-items:center;justify-content:center;border-radius:50%;">' + userInitial + '</div>';
+                  '<div style="display:none;width:100%;height:100%;background:#4ADE80;color:#FFFFFF;font-weight:900;font-size:16px;align-items:center;justify-content:center;border-radius:50%;">' + userInitial + '</div>'
+                : '<div style="width:100%;height:100%;background:#4ADE80;color:#FFFFFF;font-weight:900;font-size:16px;display:flex;align-items:center;justify-content:center;border-radius:50%;">' + userInitial + '</div>';
 
               var svgArrow = '<div style="position:absolute; top:-12px; left:50%; margin-left:-10px; width:20px; height:16px; transform:rotate(' + bearing + 'deg); transform-origin:10px 34px; z-index:10; filter:drop-shadow(0 2px 5px rgba(0,0,0,0.5));">' +
                 '<svg width="20" height="16" viewBox="0 0 20 16" fill="none">' +
-                  '<path d="M10 0L20 16L10 12L0 16L10 0Z" fill="#2E7D5B" stroke="#FFFFFF" stroke-width="1.8"/>' +
+                  '<path d="M10 0L20 16L10 12L0 16L10 0Z" fill="#4ADE80" stroke="#FFFFFF" stroke-width="1.8"/>' +
                 '</svg>' +
               '</div>';
 
               var playerHtml = '<div class="travel-avatar-marker" style="position:relative; width:48px; height:48px;">' +
                 svgArrow +
-                '<div style="width:48px; height:48px; border-radius:50%; border:3px solid #2E7D5B; background:#0D0E12; box-shadow:0 4px 14px rgba(46,125,91,0.55), 0 0 0 2px rgba(255,255,255,0.9); overflow:hidden; display:flex; align-items:center; justify-content:center;">' +
+                '<div style="width:48px; height:48px; border-radius:50%; border:3px solid #4ADE80; background:#0D0E12; box-shadow:0 4px 14px rgba(74,222,128,0.55), 0 0 0 2px rgba(255,255,255,0.9); overflow:hidden; display:flex; align-items:center; justify-content:center;">' +
                   imgOrInitial +
                 '</div>' +
               '</div>';
@@ -1289,7 +1312,9 @@ export default function LocationHistoryScreen() {
         </script>
       </body>
     </html>
-  `;
+  `, [isDark]);
+
+  const webViewSource = useMemo(() => ({ html: htmlContent, baseUrl: 'https://unpkg.com' }), [htmlContent]);
 
   const activePoint = historyPoints[playbackIndex] || historyPoints[0];
 
@@ -1297,14 +1322,14 @@ export default function LocationHistoryScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border, paddingTop: topInset + 14, paddingBottom: 14 }]}>
-        <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()} activeOpacity={0.7} delayPressIn={0} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Ionicons name="chevron-back" size={22} color={colors.foreground} />
         </TouchableOpacity>
         <View style={{ alignItems: 'center' }}>
           <Text style={[styles.headerTitle, { color: colors.foreground }]}>LOCATION HISTORY</Text>
           <Text style={[styles.headerSubtitle, { color: colors.accentGold }]}>{getDateRange().dateLabel.toUpperCase()}</Text>
         </View>
-        <TouchableOpacity style={styles.iconBtn} onPress={fetchLocationHistory} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.iconBtn} onPress={fetchLocationHistory} activeOpacity={0.7} delayPressIn={0} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Ionicons name="refresh" size={20} color={colors.foreground} />
         </TouchableOpacity>
       </View>
@@ -1326,7 +1351,9 @@ export default function LocationHistoryScreen() {
               ]
             ]}
             onPress={() => setSelectedDate('today')}
-            activeOpacity={0.8}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
           >
             <Text 
               style={[
@@ -1350,7 +1377,9 @@ export default function LocationHistoryScreen() {
               ]
             ]}
             onPress={() => setSelectedDate('yesterday')}
-            activeOpacity={0.8}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
           >
             <Text 
               style={[
@@ -1374,7 +1403,9 @@ export default function LocationHistoryScreen() {
               ]
             ]}
             onPress={() => setSelectedDate('2daysAgo')}
-            activeOpacity={0.8}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
           >
             <Text 
               style={[
@@ -1397,7 +1428,7 @@ export default function LocationHistoryScreen() {
         borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' 
       }]}>
         <View style={styles.memberScopeLeft}>
-          <View style={[styles.memberScopeDot, { backgroundColor: selectedMemberObj?.isOnline ? '#10B981' : '#94A3B8' }]} />
+          <View style={[styles.memberScopeDot, { backgroundColor: selectedMemberObj?.isOnline ? '#4ADE80' : '#94A3B8' }]} />
           <Text style={[styles.memberScopeText, { color: colors.textMuted }]} numberOfLines={1}>
             Timeline: <Text style={{ fontWeight: '700', color: colors.foreground }}>{selectedMemberName}</Text>
           </Text>
@@ -1410,6 +1441,8 @@ export default function LocationHistoryScreen() {
             }]}
             onPress={() => setMemberPickerVisible(true)}
             activeOpacity={0.7}
+            delayPressIn={0}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Text style={[styles.memberScopeSwitchText, { color: isDark ? '#CBD5E1' : '#475569' }]}>Switch Member</Text>
             <Ionicons name="swap-horizontal" size={12} color={isDark ? '#CBD5E1' : '#475569'} />
@@ -1423,7 +1456,7 @@ export default function LocationHistoryScreen() {
           <View style={[styles.modalPickerCard, { backgroundColor: colors.surface, borderColor: '#EDEBE6' }]}>
             <View style={styles.modalPickerHeader}>
               <Text style={[styles.modalPickerTitle, { color: colors.foreground }]}>Select Circle Member</Text>
-              <TouchableOpacity onPress={() => setMemberPickerVisible(false)}>
+              <TouchableOpacity onPress={() => setMemberPickerVisible(false)} delayPressIn={0} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Ionicons name="close" size={20} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
@@ -1456,7 +1489,7 @@ export default function LocationHistoryScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {loading ? (
+      {initialLoading && historyPoints.length === 0 ? (
         <View style={styles.centeredLoadingScreen}>
           <LuxuryRadarLoading size={140} message="RETRIEVING LOCATION HISTORY…" />
         </View>
@@ -1473,15 +1506,12 @@ export default function LocationHistoryScreen() {
                 marginBottom: isSheetExpanded ? 0 : 12,
               }
             ]}
-            onTouchStart={() => setIsScrollEnabled(false)}
-            onTouchEnd={() => setIsScrollEnabled(true)}
-            onTouchCancel={() => setIsScrollEnabled(true)}
-            onResponderGrant={() => setIsScrollEnabled(false)}
-            onResponderRelease={() => setIsScrollEnabled(true)}
-            onResponderTerminate={() => setIsScrollEnabled(true)}
+            onTouchStart={() => { if (isScrollEnabled) setIsScrollEnabled(false); }}
+            onTouchEnd={() => { if (!isScrollEnabled) setIsScrollEnabled(true); }}
+            onTouchCancel={() => { if (!isScrollEnabled) setIsScrollEnabled(true); }}
             {...(Platform.OS === 'web' ? {
-              onMouseEnter: () => setIsScrollEnabled(false),
-              onMouseLeave: () => setIsScrollEnabled(true),
+              onMouseEnter: () => { if (isScrollEnabled) setIsScrollEnabled(false); },
+              onMouseLeave: () => { if (!isScrollEnabled) setIsScrollEnabled(true); },
             } : {})}
           >
             <View style={[styles.mapContainer, { borderColor: '#EDEBE6' }]}>
@@ -1502,7 +1532,7 @@ export default function LocationHistoryScreen() {
                 <WebViewAny
                   ref={webViewRef}
                   originWhitelist={['*']}
-                  source={{ html: htmlContent, baseUrl: 'https://unpkg.com' }}
+                  source={webViewSource}
                   javaScriptEnabled={true}
                   domStorageEnabled={true}
                   mixedContentMode="always"
@@ -1521,6 +1551,13 @@ export default function LocationHistoryScreen() {
                   }}
                 />
               )}
+
+              {loading && (
+                <View style={[styles.mapLoadingOverlay, { backgroundColor: isDark ? 'rgba(13,14,18,0.8)' : 'rgba(255,255,255,0.8)' }]}>
+                  <ActivityIndicator size="small" color="#4ADE80" />
+                  <Text style={[styles.mapLoadingOverlayText, { color: colors.foreground }]}>Updating Route...</Text>
+                </View>
+              )}
             </View>
 
             {/* Docked Playback Control Panel Below Map */}
@@ -1528,9 +1565,11 @@ export default function LocationHistoryScreen() {
               <View style={[styles.playbackCardDocked, { backgroundColor: colors.surface, borderColor: '#EDEBE6', marginTop: 10, borderRadius: 16, padding: 14, borderWidth: 1 }]}>
                 <View style={styles.playbackHeader}>
                   <TouchableOpacity
-                    style={[styles.playBtn, { backgroundColor: isPlaying ? '#2E7D5B' : '#E07A5F', borderRadius: 20 }]}
+                    style={[styles.playBtn, { backgroundColor: isPlaying ? '#4ADE80' : '#E07A5F', borderRadius: 20 }]}
                     onPress={() => setIsPlaying(!isPlaying)}
-                    activeOpacity={0.8}
+                    activeOpacity={0.7}
+                    delayPressIn={0}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
                     <Ionicons name={isPlaying ? "pause" : "play"} size={20} color="#FFFFFF" />
                   </TouchableOpacity>
@@ -1545,11 +1584,13 @@ export default function LocationHistoryScreen() {
                   </View>
 
                   <TouchableOpacity
-                    style={[styles.speedBtn, { borderColor: '#2E7D5B', backgroundColor: '#E8F5EE', borderRadius: 12 }]}
+                    style={[styles.speedBtn, { borderColor: '#4ADE80', backgroundColor: '#F0FDF4', borderRadius: 12 }]}
                     onPress={() => setPlaybackSpeed(prev => (prev === 1 ? 2 : prev === 2 ? 5 : 1))}
-                    activeOpacity={0.8}
+                    activeOpacity={0.7}
+                    delayPressIn={0}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <Text style={[styles.speedBtnText, { color: '#2E7D5B', fontWeight: '800' }]}>{playbackSpeed}x</Text>
+                    <Text style={[styles.speedBtnText, { color: '#16A34A', fontWeight: '800' }]}>{playbackSpeed}x</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -1559,7 +1600,7 @@ export default function LocationHistoryScreen() {
                     style={[
                       styles.scrubberFill,
                       {
-                        backgroundColor: '#2E7D5B',
+                        backgroundColor: '#4ADE80',
                         width: `${((playbackIndex + 1) / historyPoints.length) * 100}%`,
                       },
                     ]}
@@ -1584,6 +1625,8 @@ export default function LocationHistoryScreen() {
             <TouchableOpacity
               onPress={() => toggleSheetExpand()}
               activeOpacity={0.7}
+              delayPressIn={0}
+              hitSlop={{ top: 12, bottom: 12, left: 30, right: 30 }}
               style={styles.sheetPillTouchArea}
               accessibilityRole="button"
               aria-label="Drag or tap handle to expand charts"
@@ -1601,11 +1644,13 @@ export default function LocationHistoryScreen() {
                 style={styles.sheetHandleToggleBtn}
                 onPress={() => toggleSheetExpand()}
                 activeOpacity={0.7}
+                delayPressIn={0}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Ionicons
                   name={isSheetExpanded ? 'chevron-down-circle' : 'chevron-up-circle'}
                   size={16}
-                  color="#2E7D5B"
+                  color="#4ADE80"
                 />
                 <Text style={[styles.sheetHandleLabel, { color: colors.foreground }]}>
                   {isSheetExpanded ? 'COLLAPSE TO MAP VIEW' : 'DRAG UP OR TAP TO EXPAND CHARTS'}
@@ -1622,6 +1667,8 @@ export default function LocationHistoryScreen() {
                 ]}
                 onPress={() => toggleSheetExpand()}
                 activeOpacity={0.7}
+                delayPressIn={0}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Ionicons
                   name={isSheetExpanded ? 'contract-outline' : 'expand-outline'}
@@ -1663,6 +1710,8 @@ export default function LocationHistoryScreen() {
                 ]}
                 onPress={() => setHistoryViewTab('timeline')}
                 activeOpacity={0.75}
+                delayPressIn={0}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
               >
                 <Ionicons 
                   name="git-commit-outline" 
@@ -1692,6 +1741,8 @@ export default function LocationHistoryScreen() {
                   }
                 }}
                 activeOpacity={0.75}
+                delayPressIn={0}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
               >
                 <Ionicons 
                   name="bar-chart-outline" 
@@ -1722,7 +1773,7 @@ export default function LocationHistoryScreen() {
                   <Ionicons
                     name="shield-checkmark"
                     size={16}
-                    color={isDark ? '#3ADFAB' : '#2E7D5B'}
+                    color={isDark ? '#4ADE80' : '#16A34A'}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -1735,11 +1786,11 @@ export default function LocationHistoryScreen() {
                 </View>
                 <View style={[
                   styles.reconstructionBadge,
-                  isDark && { backgroundColor: 'rgba(58, 223, 171, 0.18)' }
+                  isDark && { backgroundColor: 'rgba(74, 222, 128, 0.18)' }
                 ]}>
                   <Text style={[
                     styles.reconstructionBadgeText,
-                    isDark && { color: '#3ADFAB' }
+                    isDark && { color: '#4ADE80' }
                   ]}>
                     ROAD SNAPPED
                   </Text>
@@ -1752,8 +1803,8 @@ export default function LocationHistoryScreen() {
               {/* Row 1: Total Distance & Active Transit */}
               <View style={styles.kpiRow}>
                 <View style={styles.kpiItem}>
-                  <View style={[styles.kpiIconWrap, { backgroundColor: isDark ? 'rgba(46, 125, 91, 0.2)' : '#E8F5EE' }]}>
-                    <Ionicons name="navigate-outline" size={17} color="#2E7D5B" />
+                  <View style={[styles.kpiIconWrap, { backgroundColor: isDark ? 'rgba(74, 222, 128, 0.18)' : '#F0FDF4' }]}>
+                    <Ionicons name="navigate-outline" size={17} color="#16A34A" />
                   </View>
                   <View style={styles.kpiTextWrap}>
                     <Text style={[styles.kpiVal, { color: colors.foreground }]}>
@@ -1818,21 +1869,21 @@ export default function LocationHistoryScreen() {
               <>
                 <View style={styles.sectionTitleRow}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                    <Ionicons name={showAllPlaces ? "location" : "star"} size={14} color="#2E7D5B" />
+                    <Ionicons name={showAllPlaces ? "location" : "star"} size={14} color="#4ADE80" />
                     <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
                       {showAllPlaces ? `ALL VISITED PLACES (${stationaryStops.length})` : `KEY PLACES (${displayedStops.length})`}
                     </Text>
                   </View>
                   {stationaryStops.length > mainStops.length && (
                     <TouchableOpacity
-                      style={[styles.detailToggleBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F5EE' }]}
+                      style={[styles.detailToggleBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F0FDF4' }]}
                       onPress={() => setShowAllPlaces(!showAllPlaces)}
                       activeOpacity={0.7}
                     >
-                      <Text style={[styles.detailToggleBtnText, { color: '#2E7D5B' }]}>
+                      <Text style={[styles.detailToggleBtnText, { color: '#16A34A' }]}>
                         {showAllPlaces ? 'Key Places' : `View All (${stationaryStops.length})`}
                       </Text>
-                      <Ionicons name={showAllPlaces ? "chevron-up" : "chevron-down"} size={13} color="#2E7D5B" />
+                      <Ionicons name={showAllPlaces ? "chevron-up" : "chevron-down"} size={13} color="#4ADE80" />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -1852,13 +1903,13 @@ export default function LocationHistoryScreen() {
                         styles.stopItemCard,
                         {
                           backgroundColor: colors.surface,
-                          borderColor: isSafe ? (isDark ? '#1E3A2B' : '#BFE3D1') : (isDark ? '#222' : '#EDEBE6'),
+                          borderColor: isSafe ? (isDark ? '#1E3A2B' : '#BBF7D0') : (isDark ? '#222' : '#EDEBE6'),
                         },
                       ]}
                       onPress={() => focusMapLocation(stop.latitude, stop.longitude, 17)}
                       activeOpacity={0.8}
                     >
-                      <View style={[styles.stopNumberBadge, { backgroundColor: isSafe ? '#2E7D5B' : '#E07A5F' }]}>
+                      <View style={[styles.stopNumberBadge, { backgroundColor: isSafe ? '#4ADE80' : '#E07A5F' }]}>
                         {isSafe ? (
                           <Ionicons name="shield-checkmark" size={14} color="#FFFFFF" />
                         ) : (
@@ -1878,7 +1929,7 @@ export default function LocationHistoryScreen() {
                           Dwell: {stop.durationMinutes} mins • {stop.arrivalTime} – {stop.departureTime}
                         </Text>
                       </View>
-                      <Ionicons name="navigate-circle-outline" size={20} color={isSafe ? '#2E7D5B' : colors.textMuted} />
+                      <Ionicons name="navigate-circle-outline" size={20} color={isSafe ? '#4ADE80' : colors.textMuted} />
                     </TouchableOpacity>
                   );
                 })}
@@ -1888,21 +1939,21 @@ export default function LocationHistoryScreen() {
             {/* Travel & Movement Timeline */}
             <View style={styles.sectionTitleRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                <Ionicons name="git-commit-outline" size={14} color="#2E7D5B" />
+                <Ionicons name="git-commit-outline" size={14} color="#4ADE80" />
                 <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
                   {showAllPlaces ? `COMPLETE TIMELINE (${displayedTimelineEvents.length})` : `TRIPS & KEY STOPS (${displayedTimelineEvents.length})`}
                 </Text>
               </View>
               {timelineEvents.length > displayedTimelineEvents.length && (
                 <TouchableOpacity
-                  style={[styles.detailToggleBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E8F5EE' }]}
+                  style={[styles.detailToggleBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F0FDF4' }]}
                   onPress={() => setShowAllPlaces(!showAllPlaces)}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.detailToggleBtnText, { color: '#2E7D5B' }]}>
+                  <Text style={[styles.detailToggleBtnText, { color: '#16A34A' }]}>
                     {showAllPlaces ? 'Key Highlights' : `All Events (${timelineEvents.length})`}
                   </Text>
-                  <Ionicons name={showAllPlaces ? "chevron-up" : "chevron-down"} size={13} color="#2E7D5B" />
+                  <Ionicons name={showAllPlaces ? "chevron-up" : "chevron-down"} size={13} color="#4ADE80" />
                 </TouchableOpacity>
               )}
             </View>
@@ -1910,7 +1961,7 @@ export default function LocationHistoryScreen() {
             {displayedTimelineEvents.length === 0 ? (
               <View style={[styles.emptyTimelineCard, { backgroundColor: colors.surface, borderColor: isDark ? '#222' : '#EDEBE6' }]}>
                 <View style={styles.emptyCardHeader}>
-                  <View style={[styles.avatarCircleSmall, { backgroundColor: '#2E7D5B' }]}>
+                  <View style={[styles.avatarCircleSmall, { backgroundColor: '#4ADE80' }]}>
                     <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 13 }}>{selectedMemberInitial}</Text>
                   </View>
                   <View style={{ flex: 1, marginLeft: 10 }}>
@@ -1928,9 +1979,9 @@ export default function LocationHistoryScreen() {
                 {/* Status Chips: Battery & Last Seen */}
                 <View style={styles.emptyStatusRow}>
                   {selectedMemberObj?.batteryPct != null && (
-                    <View style={[styles.emptyStatusChip, { backgroundColor: '#E8F5EE' }]}>
-                      <Ionicons name="battery-charging" size={13} color="#2E7D5B" />
-                      <Text style={[styles.emptyStatusChipText, { color: '#2E7D5B' }]}>
+                    <View style={[styles.emptyStatusChip, { backgroundColor: '#F0FDF4' }]}>
+                      <Ionicons name="battery-charging" size={13} color="#16A34A" />
+                      <Text style={[styles.emptyStatusChipText, { color: '#16A34A' }]}>
                         {selectedMemberObj.batteryPct}% Battery
                       </Text>
                     </View>
@@ -1953,8 +2004,8 @@ export default function LocationHistoryScreen() {
 
                 {/* Clean tip without redundant duplicate buttons */}
                 {selectedDate === 'today' && (
-                  <View style={[styles.emptyHintBox, { backgroundColor: isDark ? 'rgba(46,125,91,0.1)' : '#F0FDF4', borderColor: isDark ? 'rgba(46,125,91,0.25)' : '#DCFCE7' }]}>
-                    <Ionicons name="information-circle-outline" size={15} color="#2E7D5B" />
+                  <View style={[styles.emptyHintBox, { backgroundColor: isDark ? 'rgba(74, 222, 128, 0.1)' : '#F0FDF4', borderColor: isDark ? 'rgba(74, 222, 128, 0.25)' : '#BBF7D0' }]}>
+                    <Ionicons name="information-circle-outline" size={15} color="#16A34A" />
                     <Text style={[styles.emptyHintText, { color: isDark ? '#A7F3D0' : '#166534' }]}>
                       Switch dates using the selector above (Today, Yesterday, 2 Days) to view recorded routes.
                     </Text>
@@ -1974,8 +2025,8 @@ export default function LocationHistoryScreen() {
                       style={[
                         styles.timelineEventCard,
                         {
-                          backgroundColor: isSelected ? (isDark ? '#14231B' : '#E8F5EE') : colors.surface,
-                          borderColor: isSelected ? '#2E7D5B' : (isDark ? '#222' : '#EDEBE6'),
+                          backgroundColor: isSelected ? (isDark ? '#142B1E' : '#F0FDF4') : colors.surface,
+                          borderColor: isSelected ? '#4ADE80' : (isDark ? '#222' : '#EDEBE6'),
                         },
                       ]}
                       onPress={() => {
@@ -1994,15 +2045,15 @@ export default function LocationHistoryScreen() {
                           styles.timelineIconBadge,
                           {
                             backgroundColor: isStay
-                              ? (isSafe ? (isDark ? '#1B3526' : '#E8F5EE') : (isDark ? '#35231C' : '#FFF3EB'))
-                              : (isDark ? '#1B3526' : '#E8F5EE'),
+                              ? (isSafe ? (isDark ? '#142B1E' : '#F0FDF4') : (isDark ? '#35231C' : '#FFF3EB'))
+                              : (isDark ? '#142B1E' : '#F0FDF4'),
                           },
                         ]}
                       >
                         <Ionicons
                           name={isStay ? (isSafe ? "shield-checkmark" : "location") : (event.data?.isTransit ? "subway-outline" : "car-sport")}
                           size={18}
-                          color={isStay ? (isSafe ? '#2E7D5B' : '#E07A5F') : '#2E7D5B'}
+                          color={isStay ? (isSafe ? '#16A34A' : '#E07A5F') : '#16A34A'}
                         />
                       </View>
 
@@ -2016,8 +2067,8 @@ export default function LocationHistoryScreen() {
                               styles.timelineTypeBadge,
                               {
                                 backgroundColor: isStay
-                                  ? (isSafe ? '#2E7D5B' : '#E07A5F')
-                                  : (event.data?.isTransit ? '#8B5CF6' : '#2E7D5B'),
+                                  ? (isSafe ? '#16A34A' : '#E07A5F')
+                                  : (event.data?.isTransit ? '#0284C7' : '#16A34A'),
                               },
                             ]}
                           >
@@ -2068,8 +2119,8 @@ export default function LocationHistoryScreen() {
                     onPress={() => setShowAllPlaces(true)}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="list-outline" size={15} color="#2E7D5B" />
-                    <Text style={[styles.expandAllTimelineBtnText, { color: '#2E7D5B' }]}>
+                    <Ionicons name="list-outline" size={15} color="#16A34A" />
+                    <Text style={[styles.expandAllTimelineBtnText, { color: '#16A34A' }]}>
                       Show All {timelineEvents.length} Events ({timelineEvents.length - displayedTimelineEvents.length} brief pauses hidden)
                     </Text>
                   </TouchableOpacity>
@@ -2107,10 +2158,11 @@ export default function LocationHistoryScreen() {
                 {/* Concentric Activity Rings */}
                 <ConcentricActivityRings
                   isDark={isDark}
+                  title="DAILY MOBILITY RINGS"
                   metrics={[
                     {
                       key: 'safeZone',
-                      label: 'Saved Places',
+                      label: 'Safe Haven Dwell',
                       value: Math.min(24, Math.round((
                         stationaryStops
                           .filter(s => s.isSafePlace || s.category === 'safe_zone')
@@ -2118,12 +2170,12 @@ export default function LocationHistoryScreen() {
                       ) * 10) / 10 || 16.5),
                       target: 24,
                       unit: 'hrs',
-                      color: '#10B981',
-                      gradientTo: '#059669',
+                      color: '#4ADE80',
+                      gradientTo: '#22C55E',
                     },
                     {
                       key: 'mobility',
-                      label: 'Travel Time',
+                      label: 'Distance Traveled',
                       value: Math.round((typeof totalDistanceKm === 'number' ? totalDistanceKm : parseFloat(totalDistanceKm) || 0) * 10) / 10,
                       target: 20,
                       unit: 'km',
@@ -2132,12 +2184,12 @@ export default function LocationHistoryScreen() {
                     },
                     {
                       key: 'dwell',
-                      label: 'Time Stability',
+                      label: 'Place Stability',
                       value: stationaryStops.length > 0 ? 88 : 96,
                       target: 100,
                       unit: '%',
-                      color: '#6366F1',
-                      gradientTo: '#4F46E5',
+                      color: '#2E7D5B',
+                      gradientTo: '#10B981',
                     },
                   ]}
                 />
@@ -2145,6 +2197,7 @@ export default function LocationHistoryScreen() {
                 {/* Places Dwell Distribution Donut */}
                 <PlacesDwellDonutChart
                   isDark={isDark}
+                  title="TIME & DWELL DISTRIBUTION"
                   segments={stationaryStops.length > 0 ? [
                     {
                       id: 'safe',
@@ -2155,7 +2208,7 @@ export default function LocationHistoryScreen() {
                           .filter(s => s.isSafePlace || s.category === 'safe_zone')
                           .reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
                       ),
-                      color: '#10B981',
+                      color: '#4ADE80',
                       isSafeHaven: true,
                     },
                     {
@@ -2439,6 +2492,30 @@ const styles = StyleSheet.create({
   },
   webView: {
     flex: 1,
+  },
+  mapLoadingOverlay: {
+    position: 'absolute',
+    top: 12,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(46,125,91,0.3)',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    zIndex: 100,
+  },
+  mapLoadingOverlayText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   loadingBox: {
     flex: 1,
@@ -2727,7 +2804,7 @@ const styles = StyleSheet.create({
   safePlaceBadgeText: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#2E7D5B',
+    color: '#16A34A',
     letterSpacing: 0.5,
   },
   timelineEventCard: {
@@ -2851,13 +2928,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
-    backgroundColor: 'rgba(46, 125, 91, 0.12)',
+    backgroundColor: 'rgba(74, 222, 128, 0.15)',
   },
   reconstructionBadgeText: {
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.5,
-    color: '#2E7D5B',
+    color: '#16A34A',
   },
   reconstructionBadgeMini: {
     flexDirection: 'row',
@@ -2903,7 +2980,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F0FDF4',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
@@ -2911,7 +2988,7 @@ const styles = StyleSheet.create({
   memberScopeSwitchText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#2E7D5B',
+    color: '#16A34A',
   },
   emptyTimelineCard: {
     padding: 18,
@@ -2942,7 +3019,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F0FDF4',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
@@ -2951,12 +3028,12 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#10B981',
+    backgroundColor: '#4ADE80',
   },
   liveStationaryText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#2E7D5B',
+    color: '#16A34A',
     letterSpacing: 0.5,
   },
   emptyStatusRow: {

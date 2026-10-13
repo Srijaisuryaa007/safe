@@ -7,6 +7,7 @@ import { queueAndSyncLocationHistory } from './OfflineLocationQueueService';
 import { useCircleStore } from '../store/useCircleStore';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { validateAndSanitizeGpsFix } from '../utils/locationValidator';
 
 export const LOCATION_BACKGROUND_TASK = 'CIRCLEGUARD_BACKGROUND_LOCATION_TASK';
 const SESSION_CACHE_KEY = '@circleguard_active_session_cache';
@@ -86,23 +87,42 @@ try {
       const latest = locations[locations.length - 1];
       const { latitude, longitude, speed, accuracy } = latest.coords;
 
-      // Strict GPS Accuracy Gate: Immediately reject cell-tower / WiFi multipath fixes (> 35m, or > 45m when driving fast)
-      // This prevents recording erroneous fixes that jump onto random streets
-      const maxAllowedAcc = (speed || 0) > 10 ? 45 : 35;
+      // Anti-Spoofing, Integrity & Sanitization Gate (Red-Team Audit)
+      const validation = validateAndSanitizeGpsFix({
+        latitude,
+        longitude,
+        accuracy,
+        speed,
+        timestamp: latest.timestamp,
+        mocked: (latest as any).mocked,
+      });
+
+      if (!validation.isValid) {
+        console.warn('[LocationBackgroundService] ⚠️ Fix rejected:', validation.reason);
+        return;
+      }
+
+      const cleanLat = validation.sanitizedLat;
+      const cleanLng = validation.sanitizedLng;
+
+      // Resilient GPS Accuracy Gate: allow genuine indoor-to-outdoor departure fixes (up to 55m stationary/walking, 65m driving)
+      const maxAllowedAcc = (speed || 0) > 10 ? 65 : 55;
       if (typeof accuracy === 'number' && accuracy > maxAllowedAcc) {
         return;
       }
 
       // Noise & Jitter Filter: Skip redundant updates if position moved < ~3 meters and stationary
       const now = Date.now();
-      const distFromLast = calculateHaversineMeters(lastProcessedLat, lastProcessedLng, latitude, longitude);
-      const isStationaryNoise = (distFromLast < 3.0 && (speed || 0) < 0.75 && (now - lastProcessedTimestamp < 30000));
+      const distFromLast = calculateHaversineMeters(lastProcessedLat, lastProcessedLng, cleanLat, cleanLng);
       
-      if (lastProcessedLat !== 0 && isStationaryNoise) {
+      // Smart Stationary Battery Throttling: If stationary (< 0.75 m/s) and moved < 4m, throttle wake-locks to save battery
+      const isStationary = (speed || 0) < 0.75 && distFromLast < 4.0;
+      const timeSinceLastMs = now - lastProcessedTimestamp;
+      if (lastProcessedLat !== 0 && isStationary && timeSinceLastMs < 60000) {
         return;
       }
-      lastProcessedLat = latitude;
-      lastProcessedLng = longitude;
+      lastProcessedLat = cleanLat;
+      lastProcessedLng = cleanLng;
       lastProcessedTimestamp = now;
 
       try {
@@ -168,7 +188,7 @@ try {
         }
 
         if (shouldSaveBgHistory) {
-          const authenticPoint = `POINT(${longitude} ${latitude})`;
+          const authenticPoint = `POINT(${cleanLng} ${cleanLat})`;
           // Non-blocking offline queue sync - won't throw or cancel on bad network
           queueAndSyncLocationHistory({
             user_id: userId,
@@ -176,22 +196,22 @@ try {
             speed_mps: rawSpeed,
             recorded_at: new Date(now).toISOString(),
             accuracy: accuracy ?? undefined,
-            latitude,
-            longitude,
+            latitude: cleanLat,
+            longitude: cleanLng,
           }).catch(() => {});
-          lastBgHistorySavedPoint[userId] = { lat: latitude, lng: longitude, timeMs: now };
+          lastBgHistorySavedPoint[userId] = { lat: cleanLat, lng: cleanLng, timeMs: now };
         }
 
         // Step 4: Ghost mode & live location sync (executed asynchronously)
         let isGhost = !!cached?.isGhostMode;
-        let finalLat = latitude;
-        let finalLng = longitude;
+        let finalLat = cleanLat;
+        let finalLng = cleanLng;
 
         if (isGhost) {
           const charCode = userId.charCodeAt(0) || 65;
           const fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
-          finalLat = parseFloat((latitude + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
-          finalLng = parseFloat((longitude + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
+          finalLat = parseFloat((cleanLat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
+          finalLng = parseFloat((cleanLng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
         }
 
         let batteryPct = 100;
@@ -199,6 +219,24 @@ try {
           const level = await Battery.getBatteryLevelAsync();
           if (level >= 0) batteryPct = Math.round(level * 100);
         } catch (e) {}
+
+        // Maya Lin Torture Mitigation: Sub-10% Critical Battery Survival Mode
+        // Prevent aggressive background battery drain below 10% on degraded batteries
+        if (batteryPct <= 10 && isStationary) {
+          const lastSyncRaw = await AsyncStorage.getItem(`@circleguard_last_crit_sync_${userId}`);
+          const lastSyncTime = lastSyncRaw ? parseInt(lastSyncRaw, 10) : 0;
+          if (now - lastSyncTime < 180000 && distFromLast < 25) {
+            console.log('[GPS_PIPELINE] Critical battery throttle (<10%): skipping remote write to preserve battery life.');
+            return;
+          }
+        }
+        AsyncStorage.setItem(`@circleguard_last_crit_sync_${userId}`, String(now)).catch(() => {});
+
+        // Data Loss Prevention: Write persistent snapshot in case OEM task killer terminates process
+        AsyncStorage.setItem(
+          `@circleguard_last_known_bg_fix_${userId}`,
+          JSON.stringify({ lat: finalLat, lng: finalLng, timeMs: now, batteryPct })
+        ).catch(() => {});
 
         const effectiveSpeed = isGhost ? 0 : rawSpeed;
         const speedKmh = Math.round(effectiveSpeed * 3.6);
@@ -437,23 +475,41 @@ try {
           const transitionType = isExit ? 'EXIT' : 'ENTER';
           const occurredAtIso = new Date().toISOString();
 
-          // 1. Authoritative: Call RPC / queue transition for offline resilience
+          // 1. Immediately persist local storage and DB state to avoid race conditions
+          try {
+            await AsyncStorage.setItem(`@circleguard_geofence_state_${userId}_${placeData.id}`, isExit ? 'outside' : 'inside');
+            await supabase.from('member_zone_state').upsert({
+              member_id: userId,
+              zone_id: placeData.id,
+              inside: !isExit,
+              last_transition_at: occurredAtIso,
+              updated_at: occurredAtIso,
+            });
+          } catch (_) {}
+
+          // 2. Authoritative: Call RPC / queue transition for offline resilience
+          let rpcHandled = false;
           try {
             const { reportZoneTransitionAuthoritative } = require('./ZoneTransitionQueueService');
-            reportZoneTransitionAuthoritative({
+            const res = await reportZoneTransitionAuthoritative({
               memberId: userId,
               zoneId: placeData.id,
               type: transitionType,
               occurredAt: occurredAtIso,
               lat: region.latitude,
               lng: region.longitude,
-            }).catch((e: any) => console.warn('[NativeGeofence] RPC report error:', e?.message));
-          } catch (_) {}
+            });
+            if (res && res.success) {
+              rpcHandled = true;
+            }
+          } catch (e: any) {
+            console.warn('[NativeGeofence] RPC report error:', e?.message);
+          }
 
-          // 2. Direct insert into public.zone_events for guaranteed Realtime broadcast
-          if (placeData.circle_id) {
-            Promise.resolve(
-              supabase
+          // 3. Fallback: If RPC was NOT executed (e.g. offline queue), insert directly
+          if (!rpcHandled) {
+            if (placeData.circle_id) {
+              await supabase
                 .from('zone_events')
                 .insert({
                   circle_id: placeData.circle_id,
@@ -464,20 +520,19 @@ try {
                   received_at: occurredAtIso,
                   lat: region.latitude,
                   lng: region.longitude,
-                })
-            ).catch(() => {});
+                });
+            }
+
+            await supabase.from('place_events').insert({
+              place_id: placeData.id,
+              user_id: userId,
+              event_type: isExit ? 'departure' : 'arrival',
+              occurred_at: occurredAtIso,
+            });
           }
 
-          // 3. Insert into place_events for backward compatibility
-          await supabase.from('place_events').insert({
-            place_id: placeData.id,
-            user_id: userId,
-            event_type: isExit ? 'departure' : 'arrival',
-            occurred_at: occurredAtIso,
-          });
+          await dispatchGeofencePushAlert(breachEvent, placeData);
         } catch (e) {}
-
-        await dispatchGeofencePushAlert(breachEvent, placeData);
       } catch (err) {
         console.error('Native geofence OS task error:', err);
       }
@@ -558,14 +613,26 @@ export const startBatteryOptimizedBackgroundLocation = async (): Promise<boolean
       // Offline fallback: will read existing cached session if available
     }
 
-    if (syncRate === 'high') {
-      timeInterval = 3000; // Fast 3-second sync cycle
-      distanceInterval = 1; // Moved 1+ meter
-      accuracy = Location.Accuracy.Highest;
-    } else if (syncRate === 'saver') {
+    // Dynamically check battery level to safeguard sub-10% and low battery states
+    let currentBatteryPct = 100;
+    try {
+      const bLevel = await Battery.getBatteryLevelAsync();
+      if (bLevel >= 0) currentBatteryPct = Math.round(bLevel * 100);
+    } catch {}
+
+    if (currentBatteryPct <= 10) {
+      // Maya Lin Extreme Battery Protection: throttle to 60s / 30m when under 10% battery
+      timeInterval = 60000;
+      distanceInterval = 30;
+      accuracy = Location.Accuracy.Balanced;
+    } else if (syncRate === 'saver' || currentBatteryPct <= 20) {
       timeInterval = 30000; // 30-second battery saver sync
       distanceInterval = 15; // Moved 15+ meters
       accuracy = Location.Accuracy.Balanced;
+    } else if (syncRate === 'high') {
+      timeInterval = 3000; // Fast 3-second sync cycle
+      distanceInterval = 1; // Moved 1+ meter
+      accuracy = Location.Accuracy.Highest;
     }
 
     try {
@@ -617,6 +684,24 @@ export const sendInstantLocationPing = async () => {
 
     const { latitude, longitude, speed } = loc.coords;
 
+    // Validate and sanitize GPS fix
+    const validation = validateAndSanitizeGpsFix({
+      latitude,
+      longitude,
+      accuracy: loc.coords.accuracy,
+      speed,
+      timestamp: loc.timestamp,
+      mocked: (loc as any).mocked,
+    }, userId);
+
+    if (!validation.isValid) {
+      console.warn('[InstantLocationPing] Rejected invalid GPS fix:', validation.reason);
+      return;
+    }
+
+    const cleanLat = validation.sanitizedLat;
+    const cleanLng = validation.sanitizedLng;
+
     // Check Ghost Mode state
     let isGhost = false;
     try {
@@ -625,14 +710,14 @@ export const sendInstantLocationPing = async () => {
       isGhost = localGhost === 'true' || !!cached?.isGhostMode;
     } catch (_) {}
 
-    let finalLat = latitude;
-    let finalLng = longitude;
+    let finalLat = cleanLat;
+    let finalLng = cleanLng;
 
     if (isGhost) {
       const charCode = userId.charCodeAt(0) || 65;
       const fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
-      finalLat = parseFloat((latitude + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
-      finalLng = parseFloat((longitude + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
+      finalLat = parseFloat((cleanLat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
+      finalLng = parseFloat((cleanLng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
     }
 
     let batteryPct = 100;

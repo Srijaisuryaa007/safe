@@ -25,7 +25,7 @@ export const PlacesDwellDonutChart: React.FC<PlacesDwellDonutChartProps> = ({
   size = 180,
   innerRadiusRatio = 0.68,
   isDark = true,
-  title = 'TIME DISTRIBUTION & PLACES DWELL',
+  title = 'TIME & DWELL DISTRIBUTION',
 }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -37,7 +37,7 @@ export const PlacesDwellDonutChart: React.FC<PlacesDwellDonutChartProps> = ({
   const data = useMemo(() => {
     if (propSegments && propSegments.length > 0) return propSegments;
     return [
-      { id: 'home', name: 'Safe Haven (Home)', durationMins: 780, color: '#00E599', isSafeHaven: true },
+      { id: 'home', name: 'Safe Haven (Home)', durationMins: 780, color: '#4ADE80', isSafeHaven: true },
       { id: 'work', name: 'Workplace / Campus', durationMins: 390, color: '#007AFF' },
       { id: 'transit', name: 'Vehicular Transit', durationMins: 95, color: '#38E8FF' },
       { id: 'cafe', name: 'Third Places / Stops', durationMins: 45, color: '#FF9500' },
@@ -97,7 +97,11 @@ export const PlacesDwellDonutChart: React.FC<PlacesDwellDonutChartProps> = ({
       <View style={styles.headerRow}>
         <View style={styles.titleWrapper}>
           <View style={[styles.headerDot, { backgroundColor: '#38E8FF' }]} />
-          <Text style={[styles.titleText, { color: isDark ? '#A0AEC0' : '#4A5568' }]}>
+          <Text
+            style={[styles.titleText, { color: isDark ? '#A0AEC0' : '#4A5568' }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {title}
           </Text>
         </View>
@@ -202,30 +206,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
   titleWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 7,
+    flex: 1,
+    marginRight: 10,
   },
   headerDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
+    flexShrink: 0,
   },
   titleText: {
-    fontSize: 10,
+    fontSize: 10.5,
     fontWeight: '800',
-    letterSpacing: 1.2,
+    letterSpacing: 0.8,
+    flexShrink: 1,
   },
   totalBadge: {
     backgroundColor: 'rgba(56, 232, 255, 0.1)',
     paddingHorizontal: 8,
-    paddingVertical: 2.5,
+    paddingVertical: 3,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(56, 232, 255, 0.25)',
+    flexShrink: 0,
   },
   totalBadgeText: {
     fontSize: 9,

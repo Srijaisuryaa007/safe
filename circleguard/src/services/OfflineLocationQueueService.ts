@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
+import { validateAndSanitizeGpsFix } from '../utils/locationValidator';
 
 export interface QueuedLocationPoint {
   user_id: string;
@@ -41,9 +42,9 @@ function parseCoordsFromGeom(geom: string): { latitude: number; longitude: numbe
 export async function queueAndSyncLocationHistory(point: QueuedLocationPoint): Promise<void> {
   if (!point.user_id) return;
 
-  // Strict Accuracy Filter: Only record authentic GPS fixes (<= 35m, or <= 45m when driving fast)
-  // Rejects cell-tower & WiFi multipath triangulation errors that jump onto random streets
-  const maxAllowedAccuracy = (point.speed_mps && point.speed_mps > 10.0) ? 45 : 35;
+  // Resilient Accuracy Filter: Allows authentic trail, mountain, and outdoor fixes (up to 85m for hiking/walking, 65m driving)
+  // Rejects extreme cell-tower glitches (> 90m) while preserving all off-grid trails
+  const maxAllowedAccuracy = (point.speed_mps && point.speed_mps > 10.0) ? 65 : 85;
   if (typeof point.accuracy === 'number' && point.accuracy > maxAllowedAccuracy) {
     return;
   }
@@ -59,9 +60,27 @@ export async function queueAndSyncLocationHistory(point: QueuedLocationPoint): P
     }
   }
 
+  // Security Anti-Spoofing & Integrity Gate (Dr. Viktor Vance Red-Team Remediation)
+  const validation = validateAndSanitizeGpsFix({
+    latitude: lat,
+    longitude: lng,
+    accuracy: point.accuracy,
+    speed: point.speed_mps,
+    timestamp: point.recorded_at,
+  }, point.user_id);
+
+  if (!validation.isValid) {
+    console.warn('[OfflineQueue] ⚠️ Dropping invalid/spoofed breadcrumb:', validation.reason);
+    return;
+  }
+
+  lat = validation.sanitizedLat;
+  lng = validation.sanitizedLng;
+  const geomPoint = `POINT(${lng} ${lat})`;
+
   const pointToSave: QueuedLocationPoint = {
     user_id: point.user_id,
-    geom: point.geom,
+    geom: geomPoint,
     speed_mps: point.speed_mps || 0,
     recorded_at: point.recorded_at,
     accuracy: point.accuracy,

@@ -217,11 +217,70 @@ export async function canAndRecordGeofenceAlert(
       } catch (e) {}
     }
 
+    if (!record) {
+      // Query authoritative member_zone_state from DB so cold boot / app restarts never re-alert
+      try {
+        const { data: dbZoneState } = await supabase
+          .from('member_zone_state')
+          .select('inside, last_transition_at')
+          .eq('member_id', userId)
+          .eq('zone_id', placeId)
+          .maybeSingle();
+
+        if (dbZoneState) {
+          record = {
+            lastEventType: dbZoneState.inside ? 'entry' : 'exit',
+            lastAlertTime: dbZoneState.last_transition_at ? new Date(dbZoneState.last_transition_at).getTime() : 0,
+          };
+        }
+      } catch (_) {}
+    }
+
+    if (!record) {
+      try {
+        const { data: lastZe } = await supabase
+          .from('zone_events')
+          .select('type, occurred_at')
+          .eq('member_id', userId)
+          .eq('zone_id', placeId)
+          .order('occurred_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (lastZe) {
+          record = {
+            lastEventType: lastZe.type === 'ENTER' ? 'entry' : 'exit',
+            lastAlertTime: lastZe.occurred_at ? new Date(lastZe.occurred_at).getTime() : 0,
+          };
+        }
+      } catch (_) {}
+    }
+
+    if (!record) {
+      try {
+        const { data: lastPe } = await supabase
+          .from('place_events')
+          .select('event_type, occurred_at')
+          .eq('user_id', userId)
+          .eq('place_id', placeId)
+          .order('occurred_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (lastPe) {
+          record = {
+            lastEventType: lastPe.event_type === 'arrival' ? 'entry' : 'exit',
+            lastAlertTime: lastPe.occurred_at ? new Date(lastPe.occurred_at).getTime() : 0,
+          };
+        }
+      } catch (_) {}
+    }
+
     if (record) {
       const timeSinceLastAlert = now - record.lastAlertTime;
 
-      // Anti-flapping: don't allow rapid flip within 45 seconds (stops GPS micro-jitter)
-      if (timeSinceLastAlert < 45000) {
+      // Anti-flapping: don't allow rapid flip within 90 seconds (stops GPS micro-jitter and urban canyon flutter)
+      if (timeSinceLastAlert < 90000) {
         return false;
       }
 
@@ -251,6 +310,57 @@ export async function canAndRecordGeofenceAlert(
   } finally {
     inFlightAlertLocks.delete(alertKey);
   }
+}
+
+/**
+ * Resolves the genuine departure timestamp by looking back through location_history
+ * for the exact moment the user crossed the safe zone perimeter.
+ */
+async function resolveAuthenticExitTime(
+  userId: string,
+  place: GeofencePlace,
+  fallbackIso: string
+): Promise<string> {
+  try {
+    const radius = place.radius_m || 150;
+    const placeLat = Number(place.latitude ?? place.start_lat);
+    const placeLng = Number(place.longitude ?? place.start_lng);
+
+    if (isNaN(placeLat) || isNaN(placeLng)) return fallbackIso;
+
+    // Check location_history for when user crossed the boundary
+    const { data: fixes } = await supabase
+      .from('location_history')
+      .select('latitude, longitude, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(30);
+
+    if (fixes && fixes.length > 0) {
+      for (let i = 0; i < fixes.length - 1; i++) {
+        const curFix = fixes[i];
+        const prevFix = fixes[i + 1];
+        const curDist = getHaversineDistanceInMeters(curFix.latitude, curFix.longitude, placeLat, placeLng);
+        const prevDist = getHaversineDistanceInMeters(prevFix.latitude, prevFix.longitude, placeLat, placeLng);
+
+        if (curDist > radius && prevDist <= radius + 50) {
+          return curFix.created_at;
+        }
+      }
+
+      // If all recent fixes are outside, the last fix inside the safe zone was the moment before departure
+      for (let i = fixes.length - 1; i >= 0; i--) {
+        const f = fixes[i];
+        const dist = getHaversineDistanceInMeters(f.latitude, f.longitude, placeLat, placeLng);
+        if (dist <= radius + 50) {
+          return f.created_at;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[GeofenceEngine] Error resolving authentic exit time:', e);
+  }
+  return fallbackIso;
 }
 
 export async function evaluateGeofenceBreaches(
@@ -341,8 +451,8 @@ export async function evaluateGeofenceBreaches(
     if (currentState === undefined) {
       try {
         const cached = await AsyncStorage.getItem(`@circleguard_geofence_state_${trackingKey}`);
-        if (cached === 'inside' || cached === 'outside') {
-          currentState = cached;
+        if (cached === 'inside' || cached === 'outside' || cached === 'true' || cached === 'false') {
+          currentState = (cached === 'inside' || cached === 'true') ? 'inside' : 'outside';
         }
       } catch (e) {}
 
@@ -364,30 +474,24 @@ export async function evaluateGeofenceBreaches(
               .eq('zone_id', place.id)
               .eq('member_id', userLoc.user_id)
               .order('occurred_at', { ascending: false })
-              .limit(1);
+              .limit(1)
+              .maybeSingle();
 
-            if (lastEventData && lastEventData.length > 0) {
-              currentState = lastEventData[0].type === 'ENTER' ? 'inside' : 'outside';
+            if (lastEventData) {
+              currentState = lastEventData.type === 'ENTER' ? 'inside' : 'outside';
             }
           }
         } catch (e) {}
       }
 
-      // Initial bootstrap: If state is unrecorded or app just launched, sync to current physical location
-      const initialPhysicalState = distMeters <= radius + Math.max(35, accuracy * 1.5) ? 'inside' : 'outside';
+      // Physical position check at moment of cold boot / app launch / refresh:
+      const isPhysicallyInside = distMeters <= radius;
+      const isPhysicallyOutside = distMeters > radius;
 
-      if (currentState === undefined) {
-        confirmedStates.set(trackingKey, initialPhysicalState);
-        try {
-          await AsyncStorage.setItem(`@circleguard_geofence_state_${trackingKey}`, initialPhysicalState);
-        } catch (e) {}
-        continue; // Never fire entry/exit alert on initial cold start
-      }
-
-      // If recorded state was 'inside', but user is currently already outside upon opening the app:
-      // The user did NOT leave right this second! They were already outside while app was closed.
-      // Silently sync state to 'outside' without generating a bogus breach event with current app-open time!
-      if (currentState === 'inside' && distMeters > radius + Math.max(40, accuracy * 1.5)) {
+      // CRITICAL GUARD 1: If user is physically outside right now, they ARE outside!
+      // Opening or refreshing the app while outside MUST NEVER trigger an exit event!
+      // Silently set state to 'outside' and continue without emitting any breach event.
+      if (isPhysicallyOutside) {
         confirmedStates.set(trackingKey, 'outside');
         try {
           await AsyncStorage.setItem(`@circleguard_geofence_state_${trackingKey}`, 'outside');
@@ -398,6 +502,16 @@ export async function evaluateGeofenceBreaches(
             last_transition_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           });
+        } catch (e) {}
+        continue; // Never fire exit alert when already outside!
+      }
+
+      // CRITICAL GUARD 2: If user is physically inside and state was unrecorded:
+      // Silently anchor to 'inside' on initial boot so a fresh launch does not falsely trigger.
+      if (currentState === undefined) {
+        confirmedStates.set(trackingKey, isPhysicallyInside ? 'inside' : 'outside');
+        try {
+          await AsyncStorage.setItem(`@circleguard_geofence_state_${trackingKey}`, isPhysicallyInside ? 'inside' : 'outside');
         } catch (e) {}
         continue;
       }
@@ -410,13 +524,16 @@ export async function evaluateGeofenceBreaches(
 
     // Layer 3: Asymmetric Dynamic Hysteresis Deadband
     // Exit requires distance beyond radius + dynamic accuracy buffer (min 40m)
-    const hysteresisExitMargin = Math.max(40, accuracy * 1.5);
+    const hysteresisExitMargin = Math.max(45, accuracy * 1.5);
     const exitThreshold = radius + hysteresisExitMargin;
     const entryThreshold = radius;
 
     // Layer 4: Kinematic & Zero-Motion Gate (Speed / Stationary Inertia)
     const rawSpeed = typeof userLoc.speed_mps === 'number' ? userLoc.speed_mps : 0;
-    const isStationary = (userLoc.speed_mps !== undefined && rawSpeed < 0.65) || userLoc.activity_state === 'Stationary';
+    const isStationary =
+      (userLoc.speed_mps !== undefined && rawSpeed < 0.8) ||
+      userLoc.activity_state === 'Stationary' ||
+      userLoc.activity_state === 'Still';
 
     let candidateState: 'inside' | 'outside' | null = null;
 
@@ -427,24 +544,41 @@ export async function evaluateGeofenceBreaches(
         continue;
       }
 
-      // Beyond outer threshold: evaluate whether this is physical travel or stationary jitter
-      if (isStationary && distMeters < radius * 2.0 && distMeters < radius + 150) {
-        // Device is stationary! Indoor GPS drift cannot cause exit
+      // CRITICAL MULTIPATH DRIFT & URBAN CANYON INVARIANT (Ravi Patel 43rd-floor river jump fix):
+      // A stationary user sitting on a couch / at a desk CANNOT physically depart a safe zone,
+      // regardless of how far the indoor reflected GPS jumps (e.g. 500m across a river).
+      if (isStationary) {
+        // Discard indoor multipath reflection jump without modifying zone state
+        candidateTransitions.delete(trackingKey);
+        continue;
+      }
+
+      // Discard degraded accuracy fixes (> 45m) from triggering exits
+      if (accuracy > 45) {
         candidateTransitions.delete(trackingKey);
         continue;
       }
 
       // HIGH-CONFIDENCE EXIT:
-      // If GPS accuracy is reliable (<=40m) and distance exceeds exitThreshold + 30m,
-      // or if distance is clearly beyond the perimeter (>= radius * 1.5):
-      // Trigger IMMEDIATE exit confirmation without waiting for multi-sample latency!
-      const isHighConfidenceExit = (accuracy <= 40 && distMeters >= exitThreshold + 30) || distMeters >= radius * 1.5;
+      // Requires clear non-stationary kinetic movement (speed >= 1.2 m/s or high vehicular speed)
+      // and high accuracy satellite lock (accuracy <= 30m).
+      const isHighConfidenceExit =
+        !isStationary &&
+        accuracy <= 30 &&
+        rawSpeed >= 1.2 &&
+        distMeters >= exitThreshold + 30;
 
       if (isHighConfidenceExit) {
         candidateState = 'outside';
         candidateTransitions.delete(trackingKey);
       } else {
         // Layer 5: Temporal Dwell & Multi-Sample Exit Verification
+        // Require multiple consecutive non-stationary fixes over sustained dwell
+        if (rawSpeed < 0.9) {
+          // Speed too low to constitute genuine departure
+          continue;
+        }
+
         let candidate = candidateTransitions.get(trackingKey);
         if (!candidate || candidate.targetState !== 'outside') {
           candidateTransitions.set(trackingKey, {
@@ -463,8 +597,8 @@ export async function evaluateGeofenceBreaches(
 
         const dwellDurationMs = now - candidate.firstCandidateTime;
         const isFastVehicle = rawSpeed >= 4.0; // >= 14.4 km/h
-        const requiredCount = isFastVehicle ? 2 : REQUIRED_EXIT_CONSECUTIVE_SAMPLES;
-        const requiredDwell = isFastVehicle ? 10000 : REQUIRED_EXIT_DWELL_MS;
+        const requiredCount = isFastVehicle ? 2 : Math.max(3, REQUIRED_EXIT_CONSECUTIVE_SAMPLES);
+        const requiredDwell = isFastVehicle ? 10000 : Math.max(15000, REQUIRED_EXIT_DWELL_MS);
 
         if (candidate.consecutiveCount < requiredCount || dwellDurationMs < requiredDwell) {
           continue; // Still pending dwell confirmation
@@ -587,7 +721,10 @@ export async function evaluateGeofenceBreaches(
         ? `${(distMeters / 1000).toFixed(1)} km`
         : `${Math.round(distMeters)} m`;
 
-    const actualEventTime = userLoc.updated_at || new Date().toISOString();
+    let actualEventTime = userLoc.updated_at || new Date().toISOString();
+    if (isExit) {
+      actualEventTime = await resolveAuthenticExitTime(userLoc.user_id, place, actualEventTime);
+    }
 
     const breachEvent: GeofenceBreachEvent = {
       id: `${place.id}_${candidateState}_${now}`,
@@ -656,10 +793,23 @@ export async function evaluateGeofenceBreaches(
     try {
       const transitionType: 'EXIT' | 'ENTER' = isExit ? 'EXIT' : 'ENTER';
 
-      // 1. Authoritative: Call RPC / queue transition for offline resilience
+      // 1. Immediately persist local storage and DB state to avoid race conditions
+      try {
+        await AsyncStorage.setItem(`@circleguard_geofence_state_${trackingKey}`, isExit ? 'outside' : 'inside');
+        await supabase.from('member_zone_state').upsert({
+          member_id: userLoc.user_id,
+          zone_id: place.id,
+          inside: !isExit,
+          last_transition_at: actualEventTime,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (_) {}
+
+      // 2. Authoritative: Call RPC / queue transition for offline resilience
+      let rpcHandled = false;
       try {
         const { reportZoneTransitionAuthoritative } = require('./ZoneTransitionQueueService');
-        reportZoneTransitionAuthoritative({
+        const res = await reportZoneTransitionAuthoritative({
           memberId: userLoc.user_id,
           zoneId: place.id,
           type: transitionType,
@@ -667,13 +817,22 @@ export async function evaluateGeofenceBreaches(
           lat: userLoc.latitude,
           lng: userLoc.longitude,
           accuracy: userLoc.accuracy_m,
-        }).catch((rpcErr: any) => console.warn('[GeofenceEngine] RPC transition note:', rpcErr?.message));
-      } catch (_) {}
+        });
+        if (res && res.success) {
+          rpcHandled = true;
+          if (res.result && res.result.status === 'ignored') {
+            continue;
+          }
+        }
+      } catch (rpcErr: any) {
+        console.warn('[GeofenceEngine] RPC transition note:', rpcErr?.message);
+      }
 
-      // 2. Direct insert into public.zone_events for guaranteed Supabase Realtime broadcast to all members
-      if (place.circle_id) {
-        Promise.resolve(
-          supabase
+      // 3. Fallback: If RPC was NOT executed (e.g. offline fallback queue), insert directly
+      // (When RPC succeeds, it already inserts into zone_events and place_events, avoiding duplicates!)
+      if (!rpcHandled) {
+        if (place.circle_id) {
+          await supabase
             .from('zone_events')
             .insert({
               circle_id: place.circle_id,
@@ -685,19 +844,18 @@ export async function evaluateGeofenceBreaches(
               lat: userLoc.latitude,
               lng: userLoc.longitude,
               accuracy: userLoc.accuracy_m,
-            })
-        ).catch(() => {});
+            });
+        }
+
+        await supabase.from('place_events').insert({
+          place_id: place.id,
+          user_id: userLoc.user_id,
+          event_type: isExit ? 'departure' : 'arrival',
+          occurred_at: actualEventTime,
+        });
       }
 
-      // 3. Insert into place_events for backward compatibility
-      await supabase.from('place_events').insert({
-        place_id: place.id,
-        user_id: userLoc.user_id,
-        event_type: isExit ? 'departure' : 'arrival',
-        occurred_at: actualEventTime,
-      });
-
-      // 4. Dispatch push alerts to all circle members and publish system message
+      // 4. Dispatch push alerts to all circle members and local notification
       await dispatchGeofencePushAlert(breachEvent, place);
     } catch (e) {
       console.warn('Error logging geofence events:', e);
@@ -770,12 +928,16 @@ export async function dispatchGeofencePushAlert(breach: GeofenceBreachEvent, pla
       }
     }
 
-    if (place.circle_id && isValidUuid(place.circle_id)) {
+    const effectiveCircleId = (place.circle_id && isValidUuid(place.circle_id))
+      ? place.circle_id
+      : require('../store/useCircleStore').useCircleStore.getState().activeCircle?.id;
+
+    if (effectiveCircleId && isValidUuid(effectiveCircleId)) {
       try {
         const { data: rawCmRows } = await supabase
           .from('circle_members')
           .select('user_id')
-          .eq('circle_id', place.circle_id);
+          .eq('circle_id', effectiveCircleId);
 
         if (rawCmRows && rawCmRows.length > 0) {
           const otherMemberIds = rawCmRows

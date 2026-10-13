@@ -42,7 +42,7 @@ export default function HomeMiniMapCard({
           return null;
         }
 
-        const roleColor = m.role === 'owner' ? '#D4AF37' : (m.role === 'co_leader' ? '#A855F7' : (m.role === 'guardian' ? '#3B82F6' : '#10B981'));
+        const roleColor = m.role === 'owner' ? '#F5A623' : (m.role === 'co_leader' ? '#3ADFAB' : (m.role === 'guardian' ? '#2E7D5B' : '#64748B'));
         const name = m.profile?.full_name || 'Member';
 
         return {
@@ -90,6 +90,11 @@ export default function HomeMiniMapCard({
         * { margin:0; padding:0; box-sizing:border-box; }
         html, body, #map { width:100%; height:100%; background:${isDark ? '#0D0E12' : '#F4F4F5'}; overflow:hidden; }
         .leaflet-control-attribution, .leaflet-control-zoom { display:none !important; }
+        ${isDark ? `
+        .leaflet-tile-pane {
+          filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+        }
+        ` : ''}
       </style>
     </head>
     <body>
@@ -119,7 +124,7 @@ export default function HomeMiniMapCard({
           if (map) map.invalidateSize();
         });
 
-        var tileUrl = '${isDark ? 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'}';
+        var tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
         L.tileLayer(tileUrl, { minZoom: 3, maxZoom: 18, maxNativeZoom: 18, attribution: '© OpenStreetMap contributors' }).addTo(map);
 
         var markers = {};

@@ -96,7 +96,7 @@ export default function MapLayerModal({
       icon: 'trail-sign-outline',
       badge: 'TOPOGRAPHY',
       previewBg: '#1B262C',
-      borderColor: '#8B5CF6',
+      borderColor: '#2E7D5B',
     },
     {
       id: 'dark',

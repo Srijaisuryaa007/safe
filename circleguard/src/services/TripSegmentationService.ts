@@ -169,6 +169,8 @@ export function segmentTripsByStops<T>(
   return legs;
 }
 
+export type TelematicsSensitivity = 'low' | 'balanced' | 'high';
+
 export interface TelemetryAnalysisResult {
   distanceKm: number;
   durationMins: number;
@@ -191,7 +193,8 @@ export function analyzeTripTelemetry<T>(
   getTimeMs: (p: T) => number,
   getLat: (p: T) => number,
   getLng: (p: T) => number,
-  getSpeedKmh?: (p: T) => number
+  getSpeedKmh?: (p: T) => number,
+  sensitivity: TelematicsSensitivity = 'balanced'
 ): TelemetryAnalysisResult {
   if (!points || points.length === 0) {
     return {
@@ -316,16 +319,35 @@ export function analyzeTripTelemetry<T>(
       if (dtSec >= 1.0 && dtSec <= 8.0) {
         const accelKmhPerSec = (smoothSpd - prev.speed) / dtSec;
 
-        // Hard brake: initial vehicular speed >= 25 km/h and deceleration <= -13.5 km/h/s (~ -0.38g)
-        if (prev.speed >= 25 && accelKmhPerSec <= -13.5) {
-          const isPersistentBrake = i === rawProcessed.length - 1 || rawProcessed[i + 1].speed <= smoothSpd + 8;
+        // Dynamic sensitivity calibration (Low = Cup Holder / Fleet / Corrugated rough roads, Balanced = Standard, High = Strict Teen)
+        const minBrakeSpeed = sensitivity === 'low' ? 36 : sensitivity === 'high' ? 20 : 25;
+        const brakeThreshold = sensitivity === 'low' ? -18.5 : sensitivity === 'high' ? -11.0 : -13.5;
+        const minAccelSpeed = sensitivity === 'low' ? 32 : sensitivity === 'high' ? 18 : 25;
+        const accelThreshold = sensitivity === 'low' ? 18.0 : sensitivity === 'high' ? 10.5 : 13.0;
+
+        // Hard brake: initial vehicular speed >= minBrakeSpeed and deceleration <= brakeThreshold
+        if (prev.speed >= minBrakeSpeed && accelKmhPerSec <= brakeThreshold) {
+          // Anti-vibration & rough road washboard filter:
+          // Correlate deceleration spikes with real vehicle GPS speed drop sustained over time.
+          // Dropped phones, potholes, or gravel washboard vibrations produce momentary sensor spikes without sustained velocity drop.
+          const actualSpeedDelta = prev.speed - smoothSpd;
+          const minDeltaRequired = sensitivity === 'low' ? 15 : 10;
+          const isPersistentBrake = actualSpeedDelta >= minDeltaRequired && 
+            (i === rawProcessed.length - 1 || rawProcessed[i + 1].speed <= smoothSpd + 3);
           if (isPersistentBrake) {
             hardBrakes++;
           }
         } 
-        // Rapid acceleration: initial vehicular speed >= 12 km/h and acceleration >= +13.0 km/h/s (~ +0.37g)
-        else if (accelKmhPerSec >= 13.0 && smoothSpd >= 25) {
-          rapidAccels++;
+        // Rapid acceleration: vehicular speed >= minAccelSpeed and acceleration >= accelThreshold
+        else if (accelKmhPerSec >= accelThreshold && smoothSpd >= minAccelSpeed) {
+          // Rough road / pothole rebound filter: Require genuine sustained speed gain
+          const actualSpeedGain = smoothSpd - prev.speed;
+          const minGainRequired = sensitivity === 'low' ? 15 : 10;
+          const isPersistentAccel = actualSpeedGain >= minGainRequired &&
+            (i === rawProcessed.length - 1 || rawProcessed[i + 1].speed >= smoothSpd - 3);
+          if (isPersistentAccel) {
+            rapidAccels++;
+          }
         }
       }
     }

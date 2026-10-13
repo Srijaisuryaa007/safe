@@ -29,7 +29,7 @@ export const ConcentricActivityRings: React.FC<ConcentricActivityRingsProps> = (
   strokeWidth = 14,
   ringGap = 4,
   isDark = true,
-  title = 'DAILY MOBILITY & SAFE HAVEN RINGS',
+  title = 'DAILY MOBILITY RINGS',
 }) => {
   const center = size / 2;
 
@@ -43,8 +43,8 @@ export const ConcentricActivityRings: React.FC<ConcentricActivityRingsProps> = (
         value: 18.5,
         target: 24,
         unit: 'hrs',
-        color: '#00E599',
-        gradientTo: '#00B87A',
+        color: '#4ADE80',
+        gradientTo: '#22C55E',
       },
       {
         key: 'mobility',
@@ -100,8 +100,12 @@ export const ConcentricActivityRings: React.FC<ConcentricActivityRingsProps> = (
       {/* Title */}
       <View style={styles.headerRow}>
         <View style={styles.titleWrapper}>
-          <View style={[styles.headerDot, { backgroundColor: '#00E599' }]} />
-          <Text style={[styles.titleText, { color: isDark ? '#A0AEC0' : '#4A5568' }]}>
+          <View style={[styles.headerDot, { backgroundColor: '#4ADE80' }]} />
+          <Text
+            style={[styles.titleText, { color: isDark ? '#A0AEC0' : '#4A5568' }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {title}
           </Text>
         </View>
@@ -222,35 +226,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
   titleWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 7,
+    flex: 1,
+    marginRight: 10,
   },
   headerDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
+    flexShrink: 0,
   },
   titleText: {
-    fontSize: 10,
+    fontSize: 10.5,
     fontWeight: '800',
-    letterSpacing: 1.2,
+    letterSpacing: 0.8,
+    flexShrink: 1,
   },
   summaryBadge: {
-    backgroundColor: 'rgba(0, 229, 153, 0.1)',
+    backgroundColor: 'rgba(74, 222, 128, 0.12)',
     paddingHorizontal: 8,
-    paddingVertical: 2.5,
+    paddingVertical: 3,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(0, 229, 153, 0.25)',
+    borderColor: 'rgba(74, 222, 128, 0.28)',
+    flexShrink: 0,
   },
   summaryBadgeText: {
     fontSize: 9,
     fontWeight: '900',
-    color: '#00E599',
+    color: '#4ADE80',
     letterSpacing: 0.8,
   },
   contentRow: {

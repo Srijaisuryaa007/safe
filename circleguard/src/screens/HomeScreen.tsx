@@ -349,22 +349,24 @@ export default function HomeScreen() {
           name = Array.isArray(item.profiles) ? item.profiles[0]?.full_name : (item.profiles as any).full_name;
         }
         let cleanTitle = item.content
-          .replace(/^PERMISSION GRANTED:\s*/i, '')
-          .replace(/^PERMISSION DENIED:\s*/i, '')
-          .replace(/^PERMISSION REQUEST:\s*/i, '');
+          .replace(/^PERMISSION (GRANTED|AUTHORIZED)\s*(\[target:[^\]]+\])?:\s*/i, '')
+          .replace(/^PERMISSION (DENIED|DECLINED)\s*(\[target:[^\]]+\])?:\s*/i, '')
+          .replace(/^PERMISSION REQUEST\s*(\[target:[^\]]+\])?:\s*/i, '')
+          .replace(/\[target:[^\]]+\]/g, '')
+          .trim();
 
         let color = colors.accentGold;
         let icon: any = 'shield-outline';
         let badgeText = 'PRIVACY LOG';
 
-        if (item.content.includes('GRANTED')) {
+        if (item.content.includes('GRANTED') || item.content.includes('AUTHORIZED')) {
           color = '#10B981';
           icon = 'checkmark-circle-outline';
           badgeText = 'REQUEST APPROVED';
-        } else if (item.content.includes('DENIED')) {
+        } else if (item.content.includes('DENIED') || item.content.includes('DECLINED')) {
           color = '#EF4444';
           icon = 'close-circle-outline';
-          badgeText = 'REQUEST DENIED';
+          badgeText = 'REQUEST DECLINED';
         } else if (item.content.includes('REQUEST')) {
           color = '#F59E0B';
           icon = 'lock-closed-outline';

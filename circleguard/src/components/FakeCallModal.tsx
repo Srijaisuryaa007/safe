@@ -450,7 +450,7 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
         supabase.from('circle_messages').insert({
           circle_id: activeCircle.id,
           sender_id: profile.id,
-          message: `🛡️ Initiated ${effectiveCallerName} safety escort walk. Live phone escort active.`,
+          message: `Initiated ${effectiveCallerName} safety escort walk. Live phone escort active.`,
         }).then(() => {}, () => {});
       } catch (e) {}
     }

@@ -72,6 +72,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "test:e2e": "node tests/playwright_full_audit.js",
+    "test:swarm": "python ../scripts/swarm_tester/swarm_tester.py",
+    "dashboard:swarm": "powershell -c Start-Process ../scripts/swarm_tester/swarm_dashboard.html",
     "postinstall": "node scripts/patch-packages.js"
   },
   "private": true,

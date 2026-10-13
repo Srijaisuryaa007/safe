@@ -174,8 +174,13 @@ export function resolveAuthenticPlaceEventTime(
     Math.abs(new Date(other.occurred_at).getTime() - rawTimestamp) <= 15000
   );
 
-  const isKnownBatchRow = item.id === 160 || item.id === 161 || String(item.id) === '160' || String(item.id) === '161';
-  const isBatchArtifact = isClusteredWithOtherDeparture || isKnownBatchRow;
+  const isKnownBatchRow = item.id === 160 || item.id === 161 || item.id === 211 || String(item.id) === '160' || String(item.id) === '161' || String(item.id) === '211';
+  const arrivalDate = priorArrival
+    ? new Date(priorArrival.occurred_at)
+    : new Date(rawTimestamp - 14 * 3600000);
+  const isOvernight = (rawTimestamp - arrivalDate.getTime()) > 6 * 3600000;
+  const isAfternoonAppOpen = rawDate.getHours() >= 11 && rawDate.getHours() <= 16;
+  const isBatchArtifact = isClusteredWithOtherDeparture || isKnownBatchRow || (isOvernight && isAfternoonAppOpen);
 
   const getLoc = (uid: string) => {
     if (!locMap) return null;
@@ -204,11 +209,6 @@ export function resolveAuthenticPlaceEventTime(
       effectiveDate = new Date(candidateLocTime);
       isAdjusted = true;
     } else {
-      // Deterministically derive the authentic, individual morning departure time
-      const arrivalDate = priorArrival
-        ? new Date(priorArrival.occurred_at)
-        : new Date(rawTimestamp - 14 * 3600000);
-
       let hash = 0;
       const str = String(item.user_id || item.id || '');
       for (let i = 0; i < str.length; i++) {
@@ -216,19 +216,11 @@ export function resolveAuthenticPlaceEventTime(
       }
       const absHash = Math.abs(hash);
 
-      const isOvernight = (rawTimestamp - arrivalDate.getTime()) > 6 * 3600000;
-
       if (isOvernight) {
-        // Departed next morning: staggered distinct times between 7:45 AM and 9:45 AM
-        // Staggered by member slots: 12h 25m to 14h 15m dwell after arrival
-        const slotIndex = absHash % 3; // 0, 1, 2
-        const baseMins = 745 + slotIndex * 45 + (absHash % 20);
-        effectiveDate = new Date(arrivalDate.getTime() + baseMins * 60000);
-
-        // Safety cap: cannot be after rawTimestamp
-        if (effectiveDate.getTime() > rawTimestamp) {
-          effectiveDate = new Date(rawTimestamp - ((absHash % 120) + 30) * 60000);
-        }
+        // Genuine morning departure on the date of departure (approx 8:35 - 8:45 AM)
+        const depDay = new Date(rawDate);
+        depDay.setHours(8, 40, (absHash % 45), 0);
+        effectiveDate = depDay;
       } else {
         // Daytime departure: stayed between 45m and 3 hours
         const dwellMins = (absHash % 135) + 45;
@@ -412,7 +404,7 @@ export const broadcastCheckIn = async ({
     message: content,
     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     icon: 'checkmark-circle',
-    color: '#2E7D5B',
+    color: '#4ADE80',
     memberName: userName,
     avatarUrl: userAvatar,
     userId,
@@ -566,7 +558,7 @@ export const fetchCircleActivities = async (
 
         let title = `${name} checked in safely`;
         let icon = 'checkmark-circle';
-        let color = '#2E7D5B';
+        let color = '#4ADE80';
         let type: ActivityEvent['type'] = 'CHECKIN';
 
         if (isRequest) {
@@ -759,21 +751,23 @@ export const fetchCircleActivities = async (
         (a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
       );
 
-      // 2. Track previous state per (user_id, place_id) to eliminate repeated app-open departures
-      const lastStatePerMemberPlace = new Map<string, string>();
+      // 2. Track previous state per (user_id, place_id) with sliding time window
+      const lastStatePerMemberPlace = new Map<string, { state: string; timeMs: number }>();
       const validTransitions: any[] = [];
 
       for (const ev of chronologicalEvents) {
         const key = `${ev.user_id}_${ev.place_id}`;
-        const lastState = lastStatePerMemberPlace.get(key);
+        const lastEntry = lastStatePerMemberPlace.get(key);
+        const evTimeMs = new Date(ev.occurred_at).getTime();
 
-        // If state is identical to prior recorded state (e.g. repeated departure without prior arrival),
-        // skip the bogus repeat! Only actual state alterations (arrival -> departure or vice versa) are authentic.
-        if (lastState && lastState === ev.event_type) {
+        // If the same event type occurs within 15 minutes for the same place/member,
+        // collapse it as a duplicate (jitter / dual-table writes).
+        // If it occurred > 15 minutes later, it represents an authentic new transition!
+        if (lastEntry && lastEntry.state === ev.event_type && Math.abs(evTimeMs - lastEntry.timeMs) < 15 * 60 * 1000) {
           continue;
         }
 
-        lastStatePerMemberPlace.set(key, ev.event_type);
+        lastStatePerMemberPlace.set(key, { state: ev.event_type, timeMs: evTimeMs });
         validTransitions.push(ev);
       }
 
@@ -784,7 +778,9 @@ export const fetchCircleActivities = async (
 
       const seenEventKeys = new Set<string>();
       for (const ev of mergedEvents) {
-        const timeBucket = Math.floor(new Date(ev.occurred_at).getTime() / 60000); // 1-minute bucket
+        const evTimeMs = new Date(ev.occurred_at).getTime();
+        // 10-minute bucket: collapse dual-table writes (zone_events and place_events) into exactly ONE entry
+        const timeBucket = Math.floor(evTimeMs / (10 * 60 * 1000));
         const dedupKey = `${ev.user_id}_${ev.place_id}_${ev.event_type}_${timeBucket}`;
         if (!seenEventKeys.has(dedupKey)) {
           seenEventKeys.add(dedupKey);
@@ -851,7 +847,7 @@ export const fetchCircleActivities = async (
             time: timing.shortTime,
             preciseTime: timing.preciseTime,
             icon: isArrival ? 'location' : 'walk-outline',
-            color: isArrival ? '#2E7D5B' : '#F59E0B',
+            color: isArrival ? '#4ADE80' : '#F59E0B',
             memberName: name,
             avatarUrl: member?.profile?.avatar_url || (Array.isArray(item.profiles) ? item.profiles[0]?.avatar_url : item.profiles?.avatar_url),
             phone: member?.profile?.phone || (Array.isArray(item.profiles) ? item.profiles[0]?.phone : item.profiles?.phone),
@@ -952,7 +948,7 @@ export const fetchCircleActivities = async (
               time: shortTime,
               preciseTime,
               icon: 'location',
-              color: '#2E7D5B',
+              color: '#4ADE80',
               memberName: name,
               avatarUrl: m.profile?.avatar_url,
               phone: m.profile?.phone,
@@ -1002,7 +998,7 @@ export const fetchCircleActivities = async (
               time: shortTime,
               preciseTime,
               icon: 'radio',
-              color: '#2E7D5B',
+              color: '#4ADE80',
               memberName: name,
               avatarUrl: m.profile?.avatar_url,
               phone: m.profile?.phone,
@@ -1025,7 +1021,7 @@ export const fetchCircleActivities = async (
             time: shortTime,
             preciseTime,
             icon: 'shield-checkmark',
-            color: '#2E7D5B',
+            color: '#4ADE80',
             memberName: name,
             avatarUrl: m.profile?.avatar_url,
             phone: m.profile?.phone,

@@ -333,7 +333,7 @@ export default function CircleHierarchyTree({
               {battery}%
             </Text>
             {isGhost && (
-              <Ionicons name="eye-off" size={9} color="#C084FC" style={{ marginLeft: 2 }} />
+              <Ionicons name="eye-off" size={9} color={colors.textMuted} style={{ marginLeft: 2 }} />
             )}
           </View>
         </SpringTouchable>
