@@ -28,6 +28,7 @@ import { calculateHaversineDistanceMeters } from '../services/LocationSmoothingS
 import CircleSwitcherModal from './CircleSwitcherModal';
 import CurrentAddressModal from './CurrentAddressModal';
 import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
+import FeatureInfoModal from './FeatureInfoModal';
 import { validateAndSanitizeGpsFix } from '../utils/locationValidator';
 import { getSafeTopInset } from '../utils/safeArea';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -78,6 +79,7 @@ export default function BillionDollarHomeView() {
   const [highlightZones, setHighlightZones] = useState(true);
   const [satelliteLayer, setSatelliteLayer] = useState(false);
   const [checkInState, setCheckInState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [showCheckInInfoModal, setShowCheckInInfoModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [circleModalVisible, setCircleModalVisible] = useState(false);
   const [addressModalVisible, setAddressModalVisible] = useState(false);
@@ -1689,22 +1691,34 @@ export default function BillionDollarHomeView() {
               ]}>
                 <Ionicons name="checkmark-done" size={isSeniorSimpleMode ? 24 : 19} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[
-                  styles.checkInTitle,
-                  isDark && { color: '#FFFFFF' },
-                  isSeniorSimpleMode && { fontSize: 17, fontWeight: '800' }
-                ]}>
-                  Safety Check-in
-                </Text>
-                <Text style={[
-                  styles.checkInSub,
-                  isDark && { color: '#9EACA3' },
-                  isSeniorSimpleMode && { fontSize: 13, fontWeight: '600', color: isDark ? '#CAD5CE' : '#3C4942' }
-                ]}>
-                  Broadcast your safe status to all circle members
-                </Text>
-              </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <Text style={[
+                      styles.checkInTitle,
+                      isDark && { color: '#FFFFFF' },
+                      isSeniorSimpleMode && { fontSize: 17, fontWeight: '800' }
+                    ]}>
+                      Safety Check-in
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => setShowCheckInInfoModal(true)}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      accessibilityLabel="Learn how automatic geofence check-in works"
+                    >
+                      <Ionicons name="information-circle-outline" size={15} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                    </TouchableOpacity>
+                    <View style={{ backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E8F5EE', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                      <Text style={{ fontSize: 9, fontWeight: '800', color: isDark ? '#3ADFAB' : '#2E7D5B', letterSpacing: 0.5 }}>AUTO-ACTIVE</Text>
+                    </View>
+                  </View>
+                  <Text style={[
+                    styles.checkInSub,
+                    isDark && { color: '#9EACA3' },
+                    isSeniorSimpleMode && { fontSize: 13, fontWeight: '600', color: isDark ? '#CAD5CE' : '#3C4942' }
+                  ]}>
+                    Auto-checks in when arriving at safe zones • Tap for instant ping
+                  </Text>
+                </View>
             </View>
             <TouchableOpacity
               style={[
@@ -1978,6 +1992,35 @@ export default function BillionDollarHomeView() {
         onRefreshLocation={handleRecenter}
         safePlaces={safePlaces}
         gpsAccuracy={userAccuracy}
+      />
+
+      {/* Automatic & Instant Check-in Info Explainer */}
+      <FeatureInfoModal
+        visible={showCheckInInfoModal}
+        onClose={() => setShowCheckInInfoModal(false)}
+        title="Automatic & Zero-Touch Check-In"
+        subtitle="How CircleGuard eliminates manual check-ins"
+        iconName="checkmark-done-circle"
+        iconColor="#2E7D5B"
+        overview="CircleGuard eliminates the friction of remembering to check in. As soon as you arrive at a designated Safe Place (Home, School, Work, Gym), your presence is detected and your circle is automatically notified."
+        bullets={[
+          {
+            icon: 'locate-outline',
+            title: 'Dwell-Verified Arrival Detection',
+            description: 'When you arrive at a safe zone, the background geofence engine confirms your arrival with dwell debouncing so highway drive-bys never trigger false check-ins.',
+          },
+          {
+            icon: 'notifications-outline',
+            title: 'Zero-Touch Guardian Alerts',
+            description: 'Circle members receive an automatic push notification: "Alex arrived at School (Safe & Sound)" without you ever needing to unlock your phone.',
+          },
+          {
+            icon: 'paper-plane-outline',
+            title: 'Manual Instant Ping Anytime',
+            description: 'The manual "Check In" button is always available whenever you want to broadcast an immediate GPS ping and safe status from anywhere outside designated safe places.',
+          },
+        ]}
+        tip="Add your frequent locations (Home, School, Office, Gym) in Safe Places to activate zero-touch automatic check-ins everywhere you go."
       />
     </View>
   );

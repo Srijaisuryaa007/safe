@@ -857,6 +857,24 @@ export async function evaluateGeofenceBreaches(
 
       // 4. Dispatch push alerts to all circle members and local notification
       await dispatchGeofencePushAlert(breachEvent, place);
+
+      // 5. Autonomous Zero-Touch Check-in on Arrival
+      if (!isExit && place.circle_id) {
+        try {
+          const { broadcastAutoGeofenceCheckIn } = require('./ActivityService');
+          const otherMemberIds = (place.assigned_user_ids || []).filter((id: string) => id !== userLoc.user_id);
+          await broadcastAutoGeofenceCheckIn({
+            circleId: place.circle_id,
+            placeId: place.id,
+            placeName: place.name,
+            userId: userLoc.user_id,
+            userName: breachEvent.userName,
+            otherMemberIds,
+          });
+        } catch (autoErr) {
+          console.warn('[GeofenceEngine] Auto check-in trigger skipped:', autoErr);
+        }
+      }
     } catch (e) {
       console.warn('Error logging geofence events:', e);
     }

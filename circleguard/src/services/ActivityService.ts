@@ -417,6 +417,97 @@ export const broadcastCheckIn = async ({
 };
 
 /**
+ * Automatically broadcasts a verified check-in when a member enters a Safe Place.
+ * Enforces a 20-minute per-place debounce to avoid duplicate spam.
+ */
+export const broadcastAutoGeofenceCheckIn = async ({
+  circleId,
+  placeId,
+  placeName,
+  userId,
+  userName,
+  userAvatar,
+  otherMemberIds = [],
+}: {
+  circleId: string;
+  placeId: string;
+  placeName: string;
+  userId: string;
+  userName: string;
+  userAvatar?: string | null;
+  otherMemberIds?: string[];
+}): Promise<{ success: boolean; event?: ActivityEvent }> => {
+  if (!circleId || !placeId || !userId) {
+    return { success: false };
+  }
+
+  // 1. Debounce check: Prevent duplicate automated check-in at the same place within 20 minutes
+  const debounceKey = `@circleguard_auto_checkin_${userId}_${placeId}`;
+  try {
+    const lastCheckinStr = await AsyncStorage.getItem(debounceKey);
+    if (lastCheckinStr) {
+      const lastCheckinTime = parseInt(lastCheckinStr, 10);
+      if (Date.now() - lastCheckinTime < 20 * 60 * 1000) {
+        return { success: false };
+      }
+    }
+    await AsyncStorage.setItem(debounceKey, Date.now().toString());
+  } catch (_) {}
+
+  const content = `${userName} arrived at ${placeName} • Auto Checked-In (Safe & Sound)`;
+  let messageId = `auto_checkin_${Date.now()}`;
+
+  // 2. Insert into circle_messages
+  try {
+    const { data } = await supabase
+      .from('circle_messages')
+      .insert({
+        circle_id: circleId,
+        sender_id: userId,
+        content,
+        message_type: 'CHECKIN',
+      })
+      .select('id')
+      .single();
+
+    if (data?.id) messageId = data.id;
+  } catch (e) {
+    console.warn('[ActivityService] Supabase insert auto check-in fallback:', e);
+  }
+
+  // 3. Dispatch push notifications to circle guardians
+  if (otherMemberIds.length > 0) {
+    sendExpoPushNotification(
+      otherMemberIds,
+      'Automatic Check-In 📍',
+      `${userName} arrived at ${placeName}: Safe & Sound!`,
+      { type: 'CHECKIN', placeId, isAuto: true }
+    ).catch(() => {});
+  }
+
+  // 4. Create and cache activity event
+  const event: ActivityEvent = {
+    id: messageId,
+    type: 'CHECKIN',
+    title: `${userName} auto checked in`,
+    message: content,
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    icon: 'checkmark-circle',
+    color: '#4ADE80',
+    memberName: userName,
+    avatarUrl: userAvatar,
+    userId,
+    placeName,
+    placeId,
+    timestamp: Date.now(),
+  };
+
+  await saveLocalActivityEvent(circleId, event);
+
+  return { success: true, event };
+};
+
+/**
  * Requests an instant safety check-in from all circle members:
  * 1. Inserts CHECKIN_REQUEST message
  * 2. Sends priority push notifications
