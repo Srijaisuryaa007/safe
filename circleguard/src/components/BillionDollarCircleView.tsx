@@ -37,7 +37,6 @@ import MemberQuickActionsModal from './MemberQuickActionsModal';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
 import { getSafeTopInset } from '../utils/safeArea';
 import { useLuxuryAlert } from './LuxuryAlertModal';
-import CircleMembersSphere from './ui/CircleMembersSphere';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -130,7 +129,6 @@ export default function BillionDollarCircleView() {
   const [hierarchyModalVisible, setHierarchyModalVisible] = useState(false);
   const [reopenHierarchyAfterBranch, setReopenHierarchyAfterBranch] = useState(false);
   const [selectedActionsMember, setSelectedActionsMember] = useState<any>(null);
-  const [membersViewMode, setMembersViewMode] = useState<'sphere' | 'list'>('sphere');
   const subActionHandledRef = useRef(false);
 
   useEffect(() => {
@@ -685,21 +683,6 @@ export default function BillionDollarCircleView() {
             <TouchableOpacity
               style={[
                 styles.hierarchyTreeBtn,
-                membersViewMode === 'sphere'
-                  ? { backgroundColor: 'rgba(58, 223, 171, 0.16)', borderColor: 'rgba(58, 223, 171, 0.4)' }
-                  : (isDark ? { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.12)' } : { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' })
-              ]}
-              onPress={() => setMembersViewMode(prev => prev === 'sphere' ? 'list' : 'sphere')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="planet-outline" size={13} color={membersViewMode === 'sphere' ? '#3ADFAB' : (isDark ? '#9EACA3' : '#6B7280')} />
-              <Text style={[styles.hierarchyTreeBtnText, { color: membersViewMode === 'sphere' ? '#3ADFAB' : (isDark ? '#9EACA3' : '#6B7280') }]}>
-                {membersViewMode === 'sphere' ? '3D Sphere' : 'Cards'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.hierarchyTreeBtn,
                 isDark && { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: 'rgba(212, 175, 55, 0.3)' },
               ]}
               onPress={() => setHierarchyModalVisible(true)}
@@ -713,24 +696,6 @@ export default function BillionDollarCircleView() {
             </TouchableOpacity>
           </View>
         </View>
-
-        {/* 3D Interactive Sphere View for Circle Members */}
-        {membersViewMode === 'sphere' && (
-          <View style={[styles.sphereContainer, isDark && { backgroundColor: '#141D18', borderColor: '#223027' }]}>
-            <View style={styles.sphereHeaderRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={styles.greenPulseDot} />
-                <Text style={[styles.sphereHeaderTitle, isDark && { color: '#FFFFFF' }]}>Interactive 3D Sphere</Text>
-              </View>
-              <Text style={[styles.sphereHintText, isDark && { color: '#3ADFAB' }]}>Drag to rotate • Tap avatar</Text>
-            </View>
-            <CircleMembersSphere
-              members={displayMembers}
-              isDark={isDark}
-              onSelectMember={(m) => setSelectedActionsMember(m)}
-            />
-          </View>
-        )}
 
         {/* Member Status Quick-Filter Chips */}
         {displayMembers.length > 1 && (
@@ -2598,34 +2563,5 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8F5EE',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  sphereContainer: {
-    width: '100%',
-    backgroundColor: '#F8FAF9',
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    padding: 12,
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  sphereHeaderRow: {
-    width: '100%',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingBottom: 8,
-  },
-  sphereHeaderTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#151C27',
-    letterSpacing: 0.2,
-  },
-  sphereHintText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#059669',
   },
 });
