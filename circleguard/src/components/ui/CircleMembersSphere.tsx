@@ -1,8 +1,7 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Platform, Dimensions, TouchableOpacity } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Text, StyleSheet, Platform, Dimensions } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { ImageData } from './img-sphere';
-import { SAMPLE_SPHERE_IMAGES } from './demo';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -17,75 +16,97 @@ interface CircleMembersSphereProps {
 
 export default function CircleMembersSphere({
   members = [],
-  containerSize = Math.min(SCREEN_WIDTH - 32, 420),
-  sphereRadius = Math.min((SCREEN_WIDTH - 32) * 0.38, 160),
+  containerSize = Math.min(SCREEN_WIDTH - 32, 380),
+  sphereRadius = Math.min((SCREEN_WIDTH - 32) * 0.36, 140),
   autoRotate = true,
   onSelectMember,
   isDark = true,
 }: CircleMembersSphereProps) {
-  // Construct image list blending real circle members with high-res sphere assets
-  const sphereImages: ImageData[] = useMemo(() => {
-    const list: ImageData[] = [];
+  // STRICT RULE: Only authentic circle members are included — NO dummy or stock profiles
+  const memberNodes = useMemo(() => {
+    return (members || []).map((m, idx) => {
+      const name = m.profile?.full_name || 'Circle Member';
+      const roleLabel =
+        m.role === 'owner'
+          ? 'Leader'
+          : m.role === 'co_leader'
+          ? 'Co-Leader'
+          : m.role === 'guardian'
+          ? 'Guardian'
+          : 'Member';
 
-    // 1. Add real circle members first
-    members.forEach((m, idx) => {
-      const name = m.profile?.full_name || 'Family Member';
-      const avatar = m.profile?.avatar_url || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&q=80`;
-      const role = m.role === 'owner' ? 'Circle Leader' : m.role === 'guardian' ? 'Guardian' : 'Member';
-      list.push({
-        id: `member-${m.user_id || m.id || idx}`,
-        src: avatar,
+      const batteryText = m.batteryPct != null ? `${m.batteryPct}% battery` : 'Active';
+      const statusText = m.isDriving ? 'Driving' : batteryText;
+
+      // Real avatar URL or dynamic personalized initial avatar (no stock photos)
+      const avatarUrl =
+        m.profile?.avatar_url && m.profile.avatar_url.trim().length > 0
+          ? m.profile.avatar_url
+          : `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=1B382B&color=3ADFAB&size=256&bold=true`;
+
+      return {
+        id: String(m.user_id || m.id || idx),
+        src: avatarUrl,
         alt: name,
         title: name,
-        description: `${role} • Active in Circle`,
-      });
+        description: `${roleLabel} • ${statusText}`,
+        role: roleLabel,
+        rawMember: m,
+      };
     });
-
-    // 2. Pad up to 48 nodes with sample images to create dense 3D Fibonacci sphere
-    const targetCount = 48;
-    let sampleIdx = 0;
-    while (list.length < targetCount) {
-      const sample = SAMPLE_SPHERE_IMAGES[sampleIdx % SAMPLE_SPHERE_IMAGES.length];
-      list.push({
-        ...sample,
-        id: `sphere-img-${list.length + 1}`,
-      });
-      sampleIdx++;
-    }
-
-    return list;
   }, [members]);
 
-  // If running on Web, dynamically render the React DOM component
+  // If circle has no members yet, show a clean informative card
+  if (memberNodes.length === 0) {
+    return (
+      <View style={[styles.emptyContainer, isDark && { backgroundColor: '#141D18', borderColor: '#223027' }]}>
+        <Text style={[styles.emptyTitle, isDark && { color: '#FFFFFF' }]}>No Members Yet</Text>
+        <Text style={[styles.emptySubtitle, isDark && { color: '#8E9E94' }]}>
+          Invite family members using your Circle Code to see them in the 3D Sphere.
+        </Text>
+      </View>
+    );
+  }
+
+  // Dynamic scale calculation based purely on authentic member count
+  const count = memberNodes.length;
+  const baseScale = count <= 3 ? 0.28 : count <= 6 ? 0.23 : count <= 12 ? 0.18 : 0.14;
+  const activeRadius = count <= 3 ? sphereRadius * 0.85 : sphereRadius;
+
+  // Web Implementation: Renders directly with DOM if on web
   if (Platform.OS === 'web') {
     try {
       const SphereImageGrid = require('./img-sphere').default;
+      const webImages: ImageData[] = memberNodes.map((n) => ({
+        id: n.id,
+        src: n.src,
+        alt: n.alt,
+        title: n.title,
+        description: n.description,
+      }));
+
       return (
         <View style={[styles.container, { width: containerSize, height: containerSize }]}>
           <SphereImageGrid
-            images={sphereImages}
+            images={webImages}
             containerSize={containerSize}
-            sphereRadius={sphereRadius}
+            sphereRadius={activeRadius}
             autoRotate={autoRotate}
             dragSensitivity={0.8}
             momentumDecay={0.96}
             maxRotationSpeed={6}
-            baseImageScale={0.14}
-            hoverScale={1.3}
+            baseImageScale={baseScale}
+            hoverScale={1.25}
             perspective={1000}
             autoRotateSpeed={0.25}
           />
         </View>
       );
-    } catch (_) {
-      // Fallback to webview if web bundling issue
-    }
+    } catch (_) {}
   }
 
-  // Mobile Native (iOS / Android): Render ultra-smooth hardware-accelerated 3D Sphere in WebView
-  const htmlContent = useMemo(() => {
-    const imagesJson = JSON.stringify(sphereImages);
-    return `<!DOCTYPE html>
+  // Mobile Native (iOS / Android): Interactive 3D Sphere rendered in hardware-accelerated WebView
+  const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -113,27 +134,45 @@ export default function CircleMembersSphere({
       touch-action: none;
     }
     #sphere-root:active { cursor: grabbing; }
-    .node-img {
+    .node-wrapper {
       position: absolute;
-      border-radius: 50%;
-      overflow: hidden;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.45);
-      border: 2px solid ${isDark ? 'rgba(58, 223, 171, 0.4)' : 'rgba(255,255,255,0.7)'};
+      display: flex;
+      flex-direction: column;
+      align-items: center;
       transition: transform 0.15s ease-out;
       transform-origin: center center;
     }
-    .node-img img {
+    .node-avatar {
+      border-radius: 50%;
+      overflow: hidden;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+      border: 2px solid ${isDark ? '#3ADFAB' : '#059669'};
+      background: ${isDark ? '#16201B' : '#E5E7EB'};
+    }
+    .node-avatar img {
       width: 100%;
       height: 100%;
       object-fit: cover;
       display: block;
       pointer-events: none;
     }
+    .node-label {
+      margin-top: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      color: ${isDark ? '#FFFFFF' : '#111827'};
+      background: ${isDark ? 'rgba(20, 29, 24, 0.9)' : 'rgba(255, 255, 255, 0.92)'};
+      padding: 2px 7px;
+      border-radius: 99px;
+      white-space: nowrap;
+      border: 1px solid ${isDark ? 'rgba(58, 223, 171, 0.35)' : 'rgba(0,0,0,0.1)'};
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+    }
     #modal {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.65);
+      background: rgba(0,0,0,0.7);
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
       z-index: 99999;
@@ -141,28 +180,29 @@ export default function CircleMembersSphere({
       justify-content: center;
       padding: 20px;
     }
-    #modal.active { display: flex; animation: fadeIn 0.25s ease-out; }
+    #modal.active { display: flex; animation: fadeIn 0.22s ease-out; }
     #modal-card {
       background: ${isDark ? '#1C2621' : '#FFFFFF'};
       border: 1px solid ${isDark ? '#2B3D34' : '#E5E7EB'};
-      border-radius: 20px;
-      max-width: 290px;
+      border-radius: 22px;
+      max-width: 270px;
       width: 100%;
       overflow: hidden;
-      box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.55);
       text-align: center;
       color: ${isDark ? '#FFFFFF' : '#111827'};
-      animation: popIn 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      animation: popIn 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
     #modal-img {
       width: 100%;
       aspect-ratio: 1;
       object-fit: cover;
       display: block;
+      background: ${isDark ? '#131B17' : '#F3F4F6'};
     }
     #modal-info { padding: 16px; }
     #modal-title { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
-    #modal-desc { font-size: 13px; color: ${isDark ? '#3ADFAB' : '#059669'}; font-weight: 500; }
+    #modal-desc { font-size: 13px; color: ${isDark ? '#3ADFAB' : '#059669'}; font-weight: 600; }
     #modal-close {
       margin-top: 14px;
       padding: 9px 24px;
@@ -193,10 +233,10 @@ export default function CircleMembersSphere({
   </div>
 
   <script>
-    const images = ${imagesJson};
+    const members = ${JSON.stringify(memberNodes)};
     const containerSize = ${containerSize};
-    const sphereRadius = ${sphereRadius};
-    const baseScale = 0.14;
+    const sphereRadius = ${activeRadius};
+    const baseScale = ${baseScale};
     const baseImageSize = containerSize * baseScale;
     const dragSens = 0.65;
     const momentumDecay = 0.95;
@@ -209,37 +249,35 @@ export default function CircleMembersSphere({
     let startPos = { x: 0, y: 0 };
     let hasMoved = false;
 
-    // Fibonacci sphere points
+    // Distribute actual circle members evenly across sphere
     const goldenRatio = (1 + Math.sqrt(5)) / 2;
     const angleInc = 2 * Math.PI / goldenRatio;
     const positions = [];
 
-    for (let i = 0; i < images.length; i++) {
-      const t = i / images.length;
+    for (let i = 0; i < members.length; i++) {
+      if (members.length === 1) {
+        positions.push({ theta: 0, phi: 90, radius: sphereRadius * 0.4 });
+        break;
+      }
+      const t = i / members.length;
       const inc = Math.acos(1 - 2 * t);
       const az = angleInc * i;
       let phi = inc * (180 / Math.PI);
       let theta = (az * (180 / Math.PI)) % 360;
 
-      const poleBonus = Math.pow(Math.abs(phi - 90) / 90, 0.6) * 35;
-      if (phi < 90) phi = Math.max(5, phi - poleBonus);
-      else phi = Math.min(175, phi + poleBonus);
-
-      phi = 15 + (phi / 180) * 150;
-      theta = (theta + (Math.random() - 0.5) * 18) % 360;
-
+      phi = 25 + (phi / 180) * 130;
       positions.push({ theta, phi, radius: sphereRadius });
     }
 
     const root = document.getElementById('sphere-root');
     const nodes = [];
 
-    images.forEach((img, idx) => {
+    members.forEach((m, idx) => {
       const el = document.createElement('div');
-      el.className = 'node-img';
-      el.innerHTML = '<img src="' + img.src + '" loading="lazy" />';
+      el.className = 'node-wrapper';
+      el.innerHTML = '<div class="node-avatar"><img src="' + m.src + '" /></div><div class="node-label">' + m.title + '</div>';
       el.onclick = () => {
-        if (!hasMoved) openModal(img);
+        if (!hasMoved) openModal(m);
       };
       root.appendChild(el);
       nodes.push(el);
@@ -270,32 +308,21 @@ export default function CircleMembersSphere({
         const z2 = y * Math.sin(rotXRad) + z * Math.cos(rotXRad);
         y = y2; z = z2;
 
-        const isVisible = z > -35;
         const el = nodes[i];
-
-        if (!isVisible) {
-          el.style.display = 'none';
-          continue;
-        }
-
-        el.style.display = 'block';
-
-        let opacity = 1;
-        if (z <= -10) {
-          opacity = Math.max(0, (z - (-35)) / 25);
-        }
+        const avatarEl = el.querySelector('.node-avatar');
 
         const depthScale = (z + sphereRadius) / (2 * sphereRadius);
-        const scale = 0.45 + depthScale * 0.55;
+        const scale = 0.55 + depthScale * 0.45;
         const size = baseImageSize * scale;
 
-        el.style.width = size + 'px';
-        el.style.height = size + 'px';
+        avatarEl.style.width = size + 'px';
+        avatarEl.style.height = size + 'px';
+
         el.style.left = (containerSize / 2 + x) + 'px';
         el.style.top = (containerSize / 2 + y) + 'px';
         el.style.transform = 'translate(-50%, -50%)';
         el.style.zIndex = Math.round(1000 + z);
-        el.style.opacity = opacity;
+        el.style.opacity = Math.max(0.35, 0.45 + depthScale * 0.55);
       }
     }
 
@@ -305,14 +332,14 @@ export default function CircleMembersSphere({
         velocity.y *= momentumDecay;
 
         rotation.y = (rotation.y + autoSpeed + velocity.y) % 360;
-        rotation.x = Math.max(-60, Math.min(60, rotation.x + velocity.x));
+        rotation.x = Math.max(-50, Math.min(50, rotation.x + velocity.x));
       }
 
       render();
       requestAnimationFrame(animate);
     }
 
-    // Touch Interaction
+    // Touch Handling
     root.addEventListener('touchstart', (e) => {
       isDragging = true;
       hasMoved = false;
@@ -333,9 +360,9 @@ export default function CircleMembersSphere({
       }
 
       rotation.y = (rotation.y + dx * dragSens) % 360;
-      rotation.x = Math.max(-60, Math.min(60, rotation.x - dy * dragSens));
+      rotation.x = Math.max(-50, Math.min(50, rotation.x - dy * dragSens));
 
-      velocity = { x: -dy * dragSens * 0.4, y: dx * dragSens * 0.4 };
+      velocity = { x: -dy * dragSens * 0.35, y: dx * dragSens * 0.35 };
       lastPos = { x: t.clientX, y: t.clientY };
     }, { passive: true });
 
@@ -343,14 +370,14 @@ export default function CircleMembersSphere({
       isDragging = false;
     });
 
-    function openModal(img) {
-      document.getElementById('modal-img').src = img.src;
-      document.getElementById('modal-title').innerText = img.title || 'Member';
-      document.getElementById('modal-desc').innerText = img.description || 'Active Member';
+    function openModal(member) {
+      document.getElementById('modal-img').src = member.src;
+      document.getElementById('modal-title').innerText = member.title;
+      document.getElementById('modal-desc').innerText = member.description;
       document.getElementById('modal').classList.add('active');
 
       if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SELECT_MEMBER', title: img.title }));
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SELECT_MEMBER', id: member.id }));
       }
     }
 
@@ -362,7 +389,6 @@ export default function CircleMembersSphere({
   </script>
 </body>
 </html>`;
-  }, [sphereImages, containerSize, sphereRadius, isDark]);
 
   return (
     <View style={[styles.container, { width: containerSize, height: containerSize }]}>
@@ -377,9 +403,7 @@ export default function CircleMembersSphere({
           try {
             const data = JSON.parse(event.nativeEvent.data);
             if (data.type === 'SELECT_MEMBER' && onSelectMember) {
-              const matched = members.find(
-                (m) => m.profile?.full_name?.toLowerCase() === data.title?.toLowerCase()
-              );
+              const matched = members.find((m) => String(m.user_id || m.id) === String(data.id));
               if (matched) onSelectMember(matched);
             }
           } catch (_) {}
@@ -396,5 +420,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
     borderRadius: 24,
+  },
+  emptyContainer: {
+    width: '100%',
+    padding: 24,
+    borderRadius: 20,
+    backgroundColor: '#F8FAF9',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#151C27',
+    marginBottom: 4,
+  },
+  emptySubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });
