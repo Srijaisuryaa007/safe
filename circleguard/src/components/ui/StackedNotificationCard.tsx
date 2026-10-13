@@ -153,8 +153,8 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
   },
   frameContainerDark: {
-    backgroundColor: '#16201B',
-    borderColor: '#26342D',
+    backgroundColor: '#101114',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   panelContainer: {
     flexDirection: 'row',
@@ -167,7 +167,7 @@ const styles = StyleSheet.create({
   },
   panelDividerDark: {
     borderBottomWidth: 1,
-    borderBottomColor: '#26342D',
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
   },
   iconWrap: {
     width: 28,

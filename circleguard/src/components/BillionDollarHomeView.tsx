@@ -1757,7 +1757,7 @@ export default function BillionDollarHomeView() {
               style={[
                 styles.featureHubTile,
                 isDark
-                  ? { backgroundColor: '#16201B', borderColor: '#23322A' }
+                  ? { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }
                   : { backgroundColor: '#FFFFFF', borderColor: '#E5E8E5' },
               ]}
               onPress={() => navigateToScreen('DrivingReports')}
@@ -1767,41 +1767,41 @@ export default function BillionDollarHomeView() {
                 <Ionicons name="speedometer" size={17} color="#E07A5F" />
               </View>
               <Text style={[styles.featureHubTitle, isDark && { color: '#FFFFFF' }]}>Driving</Text>
-              <Text style={[styles.featureHubSub, isDark && { color: '#CAD5CE' }]}>Crash & score</Text>
+              <Text style={[styles.featureHubSub, isDark && { color: '#94A3B8' }]}>Crash & score</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
                 styles.featureHubTile,
                 isDark
-                  ? { backgroundColor: '#16201B', borderColor: '#23322A' }
+                  ? { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }
                   : { backgroundColor: '#FFFFFF', borderColor: '#E5E8E5' },
               ]}
               onPress={() => navigateToScreen('LocationHistory')}
               activeOpacity={0.8}
             >
-              <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E8F5EE' }]}>
-                <Ionicons name="time" size={17} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(48, 209, 88, 0.15)' : '#E8F5EE' }]}>
+                <Ionicons name="time" size={17} color={isDark ? '#30D158' : '#2E7D5B'} />
               </View>
               <Text style={[styles.featureHubTitle, isDark && { color: '#FFFFFF' }]}>History</Text>
-              <Text style={[styles.featureHubSub, isDark && { color: '#CAD5CE' }]}>Route replay</Text>
+              <Text style={[styles.featureHubSub, isDark && { color: '#94A3B8' }]}>Route replay</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
                 styles.featureHubTile,
                 isDark
-                  ? { backgroundColor: '#16201B', borderColor: '#23322A' }
+                  ? { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }
                   : { backgroundColor: '#FFFFFF', borderColor: '#E5E8E5' },
               ]}
               onPress={() => navigateToScreen('SafePlaces')}
               activeOpacity={0.8}
             >
-              <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E8F5EE' }]}>
-                <Ionicons name="shield-checkmark" size={17} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(48, 209, 88, 0.15)' : '#E8F5EE' }]}>
+                <Ionicons name="shield-checkmark" size={17} color={isDark ? '#30D158' : '#2E7D5B'} />
               </View>
               <Text style={[styles.featureHubTitle, isDark && { color: '#FFFFFF' }]}>Safe Zones</Text>
-              <Text style={[styles.featureHubSub, isDark && { color: '#CAD5CE' }]}>{safePlaces.length} monitored</Text>
+              <Text style={[styles.featureHubSub, isDark && { color: '#94A3B8' }]}>{safePlaces.length} monitored</Text>
             </TouchableOpacity>
           </View>
 
@@ -1809,7 +1809,7 @@ export default function BillionDollarHomeView() {
           <View style={styles.statusSectionHeader}>
             <Text style={[styles.statusSectionTitle, isDark && { color: '#FFFFFF' }]}>Live Family Status</Text>
             <TouchableOpacity onPress={() => navigation.navigate('Circle')}>
-              <Text style={[styles.manageGeofenceLink, isDark && { color: '#3ADFAB' }]}>Manage Circle ›</Text>
+              <Text style={[styles.manageGeofenceLink, isDark && { color: '#30D158' }]}>Manage Circle ›</Text>
             </TouchableOpacity>
           </View>
 
@@ -1827,7 +1827,7 @@ export default function BillionDollarHomeView() {
                     key={member.user_id}
                     style={[
                       styles.memberStatusCard,
-                      isDark && { backgroundColor: '#1A231F', borderColor: '#283730' },
+                      isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' },
                     ]}
                     onPress={() => {
                       if (isSelf) {
@@ -1847,8 +1847,8 @@ export default function BillionDollarHomeView() {
                             styles.memberCardAvatarBox,
                             {
                               backgroundColor: isSelf
-                                ? (isDark ? '#23352B' : '#E8F5EE')
-                                : (isDark ? '#33231E' : '#FFF3EB'),
+                                ? (isDark ? '#1A1C22' : '#E8F5EE')
+                                : (isDark ? '#261D1A' : '#FFF3EB'),
                             },
                           ]}
                         >
@@ -1861,7 +1861,7 @@ export default function BillionDollarHomeView() {
                             <Text
                               style={[
                                 styles.memberCardInitial,
-                                { color: isSelf ? (isDark ? '#3ADFAB' : '#2E7D5B') : '#E07A5F' },
+                                { color: isSelf ? (isDark ? '#30D158' : '#2E7D5B') : '#E07A5F' },
                               ]}
                             >
                               {name.charAt(0).toUpperCase()}
@@ -1874,8 +1874,8 @@ export default function BillionDollarHomeView() {
                               {name}
                             </Text>
                             {isSelf && (
-                              <View style={[styles.selfBadgePill, isDark && { backgroundColor: 'rgba(58, 223, 171, 0.15)', borderColor: 'rgba(58, 223, 171, 0.4)' }]}>
-                                <Text style={[styles.selfBadgeText, isDark && { color: '#3ADFAB' }]}>YOU</Text>
+                              <View style={[styles.selfBadgePill, isDark && { backgroundColor: 'rgba(48, 209, 88, 0.15)', borderColor: 'rgba(48, 209, 88, 0.4)' }]}>
+                                <Text style={[styles.selfBadgeText, isDark && { color: '#30D158' }]}>YOU</Text>
                               </View>
                             )}
                           </View>
@@ -1897,7 +1897,7 @@ export default function BillionDollarHomeView() {
                           </View>
                         </View>
                       </View>
-                      <View style={[styles.batteryChip, isDark && { backgroundColor: '#26342D' }]}>
+                      <View style={[styles.batteryChip, isDark && { backgroundColor: '#1A1C22' }]}>
                         <Ionicons
                           name={
                             (member.batteryPct ?? 100) > 20
@@ -1905,15 +1905,15 @@ export default function BillionDollarHomeView() {
                               : 'battery-dead'
                           }
                           size={13}
-                          color={(member.batteryPct ?? 100) > 20 ? (isDark ? '#3ADFAB' : '#2E7D5B') : '#E07A5F'}
+                          color={(member.batteryPct ?? 100) > 20 ? (isDark ? '#30D158' : '#2E7D5B') : '#E07A5F'}
                         />
-                        <Text style={[styles.batteryChipText, isDark && { color: '#E8EDE9' }]}>{battery}</Text>
+                        <Text style={[styles.batteryChipText, isDark && { color: '#F1F5F9' }]}>{battery}</Text>
                       </View>
                     </View>
 
-                    <View style={[styles.memberCardMetrics, isDark && { backgroundColor: '#141A17' }]}>
+                    <View style={[styles.memberCardMetrics, isDark && { backgroundColor: '#090A0C' }]}>
                       <View style={styles.metricRow}>
-                        <Text style={[styles.metricLabel, isDark && { color: '#9EACA3' }]}>Role</Text>
+                        <Text style={[styles.metricLabel, isDark && { color: '#94A3B8' }]}>Role</Text>
                         <Text style={[styles.metricVal, isDark && { color: '#FFFFFF' }]}>
                           {member.role ? member.role.toUpperCase() : 'MEMBER'}
                         </Text>

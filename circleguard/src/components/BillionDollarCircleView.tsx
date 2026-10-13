@@ -37,6 +37,7 @@ import MemberQuickActionsModal from './MemberQuickActionsModal';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
 import { getSafeTopInset } from '../utils/safeArea';
 import { useLuxuryAlert } from './LuxuryAlertModal';
+import RadarPulseBeacon from './ui/RadarPulseBeacon';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -629,17 +630,17 @@ export default function BillionDollarCircleView() {
           )}
 
           {/* Active Circle Status Banner */}
-          <View style={[styles.activeBanner, isDark && { backgroundColor: '#161E1A', borderColor: '#26342D' }]}>
-            <View style={styles.greenPulseDot} />
-            <Text style={[styles.bannerText, isDark && { color: '#9EACA3' }]}>
+          <View style={[styles.activeBanner, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
+            <View style={[styles.greenPulseDot, isDark && { backgroundColor: '#30D158' }]} />
+            <Text style={[styles.bannerText, isDark && { color: '#94A3B8' }]}>
               <Text style={{ fontWeight: '700', color: isDark ? '#FFFFFF' : '#151C27' }}>
-                {displayMembers.length} {displayMembers.length === 1 ? 'Active' : 'Active'}
+                {displayMembers.length} Connected
               </Text>
               {'  ·  '}
-              <Text>{circlePlaces.length} Geofences Monitored</Text>
+              <Text>{circlePlaces.length} Zones Protected</Text>
               {'  ·  '}
-              <Text style={{ color: isDark ? '#3ADFAB' : '#006C4F', fontWeight: '600' }}>
-                {normalBatteryCount} Normal Battery
+              <Text style={{ color: isDark ? '#30D158' : '#006C4F', fontWeight: '600' }}>
+                {normalBatteryCount} Good Battery
               </Text>
             </Text>
           </View>
@@ -647,27 +648,27 @@ export default function BillionDollarCircleView() {
 
         {/* Common Circle Group Chat Hub */}
         <TouchableOpacity
-          style={[styles.commonChatCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}
+          style={[styles.commonChatCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}
           onPress={() => navigateToScreen('Chat')}
           activeOpacity={0.85}
         >
-          <View style={[styles.commonChatIconBox, isDark && { backgroundColor: '#2E7D5B' }]}>
-            <Ionicons name="chatbubbles" size={22} color="#FFFFFF" />
+          <View style={[styles.commonChatIconBox, isDark && { backgroundColor: '#1A1C22' }]}>
+            <Ionicons name="chatbubbles" size={22} color={isDark ? '#30D158' : '#FFFFFF'} />
           </View>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={[styles.commonChatTitle, isDark && { color: '#FFFFFF' }]}>Circle Group Chat</Text>
-              <View style={[styles.liveChatBadge, isDark && { backgroundColor: 'rgba(58, 223, 171, 0.15)' }]}>
-                <Text style={[styles.liveChatBadgeText, isDark && { color: '#3ADFAB' }]}>Active</Text>
+              <Text style={[styles.commonChatTitle, isDark && { color: '#FFFFFF' }]}>Circle Messages</Text>
+              <View style={[styles.liveChatBadge, isDark && { backgroundColor: 'rgba(48, 209, 88, 0.15)' }]}>
+                <Text style={[styles.liveChatBadgeText, isDark && { color: '#30D158' }]}>Live</Text>
               </View>
             </View>
-            <Text style={[styles.commonChatSub, isDark && { color: '#9EACA3' }]}>
-              Common chat with all {displayMembers.length} circle members
+            <Text style={[styles.commonChatSub, isDark && { color: '#94A3B8' }]}>
+              Instant family check-ins & status updates
             </Text>
           </View>
-          <View style={[styles.commonChatAction, isDark && { backgroundColor: '#26342D' }]}>
-            <Text style={[styles.commonChatActionText, isDark && { color: '#3ADFAB' }]}>Open</Text>
-            <Ionicons name="chevron-forward" size={16} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+          <View style={[styles.commonChatAction, isDark && { backgroundColor: '#1A1C22' }]}>
+            <Text style={[styles.commonChatActionText, isDark && { color: '#30D158' }]}>Open</Text>
+            <Ionicons name="chevron-forward" size={16} color={isDark ? '#30D158' : '#2E7D5B'} />
           </View>
         </TouchableOpacity>
 
@@ -675,8 +676,8 @@ export default function BillionDollarCircleView() {
         <View style={styles.sectionHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={[styles.sectionTitle, isDark && { color: '#FFFFFF' }]}>Circle Members</Text>
-            <View style={[styles.countBadge, isDark && { backgroundColor: '#26342D' }]}>
-              <Text style={[styles.countText, isDark && { color: '#FFFFFF' }]}>{displayMembers.length}</Text>
+            <View style={[styles.countBadge, isDark && { backgroundColor: '#1A1C22' }]}>
+              <Text style={[styles.countText, isDark && { color: '#30D158' }]}>{displayMembers.length}</Text>
             </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -692,7 +693,7 @@ export default function BillionDollarCircleView() {
               <Text style={[styles.hierarchyTreeBtnText, isDark && { color: '#D4AF37' }]}>Hierarchy</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => navigateToScreen('Home')}>
-              <Text style={[styles.sectionLink, isDark && { color: '#3ADFAB' }]}>Live Map View ›</Text>
+              <Text style={[styles.sectionLink, isDark && { color: '#30D158' }]}>Live Map View ›</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -707,13 +708,17 @@ export default function BillionDollarCircleView() {
             <TouchableOpacity
               style={[
                 styles.memberFilterChip,
-                isDark && { backgroundColor: '#16201B', borderColor: '#26342D' },
-                memberFilter === 'all' && styles.memberFilterChipActive,
+                isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' },
+                memberFilter === 'all' && (isDark ? { backgroundColor: '#30D158', borderColor: '#30D158' } : styles.memberFilterChipActive),
               ]}
               onPress={() => setMemberFilter('all')}
               activeOpacity={0.8}
             >
-              <Text style={[styles.memberFilterChipText, isDark && { color: '#CAD5CE' }, memberFilter === 'all' && styles.memberFilterChipTextActive]}>
+              <Text style={[
+                styles.memberFilterChipText,
+                isDark && { color: '#94A3B8' },
+                memberFilter === 'all' && (isDark ? { color: '#000000', fontWeight: '700' } : styles.memberFilterChipTextActive)
+              ]}>
                 All ({displayMembers.length})
               </Text>
             </TouchableOpacity>
@@ -721,14 +726,18 @@ export default function BillionDollarCircleView() {
             <TouchableOpacity
               style={[
                 styles.memberFilterChip,
-                isDark && { backgroundColor: '#16201B', borderColor: '#26342D' },
-                memberFilter === 'moving' && styles.memberFilterChipActive,
+                isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' },
+                memberFilter === 'moving' && (isDark ? { backgroundColor: '#F5A623', borderColor: '#F5A623' } : styles.memberFilterChipActive),
               ]}
               onPress={() => setMemberFilter('moving')}
               activeOpacity={0.8}
             >
-              <Ionicons name="car" size={13} color={memberFilter === 'moving' ? '#FFFFFF' : '#F5A623'} />
-              <Text style={[styles.memberFilterChipText, isDark && { color: '#CAD5CE' }, memberFilter === 'moving' && styles.memberFilterChipTextActive]}>
+              <Ionicons name="car" size={13} color={memberFilter === 'moving' ? (isDark ? '#000000' : '#FFFFFF') : '#F5A623'} />
+              <Text style={[
+                styles.memberFilterChipText,
+                isDark && { color: '#94A3B8' },
+                memberFilter === 'moving' && (isDark ? { color: '#000000', fontWeight: '700' } : styles.memberFilterChipTextActive)
+              ]}>
                 Moving ({movingCount})
               </Text>
             </TouchableOpacity>
@@ -736,14 +745,18 @@ export default function BillionDollarCircleView() {
             <TouchableOpacity
               style={[
                 styles.memberFilterChip,
-                isDark && { backgroundColor: '#16201B', borderColor: '#26342D' },
-                memberFilter === 'safe' && styles.memberFilterChipActive,
+                isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' },
+                memberFilter === 'safe' && (isDark ? { backgroundColor: '#30D158', borderColor: '#30D158' } : styles.memberFilterChipActive),
               ]}
               onPress={() => setMemberFilter('safe')}
               activeOpacity={0.8}
             >
-              <Ionicons name="shield-checkmark" size={13} color={memberFilter === 'safe' ? '#FFFFFF' : '#10B981'} />
-              <Text style={[styles.memberFilterChipText, isDark && { color: '#CAD5CE' }, memberFilter === 'safe' && styles.memberFilterChipTextActive]}>
+              <Ionicons name="shield-checkmark" size={13} color={memberFilter === 'safe' ? (isDark ? '#000000' : '#FFFFFF') : (isDark ? '#30D158' : '#10B981')} />
+              <Text style={[
+                styles.memberFilterChipText,
+                isDark && { color: '#94A3B8' },
+                memberFilter === 'safe' && (isDark ? { color: '#000000', fontWeight: '700' } : styles.memberFilterChipTextActive)
+              ]}>
                 In Zone ({safePlaceCount})
               </Text>
             </TouchableOpacity>
@@ -760,7 +773,7 @@ export default function BillionDollarCircleView() {
               >
                 <Ionicons name="battery-dead" size={13} color={memberFilter === 'battery' ? '#FFFFFF' : '#EF4444'} />
                 <Text style={[styles.memberFilterChipText, { color: memberFilter === 'battery' ? '#FFFFFF' : '#EF4444' }]}>
-                  Low Batt ({lowBatteryCount})
+                  Low Battery ({lowBatteryCount})
                 </Text>
               </TouchableOpacity>
             )}
@@ -769,19 +782,19 @@ export default function BillionDollarCircleView() {
 
         {/* Search Bar when 3 or more members exist */}
         {displayMembers.length >= 3 && (
-          <View style={[styles.memberSearchBox, isDark && { backgroundColor: '#16201B', borderColor: '#26342D' }]}>
-            <Ionicons name="search" size={16} color={isDark ? '#718579' : '#9CA3AF'} />
+          <View style={[styles.memberSearchBox, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
+            <Ionicons name="search" size={16} color={isDark ? '#64748B' : '#9CA3AF'} />
             <TextInput
               style={[styles.memberSearchInput, isDark && { color: '#FFFFFF' }]}
-              placeholder="Search family members..."
-              placeholderTextColor={isDark ? '#718579' : '#9CA3AF'}
+              placeholder="Find circle member..."
+              placeholderTextColor={isDark ? '#64748B' : '#9CA3AF'}
               value={memberSearchQuery}
               onChangeText={setMemberSearchQuery}
               clearButtonMode="while-editing"
             />
             {memberSearchQuery.length > 0 && (
               <TouchableOpacity onPress={() => setMemberSearchQuery('')}>
-                <Ionicons name="close-circle" size={16} color={isDark ? '#718579' : '#9CA3AF'} />
+                <Ionicons name="close-circle" size={16} color={isDark ? '#64748B' : '#9CA3AF'} />
               </TouchableOpacity>
             )}
           </View>
@@ -855,7 +868,7 @@ export default function BillionDollarCircleView() {
                   <TouchableOpacity
                     style={[
                       styles.memberCard,
-                      isDark && { backgroundColor: '#16201B', borderColor: 'rgba(58, 223, 171, 0.16)' },
+                      isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' },
                       isTargetOwner && { borderColor: isDark ? 'rgba(245, 166, 35, 0.35)' : 'rgba(217, 119, 6, 0.3)' },
                     ]}
                     onPress={() => {
@@ -868,36 +881,42 @@ export default function BillionDollarCircleView() {
                     activeOpacity={0.75}
                   >
                     <View style={styles.memberCardContent}>
-                      {/* Avatar with Status Ring */}
-                      <View style={styles.memberAvatarWrapper}>
-                        {member.profile?.avatar_url ? (
-                          <Image source={{ uri: member.profile.avatar_url }} style={styles.avatarImg} />
-                        ) : (
-                          <View style={[styles.avatarImg, styles.avatarFallback, isDark && { backgroundColor: '#1E2B24' }]}>
-                            <Text style={[styles.avatarFallbackText, { color: roleColor }]}>
-                              {name.charAt(0).toUpperCase()}
-                            </Text>
-                          </View>
-                        )}
-                        <View
-                          style={[
-                            styles.avatarStatusBadge,
-                            isDark && { backgroundColor: '#16201B', borderColor: '#16201B' },
-                            isDriving && { backgroundColor: isDark ? 'rgba(245, 166, 35, 0.20)' : '#FEF3C7', borderColor: isDark ? '#F5A623' : '#D97706' },
-                          ]}
-                        >
-                          {isDriving ? (
-                            <Ionicons name="car" size={10} color={isDark ? '#F5A623' : '#D97706'} />
+                      {/* Avatar with Radar Pulse Beacon */}
+                      <RadarPulseBeacon
+                        size={46}
+                        color={isDriving ? '#F5A623' : '#30D158'}
+                        isPulsing={isOnline && !isGhostMode}
+                      >
+                        <View style={styles.memberAvatarWrapper}>
+                          {member.profile?.avatar_url ? (
+                            <Image source={{ uri: member.profile.avatar_url }} style={styles.avatarImg} />
                           ) : (
-                            <View
-                              style={[
-                                styles.avatarStatusDot,
-                                { backgroundColor: isOnline ? '#10B981' : '#718579' },
-                              ]}
-                            />
+                            <View style={[styles.avatarImg, styles.avatarFallback, isDark && { backgroundColor: '#1A1C22' }]}>
+                              <Text style={[styles.avatarFallbackText, { color: roleColor }]}>
+                                {name.charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
                           )}
+                          <View
+                            style={[
+                              styles.avatarStatusBadge,
+                              isDark && { backgroundColor: '#101114', borderColor: '#101114' },
+                              isDriving && { backgroundColor: isDark ? 'rgba(245, 166, 35, 0.20)' : '#FEF3C7', borderColor: isDark ? '#F5A623' : '#D97706' },
+                            ]}
+                          >
+                            {isDriving ? (
+                              <Ionicons name="car" size={10} color={isDark ? '#F5A623' : '#D97706'} />
+                            ) : (
+                              <View
+                                style={[
+                                  styles.avatarStatusDot,
+                                  { backgroundColor: isOnline ? '#30D158' : '#64748B' },
+                                ]}
+                              />
+                            )}
+                          </View>
                         </View>
-                      </View>
+                      </RadarPulseBeacon>
 
                       {/* Member Info */}
                       <View style={styles.memberInfoCol}>
@@ -949,13 +968,13 @@ export default function BillionDollarCircleView() {
                               isDriving
                                 ? '#F5A623'
                                 : isInSafePlace
-                                ? '#10B981'
+                                ? '#30D158'
                                 : isOnline
-                                ? (isDark ? '#3ADFAB' : '#2E7D5B')
-                                : (isDark ? '#718579' : '#9CA3AF')
+                                ? (isDark ? '#30D158' : '#2E7D5B')
+                                : (isDark ? '#64748B' : '#9CA3AF')
                             }
                           />
-                          <Text style={[styles.memberStatusText, isDark && { color: '#9EACA3' }]} numberOfLines={1}>
+                          <Text style={[styles.memberStatusText, isDark && { color: '#94A3B8' }]} numberOfLines={1}>
                             {isDriving
                               ? 'In transit • Driving'
                               : isInSafePlace && member.latestPlaceEvent?.occurred_at
@@ -979,26 +998,26 @@ export default function BillionDollarCircleView() {
                         <View
                           style={[
                             styles.cardBatteryPill,
-                            isDark && { backgroundColor: '#1E2B24' },
+                            isDark && { backgroundColor: '#1A1C22' },
                             isLowBattery && { backgroundColor: isDark ? '#4A1D1D' : '#FFDAD7' },
                           ]}
                         >
                           <Ionicons
                             name={isLowBattery ? 'battery-dead' : 'battery-full'}
                             size={11}
-                            color={isLowBattery ? '#EF4444' : batteryPctVal > 50 ? (isDark ? '#3ADFAB' : '#16A34A') : '#F59E0B'}
+                            color={isLowBattery ? '#EF4444' : batteryPctVal > 50 ? (isDark ? '#30D158' : '#16A34A') : '#F59E0B'}
                           />
                           <Text
                             style={[
                               styles.cardBatteryText,
-                              isDark && { color: '#E8EDE9' },
+                              isDark && { color: '#F1F5F9' },
                               isLowBattery && { color: '#EF4444', fontWeight: '800' },
                             ]}
                           >
                             {battery}
                           </Text>
                         </View>
-                        <Ionicons name="chevron-forward" size={16} color={isDark ? '#5C7064' : '#B5C4BB'} />
+                        <Ionicons name="chevron-forward" size={16} color={isDark ? '#475569' : '#B5C4BB'} />
                       </View>
                     </View>
                   </TouchableOpacity>
@@ -1007,17 +1026,17 @@ export default function BillionDollarCircleView() {
             })}
           </View>
         ) : (
-          <View style={[styles.emptyCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
-            <Ionicons name="search-outline" size={32} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+          <View style={[styles.emptyCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
+            <Ionicons name="search-outline" size={32} color={isDark ? '#30D158' : '#2E7D5B'} />
             <Text style={[styles.emptyCardTitle, isDark && { color: '#FFFFFF' }]}>No Members Match Filter</Text>
             <Text style={[styles.emptyCardSub, isDark && { color: '#9EACA3' }]}>
               Try clearing your search query or selecting "All" to view all circle members.
             </Text>
             <TouchableOpacity
-              style={[styles.clearFilterBtn, isDark && { backgroundColor: '#26342D' }]}
+              style={[styles.clearFilterBtn, isDark && { backgroundColor: '#1A1C22' }]}
               onPress={() => { setMemberFilter('all'); setMemberSearchQuery(''); }}
             >
-              <Text style={[styles.clearFilterBtnText, isDark && { color: '#3ADFAB' }]}>Reset Filter</Text>
+              <Text style={[styles.clearFilterBtnText, isDark && { color: '#30D158' }]}>Reset Filter</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -1026,43 +1045,43 @@ export default function BillionDollarCircleView() {
         <View style={[styles.sectionHeader, { marginTop: 14 }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={[styles.sectionTitle, isDark && { color: '#FFFFFF' }]}>Monitored Places</Text>
-            <View style={[styles.countBadge, isDark && { backgroundColor: '#26342D' }]}>
-              <Text style={[styles.countText, isDark && { color: '#FFFFFF' }]}>{circlePlaces.length}</Text>
+            <View style={[styles.countBadge, isDark && { backgroundColor: '#1A1C22' }]}>
+              <Text style={[styles.countText, isDark && { color: '#30D158' }]}>{circlePlaces.length}</Text>
             </View>
           </View>
           <TouchableOpacity onPress={() => navigateToScreen('SafePlaces')}>
-            <Text style={[styles.sectionLink, isDark && { color: '#3ADFAB' }]}>Manage All</Text>
+            <Text style={[styles.sectionLink, isDark && { color: '#30D158' }]}>Manage All</Text>
           </TouchableOpacity>
         </View>
 
         {circlePlaces && circlePlaces.length > 0 ? (
           circlePlaces.map((place) => (
-            <View key={place.id} style={[styles.placeCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
-              <View style={[styles.placeIconBox, { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E8F5EE' }]}>
-                <Ionicons name="location" size={20} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+            <View key={place.id} style={[styles.placeCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
+              <View style={[styles.placeIconBox, { backgroundColor: isDark ? 'rgba(48, 209, 88, 0.15)' : '#E8F5EE' }]}>
+                <Ionicons name="location" size={20} color={isDark ? '#30D158' : '#2E7D5B'} />
               </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={[styles.placeName, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
                     {place.name}
                   </Text>
-                  <View style={[styles.avatarStatusDot, { width: 6, height: 6 }]} />
+                  <View style={[styles.avatarStatusDot, { width: 6, height: 6, backgroundColor: '#30D158' }]} />
                 </View>
-                <Text style={[styles.placeMeta, isDark && { color: '#9EACA3' }]}>
+                <Text style={[styles.placeMeta, isDark && { color: '#94A3B8' }]}>
                   Radius {place.radius_m || 150}m · Entry & Exit notifications
                 </Text>
               </View>
               <TouchableOpacity
-                style={[styles.placeEditBtn, isDark && { backgroundColor: '#26342D' }]}
+                style={[styles.placeEditBtn, isDark && { backgroundColor: '#1A1C22' }]}
                 onPress={() => navigateToScreen('SafePlaces')}
               >
-                <Ionicons name="options-outline" size={18} color={isDark ? '#CAD5CE' : '#444656'} />
+                <Ionicons name="options-outline" size={18} color={isDark ? '#94A3B8' : '#444656'} />
               </TouchableOpacity>
             </View>
           ))
         ) : (
-          <View style={[styles.emptyPlaceCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
-            <Text style={[styles.emptyPlaceText, isDark && { color: '#CAD5CE' }]}>
+          <View style={[styles.emptyPlaceCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
+            <Text style={[styles.emptyPlaceText, isDark && { color: '#94A3B8' }]}>
               No safe places set up yet. Add home, school, or work to get automatic arrival & exit alerts.
             </Text>
           </View>
@@ -1070,34 +1089,34 @@ export default function BillionDollarCircleView() {
 
         {/* Add New Safe Place Button */}
         <TouchableOpacity
-          style={[styles.addPlaceCard, isDark && { backgroundColor: '#161E1A', borderColor: '#26342D' }]}
+          style={[styles.addPlaceCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}
           onPress={() => navigateToScreen('SafePlaces')}
           activeOpacity={0.8}
         >
-          <Ionicons name="add-circle-outline" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-          <Text style={[styles.addPlaceText, isDark && { color: '#3ADFAB' }]}>Add New Safe Place</Text>
+          <Ionicons name="add-circle-outline" size={18} color={isDark ? '#30D158' : '#2E7D5B'} />
+          <Text style={[styles.addPlaceText, isDark && { color: '#30D158' }]}>Add New Safe Place</Text>
         </TouchableOpacity>
 
         {/* Family Invite Code Section */}
-        <View style={[styles.inviteCard, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
+        <View style={[styles.inviteCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
           <View style={styles.inviteCardTop}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="key" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Ionicons name="key" size={18} color={isDark ? '#30D158' : '#2E7D5B'} />
               <Text style={[styles.inviteCardTitle, isDark && { color: '#FFFFFF' }]}>Family Invite Key & QR</Text>
             </View>
             <TouchableOpacity
               style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
               onPress={handleCopyCode}
             >
-              <Ionicons name="copy-outline" size={14} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-              <Text style={[styles.copyLinkText, isDark && { color: '#3ADFAB' }]}>{copyStatus}</Text>
+              <Ionicons name="copy-outline" size={14} color={isDark ? '#30D158' : '#2E7D5B'} />
+              <Text style={[styles.copyLinkText, isDark && { color: '#30D158' }]}>{copyStatus}</Text>
             </TouchableOpacity>
           </View>
 
-          <View style={[styles.inviteCodeRow, isDark && { backgroundColor: '#141A17' }]}>
+          <View style={[styles.inviteCodeRow, isDark && { backgroundColor: '#090A0C' }]}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.inviteCodeText, isDark && { color: '#FFFFFF' }]}>{inviteCode}</Text>
-              <Text style={[styles.inviteCodeSub, isDark && { color: '#9EACA3' }]}>Private Circle Key</Text>
+              <Text style={[styles.inviteCodeSub, isDark && { color: '#94A3B8' }]}>Private Circle Key</Text>
             </View>
 
             {/* Direct Tap-to-Enlarge QR Thumbnail Preview */}
@@ -1121,34 +1140,34 @@ export default function BillionDollarCircleView() {
           {/* Quick Action Buttons */}
           <View style={styles.inviteActionsRow}>
             <TouchableOpacity
-              style={[styles.codeActionBtn, isDark && { backgroundColor: '#26342D', borderColor: '#33463C' }]}
+              style={[styles.codeActionBtn, isDark && { backgroundColor: '#1A1C22', borderColor: 'rgba(255, 255, 255, 0.12)' }]}
               onPress={handleCopyCode}
               activeOpacity={0.7}
             >
-              <Ionicons name="copy-outline" size={13} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Ionicons name="copy-outline" size={13} color={isDark ? '#30D158' : '#2E7D5B'} />
               <Text style={[styles.codeActionText, isDark && { color: '#FFFFFF' }]}>Copy Code</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.codeActionBtn, isDark && { backgroundColor: '#26342D', borderColor: '#33463C' }]}
+              style={[styles.codeActionBtn, isDark && { backgroundColor: '#1A1C22', borderColor: 'rgba(255, 255, 255, 0.12)' }]}
               onPress={handleShareSMS}
               activeOpacity={0.7}
             >
-              <Ionicons name="share-social-outline" size={13} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Ionicons name="share-social-outline" size={13} color={isDark ? '#30D158' : '#2E7D5B'} />
               <Text style={[styles.codeActionText, isDark && { color: '#FFFFFF' }]}>Share Link</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.codeActionBtnActive, isDark && { backgroundColor: '#2E7D5B' }]}
+              style={[styles.codeActionBtnActive, isDark && { backgroundColor: '#30D158' }]}
               onPress={() => setQrModalVisible(true)}
               activeOpacity={0.8}
             >
-              <Ionicons name="qr-code" size={13} color="#FFFFFF" />
-              <Text style={styles.codeActionTextActive}>View QR</Text>
+              <Ionicons name="qr-code" size={13} color={isDark ? '#000000' : '#FFFFFF'} />
+              <Text style={[styles.codeActionTextActive, isDark && { color: '#000000', fontWeight: '700' }]}>View QR</Text>
             </TouchableOpacity>
           </View>
 
-          <Text style={[styles.inviteCodeNote, isDark && { color: '#9EACA3' }]}>
+          <Text style={[styles.inviteCodeNote, isDark && { color: '#94A3B8' }]}>
             Family members can scan the QR code with their camera or enter the 6-digit key to join instantly.
           </Text>
         </View>
