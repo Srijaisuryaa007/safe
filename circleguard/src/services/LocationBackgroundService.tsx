@@ -545,12 +545,13 @@ try {
 
           await dispatchGeofencePushAlert(breachEvent, placeData);
 
-          if (!isExit && placeData.circle_id) {
+          const effectiveCircleId = placeData.circle_id || (cached?.circleIds && cached.circleIds[0]) || useCircleStore.getState().activeCircle?.id;
+          if (!isExit && effectiveCircleId) {
             try {
               const { broadcastAutoGeofenceCheckIn } = require('./ActivityService');
               const otherMemberIds = (placeData.assigned_user_ids || []).filter((id: string) => id !== userId);
               await broadcastAutoGeofenceCheckIn({
-                circleId: placeData.circle_id,
+                circleId: effectiveCircleId,
                 placeId: placeData.id,
                 placeName: placeData.name,
                 userId,

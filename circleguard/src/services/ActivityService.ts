@@ -475,13 +475,29 @@ export const broadcastAutoGeofenceCheckIn = async ({
     console.warn('[ActivityService] Supabase insert auto check-in fallback:', e);
   }
 
-  // 3. Dispatch push notifications to circle guardians
-  if (otherMemberIds.length > 0) {
+  // 3. Dispatch push notifications to all circle members
+  let targetRecipients = [...(otherMemberIds || [])];
+  if (targetRecipients.length === 0 && circleId) {
+    try {
+      const { data: members } = await supabase
+        .from('circle_members')
+        .select('user_id')
+        .eq('circle_id', circleId)
+        .neq('user_id', userId);
+      if (members && members.length > 0) {
+        targetRecipients = members.map((m: any) => m.user_id).filter(Boolean);
+      }
+    } catch (e) {
+      console.warn('[ActivityService] Could not resolve circle members for push:', e);
+    }
+  }
+
+  if (targetRecipients.length > 0) {
     sendExpoPushNotification(
-      otherMemberIds,
+      targetRecipients,
       'Automatic Check-In 📍',
       `${userName} arrived at ${placeName}: Safe & Sound!`,
-      { type: 'CHECKIN', placeId, isAuto: true }
+      { type: 'CHECKIN', placeId, placeName, isAuto: true }
     ).catch(() => {});
   }
 
@@ -1131,15 +1147,195 @@ export const fetchCircleActivities = async (
   // 5. Merge with locally cached activity events
   const localEvents = await getLocalActivityEvents(circleId);
 
-  // Combine and deduplicate by event ID: live server and geofence data take priority over stale local cache
-  const map = new Map<string, ActivityEvent>();
-  [...geofenceEvents, ...sosEvents, ...msgEvents, ...telemetryEvents, ...localEvents].forEach((ev) => {
-    if (!map.has(ev.id)) {
-      map.set(ev.id, ev);
+  // Combine raw candidate events
+  const allRawEvents = [...geofenceEvents, ...sosEvents, ...msgEvents, ...telemetryEvents, ...localEvents];
+
+  // Pass 1: Deduplicate by exact unique event ID
+  const uniqueByIdMap = new Map<string, ActivityEvent>();
+  for (const ev of allRawEvents) {
+    if (!uniqueByIdMap.has(ev.id)) {
+      uniqueByIdMap.set(ev.id, ev);
+    }
+  }
+  const uniqueEvents = Array.from(uniqueByIdMap.values());
+
+  // Pass 2: Canonical Arrival & Place Check-In Deduplication
+  // Collapse dual-table writes (zone_events + place_events + circle_messages + local + live telemetry) into exactly ONE authoritative card per arrival.
+  const helperResolvePlace = (ev: ActivityEvent): { pId?: string; pName?: string } => {
+    if (ev.placeId || ev.placeName) {
+      return { pId: ev.placeId, pName: ev.placeName };
+    }
+    const combined = `${ev.title || ''} ${ev.message || ''}`.toLowerCase();
+    for (const p of places) {
+      const n = (p.name || '').toLowerCase().trim();
+      if (n && combined.includes(n)) {
+        return { pId: p.id, pName: p.name };
+      }
+    }
+    return {};
+  };
+
+  const isPlaceArrivalCandidate = (ev: ActivityEvent): boolean => {
+    // Preserve departures separately
+    if (ev.eventType === 'departure') return false;
+    if (ev.type === 'GEOFENCE' && ev.eventType === 'arrival') return true;
+    if (ev.id.startsWith('live_place_')) return true;
+    if (ev.id.startsWith('auto_checkin_')) return true;
+    if (ev.type === 'CHECKIN') {
+      const text = `${ev.title || ''} ${ev.message || ''}`.toLowerCase();
+      const { pName } = helperResolvePlace(ev);
+      if (pName || text.includes('arrived at') || text.includes('checked in') || text.includes('auto check') || text.includes('safe place') || text.includes('safe zone')) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const candidateArrivals: ActivityEvent[] = [];
+  const nonArrivals: ActivityEvent[] = [];
+
+  for (const ev of uniqueEvents) {
+    if (isPlaceArrivalCandidate(ev)) {
+      candidateArrivals.push(ev);
+    } else {
+      nonArrivals.push(ev);
+    }
+  }
+
+  // Sort candidate arrivals descending
+  candidateArrivals.sort((a, b) => b.timestamp - a.timestamp);
+
+  // Group candidate arrivals into canonical sessions (userId + placeKey + 20-min window)
+  interface ArrivalCluster {
+    canonicalKey: string;
+    userId: string;
+    placeKey: string;
+    events: ActivityEvent[];
+    baseTimestamp: number;
+  }
+
+  const clusters: ArrivalCluster[] = [];
+
+  for (const ev of candidateArrivals) {
+    const { pId, pName } = helperResolvePlace(ev);
+    const placeKey = (pId || pName || 'safe_zone').toLowerCase().trim();
+    const userId = ev.userId || 'unknown';
+
+    // Find existing cluster within 20 minutes for same user and place
+    const matchedCluster = clusters.find(
+      (c) =>
+        c.userId === userId &&
+        (c.placeKey === placeKey || placeKey === 'safe_zone' || c.placeKey === 'safe_zone') &&
+        Math.abs(c.baseTimestamp - ev.timestamp) <= 20 * 60 * 1000
+    );
+
+    if (matchedCluster) {
+      matchedCluster.events.push(ev);
+      if (matchedCluster.placeKey === 'safe_zone' && placeKey !== 'safe_zone') {
+        matchedCluster.placeKey = placeKey;
+      }
+    } else {
+      clusters.push({
+        canonicalKey: `${userId}_${placeKey}_${Math.floor(ev.timestamp / (20 * 60 * 1000))}`,
+        userId,
+        placeKey,
+        events: [ev],
+        baseTimestamp: ev.timestamp,
+      });
+    }
+  }
+
+  // Synthesize EXACTLY ONE authoritative card per arrival cluster
+  const deduplicatedArrivals: ActivityEvent[] = [];
+
+  for (const cluster of clusters) {
+    const evs = cluster.events;
+
+    // Pick the best base event:
+    // Priority: GEOFENCE event > CHECKIN message / local event > synthetic live place
+    const baseEvent =
+      evs.find((e) => e.type === 'GEOFENCE' && !e.id.startsWith('live_place_')) ||
+      evs.find((e) => e.type === 'CHECKIN' && !e.id.startsWith('live_place_')) ||
+      evs[0];
+
+    // Determine place name & user name across cluster
+    let bestPlaceName = baseEvent.placeName;
+    let bestPlaceId = baseEvent.placeId;
+    let bestUserName = baseEvent.memberName || 'Circle Member';
+
+    for (const e of evs) {
+      const { pId, pName } = helperResolvePlace(e);
+      if (!bestPlaceName && pName) bestPlaceName = pName;
+      if (!bestPlaceId && pId) bestPlaceId = pId;
+      if (bestUserName === 'Circle Member' && e.memberName && e.memberName !== 'Circle Member') {
+        bestUserName = e.memberName;
+      }
+    }
+
+    if (!bestPlaceName) bestPlaceName = 'Safe Zone';
+
+    // Check if auto check-in or manual check-in was broadcasted
+    const hasAutoCheckIn = evs.some(
+      (e) =>
+        e.id.startsWith('auto_checkin_') ||
+        (e.message && e.message.toLowerCase().includes('auto check')) ||
+        (e.title && e.title.toLowerCase().includes('auto check'))
+    );
+    const hasManualCheckIn = evs.some(
+      (e) =>
+        e.type === 'CHECKIN' &&
+        !e.id.startsWith('live_place_') &&
+        !hasAutoCheckIn
+    );
+
+    const timingDisplay = baseEvent.time || 'Recently';
+
+    // Build the ONE single authoritative arrival card
+    const canonicalArrivalCard: ActivityEvent = {
+      ...baseEvent,
+      id: `canonical_arrival_${cluster.userId}_${cluster.placeKey}_${Math.floor(cluster.baseTimestamp / (20 * 60 * 1000))}`,
+      type: 'GEOFENCE',
+      eventType: 'arrival',
+      memberName: bestUserName,
+      placeName: bestPlaceName,
+      placeId: bestPlaceId || baseEvent.placeId,
+      time: timingDisplay,
+      color: '#4ADE80',
+      icon: 'checkmark-circle',
+      title: hasAutoCheckIn
+        ? `${bestUserName} arrived at ${bestPlaceName} • Auto Checked-In`
+        : hasManualCheckIn
+        ? `${bestUserName} checked in at ${bestPlaceName}`
+        : `${bestUserName} arrived at ${bestPlaceName} • ${timingDisplay}`,
+      message: hasAutoCheckIn
+        ? `${bestUserName} arrived safely at ${bestPlaceName} • Auto checked-in & broadcasted to circle.`
+        : baseEvent.message || `Safely entered safe boundary at ${timingDisplay}.`,
+      timestamp: baseEvent.timestamp || cluster.baseTimestamp,
+    };
+
+    deduplicatedArrivals.push(canonicalArrivalCard);
+  }
+
+  // Combine deduplicated arrivals with non-arrival events (departures, messages, SOS alerts)
+  // Suppress any redundant live_place_ synthetic items from nonArrivals if an arrival already exists
+  const finalMap = new Map<string, ActivityEvent>();
+
+  [...deduplicatedArrivals, ...nonArrivals].forEach((ev) => {
+    if (ev.id.startsWith('live_place_')) {
+      const alreadyCovered = deduplicatedArrivals.some(
+        (arr) =>
+          arr.userId === ev.userId &&
+          Math.abs(arr.timestamp - ev.timestamp) < 6 * 60 * 60 * 1000
+      );
+      if (alreadyCovered) return;
+    }
+
+    if (!finalMap.has(ev.id)) {
+      finalMap.set(ev.id, ev);
     }
   });
 
-  const finalEvents = Array.from(map.values()).sort((a, b) => b.timestamp - a.timestamp);
+  const finalEvents = Array.from(finalMap.values()).sort((a, b) => b.timestamp - a.timestamp);
 
   // Silently sync freshly normalized geofence events into local storage so offline state remains authentic
   try {

@@ -859,12 +859,13 @@ export async function evaluateGeofenceBreaches(
       await dispatchGeofencePushAlert(breachEvent, place);
 
       // 5. Autonomous Zero-Touch Check-in on Arrival
-      if (!isExit && place.circle_id) {
+      const effectiveCircleId = place.circle_id || require('../store/useCircleStore').useCircleStore.getState().activeCircle?.id;
+      if (!isExit && effectiveCircleId) {
         try {
           const { broadcastAutoGeofenceCheckIn } = require('./ActivityService');
           const otherMemberIds = (place.assigned_user_ids || []).filter((id: string) => id !== userLoc.user_id);
           await broadcastAutoGeofenceCheckIn({
-            circleId: place.circle_id,
+            circleId: effectiveCircleId,
             placeId: place.id,
             placeName: place.name,
             userId: userLoc.user_id,
