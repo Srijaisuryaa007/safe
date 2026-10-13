@@ -27,6 +27,7 @@ import PaywallModal from '../components/PaywallModal';
 import HeatlineAreaChart from '../components/charts/HeatlineAreaChart';
 import SafetyRadarChart from '../components/charts/SafetyRadarChart';
 import TelematicsBarChart from '../components/charts/TelematicsBarChart';
+import FeatureInfoModal from '../components/FeatureInfoModal';
 
 import { reverseGeocodeLive } from '../services/GeocodingService';
 
@@ -177,6 +178,8 @@ export default function DrivingReportsScreen() {
   const [totalRapidAccels, setTotalRapidAccels] = useState(0);
   const [totalSpeedingEvents, setTotalSpeedingEvents] = useState(0);
   const [drivingSensitivity, setDrivingSensitivity] = useState<TelematicsSensitivity>('balanced');
+  const [showSensorInfoModal, setShowSensorInfoModal] = useState(false);
+  const [showScoreInfoModal, setShowScoreInfoModal] = useState(false);
 
   const webViewModalRef = useRef<any>(null);
 
@@ -923,6 +926,13 @@ export default function DrivingReportsScreen() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Ionicons name="options-outline" size={13} color="#2E7D5B" />
                       <Text style={[styles.calibrationHeaderTitle, { color: colors.foreground }]}>SENSOR CALIBRATION</Text>
+                      <TouchableOpacity
+                        onPress={() => setShowSensorInfoModal(true)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        accessibilityLabel="Learn what sensor calibration does"
+                      >
+                        <Ionicons name="information-circle-outline" size={15} color="#2E7D5B" />
+                      </TouchableOpacity>
                     </View>
                     {drivingSensitivity === 'low' && (
                       <View style={styles.cupHolderBadge}>
@@ -977,6 +987,13 @@ export default function DrivingReportsScreen() {
                   <Text style={{ fontSize: 9.5, fontWeight: '800', color: driverScore == null ? colors.textMuted : '#2E7D5B', letterSpacing: 1.2 }}>
                     TELEMETRY SAFETY EVALUATION
                   </Text>
+                  <TouchableOpacity
+                    onPress={() => setShowScoreInfoModal(true)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityLabel="Learn how driving score is calculated"
+                  >
+                    <Ionicons name="information-circle-outline" size={14} color={driverScore == null ? colors.textMuted : '#2E7D5B'} />
+                  </TouchableOpacity>
                 </View>
                 <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: driverScore == null ? (isDark ? '#26342D' : '#F1F5F2') : (driverScore >= 80 ? '#F0FDF4' : '#FFF3EB') }}>
                   <Text style={{ fontSize: 9, fontWeight: '900', color: driverScore == null ? colors.textMuted : (driverScore >= 80 ? '#16A34A' : '#E07A5F'), letterSpacing: 1 }}>
@@ -1493,6 +1510,61 @@ export default function DrivingReportsScreen() {
         visible={paywallVisible}
         onClose={dismissPaywall}
         gatedFeatureName={gatedFeatureName}
+      />
+
+      <FeatureInfoModal
+        visible={showSensorInfoModal}
+        onClose={() => setShowSensorInfoModal(false)}
+        title="Sensor Calibration & Filter"
+        subtitle="How your phone measures vehicle dynamics"
+        iconName="options"
+        iconColor="#2E7D5B"
+        overview="Phones inside moving cars can rest on windshield mounts, slide on seats, or rattle in cup holders. Sensor calibration re-aligns your phone's 3D accelerometer with the car's true direction of travel."
+        bullets={[
+          {
+            icon: 'shield-checkmark',
+            title: 'Stops False Crash Alarms',
+            description: 'Cross-checks high G-force impacts with vehicle GPS speed drops so dropping your phone on the floor never triggers 911 emergency alarms.',
+          },
+          {
+            icon: 'car-sport',
+            title: 'Cup Holder & Gravel Road Filter',
+            description: 'Dampens high-frequency road vibrations from potholes and bumpy gravel, preventing unfair harsh braking penalties.',
+          },
+          {
+            icon: 'speedometer',
+            title: '3 Calibrated Modes',
+            description: 'Cup Holder / Fleet for loose phones and couriers; Balanced for daily city commuting; High Precision for learner drivers.',
+          },
+        ]}
+        tip="If your phone is loose in a cup holder or bag, select 'Cup Holder / Fleet' mode to eliminate false braking deductions."
+      />
+
+      <FeatureInfoModal
+        visible={showScoreInfoModal}
+        onClose={() => setShowScoreInfoModal(false)}
+        title="Driving Safety Evaluation"
+        subtitle="How your 0–100 score is calculated"
+        iconName="shield-checkmark"
+        iconColor="#2E7D5B"
+        overview="CircleGuard analyzes trip telemetry using a 3-point rolling speed filter to evaluate safe following distances, gentle cornering, and speed consistency."
+        bullets={[
+          {
+            icon: 'trending-up',
+            title: 'Smooth Acceleration & Braking',
+            description: 'Calculates deceleration rates (delta-v / delta-t). Gradual braking preserves your 100-point safety baseline.',
+          },
+          {
+            icon: 'speedometer-outline',
+            title: 'Speed Profile Consistency',
+            description: 'Monitors sustained cruising speeds against road limits while ignoring single-ping GPS spikes.',
+          },
+          {
+            icon: 'ribbon-outline',
+            title: 'Daily Aggregation',
+            description: 'Grades trips from A+ (90+) to B (below 80). Helps families encourage safe driving habits without micromanagement.',
+          },
+        ]}
       />
     </View>
   );

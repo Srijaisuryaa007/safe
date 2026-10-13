@@ -30,6 +30,7 @@ import MedicalInfoModal from './MedicalInfoModal';
 import ShareLocationModal from './ShareLocationModal';
 import CountrySelectorModal from './CountrySelectorModal';
 import CovertCalculatorModal from './CovertCalculatorModal';
+import FeatureInfoModal from './FeatureInfoModal';
 import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
 import { offlineSmsSosService } from '../services/OfflineSmsSosService';
 import { getSafeTopInset } from '../utils/safeArea';
@@ -60,6 +61,7 @@ export default function BillionDollarSOSView() {
   const [shareLocationVisible, setShareLocationVisible] = useState(false);
   const [countryModalVisible, setCountryModalVisible] = useState(false);
   const [covertCalculatorVisible, setCovertCalculatorVisible] = useState(false);
+  const [activeInfoModal, setActiveInfoModal] = useState<'covert' | 'falseAlarm' | 'discreet' | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Animation values
@@ -670,6 +672,13 @@ export default function BillionDollarSOSView() {
                       ? 'Senior Easy Mode Active • 100% false-alarm protected with 8-second cancel buffer.'
                       : 'Continuous 3s hold prevents accidental false alarms.'}
                   </Text>
+                  <TouchableOpacity
+                    onPress={() => setActiveInfoModal('falseAlarm')}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    accessibilityLabel="Learn how false alarm protection works"
+                  >
+                    <Ionicons name="information-circle-outline" size={15} color={isDark ? '#9EACA3' : '#64748B'} />
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
@@ -717,9 +726,18 @@ export default function BillionDollarSOSView() {
                     />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.discreetToggleTitle, { color: textPrimary }]}>
-                      {isDiscreetMode ? 'Silent & Discreet SOS Mode' : 'Audible Siren SOS Mode'}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.discreetToggleTitle, { color: textPrimary }]}>
+                        {isDiscreetMode ? 'Silent & Discreet SOS Mode' : 'Audible Siren SOS Mode'}
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => setActiveInfoModal('discreet')}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        accessibilityLabel="Learn what discreet mode does"
+                      >
+                        <Ionicons name="information-circle-outline" size={15} color={isDark ? '#9EACA3' : '#64748B'} />
+                      </TouchableOpacity>
+                    </View>
                     <Text style={[styles.discreetToggleSub, { color: textSecondary }]}>
                       {isDiscreetMode
                         ? 'Dispatches live GPS quietly without sounding loud sirens'
@@ -803,9 +821,18 @@ export default function BillionDollarSOSView() {
                   </Text>
                 </View>
               </View>
-              <Text style={[styles.gridCardTitle, { color: textPrimary }]}>
-                Silent Beacon
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[styles.gridCardTitle, { color: textPrimary }]}>
+                  Silent Beacon
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setActiveInfoModal('discreet')}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel="Learn how silent beacon works"
+                >
+                  <Ionicons name="information-circle-outline" size={14} color={brandGreen} />
+                </TouchableOpacity>
+              </View>
               <Text style={[styles.gridCardSub, { color: textSecondary }]}>
                 Discreet GPS broadcast to circle with zero audio or visual cues on device.
               </Text>
@@ -1163,6 +1190,91 @@ export default function BillionDollarSOSView() {
         }}
       />
 
+      {/* Feature Information Explainer Modals */}
+      <FeatureInfoModal
+        visible={activeInfoModal === 'covert'}
+        onClose={() => setActiveInfoModal(null)}
+        title="Covert Disguise & Duress PIN"
+        subtitle="Camouflaged emergency protocol for high-risk situations"
+        iconName="calculator"
+        iconColor="#64748B"
+        overview="In dangerous situations like stalking, domestic coercion, or home intrusion, pulling out an obvious safety app can escalate threat. Covert Mode disguises CircleGuard as a fully functioning calculator."
+        bullets={[
+          {
+            icon: 'keypad',
+            title: 'Authentic Arithmetic Engine',
+            description: 'Performs actual addition, multiplication, percentages, and decimals. Even if forced to unlock your phone, it appears entirely ordinary.',
+          },
+          {
+            icon: 'lock-closed',
+            title: 'Secret Duress PIN (911= or 0000=)',
+            description: 'Typing 911= or 0000= secretly triggers high-priority distress alerts with satellite GPS telemetry and battery level.',
+          },
+          {
+            icon: 'eye-off',
+            title: 'Zero Screen Cues',
+            description: 'The app never flashes, sounds, or shows a distress confirmation, keeping you completely protected from detection.',
+          },
+        ]}
+        tip="Memorize your Duress PIN (911= or 0000=) so you can trigger emergency dispatch discreetly with one hand."
+      />
+
+      <FeatureInfoModal
+        visible={activeInfoModal === 'falseAlarm'}
+        onClose={() => setActiveInfoModal(null)}
+        title="False Alarm & Tremor Protection"
+        subtitle="Zero accidental emergency dispatches"
+        iconName="shield-checkmark"
+        iconColor="#2E7D5B"
+        overview="Accidental emergency triggers cause unnecessary panic and tie up critical first responder resources. CircleGuard protects against unintended activations with a two-stage verification barrier."
+        bullets={[
+          {
+            icon: 'finger-print',
+            title: 'Continuous 3-Second Hold Gate',
+            description: 'Accidental bumps in a purse or quick pocket taps never trigger alerts. The button requires an unbroken 3-second hold to engage.',
+          },
+          {
+            icon: 'timer-outline',
+            title: 'Cancellation Countdown Window',
+            description: 'Once engaged, a tactile countdown lets you immediately tap Cancel (I Am Safe) before any notifications or SMS reach family or emergency services.',
+          },
+          {
+            icon: 'accessibility',
+            title: 'Senior & Tremor Debounce',
+            description: 'In Senior Easy Mode, the cancellation window expands to 8 seconds with high-contrast, oversized cancel controls for unsteady hands.',
+          },
+        ]}
+        tip="If accidentally triggered, tap 'CANCEL (I AM SAFE)' before the timer reaches zero. Zero dispatches will leave your phone."
+      />
+
+      <FeatureInfoModal
+        visible={activeInfoModal === 'discreet'}
+        onClose={() => setActiveInfoModal(null)}
+        title="Silent & Discreet SOS Mode"
+        subtitle="Quiet distress beacon without alerting nearby threats"
+        iconName="volume-mute"
+        iconColor="#475569"
+        overview="When hiding from an intruder or navigating an unsafe encounter in close quarters, an acoustic 110 dB siren can escalate danger. Silent SOS keeps you invisible while calling for help."
+        bullets={[
+          {
+            icon: 'volume-off',
+            title: 'Zero Speaker Audio',
+            description: 'Mutes all alarms, sirens, and tone feedback on your device so no sound is emitted.',
+          },
+          {
+            icon: 'moon',
+            title: 'Suppressed Screen Flashes',
+            description: 'Mutes high-visibility strobe effects and camera flash pulses that would draw visual attention in the dark.',
+          },
+          {
+            icon: 'navigate',
+            title: 'Full Telemetry & SMS Dispatch',
+            description: 'Dispatches high-priority push notifications and offline cellular SMS with real-time GPS coordinates and battery percentage to your guardians.',
+          },
+        ]}
+        tip="Enable Silent Mode beforehand if walking alone at night or entering an area where acoustic alarms could provoke confrontation."
+      />
+
       {/* 3-Dots Quick Emergency Options Sheet */}
       <Modal
         visible={emergencyMenuVisible}
@@ -1288,9 +1400,21 @@ export default function BillionDollarSOSView() {
                   <Ionicons name="calculator-outline" size={20} color="#64748B" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.menuItemTitle, { color: textPrimary }]}>
-                    Covert Disguise Mode & Duress PIN
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={[styles.menuItemTitle, { color: textPrimary }]}>
+                      Covert Disguise Mode & Duress PIN
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setEmergencyMenuVisible(false);
+                        setActiveInfoModal('covert');
+                      }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      accessibilityLabel="Learn what covert disguise mode does"
+                    >
+                      <Ionicons name="information-circle-outline" size={15} color="#2E7D5B" />
+                    </TouchableOpacity>
+                  </View>
                   <Text style={[styles.menuItemDesc, { color: textSecondary }]}>
                     Disguises app as calculator; typing 911= triggers silent SOS
                   </Text>

@@ -18,6 +18,7 @@ import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import { useSubscriptionStore } from '../store/useSubscriptionStore';
 import PaywallModal from '../components/PaywallModal';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
+import FeatureInfoModal from '../components/FeatureInfoModal';
 import { ValidationSchema } from '../lib/validationSchema';
 import { handleServiceError } from '../lib/errorHandler';
 import { LEAFLET_JS, LEAFLET_CSS } from '../constants/leafletBundle';
@@ -195,6 +196,7 @@ export default function SafePlacesScreen() {
   const [savedPlaces, setSavedPlaces] = useState<any[]>([]);
   const [loadingPlaces, setLoadingPlaces] = useState(true);
   const [editingPlaceId, setEditingPlaceId] = useState<string | null>(null);
+  const [showGeofenceInfoModal, setShowGeofenceInfoModal] = useState(false);
   const mainScrollViewRef = useRef<any>(null);
   const [isScrollEnabled, setIsScrollEnabled] = useState(true);
   const [isMapExpanded, setIsMapExpanded] = useState(false);
@@ -1602,8 +1604,20 @@ export default function SafePlacesScreen() {
         nestedScrollEnabled={true}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={[styles.overline, { color: colors.accentGold }]}>{editingPlaceId ? 'MODIFY BOUNDARY' : 'SETUP BOUNDARY'}</Text>
-        <Text style={[styles.title, { color: colors.foreground }]}>{editingPlaceId ? 'Edit Geofence' : 'Define Geofence'}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+          <View>
+            <Text style={[styles.overline, { color: colors.accentGold }]}>{editingPlaceId ? 'MODIFY BOUNDARY' : 'SETUP BOUNDARY'}</Text>
+            <Text style={[styles.title, { color: colors.foreground }]}>{editingPlaceId ? 'Edit Geofence' : 'Define Geofence'}</Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => setShowGeofenceInfoModal(true)}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="Learn how safe places geofencing works"
+            style={{ padding: 6, borderRadius: 20, backgroundColor: isDark ? '#1C2621' : '#E8F5EE' }}
+          >
+            <Ionicons name="information-circle-outline" size={20} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+          </TouchableOpacity>
+        </View>
 
         <Text style={[styles.inputLabel, { color: colors.textMuted }]}>GEOFENCE NAME</Text>
         <TextInput
@@ -2500,6 +2514,34 @@ export default function SafePlacesScreen() {
           </View>
         </View>
       </Modal>
+
+      <FeatureInfoModal
+        visible={showGeofenceInfoModal}
+        onClose={() => setShowGeofenceInfoModal(false)}
+        title="Safe Places & Geofencing"
+        subtitle="Automated arrival and departure intelligence"
+        iconName="shield-checkmark"
+        iconColor="#2E7D5B"
+        overview="Safe Places creates dynamic virtual perimeters around home, school, work, or frequent transit routes. When circle members cross these boundaries, CircleGuard automatically alerts guardians without draining battery."
+        bullets={[
+          {
+            icon: 'notifications',
+            title: 'Arrival & Departure Pings',
+            description: 'Instant push notifications when your kids reach school or family returns home safely.',
+          },
+          {
+            icon: 'battery-charging',
+            title: 'Low-Power Hardware Geofencing',
+            description: 'Uses cell towers and Wi-Fi signatures alongside low-frequency GPS to preserve all-day battery life.',
+          },
+          {
+            icon: 'speedometer',
+            title: 'Speed-Adaptive Boundary Buffer',
+            description: 'Expands virtual boundary margins at driving speeds to eliminate false crossing alerts while cruising past on nearby highways.',
+          },
+        ]}
+        tip="For homes and schools, set the perimeter radius to 150m–200m for prompt notifications without dead-zone dropouts."
+      />
     </View>
   );
 }
