@@ -18,6 +18,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from '../lib/supabase';
 import { useCircleStore, CircleMember } from '../store/useCircleStore';
 import LeaderApprovalModal from './LeaderApprovalModal';
+import FeatureInfoModal from './FeatureInfoModal';
 import { useLuxuryAlert } from './LuxuryAlertModal';
 import PrivacyPolicyModal from './PrivacyPolicyModal';
 import TermsOfServiceModal from './TermsOfServiceModal';
@@ -52,9 +53,18 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
 
   const [approvalModalVisible, setApprovalModalVisible] = useState(false);
   const [approvalFeature, setApprovalFeature] = useState<'ghost_mode' | 'hide_online' | 'location_off'>('ghost_mode');
+  const [showGhostInfoModal, setShowGhostInfoModal] = useState(false);
   const [policyModalVisible, setPolicyModalVisible] = useState(false);
   const [termsModalVisible, setTermsModalVisible] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+
+  const { activeCircle, circles } = useCircleStore();
+  const hasCircles = (circles && circles.length > 0) || Boolean(activeCircle);
+  const currentCircle = (activeCircle && activeCircle.id)
+    ? (circles.find((c: any) => c.id === activeCircle.id) || activeCircle)
+    : (circles && circles.length > 0 ? circles[0] : null);
+  const isOptionA = currentCircle?.tracking_mode === 'privacy';
+  const isOptionB = Boolean(currentCircle && currentCircle.tracking_mode !== 'privacy');
 
   useEffect(() => {
     if (visible && profile?.id) {
@@ -188,14 +198,22 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
     return true;
   };
 
-  const toggleSetting = async (key: string, value: boolean, setter: (val: boolean) => void) => {
-    const { activeCircle, circles } = useCircleStore.getState();
-    const hasCircles = (circles && circles.length > 0) || Boolean(activeCircle);
-    const isLeader = isUserCircleLeader();
+  const isLeader = isUserCircleLeader();
 
-    // STRICT ROLE ISOLATION:
-    // When activating Ghost Mode or Hide Online, members in circles MUST get leader authorization!
-    if ((key === KEYS.GHOST_MODE || key === KEYS.HIDE_ONLINE) && value && hasCircles && !isLeader) {
+  const toggleSetting = async (key: string, value: boolean, setter: (val: boolean) => void) => {
+    const { activeCircle: storeActiveCircle, circles: storeCircles } = useCircleStore.getState();
+    const hasActiveCircles = (storeCircles && storeCircles.length > 0) || Boolean(storeActiveCircle);
+
+    const targetCircle = (storeActiveCircle && storeActiveCircle.id)
+      ? (storeCircles.find((c: any) => c.id === storeActiveCircle.id) || storeActiveCircle)
+      : (storeCircles && storeCircles.length > 0 ? storeCircles[0] : null);
+
+    // Option B vs Option A Enforcement:
+    // Option A: Privacy-First Disconnect ('privacy') -> Anyone can turn on Ghost/Fuzzy mode or other privacy modes without any leader permission!
+    // Option B: Continuous 24/7 Tracking ('continuous') -> Non-leader members MUST request authorization from the Circle Leader.
+    const isTargetOptionB = targetCircle ? targetCircle.tracking_mode !== 'privacy' : false;
+
+    if ((key === KEYS.GHOST_MODE || key === KEYS.HIDE_ONLINE) && value && hasActiveCircles && isTargetOptionB && !isLeader) {
       const featureKey = key === KEYS.GHOST_MODE ? 'ghost_mode' : 'hide_online';
       setApprovalFeature(featureKey);
       setApprovalModalVisible(true);
@@ -358,9 +376,39 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
                   <Ionicons name="eye-off-outline" size={18} color="#2E7D5B" />
                 </View>
                 <View style={styles.textWrapper}>
-                  <Text style={styles.rowTitle}>Ghost Privacy Mode</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <Text style={styles.rowTitle}>Ghost Privacy Mode</Text>
+                    <TouchableOpacity
+                      onPress={() => setShowGhostInfoModal(true)}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      accessibilityLabel="Learn how Ghost Mode and Option A/B work"
+                    >
+                      <Ionicons name="information-circle-outline" size={15} color="#2E7D5B" />
+                    </TouchableOpacity>
+                    {hasCircles && (
+                      <View
+                        style={[
+                          styles.modeBadge,
+                          { backgroundColor: isOptionA ? '#E8F5EE' : 'rgba(245, 158, 11, 0.12)' },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.modeBadgeText,
+                            { color: isOptionA ? '#2E7D5B' : '#D97706' },
+                          ]}
+                        >
+                          {isOptionA ? 'OPTION A • NO APPROVAL NEEDED' : isLeader ? 'OPTION B • LEADER' : 'OPTION B • LEADER APPROVAL'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={styles.rowDesc}>
-                    Fuzzes your GPS to an approximate ~500m radius for circle members
+                    {isOptionA
+                      ? 'Option A (Privacy-First): Fuzzes GPS (~500m radius). Anyone can toggle freely without leader permission.'
+                      : isLeader
+                      ? 'Fuzzes your GPS to an approximate ~500m radius for circle members.'
+                      : 'Option B (24/7 Safety): Fuzzes GPS (~500m radius). Requires Circle Leader approval.'}
                   </Text>
                 </View>
               </View>
@@ -441,9 +489,20 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
                   <Ionicons name="radio-outline" size={18} color="#1F2A24" />
                 </View>
                 <View style={styles.textWrapper}>
-                  <Text style={styles.rowTitle}>Hide Online Presence</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <Text style={styles.rowTitle}>Hide Online Presence</Text>
+                    {hasCircles && isOptionA && (
+                      <View style={[styles.modeBadge, { backgroundColor: '#E8F5EE' }]}>
+                        <Text style={[styles.modeBadgeText, { color: '#2E7D5B' }]}>
+                          OPTION A • NO APPROVAL NEEDED
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={styles.rowDesc}>
-                    Conceal active status indicator and live timestamps
+                    {isOptionA
+                      ? 'Option A (Privacy-First): Conceal active status and live timestamps freely.'
+                      : 'Conceal active status indicator and live timestamps'}
                   </Text>
                 </View>
               </View>
@@ -637,6 +696,34 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
           visible={approvalModalVisible}
           onClose={() => setApprovalModalVisible(false)}
           requestedFeature={approvalFeature}
+        />
+
+        <FeatureInfoModal
+          visible={showGhostInfoModal}
+          onClose={() => setShowGhostInfoModal(false)}
+          title="Ghost Mode & Privacy Options"
+          subtitle="How Option A & Option B handle location fuzzing"
+          iconName="eye-off"
+          iconColor="#2E7D5B"
+          overview="Ghost Privacy Mode (Fuzzy Mode) masks your exact coordinates and broadcasts a randomized ~500m radius perimeter so circle members know you are safe without tracking your exact steps."
+          bullets={[
+            {
+              icon: 'flash-outline',
+              title: 'Option A: Privacy-First Disconnect',
+              description: 'Full autonomy. Any member can activate Ghost/Fuzzy Mode or Hide Online at any time without needing Circle Leader permission.',
+            },
+            {
+              icon: 'shield-checkmark',
+              title: 'Option B: Continuous 24/7 Tracking',
+              description: 'Continuous family safety mode. To protect children and maintain safety integrity, non-leader members must request approval from the Circle Leader before ghosting their location.',
+            },
+            {
+              icon: 'locate-outline',
+              title: 'Fuzzy ~500m GPS Jitter',
+              description: 'Replaces exact house numbers and street pins with a randomized safe area bubble.',
+            },
+          ]}
+          tip="In Option A circles, toggle Ghost Mode whenever you want private time with zero permission barriers."
         />
 
         <PrivacyPolicyModal
@@ -892,5 +979,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0EFEA',
     marginVertical: 8,
     marginLeft: 26,
+  },
+  modeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  modeBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
 });
