@@ -12,6 +12,7 @@ import {
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
+import StackedNotificationCard, { StackedAlertItem } from './ui/StackedNotificationCard';
 
 export default function SafeZonePermissionBanner() {
   const { isDark } = useThemeStore();
@@ -57,49 +58,28 @@ export default function SafeZonePermissionBanner() {
     return null;
   }
 
+  const alerts: StackedAlertItem[] = [
+    {
+      id: 'active_protection',
+      variant: 'success',
+      title: 'Circle Protection Active',
+      description: 'Real-time telemetry and emergency distress hotlines are fully operational.',
+    },
+    {
+      id: 'bg_permission_advisory',
+      variant: 'warning',
+      title: 'Safe Zone Background Alerts',
+      description: 'CircleGuard needs "Always Allow" background location to alert your circle when leaving safe zones.',
+      actionText: 'Enable',
+      onAction: handleRequestAlwaysPermission,
+      secondaryActionText: Platform.OS === 'android' ? 'Battery Optimization' : undefined,
+      onSecondaryAction: Platform.OS === 'android' ? () => setShowAndroidHelpModal(true) : undefined,
+    },
+  ];
+
   return (
     <>
-      <View
-        style={[
-          styles.bannerContainer,
-          isDark ? styles.bannerDark : styles.bannerLight,
-        ]}
-      >
-        <View style={styles.bannerHeader}>
-          <View style={styles.iconCircle}>
-            <Ionicons name="shield-half" size={18} color="#F59E0B" />
-          </View>
-          <View style={styles.textContainer}>
-            <Text style={[styles.title, isDark ? styles.textLight : styles.textDark]}>
-              Safe Zone Alerts Suspended
-            </Text>
-            <Text style={[styles.description, isDark ? styles.subtextDark : styles.subtextLight]}>
-              CircleGuard needs "Always Allow" background location to alert your circle when you leave safe zones while the app is closed.
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={handleRequestAlwaysPermission}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.primaryButtonText}>Enable "Always Allow"</Text>
-          </TouchableOpacity>
-
-          {Platform.OS === 'android' && (
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={() => setShowAndroidHelpModal(true)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="battery-charging-outline" size={14} color="#3ADFAB" />
-              <Text style={styles.secondaryButtonText}>Battery Settings</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
+      <StackedNotificationCard alerts={alerts} />
 
       {/* Android Battery Optimization Guide Modal */}
       <Modal
