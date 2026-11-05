@@ -384,7 +384,20 @@ try {
               if (upsertErr.message?.includes('row-level security') || upsertErr.message?.includes('JWT') || upsertErr.message?.includes('expired')) {
                 try {
                   const { data: refData } = await supabase.auth.refreshSession();
-                  const freshUid = refData?.session?.user?.id;
+                  let freshUid = refData?.session?.user?.id;
+                  if (!freshUid) {
+                    const sessionRaw = await AsyncStorage.getItem('@circleguard_auth_session');
+                    if (sessionRaw) {
+                      const parsed = JSON.parse(sessionRaw);
+                      if (parsed?.access_token && parsed?.refresh_token) {
+                        const setRes = await supabase.auth.setSession({
+                          access_token: parsed.access_token,
+                          refresh_token: parsed.refresh_token,
+                        });
+                        freshUid = setRes?.data?.session?.user?.id;
+                      }
+                    }
+                  }
                   if (freshUid) {
                     payload.user_id = freshUid;
                     await supabase.from('locations').upsert(payload, { onConflict: 'user_id' });

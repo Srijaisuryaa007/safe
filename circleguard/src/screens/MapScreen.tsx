@@ -2933,6 +2933,16 @@ export default function MapScreen() {
                 const refreshed = await supabase.auth.refreshSession();
                 verifiedAuthUid = refreshed?.data?.session?.user?.id || null;
               }
+              if (!verifiedAuthUid) {
+                const storeSession = useAuthStore.getState().session;
+                if (storeSession?.access_token && storeSession?.refresh_token) {
+                  const restored = await supabase.auth.setSession({
+                    access_token: storeSession.access_token,
+                    refresh_token: storeSession.refresh_token,
+                  });
+                  verifiedAuthUid = restored?.data?.session?.user?.id || null;
+                }
+              }
             } catch (_) {}
 
             const targetUid = verifiedAuthUid || useAuthStore.getState().user?.id || profile.id;
@@ -2984,7 +2994,7 @@ export default function MapScreen() {
             }
 
             // 2. Persistent Supabase DB write with RLS & token refresh recovery
-            const writeUid = verifiedAuthUid || targetUid;
+            const writeUid = verifiedAuthUid || (useAuthStore.getState().user?.id ? useAuthStore.getState().user?.id : null);
             if (writeUid) {
               locationPayload.user_id = writeUid;
               try {
