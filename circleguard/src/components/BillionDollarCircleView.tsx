@@ -410,7 +410,7 @@ export default function BillionDollarCircleView() {
 
   const circlePlaces = useMemo(() => {
     if (!activeCircle?.id) return [];
-    return (places || []).filter((p) => p && p.circle_id === activeCircle.id);
+    return (places || []).filter((p) => p && (!p.circle_id || p.circle_id === activeCircle.id));
   }, [places, activeCircle?.id]);
 
   const handleDeleteOrLeaveCircle = () => {

@@ -89,6 +89,15 @@ function parseLocationPoint(item: any): { latitude: number; longitude: number } 
   if (item.geom) {
     if (typeof item.geom === 'string') {
       const clean = item.geom.trim();
+      if (clean.startsWith('{')) {
+        try {
+          const geo = JSON.parse(clean);
+          if (Array.isArray(geo.coordinates) && geo.coordinates.length >= 2) {
+            lng = parseFloat(geo.coordinates[0]);
+            lat = parseFloat(geo.coordinates[1]);
+          }
+        } catch (_) {}
+      }
       if (clean.startsWith('01') || clean.startsWith('00')) {
         const parsed = parseEWKBPoint(clean);
         if (parsed) {
@@ -521,7 +530,7 @@ export default function SafePlacesScreen() {
     try {
       const placesWithMembers = await fetchCirclePlacesWithMembers(circleId);
       if (useCircleStore.getState().activeCircle?.id === circleId) {
-        let list = (placesWithMembers || []).filter(p => p && p.circle_id === circleId);
+        let list = (placesWithMembers || []).filter(p => p && (!p.circle_id || p.circle_id === circleId));
         // No fallback dummy places: strictly genuine places for this circle
         setSavedPlaces(list);
       }

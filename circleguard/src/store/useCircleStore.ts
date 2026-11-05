@@ -293,14 +293,26 @@ function parseEWKB(hex: string): { latitude: number; longitude: number } | null 
 
 function parsePoint(item: any): { latitude: number; longitude: number } {
   if (!item) return { latitude: 0, longitude: 0 };
-  const dLat = parseFloat(item.latitude ?? item.start_lat ?? item.lat);
-  const dLng = parseFloat(item.longitude ?? item.start_lng ?? item.lng);
+  const dLat = parseFloat(item.latitude ?? item.start_lat ?? item.lat ?? item.center_lat);
+  const dLng = parseFloat(item.longitude ?? item.start_lng ?? item.lng ?? item.center_lng);
   if (!isNaN(dLat) && !isNaN(dLng) && Math.abs(dLat) <= 90 && Math.abs(dLng) <= 180 && (dLat !== 0 || dLng !== 0)) {
     return { latitude: dLat, longitude: dLng };
   }
   if (item.geom) {
     if (typeof item.geom === 'string') {
       const clean = item.geom.trim();
+      if (clean.startsWith('{')) {
+        try {
+          const geo = JSON.parse(clean);
+          if (Array.isArray(geo.coordinates) && geo.coordinates.length >= 2) {
+            const gLng = parseFloat(geo.coordinates[0]);
+            const gLat = parseFloat(geo.coordinates[1]);
+            if (!isNaN(gLat) && !isNaN(gLng) && (gLat !== 0 || gLng !== 0)) {
+              return { latitude: gLat, longitude: gLng };
+            }
+          }
+        } catch (_) {}
+      }
       if (clean.startsWith('01') || clean.startsWith('00')) {
         const parsed = parseEWKB(clean);
         if (parsed) return parsed;
@@ -326,6 +338,8 @@ function parsePoint(item: any): { latitude: number; longitude: number } {
           lng = temp;
         }
         return { latitude: lat, longitude: lng };
+      } else if (item.geom.latitude && item.geom.longitude) {
+        return { latitude: parseFloat(item.geom.latitude), longitude: parseFloat(item.geom.longitude) };
       }
     }
   }
@@ -1167,7 +1181,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
             }
           }
         } else {
-          lastSeenText = 'Stationary • Safe location';
+          lastSeenText = 'Offline';
         }
 
         const activeTiming = formatMemberLastActive(loc?.updated_at, isOnline);
@@ -1233,7 +1247,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
             hide_online_presence: hideOnline,
           } : { full_name: 'Member', avatar_url: null, is_ghost_mode: isGhost, hide_online_presence: hideOnline },
           isGhost,
-          isOnline: isSelf ? true : (isOnline || !isGhost),
+          isOnline: isSelf ? true : (isGhost || hideOnline ? false : isOnline),
           lastSeenText,
           lastActiveText: activeTiming.lastActiveText,
           lastActiveShort: activeTiming.lastActiveShort,
@@ -1767,10 +1781,35 @@ export const useCircleStore = create<CircleState>((set, get) => ({
   fetchPlaces: async (circleId: string) => {
     if (!circleId || !isValidUuid(circleId)) return [];
     try {
-      const { data, error } = await supabase
+      // 1. Proactively ensure valid session before querying so RLS does not evaluate auth.uid() as null
+      try {
+        const sessRes = await supabase.auth.getSession();
+        if (!sessRes?.data?.session) {
+          const storeSession = useAuthStore.getState().session;
+          if (storeSession?.access_token && storeSession?.refresh_token) {
+            await supabase.auth.setSession({
+              access_token: storeSession.access_token,
+              refresh_token: storeSession.refresh_token,
+            });
+          }
+        }
+      } catch (_) {}
+
+      // 2. Query places for this circle OR places with circle_id matching or null
+      let { data, error } = await supabase
         .from('places')
         .select('*')
-        .eq('circle_id', circleId);
+        .or(`circle_id.eq.${circleId},circle_id.is.null`);
+
+      // Fallback: if empty, query all accessible places in database
+      if (error || !data || data.length === 0) {
+        try {
+          const fallback = await supabase.from('places').select('*');
+          if (!fallback.error && fallback.data && fallback.data.length > 0) {
+            data = fallback.data;
+          }
+        } catch (_) {}
+      }
 
       if (error) throw error;
 
@@ -1798,7 +1837,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
         const radiusNum = parseFloat(item.radius_m || item.radius || 150);
         return {
           id: item.id,
-          circle_id: item.circle_id,
+          circle_id: item.circle_id || circleId,
           name: item.name,
           category: item.category || 'home',
           radius_m: isNaN(radiusNum) || radiusNum <= 0 ? 150 : radiusNum,

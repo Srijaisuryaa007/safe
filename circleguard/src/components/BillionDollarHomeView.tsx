@@ -706,7 +706,7 @@ export default function BillionDollarHomeView() {
           avatarUrl: m.profile?.avatar_url || null,
           battery: m.batteryPct != null ? `${m.batteryPct}%` : '100%',
           isSelf,
-          isOnline: m.isOnline ?? true,
+          isOnline: Boolean(m.isOnline),
           roleColor: isSelf ? '#0F172A' : (m.role === 'owner' ? '#0F172A' : '#64748B'),
         };
       })

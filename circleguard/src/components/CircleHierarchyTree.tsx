@@ -287,7 +287,7 @@ export default function CircleHierarchyTree({
     const avatarUrl = m.profile?.avatar_url;
     const isGhost = !!m.profile?.is_ghost_mode;
     const isHideOnline = !!m.profile?.hide_online_presence;
-    const isOnline = isGhost || isHideOnline ? false : (m.isOnline ?? true);
+    const isOnline = isGhost || isHideOnline ? false : Boolean(m.isOnline);
     const battery = m.batteryPct !== undefined && m.batteryPct !== null ? m.batteryPct : 95;
     const { color: roleColor, title: roleTitle, icon: roleIcon } = getRoleInfo(m);
 

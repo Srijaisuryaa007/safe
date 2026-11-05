@@ -1081,12 +1081,35 @@ export async function fetchCirclePlacesWithMembers(circleId: string): Promise<Ge
   try {
     if (!circleId || !isValidUuid(circleId)) return [];
 
-    const { data: placesData, error } = await supabase
+    // Proactively verify session
+    try {
+      const sess = await supabase.auth.getSession();
+      if (!sess?.data?.session) {
+        const raw = await AsyncStorage.getItem('@circleguard_auth_session');
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (p?.access_token && p?.refresh_token) {
+            await supabase.auth.setSession({ access_token: p.access_token, refresh_token: p.refresh_token });
+          }
+        }
+      }
+    } catch (_) {}
+
+    let { data: placesData, error } = await supabase
       .from('places')
       .select('*')
-      .eq('circle_id', circleId);
+      .or(`circle_id.eq.${circleId},circle_id.is.null`);
 
-    if (error || !placesData) return [];
+    if (error || !placesData || placesData.length === 0) {
+      try {
+        const fb = await supabase.from('places').select('*');
+        if (!fb.error && fb.data && fb.data.length > 0) {
+          placesData = fb.data;
+        }
+      } catch (_) {}
+    }
+
+    if (!placesData) return [];
 
     const placeIds = placesData.map(p => p.id).filter(isValidUuid);
     let memberMap: Record<string, string[]> = {};
@@ -1106,8 +1129,8 @@ export async function fetchCirclePlacesWithMembers(circleId: string): Promise<Ge
     }
 
     return placesData.map(p => {
-      let lat = parseFloat(p.start_lat || p.latitude || 0);
-      let lng = parseFloat(p.start_lng || p.longitude || 0);
+      let lat = parseFloat(p.latitude ?? p.start_lat ?? p.lat ?? p.center_lat ?? 0);
+      let lng = parseFloat(p.longitude ?? p.start_lng ?? p.lng ?? p.center_lng ?? 0);
 
       if ((!lat || !lng || isNaN(lat) || isNaN(lng)) && p.geom) {
         if (typeof p.geom === 'string') {

@@ -53,7 +53,7 @@ export default function HomeMiniMapCard({
           initial: name.charAt(0).toUpperCase(),
           avatarUrl: m.profile?.avatar_url || null,
           roleColor,
-          isOnline: m.isOnline ?? true,
+          isOnline: Boolean(m.isOnline),
         };
       })
       .filter((m): m is NonNullable<typeof m> => m !== null);
@@ -183,7 +183,7 @@ export default function HomeMiniMapCard({
               initial: (m.profile?.full_name || 'M').charAt(0).toUpperCase(),
               avatarUrl: m.profile?.avatar_url || null,
               roleColor: m.role === 'owner' ? '#FFFFFF' : (m.role === 'co_leader' ? '#A855F7' : (m.role === 'guardian' ? '#3B82F6' : '#64748B')),
-              isOnline: m.isOnline ?? true,
+              isOnline: Boolean(m.isOnline),
             };
           }).filter(Boolean) })});
         }, 200);

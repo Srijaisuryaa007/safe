@@ -108,6 +108,15 @@ function parseLocationPoint(item: any): { latitude: number; longitude: number } 
   if (item.geom) {
     if (typeof item.geom === 'string') {
       const clean = item.geom.trim();
+      if (clean.startsWith('{')) {
+        try {
+          const geo = JSON.parse(clean);
+          if (Array.isArray(geo.coordinates) && geo.coordinates.length >= 2) {
+            lng = parseFloat(geo.coordinates[0]);
+            lat = parseFloat(geo.coordinates[1]);
+          }
+        } catch (_) {}
+      }
       if (clean.startsWith('01') || clean.startsWith('00')) {
         const parsed = parseEWKBPoint(clean);
         if (parsed) {
@@ -3765,7 +3774,7 @@ export default function MapScreen() {
               avatarUrl: m.profile?.avatar_url || null,
               role: m.role || 'member',
               isGhost,
-              isOnline: (isGhost || isHideOnline) ? false : (m.isOnline ?? true),
+              isOnline: (isGhost || isHideOnline) ? false : Boolean(m.isOnline),
               lastSeenText: isGhost ? 'Ghost Mode' : (isHideOnline ? 'Offline' : (m.lastSeenText || 'Online')),
               batteryPct: isSelf ? selfBatteryPct : (loc?.battery_pct != null ? loc.battery_pct : (m.batteryPct != null ? m.batteryPct : 100)),
               speed: speedMps,
@@ -3777,7 +3786,7 @@ export default function MapScreen() {
           .filter((m): m is NonNullable<typeof m> => m !== null);
       })(),
       places: (useCircleStore.getState().places || places)
-        .filter(p => p && activeCircle?.id && p.circle_id === activeCircle.id)
+        .filter(p => p && (!p.circle_id || (activeCircle?.id && p.circle_id === activeCircle.id)))
         .map(p => {
         const pt = parseLocationPoint(p);
         const radiusNum = typeof p.radius_m === 'number' ? p.radius_m : parseFloat((p as any).radius_m || (p as any).radius || 150);

@@ -153,7 +153,7 @@ export default function MemberShortProfileModal({
   const battery = member.batteryPct != null ? `${member.batteryPct}%` : '100%';
   const isLowBattery = member.batteryPct != null && member.batteryPct <= 20;
   const isDriving = Boolean(member.isDriving);
-  const isOnline = member.isOnline !== false;
+  const isOnline = Boolean(member.isOnline);
 
   const myMember = circleMembers.find((m) => m.user_id === currentUserId);
   const isLeader = myMember?.role === 'owner' || myMember?.role === 'co_leader';
