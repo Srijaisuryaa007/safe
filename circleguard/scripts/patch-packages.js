@@ -173,3 +173,84 @@ try {
 } catch (e) {
   console.warn('[patch-packages] Error patching react-native-worklets:', e.message);
 }
+
+// 6. Patch expo-modules-core EventEmitter runtime safe fallback to prevent "[runtime not ready]: TypeError: Cannot read property 'EventEmitter' of undefined"
+try {
+  const coreBuildDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'build');
+  const eePath = path.join(coreBuildDir, 'EventEmitter.js');
+  if (fs.existsSync(eePath)) {
+    fs.writeFileSync(eePath, `'use client';
+import { ensureNativeModulesAreInstalled } from './ensureNativeModulesAreInstalled';
+import { EventEmitter as FallbackEventEmitter } from './polyfill/CoreModule';
+ensureNativeModulesAreInstalled();
+export const EventEmitter = (typeof globalThis !== 'undefined' && globalThis.expo?.EventEmitter) ? globalThis.expo.EventEmitter : FallbackEventEmitter;
+`, 'utf8');
+  }
+
+  const nmPath = path.join(coreBuildDir, 'NativeModule.js');
+  if (fs.existsSync(nmPath)) {
+    fs.writeFileSync(nmPath, `'use client';
+import { ensureNativeModulesAreInstalled } from './ensureNativeModulesAreInstalled';
+import { NativeModule as FallbackNativeModule } from './polyfill/CoreModule';
+ensureNativeModulesAreInstalled();
+export const NativeModule = (typeof globalThis !== 'undefined' && globalThis.expo?.NativeModule) ? globalThis.expo.NativeModule : FallbackNativeModule;
+`, 'utf8');
+  }
+
+  const soPath = path.join(coreBuildDir, 'SharedObject.js');
+  if (fs.existsSync(soPath)) {
+    fs.writeFileSync(soPath, `'use client';
+import { ensureNativeModulesAreInstalled } from './ensureNativeModulesAreInstalled';
+import { SharedObject as FallbackSharedObject } from './polyfill/CoreModule';
+ensureNativeModulesAreInstalled();
+export const SharedObject = (typeof globalThis !== 'undefined' && globalThis.expo?.SharedObject) ? globalThis.expo.SharedObject : FallbackSharedObject;
+`, 'utf8');
+  }
+
+  const srPath = path.join(coreBuildDir, 'SharedRef.js');
+  if (fs.existsSync(srPath)) {
+    fs.writeFileSync(srPath, `'use client';
+import { ensureNativeModulesAreInstalled } from './ensureNativeModulesAreInstalled';
+import { SharedRef as FallbackSharedRef } from './polyfill/CoreModule';
+ensureNativeModulesAreInstalled();
+export const SharedRef = (typeof globalThis !== 'undefined' && globalThis.expo?.SharedRef) ? globalThis.expo.SharedRef : FallbackSharedRef;
+`, 'utf8');
+  }
+
+  const enmNativePath = path.join(coreBuildDir, 'ensureNativeModulesAreInstalled.native.js');
+  if (fs.existsSync(enmNativePath)) {
+    fs.writeFileSync(enmNativePath, `import { TurboModuleRegistry } from 'react-native';
+import { installExpoGlobalPolyfill } from './polyfill/dangerous-internal';
+
+export function ensureNativeModulesAreInstalled() {
+    if (globalThis.expo && globalThis.expo.EventEmitter) {
+        return;
+    }
+    try {
+        TurboModuleRegistry.get('ExpoModulesCore')?.installModules();
+    } catch (error) {
+        console.error('Unable to install Expo modules:', error);
+    }
+    if (!globalThis.expo || !globalThis.expo.EventEmitter) {
+        installExpoGlobalPolyfill();
+    }
+}
+`, 'utf8');
+  }
+
+  const enmJsPath = path.join(coreBuildDir, 'ensureNativeModulesAreInstalled.js');
+  if (fs.existsSync(enmJsPath)) {
+    fs.writeFileSync(enmJsPath, `import './polyfill';
+import { installExpoGlobalPolyfill } from './polyfill/dangerous-internal';
+
+export function ensureNativeModulesAreInstalled() {
+    if (!globalThis.expo || !globalThis.expo.EventEmitter) {
+        installExpoGlobalPolyfill();
+    }
+}
+`, 'utf8');
+  }
+  console.log('[patch-packages] Patched expo-modules-core EventEmitter runtime safe fallbacks');
+} catch (e) {
+  console.warn('[patch-packages] Error patching expo-modules-core EventEmitter:', e.message);
+}
