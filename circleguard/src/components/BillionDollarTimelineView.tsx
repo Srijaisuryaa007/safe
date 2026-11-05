@@ -557,7 +557,7 @@ export default function BillionDollarTimelineView({ onRefreshActivities }: Timel
                 <View
                   style={[
                     styles.memberHeroStatusDot,
-                    { backgroundColor: selectedMember.isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : '#94A3B8' },
+                    { backgroundColor: selectedMember.isOnline ? '#10B981' : '#94A3B8' },
                   ]}
                 />
               </View>

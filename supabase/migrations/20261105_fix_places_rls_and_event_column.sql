@@ -27,3 +27,4 @@ FOR ALL USING (
 ) WITH CHECK (
   auth.uid() IS NOT NULL
 );
+

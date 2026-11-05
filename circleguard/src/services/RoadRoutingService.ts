@@ -938,6 +938,18 @@ export function parsePointGeom(geom: any): { latitude: number; longitude: number
   if (!geom) return null;
   if (typeof geom === 'string') {
     const clean = geom.trim();
+    if (clean.startsWith('{')) {
+      try {
+        const geo = JSON.parse(clean);
+        if (Array.isArray(geo.coordinates) && geo.coordinates.length >= 2) {
+          const gLng = parseFloat(geo.coordinates[0]);
+          const gLat = parseFloat(geo.coordinates[1]);
+          if (!isNaN(gLat) && !isNaN(gLng) && (gLat !== 0 || gLng !== 0)) {
+            return { latitude: gLat, longitude: gLng };
+          }
+        }
+      } catch (_) {}
+    }
     if (clean.startsWith('01') || clean.startsWith('00')) {
       const parsed = parseEWKBPoint(clean);
       if (parsed) return parsed;

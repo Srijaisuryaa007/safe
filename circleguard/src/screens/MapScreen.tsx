@@ -95,8 +95,8 @@ function parseEWKBPoint(hex: string): { latitude: number; longitude: number } | 
 function parseLocationPoint(item: any): { latitude: number; longitude: number } {
   if (!item) return { latitude: 0, longitude: 0 };
 
-  const directLat = parseFloat(item.latitude ?? item.start_lat ?? item.lat);
-  const directLng = parseFloat(item.longitude ?? item.start_lng ?? item.lng);
+  const directLat = parseFloat(item.latitude ?? item.start_lat ?? item.lat ?? item.center_lat);
+  const directLng = parseFloat(item.longitude ?? item.start_lng ?? item.lng ?? item.center_lng);
 
   if (!isNaN(directLat) && !isNaN(directLng) && Math.abs(directLat) <= 90 && Math.abs(directLng) <= 180 && (directLat !== 0 || directLng !== 0)) {
     return { latitude: directLat, longitude: directLng };
@@ -3785,9 +3785,11 @@ export default function MapScreen() {
           })
           .filter((m): m is NonNullable<typeof m> => m !== null);
       })(),
-      places: (useCircleStore.getState().places || places)
-        .filter(p => p && (!p.circle_id || (activeCircle?.id && p.circle_id === activeCircle.id)))
-        .map(p => {
+      places: (() => {
+        const storePlaces = useCircleStore.getState().places || places || [];
+        const filtered = storePlaces.filter(p => p && (!p.circle_id || (activeCircle?.id && p.circle_id === activeCircle.id)));
+        const candidatePlaces = filtered.length > 0 ? filtered : storePlaces;
+        return candidatePlaces.map(p => {
         const pt = parseLocationPoint(p);
         const radiusNum = typeof p.radius_m === 'number' ? p.radius_m : parseFloat((p as any).radius_m || (p as any).radius || 150);
         const assignedCount = p.assigned_user_ids?.length || (p.target_user_id ? 1 : 0);
@@ -3805,7 +3807,8 @@ export default function MapScreen() {
           assignedUserIds: p.assigned_user_ids || (p.target_user_id ? [p.target_user_id] : []),
         };
       })
-      .filter(p => p.lat !== 0 && p.lng !== 0 && !isNaN(p.lat) && !isNaN(p.lng)),
+      .filter(p => p.lat !== 0 && p.lng !== 0 && !isNaN(p.lat) && !isNaN(p.lng));
+      })(),
       pois: poiList
         .filter(p => activeFilterCategories.length > 0 && activeFilterCategories.includes(p.category))
         .map(p => ({
@@ -4351,7 +4354,7 @@ export default function MapScreen() {
                       ]}
                       onPress={() => handleSelectMember(m)}
                     >
-                      <View style={[styles.miniDot, { backgroundColor: m.isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : '#9CA3AF' }]} />
+                      <View style={[styles.miniDot, { backgroundColor: m.isOnline ? '#10B981' : '#9CA3AF' }]} />
                       <Text style={[styles.chipText, { color: colors.foreground }]}>
                         {chipTitle}{distLabel ? ` • ${distLabel}` : ''}
                       </Text>
@@ -4615,7 +4618,7 @@ export default function MapScreen() {
                     </Text>
                   </View>
                 )}
-                <View style={[styles.modernOnlineIndicator, { backgroundColor: selectedMember.isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : '#94A3B8' }]} />
+                <View style={[styles.modernOnlineIndicator, { backgroundColor: selectedMember.isOnline ? '#10B981' : '#94A3B8' }]} />
               </View>
 
               <View style={styles.modernMemberMeta}>

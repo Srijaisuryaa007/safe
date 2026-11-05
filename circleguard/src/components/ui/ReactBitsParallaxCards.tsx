@@ -492,7 +492,7 @@ export const ReactBitsParallaxCards: React.FC<ReactBitsParallaxCardsProps> = ({
                   : 'Member';
 
               const name = member?.profile?.full_name || `Member ${index + 1}`;
-              const isOnline = member?.isOnline !== false;
+              const isOnline = Boolean(member?.isOnline);
               const isDriving = Boolean(member?.isDriving);
               const batteryPctVal = member?.batteryPct ?? 96;
               const batteryStr = member?.batteryPct != null ? `${member.batteryPct}%` : '96%';
@@ -651,7 +651,7 @@ export const ReactBitsParallaxCards: React.FC<ReactBitsParallaxCardsProps> = ({
                                 ]}
                               />
                               <Text style={styles.dockStatusText} numberOfLines={1}>
-                                {isDriving ? 'Moving in transit' : isInSafePlace ? `At ${placeName}` : isOnline ? 'Active on radar' : 'Offline'}
+                                {isDriving ? 'Moving in transit' : isOnline ? (isInSafePlace ? `At ${placeName}` : 'Active on radar') : (isInSafePlace ? `Offline · ${placeName}` : 'Offline')}
                               </Text>
                             </View>
                           </View>
@@ -819,7 +819,7 @@ export const ReactBitsParallaxCards: React.FC<ReactBitsParallaxCardsProps> = ({
                 : 'Member';
 
             const name = member?.profile?.full_name || `Member ${index + 1}`;
-            const isOnline = member?.isOnline !== false;
+            const isOnline = Boolean(member?.isOnline);
             const isDriving = Boolean(member?.isDriving);
             const batteryPctVal = member?.batteryPct ?? 96;
             const batteryStr = member?.batteryPct != null ? `${member.batteryPct}%` : '96%';
@@ -905,7 +905,7 @@ export const ReactBitsParallaxCards: React.FC<ReactBitsParallaxCardsProps> = ({
                               ]}
                             />
                             <Text style={styles.dockStatusText} numberOfLines={1}>
-                              {isDriving ? 'Moving in transit' : isInSafePlace ? `At ${placeName}` : isOnline ? 'Active on radar' : 'Offline'}
+                              {isDriving ? 'Moving in transit' : isOnline ? (isInSafePlace ? `At ${placeName}` : 'Active on radar') : (isInSafePlace ? `Offline · ${placeName}` : 'Offline')}
                             </Text>
                           </View>
                         </View>

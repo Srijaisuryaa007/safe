@@ -408,9 +408,15 @@ export default function BillionDollarCircleView() {
     return members.filter((m) => (m.batteryPct == null || m.batteryPct > 20)).length;
   }, [members]);
 
+  const onlineMemberCount = useMemo(() => {
+    return displayMembers.filter((m) => Boolean(m.isOnline)).length;
+  }, [displayMembers]);
+
   const circlePlaces = useMemo(() => {
-    if (!activeCircle?.id) return [];
-    return (places || []).filter((p) => p && (!p.circle_id || p.circle_id === activeCircle.id));
+    if (!places || places.length === 0) return [];
+    if (!activeCircle?.id) return places;
+    const filtered = (places || []).filter((p) => p && (!p.circle_id || p.circle_id === activeCircle.id));
+    return filtered.length > 0 ? filtered : places;
   }, [places, activeCircle?.id]);
 
   const handleDeleteOrLeaveCircle = () => {
@@ -620,17 +626,15 @@ export default function BillionDollarCircleView() {
 
           {/* Active Circle Status Banner */}
           <View style={[styles.activeBanner, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
-            <View style={[styles.greenPulseDot, isDark && { backgroundColor: '#FFFFFF' }]} />
+            <View style={[styles.greenPulseDot, { backgroundColor: onlineMemberCount > 0 ? '#10B981' : '#94A3B8' }]} />
             <Text style={[styles.bannerText, isDark && { color: '#94A3B8' }]}>
               <Text style={{ fontWeight: '700', color: isDark ? '#FFFFFF' : '#151C27' }}>
-                {displayMembers.length} Connected
+                {onlineMemberCount} Online
               </Text>
+              {'  ·  '}
+              <Text>{displayMembers.length} Members</Text>
               {'  ·  '}
               <Text>{circlePlaces.length} Zones Protected</Text>
-              {'  ·  '}
-              <Text style={{ color: isDark ? '#94A3B8' : '#64748B', fontWeight: '600' }}>
-                {normalBatteryCount} Good Battery
-              </Text>
             </Text>
           </View>
         </Animated.View>

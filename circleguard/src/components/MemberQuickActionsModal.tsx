@@ -169,12 +169,11 @@ export default function MemberQuickActionsModal({
   const battery = member.batteryPct !== undefined && member.batteryPct !== null ? `${member.batteryPct}%` : '—';
   const isLowBattery = member.batteryPct !== undefined && member.batteryPct !== null && member.batteryPct <= 20;
   const isDriving = Boolean(member.isDriving || member.is_driving || ((member.speed_mps || member.speed || 0) * 3.6 > 18));
-  const isOnline = member.isOnline !== false;
-  const isTargetOwner = role === 'owner';
-
   // Privacy & GPS Protocols (for Leader Inspection & Control)
   const isGhostActive = localGhost !== null ? localGhost : Boolean(profile.is_ghost_mode);
   const isHideOnline = localOnline !== null ? localOnline : Boolean(profile.hide_online_presence);
+  const isOnline = (isGhostActive || isHideOnline) ? false : Boolean(member.isOnline);
+  const isTargetOwner = role === 'owner';
   const gpsFrequency = localGps !== null ? localGps : (profile.gps_frequency || 'balanced');
   const isShakeSos = localShake !== null ? localShake : Boolean(profile.shake_sos_enabled);
   const isAppLock = localLock !== null ? localLock : Boolean(profile.app_lock_enabled);
@@ -602,7 +601,7 @@ export default function MemberQuickActionsModal({
                   style={[
                     styles.onlineGlowDot,
                     {
-                      backgroundColor: isDriving ? '#F5A623' : isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : '#718579',
+                      backgroundColor: isDriving ? '#F5A623' : isOnline ? '#10B981' : '#94A3B8',
                       borderColor: isDark ? '#111318' : '#FFFFFF',
                     },
                   ]}
@@ -644,7 +643,7 @@ export default function MemberQuickActionsModal({
                   <Ionicons
                     name={isDriving ? 'car-sport' : isOnline ? 'radio' : 'time-outline'}
                     size={11.5}
-                    color={isDriving ? '#F5A623' : isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#94A3B8' : '#64748B')}
+                    color={isDriving ? '#F5A623' : isOnline ? '#10B981' : (isDark ? '#94A3B8' : '#64748B')}
                   />
                   <Text
                     style={[

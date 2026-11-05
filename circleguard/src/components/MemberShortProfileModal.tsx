@@ -153,7 +153,6 @@ export default function MemberShortProfileModal({
   const battery = member.batteryPct != null ? `${member.batteryPct}%` : '100%';
   const isLowBattery = member.batteryPct != null && member.batteryPct <= 20;
   const isDriving = Boolean(member.isDriving);
-  const isOnline = Boolean(member.isOnline);
 
   const myMember = circleMembers.find((m) => m.user_id === currentUserId);
   const isLeader = myMember?.role === 'owner' || myMember?.role === 'co_leader';
@@ -163,6 +162,7 @@ export default function MemberShortProfileModal({
   // Privacy & GPS Protocols (for Leader Inspection & Control)
   const isGhostActive = localGhost !== null ? localGhost : Boolean(profile.is_ghost_mode);
   const isHideOnline = localOnline !== null ? localOnline : Boolean(profile.hide_online_presence);
+  const isOnline = (isGhostActive || isHideOnline) ? false : Boolean(member.isOnline);
   const gpsFrequency = localGps !== null ? localGps : (profile.gps_frequency || 'balanced');
   const isShakeSos = localShake !== null ? localShake : Boolean(profile.shake_sos_enabled);
   const isAppLock = localLock !== null ? localLock : Boolean(profile.app_lock_enabled);
@@ -514,7 +514,7 @@ export default function MemberShortProfileModal({
                   style={[
                     styles.statusRingDot,
                     {
-                      backgroundColor: isDriving ? '#F5A623' : isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : '#718579',
+                      backgroundColor: isDriving ? '#F5A623' : isOnline ? '#10B981' : '#94A3B8',
                       borderColor: isDark ? '#111318' : '#FFFFFF',
                     },
                   ]}
@@ -680,7 +680,7 @@ export default function MemberShortProfileModal({
                   <Ionicons
                     name={isDriving ? 'car-sport' : isOnline ? 'radio' : 'time-outline'}
                     size={16}
-                    color={isDriving ? '#F5A623' : isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#94A3B8' : '#64748B')}
+                    color={isDriving ? '#F5A623' : isOnline ? '#10B981' : (isDark ? '#94A3B8' : '#64748B')}
                   />
                   <Text style={[styles.telemetryLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>MOVEMENT</Text>
                 </View>

@@ -760,9 +760,18 @@ export const useCircleStore = create<CircleState>((set, get) => ({
         if (rawCached) {
           const parsed = JSON.parse(rawCached);
           if (Array.isArray(parsed) && parsed.length > 0) {
+            const curUid = useAuthStore.getState().profile?.id || useAuthStore.getState().user?.id;
+            const sanitized = parsed.map((m: CircleMember) => {
+              const isSelf = !!curUid && m.user_id === curUid;
+              return {
+                ...m,
+                isOnline: isSelf ? true : Boolean(m.isOnline),
+                lastSeenText: isSelf ? 'Online now' : (m.isOnline ? (m.lastSeenText || 'Online now') : 'Offline'),
+              };
+            });
             set(state => ({
-              membersByCircle: { ...state.membersByCircle, [circleId]: parsed },
-              ...((!state.activeCircle?.id || state.activeCircle?.id === circleId) ? { members: parsed } : {})
+              membersByCircle: { ...state.membersByCircle, [circleId]: sanitized },
+              ...((!state.activeCircle?.id || state.activeCircle?.id === circleId) ? { members: sanitized } : {})
             }));
           }
         }

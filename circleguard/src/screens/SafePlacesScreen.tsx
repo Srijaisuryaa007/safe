@@ -325,7 +325,9 @@ export default function SafePlacesScreen() {
       // Instant cache hydration to prevent empty screen flicker
       const cached = useCircleStore.getState().placesByCircle[currentCircleId] || useCircleStore.getState().places;
       if (cached && cached.length > 0) {
-        setSavedPlaces(cached.filter(p => !p.circle_id || p.circle_id === currentCircleId) as any);
+        let initialList = cached.filter(p => !p.circle_id || p.circle_id === currentCircleId);
+        if (initialList.length === 0) initialList = cached;
+        setSavedPlaces(initialList as any);
         setLoadingPlaces(false);
       } else {
         setSavedPlaces([]);
@@ -529,11 +531,12 @@ export default function SafePlacesScreen() {
     setLoadingPlaces(true);
     try {
       const placesWithMembers = await fetchCirclePlacesWithMembers(circleId);
-      if (useCircleStore.getState().activeCircle?.id === circleId) {
-        let list = (placesWithMembers || []).filter(p => p && (!p.circle_id || p.circle_id === circleId));
-        // No fallback dummy places: strictly genuine places for this circle
-        setSavedPlaces(list);
+      const activeId = useCircleStore.getState().activeCircle?.id;
+      let list = (placesWithMembers || []).filter(p => p && (!p.circle_id || p.circle_id === circleId || (activeId && p.circle_id === activeId)));
+      if (list.length === 0 && (placesWithMembers || []).length > 0) {
+        list = placesWithMembers;
       }
+      setSavedPlaces(list);
     } catch (err) {
       console.error('Error fetching places:', err);
       const storePlaces = useCircleStore.getState().placesByCircle[circleId] || useCircleStore.getState().places;

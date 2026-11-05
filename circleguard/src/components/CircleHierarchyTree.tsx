@@ -337,7 +337,7 @@ export default function CircleHierarchyTree({
                 style={[
                   styles.statusDot,
                   {
-                    backgroundColor: isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : '#6B7280',
+                    backgroundColor: isOnline ? '#10B981' : (isDark ? '#475569' : '#94A3B8'),
                     borderColor: isDark ? '#15171E' : '#FFFFFF',
                   },
                 ]}

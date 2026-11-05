@@ -1135,7 +1135,20 @@ export async function fetchCirclePlacesWithMembers(circleId: string): Promise<Ge
       if ((!lat || !lng || isNaN(lat) || isNaN(lng)) && p.geom) {
         if (typeof p.geom === 'string') {
           const clean = p.geom.trim();
-          if (clean.startsWith('01') || clean.startsWith('00')) {
+          if (clean.startsWith('{')) {
+            try {
+              const geo = JSON.parse(clean);
+              if (Array.isArray(geo.coordinates) && geo.coordinates.length >= 2) {
+                const gLng = parseFloat(geo.coordinates[0]);
+                const gLat = parseFloat(geo.coordinates[1]);
+                if (!isNaN(gLat) && !isNaN(gLng) && (gLat !== 0 || gLng !== 0)) {
+                  lat = gLat;
+                  lng = gLng;
+                }
+              }
+            } catch (_) {}
+          }
+          if ((!lat || !lng) && (clean.startsWith('01') || clean.startsWith('00'))) {
             const parsed = parseEWKBPoint(clean);
             if (parsed) {
               lat = parsed.latitude;
