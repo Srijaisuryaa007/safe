@@ -696,25 +696,7 @@ const LEAFLET_HTML = `
           }).addTo(map);
         }
 
-        // 1b. Ghost Mode Obfuscation Zone Indicator (shows where circle members see you)
-        if (isGhostMode) {
-          var charCode = (userName || 'Y').charCodeAt(0) || 65;
-          var fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
-          var fuzzedLat = parseFloat((lat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
-          var fuzzedLng = parseFloat((lng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
-          if (window.ghostFuzzedZoneCircle) {
-            window.ghostFuzzedZoneCircle.setLatLng([fuzzedLat, fuzzedLng]);
-          } else {
-            window.ghostFuzzedZoneCircle = L.circle([fuzzedLat, fuzzedLng], {
-              radius: 1200,
-              color: '#8B5CF6',
-              weight: 2,
-              dashArray: '6, 8',
-              fillColor: '#8B5CF6',
-              fillOpacity: 0.12
-            }).addTo(map);
-          }
-        } else if (window.ghostFuzzedZoneCircle) {
+        if (window.ghostFuzzedZoneCircle) {
           try { map.removeLayer(window.ghostFuzzedZoneCircle); } catch(e) {}
           window.ghostFuzzedZoneCircle = null;
         }
@@ -2915,12 +2897,9 @@ export default function MapScreen() {
           let dbLat = finalLat;
           let dbLng = finalLng;
 
-          if (isGhost && profile?.id) {
-            const charCode = profile.id.charCodeAt(0) || 65;
-            const fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
-            dbLat = parseFloat((finalLat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
-            dbLng = parseFloat((finalLng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
-          }
+          // Exact real GPS location always
+          dbLat = finalLat;
+          dbLng = finalLng;
 
           // Instant live injection into Leaflet map
           if (webViewRef.current) {
@@ -3788,7 +3767,7 @@ export default function MapScreen() {
           .filter((m): m is NonNullable<typeof m> => m !== null);
       })(),
       places: (useCircleStore.getState().places || places)
-        .filter(p => !activeCircle || !p.circle_id || p.circle_id === activeCircle.id)
+        .filter(p => p && activeCircle?.id && p.circle_id === activeCircle.id)
         .map(p => {
         const pt = parseLocationPoint(p);
         const radiusNum = typeof p.radius_m === 'number' ? p.radius_m : parseFloat((p as any).radius_m || (p as any).radius || 150);

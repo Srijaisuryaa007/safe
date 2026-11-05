@@ -251,12 +251,9 @@ try {
         let finalLat = cleanLat;
         let finalLng = cleanLng;
 
-        if (isGhost) {
-          const charCode = userId.charCodeAt(0) || 65;
-          const fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
-          finalLat = parseFloat((cleanLat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
-          finalLng = parseFloat((cleanLng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
-        }
+        // Exact real GPS location
+        finalLat = cleanLat;
+        finalLng = cleanLng;
 
         if (shouldSaveBgHistory) {
           // Authentic History Preservation:
@@ -829,12 +826,9 @@ export const sendInstantLocationPing = async () => {
     let finalLat = cleanLat;
     let finalLng = cleanLng;
 
-    if (isGhost) {
-      const charCode = userId.charCodeAt(0) || 65;
-      const fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
-      finalLat = parseFloat((cleanLat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
-      finalLng = parseFloat((cleanLng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
-    }
+    // Exact real GPS location
+    finalLat = cleanLat;
+    finalLng = cleanLng;
 
     let batteryPct = 100;
     try {

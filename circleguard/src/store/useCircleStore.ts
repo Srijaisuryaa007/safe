@@ -1214,13 +1214,8 @@ export const useCircleStore = create<CircleState>((set, get) => ({
           effectiveLng = prevMember.longitude;
         }
 
-        const isAlreadyObfuscatedInDb = loc?.activity_state === 'Ghost Mode (Obfuscated)';
-        if (isGhost && !isSelf && effectiveLat && effectiveLng && !isAlreadyObfuscatedInDb) {
-          const charCode = m.user_id.charCodeAt(0) || 65;
-          const fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
-          effectiveLat = parseFloat((effectiveLat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
-          effectiveLng = parseFloat((effectiveLng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
-        }
+        // Exact real GPS location always
+        // effectiveLat and effectiveLng remain un-fuzzed
 
         const effectiveBattery = (loc?.battery_pct != null)
           ? loc.battery_pct
@@ -1819,29 +1814,12 @@ export const useCircleStore = create<CircleState>((set, get) => ({
         };
       }).filter(p => p.latitude !== 0 && p.longitude !== 0);
 
-      // Safe Zone Resilience Recovery: If query returned 0 places, restore cached or default zones
+      // Strictly genuine safe places: if 0 places in DB, leave empty (never inject dummy safe zones)
       if (finalPlaces.length === 0) {
         try {
-          const cachedCircleRaw = await AsyncStorage.getItem(`@circleguard_cached_places_${circleId}`);
-          if (cachedCircleRaw) {
-            const parsed = JSON.parse(cachedCircleRaw);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              finalPlaces = parsed;
-            }
-          }
+          await AsyncStorage.removeItem(`@circleguard_cached_places_${circleId}`);
+          await AsyncStorage.removeItem('@circleguard_cached_geofence_places');
         } catch (_) {}
-
-        if (finalPlaces.length === 0) {
-          try {
-            const cachedGeofenceRaw = await AsyncStorage.getItem('@circleguard_cached_geofence_places');
-            if (cachedGeofenceRaw) {
-              const parsed = JSON.parse(cachedGeofenceRaw);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                finalPlaces = parsed.filter(p => !p.circle_id || p.circle_id === circleId);
-              }
-            }
-          } catch (_) {}
-        }
       }
 
       const updatedPlacesByCircle = {

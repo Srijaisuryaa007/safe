@@ -522,12 +522,7 @@ export default function SafePlacesScreen() {
       const placesWithMembers = await fetchCirclePlacesWithMembers(circleId);
       if (useCircleStore.getState().activeCircle?.id === circleId) {
         let list = (placesWithMembers || []).filter(p => p && p.circle_id === circleId);
-        if (list.length === 0) {
-          const storePlaces = useCircleStore.getState().placesByCircle[circleId] || useCircleStore.getState().places;
-          if (storePlaces && storePlaces.length > 0) {
-            list = storePlaces.filter(p => p && (!p.circle_id || p.circle_id === circleId)) as any;
-          }
-        }
+        // No fallback dummy places: strictly genuine places for this circle
         setSavedPlaces(list);
       }
     } catch (err) {
