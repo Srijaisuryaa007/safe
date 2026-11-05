@@ -354,7 +354,7 @@ export default function BillionDollarCircleView() {
     })();
   };
 
-  const [membersViewMode, setMembersViewMode] = useState<'tree' | 'cards'>('tree');
+  const [membersViewMode, setMembersViewMode] = useState<'tree' | 'cards'>('cards');
 
   const handleLocateMember = (member: any) => {
     subActionHandledRef.current = true;
@@ -665,6 +665,33 @@ export default function BillionDollarCircleView() {
           </View>
         </TouchableOpacity>
 
+        {/* Circle Hierarchy Tree Hub Card */}
+        <TouchableOpacity
+          style={[styles.commonChatCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}
+          onPress={() => setHierarchyModalVisible(true)}
+          activeOpacity={0.85}
+          accessibilityLabel="Open Circle Hierarchy Tree"
+        >
+          <View style={[styles.commonChatIconBox, isDark ? { backgroundColor: '#14221A' } : { backgroundColor: '#ECFDF5' }]}>
+            <Ionicons name="git-network" size={22} color={isDark ? '#34D399' : '#059669'} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={[styles.commonChatTitle, isDark && { color: '#FFFFFF' }]}>Hierarchy Tree</Text>
+              <View style={[styles.liveChatBadge, isDark ? { backgroundColor: 'rgba(52, 211, 153, 0.15)' } : { backgroundColor: '#D1FAE5' }]}>
+                <Text style={[styles.liveChatBadgeText, isDark ? { color: '#34D399' } : { color: '#059669' }]}>Structure</Text>
+              </View>
+            </View>
+            <Text style={[styles.commonChatSub, isDark && { color: '#94A3B8' }]}>
+              Organizational ranks & emergency escalation map
+            </Text>
+          </View>
+          <View style={[styles.commonChatAction, isDark && { backgroundColor: '#1A1C22' }]}>
+            <Text style={[styles.commonChatActionText, isDark && { color: '#FFFFFF' }]}>View</Text>
+            <Ionicons name="chevron-forward" size={16} color={isDark ? '#FFFFFF' : '#0F172A'} />
+          </View>
+        </TouchableOpacity>
+
         {/* Family Members Section Header */}
         <View style={styles.sectionHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, flexShrink: 1 }}>
@@ -679,7 +706,6 @@ export default function BillionDollarCircleView() {
                 styles.segmentContainer,
                 isDark ? { backgroundColor: '#15181D', borderColor: 'rgba(255, 255, 255, 0.12)' } : { backgroundColor: '#F1F5F9', borderColor: '#E2E8F0' }
               ]}>
-
                 <TouchableOpacity
                   style={[
                     styles.segmentBtn,
@@ -687,10 +713,10 @@ export default function BillionDollarCircleView() {
                   ]}
                   onPress={() => setMembersViewMode('cards')}
                   activeOpacity={0.7}
-                  accessibilityLabel="View 3D Cards"
+                  accessibilityLabel="View Member Cards"
                 >
                   <Ionicons
-                    name="sparkles-outline"
+                    name="albums-outline"
                     size={12}
                     color={membersViewMode === 'cards' ? (isDark ? '#A855F7' : '#7E22CE') : (isDark ? '#94A3B8' : '#64748B')}
                   />
@@ -699,7 +725,30 @@ export default function BillionDollarCircleView() {
                     membersViewMode === 'cards' && (isDark ? { color: '#A855F7', fontWeight: '800' } : { color: '#7E22CE', fontWeight: '800' }),
                     membersViewMode !== 'cards' && (isDark ? { color: '#94A3B8' } : { color: '#64748B' }),
                   ]}>
-                    3D
+                    Cards
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.segmentBtn,
+                    membersViewMode === 'tree' && (isDark ? styles.segmentBtnActiveDark : styles.segmentBtnActiveLight)
+                  ]}
+                  onPress={() => setMembersViewMode('tree')}
+                  activeOpacity={0.7}
+                  accessibilityLabel="View Hierarchy Tree"
+                >
+                  <Ionicons
+                    name="git-network-outline"
+                    size={12}
+                    color={membersViewMode === 'tree' ? (isDark ? '#30D158' : '#16A34A') : (isDark ? '#94A3B8' : '#64748B')}
+                  />
+                  <Text style={[
+                    styles.segmentBtnText,
+                    membersViewMode === 'tree' && (isDark ? { color: '#30D158', fontWeight: '800' } : { color: '#16A34A', fontWeight: '800' }),
+                    membersViewMode !== 'tree' && (isDark ? { color: '#94A3B8' } : { color: '#64748B' }),
+                  ]}>
+                    Hierarchy
                   </Text>
                 </TouchableOpacity>
               </View>
