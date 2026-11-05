@@ -514,6 +514,7 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     );
 
     set({
+      activeCircle: resolvedTargetCircle,
       isSwitchingCircle: true,
       switchingTargetName: resolvedTargetCircle.name,
       switchingStepText: 'Connecting satellite telemetry...',
@@ -1535,35 +1536,28 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       });
 
       if (allCircles.length > 0) {
+        // If actively transitioning between circles, never mutate activeCircle during the globe animation
+        if (get().isSwitchingCircle) {
+          set({ circles: allCircles });
+          return allCircles;
+        }
+
         const currentActive = get().activeCircle;
-        const primaryCircle = allCircles.find(c => c.id === PRIMARY_TEST_CIRCLE_ID);
+        const savedId = await AsyncStorage.getItem('@circleguard_active_circle_id');
 
         let activeToKeep: Circle | null = null;
 
-        // Check if current active circle is an empty or isolated 1-member circle
-        const currentMemberCount = currentActive?.id
-          ? (get().membersByCircle[currentActive.id] || []).length
-          : 0;
-        const isCurrentActiveEmptyOrTest = !currentActive ||
-          (primaryCircle && currentActive.id !== PRIMARY_TEST_CIRCLE_ID && (
-            currentMemberCount <= 1 ||
-            (currentActive.name?.toLowerCase().includes('new') ?? false) ||
-            (currentActive.name?.toLowerCase().includes('testing') ?? false)
-          ));
-
-        if (primaryCircle && isCurrentActiveEmptyOrTest) {
-          // Promote the 8-member family circle so the user is never stranded alone
-          activeToKeep = primaryCircle;
-        } else if (currentActive && allCircles.some(c => c.id === currentActive.id)) {
+        // 1. Authoritative: If the user currently has an active circle in state and it exists in their circles, KEEP IT!
+        if (currentActive && allCircles.some(c => c.id === currentActive.id)) {
           const freshCurrent = allCircles.find(c => c.id === currentActive.id);
           activeToKeep = freshCurrent ? { ...currentActive, ...freshCurrent } : currentActive;
+        } else if (savedId && allCircles.some(c => c.id === savedId)) {
+          // 2. If no active in memory, restore from persistent selection
+          activeToKeep = allCircles.find(c => c.id === savedId) || null;
         } else {
-          const savedId = await AsyncStorage.getItem('@circleguard_active_circle_id');
-          if (savedId && allCircles.some(c => c.id === savedId) && (!primaryCircle || savedId === PRIMARY_TEST_CIRCLE_ID || currentMemberCount > 1)) {
-            activeToKeep = allCircles.find(c => c.id === savedId) || null;
-          } else {
-            activeToKeep = primaryCircle || allCircles[0] || null;
-          }
+          // 3. Fallback to primary test circle or first available circle
+          const primaryCircle = allCircles.find(c => c.id === PRIMARY_TEST_CIRCLE_ID);
+          activeToKeep = primaryCircle || allCircles[0] || null;
         }
 
         const combinedRoles: Record<string, 'owner' | 'co_leader' | 'guardian' | 'member'> = {
@@ -1597,8 +1591,8 @@ export const useCircleStore = create<CircleState>((set, get) => ({
 
         set({ circles: allCircles, activeCircle: activeToKeep, myRoleByCircle: combinedRoles, circleFetched: true });
 
-        // Ensure active members and places are hydrated
-        if (activeToKeep) {
+        // Ensure active members and places are hydrated if switching or first load
+        if (activeToKeep && (!currentActive || activeToKeep.id !== currentActive.id || get().members.length === 0)) {
           get().fetchMembers(activeToKeep.id).catch(() => {});
           get().fetchPlaces(activeToKeep.id).catch(() => {});
         }
@@ -1645,6 +1639,10 @@ export const useCircleStore = create<CircleState>((set, get) => ({
     let resolvedUserId = userId;
     if (!resolvedUserId || !isValidUuid(resolvedUserId)) {
       resolvedUserId = useAuthStore.getState().profile?.id || useAuthStore.getState().user?.id || '';
+    }
+
+    if (get().isSwitchingCircle) {
+      return get().activeCircle;
     }
 
     // Instant local cache recovery: hydrate activeCircle immediately if not already in state
