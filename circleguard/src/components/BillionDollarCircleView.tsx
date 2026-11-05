@@ -665,32 +665,6 @@ export default function BillionDollarCircleView() {
           </View>
         </TouchableOpacity>
 
-        {/* Circle Hierarchy Tree Hub Card */}
-        <TouchableOpacity
-          style={[styles.commonChatCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}
-          onPress={() => setHierarchyModalVisible(true)}
-          activeOpacity={0.85}
-          accessibilityLabel="Open Circle Hierarchy Tree"
-        >
-          <View style={[styles.commonChatIconBox, isDark ? { backgroundColor: '#14221A' } : { backgroundColor: '#ECFDF5' }]}>
-            <Ionicons name="git-network" size={22} color={isDark ? '#34D399' : '#059669'} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={[styles.commonChatTitle, isDark && { color: '#FFFFFF' }]}>Hierarchy Tree</Text>
-              <View style={[styles.liveChatBadge, isDark ? { backgroundColor: 'rgba(52, 211, 153, 0.15)' } : { backgroundColor: '#D1FAE5' }]}>
-                <Text style={[styles.liveChatBadgeText, isDark ? { color: '#34D399' } : { color: '#059669' }]}>Structure</Text>
-              </View>
-            </View>
-            <Text style={[styles.commonChatSub, isDark && { color: '#94A3B8' }]}>
-              Organizational ranks & emergency escalation map
-            </Text>
-          </View>
-          <View style={[styles.commonChatAction, isDark && { backgroundColor: '#1A1C22' }]}>
-            <Text style={[styles.commonChatActionText, isDark && { color: '#FFFFFF' }]}>View</Text>
-            <Ionicons name="chevron-forward" size={16} color={isDark ? '#FFFFFF' : '#0F172A'} />
-          </View>
-        </TouchableOpacity>
 
         {/* Family Members Section Header */}
         <View style={styles.sectionHeader}>
