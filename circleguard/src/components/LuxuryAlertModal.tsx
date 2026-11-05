@@ -487,6 +487,7 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
       )}
 
       {/* Native Bottom Sheet Alert Dialog */}
+      {visible && (
       <Modal visible={visible} transparent animationType="none" statusBarTranslucent onRequestClose={hideAlert}>
         <View style={styles.overlay}>
           {/* Backdrop Tap to Dismiss */}
@@ -787,6 +788,7 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
           </Animated.View>
         </View>
       </Modal>
+      )}
     </LuxuryAlertContext.Provider>
   );
 }

@@ -267,6 +267,36 @@ export function installExpoGlobalPolyfill() {
 }
 `, 'utf8');
     }
+
+    // Patch build/index.js: export EventEmitter and classes FIRST before setUpJsLogger.fx side-effects
+    const buildIndexJs = path.join(coreBuildDir, 'index.js');
+    if (fs.existsSync(buildIndexJs)) {
+      fs.writeFileSync(buildIndexJs, `export { EventEmitter } from './EventEmitter';
+export { NativeModule } from './NativeModule';
+export { SharedObject } from './SharedObject';
+export { SharedRef } from './SharedRef';
+export { default as Platform } from './Platform';
+export { default as uuid } from './uuid';
+export { requireNativeViewManager } from './NativeViewManagerAdapter';
+export * from './requireNativeModule';
+export * from './registerWebModule';
+export * from './TypedArrays.types';
+export * from './PermissionsInterface';
+export * from './PermissionsHook';
+export * from './Refs';
+export * from './hooks/useReleasingSharedObject';
+export * from './hooks/useReleasingSharedObjectWithLifecycle';
+export * from './reload';
+export { CodedError } from './errors/CodedError';
+export { UnavailabilityError } from './errors/UnavailabilityError';
+export { LegacyEventEmitter } from './LegacyEventEmitter';
+export { default as NativeModulesProxy } from './NativeModulesProxy';
+export { installOnUIRuntime } from './worklets';
+import './ts-declarations/global';
+import './polyfill';
+import './sweet/setUpJsLogger.fx';
+`, 'utf8');
+    }
   }
 
   // Also patch src (TS) files because Metro resolves expo-source directly from src/
@@ -410,6 +440,69 @@ export function installExpoGlobalPolyfill() {
 }
 `, 'utf8');
     }
+
+    // Patch src/index.ts: export EventEmitter and classes FIRST before setUpJsLogger.fx side-effects
+    const srcIndexTs = path.join(coreSrcDir, 'index.ts');
+    if (fs.existsSync(srcIndexTs)) {
+      fs.writeFileSync(srcIndexTs, `export { EventEmitter, EventSubscription } from './EventEmitter';
+export { NativeModule } from './NativeModule';
+export { SharedObject } from './SharedObject';
+export { SharedRef } from './SharedRef';
+export { default as Platform } from './Platform';
+export { default as uuid } from './uuid';
+export { requireNativeViewManager } from './NativeViewManagerAdapter';
+export * from './requireNativeModule';
+export * from './registerWebModule';
+export * from './TypedArrays.types';
+export * from './PermissionsInterface';
+export * from './PermissionsHook';
+export * from './Refs';
+export * from './hooks/useReleasingSharedObject';
+export * from './hooks/useReleasingSharedObjectWithLifecycle';
+export * from './reload';
+export { CodedError } from './errors/CodedError';
+export { UnavailabilityError } from './errors/UnavailabilityError';
+export { LegacyEventEmitter } from './LegacyEventEmitter';
+export { default as NativeModulesProxy } from './NativeModulesProxy';
+export { installOnUIRuntime } from './worklets';
+import './ts-declarations/global';
+import './polyfill';
+import './sweet/setUpJsLogger.fx';
+`, 'utf8');
+    }
+  }
+
+  // Patch expo/build/Expo.js to import and re-export expo-modules-core BEFORE Expo.fx runs
+  const expoBuildDir = path.join(__dirname, '..', 'node_modules', 'expo', 'build');
+  const expoMainJs = path.join(expoBuildDir, 'Expo.js');
+  if (fs.existsSync(expoMainJs)) {
+    fs.writeFileSync(expoMainJs, `export {
+  EventEmitter,
+  SharedObject,
+  SharedRef,
+  NativeModule,
+  UnavailabilityError,
+  CodedError,
+  requireNativeModule,
+  requireOptionalNativeModule,
+  requireNativeViewManager as requireNativeView,
+  registerWebModule,
+  reloadAppAsync,
+  installOnUIRuntime,
+  Platform,
+  uuid,
+  createSnapshotFriendlyRef,
+  useReleasingSharedObject,
+  useReleasingSharedObjectWithLifecycle,
+  PermissionStatus,
+  createPermissionHook,
+} from 'expo-modules-core';
+import './Expo.fx';
+export { disableErrorHandling } from './errors/ExpoErrorManager';
+export { default as registerRootComponent } from './launch/registerRootComponent';
+export { isRunningInExpoGo, getExpoGoProjectConfig } from './environment/ExpoGo';
+export { useEvent, useEventListener } from './hooks/useEvent';
+`, 'utf8');
   }
 
   console.log('[patch-packages] Patched expo-modules-core EventEmitter runtime safe fallbacks (build & src)');

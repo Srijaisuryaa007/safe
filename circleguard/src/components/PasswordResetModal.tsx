@@ -307,6 +307,8 @@ export default function PasswordResetModal({
     }
   };
 
+  if (!visible) return null;
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <KeyboardAvoidingView

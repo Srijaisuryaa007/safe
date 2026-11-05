@@ -575,6 +575,8 @@ export default function BillionDollarSOSView() {
         style={styles.scrollArea}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         <View style={styles.contentConstrained}>
           {/* Top Guidance & Telemetry Status Pill */}

@@ -1246,6 +1246,7 @@ export default function ChatScreen() {
           showsHorizontalScrollIndicator={false}
           data={quickPills}
           keyExtractor={(item) => item}
+          keyboardShouldPersistTaps="handled"
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[
@@ -1323,6 +1324,8 @@ export default function ChatScreen() {
           viewabilityConfig={viewabilityConfig}
           onViewableItemsChanged={onViewableItemsChanged}
           contentContainerStyle={{ paddingVertical: 16, paddingHorizontal: 14 }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
         />
       )}
@@ -1345,7 +1348,7 @@ export default function ChatScreen() {
               CIRCLE MEMBERS
             </Text>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mentionSuggestScroll}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.mentionSuggestScroll}>
             {mentionSuggestions.map((m) => {
               const mName = m.profile?.full_name || 'Member';
               return (

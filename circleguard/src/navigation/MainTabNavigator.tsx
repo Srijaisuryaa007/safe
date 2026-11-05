@@ -174,7 +174,7 @@ export default function MainTabNavigator() {
       screenOptions={{
         headerShown: false,
         animation: 'none',
-        freezeOnBlur: true,
+        freezeOnBlur: false,
         lazy: true,
         tabBarHideOnKeyboard: true,
         tabBarActiveTintColor: activeTintColor,
