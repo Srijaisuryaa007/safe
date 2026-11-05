@@ -109,10 +109,22 @@ export default function ChatScreen() {
   const route = useRoute<any>();
   const { colors, themeMode, isDark } = useThemeStore();
   const { profile } = useAuthStore();
-  const { activeCircle, members } = useCircleStore();
+  const { activeCircle, members, fetchMembers } = useCircleStore();
 
   const insets = useSafeAreaInsets();
   const topInset = getSafeTopInset(insets.top);
+
+  // Keep circle members fresh whenever entering chat
+  useEffect(() => {
+    if (activeCircle?.id) {
+      fetchMembers(activeCircle.id);
+    }
+  }, [activeCircle?.id, fetchMembers]);
+
+  // Calculate actual authoritative online count (strictly real active members, no dummy counts)
+  const onlineCount = React.useMemo(() => {
+    return (members || []).filter((m) => Boolean(m.isOnline)).length;
+  }, [members]);
 
   // If explicitly requested to only filter, apply filter; otherwise keep all circle messages visible
   const isExplicitFilter = Boolean(route.params?.onlyFilter || (route.params?.filterMemberId && !route.params?.taggedMember));
@@ -574,7 +586,27 @@ export default function ChatScreen() {
     }
 
     const channel = supabase
-      .channel(channelTopic)
+      .channel(channelTopic, {
+        config: {
+          presence: {
+            key: profile?.id || 'anon',
+          },
+        },
+      })
+      .on('presence', { event: 'sync' }, () => {
+        try {
+          const presenceState = channel.presenceState();
+          const presentUserIds = Object.keys(presenceState);
+          presentUserIds.forEach((uid) => {
+            if (uid && uid !== 'anon') {
+              useCircleStore.getState().updateMemberLocationDirect({
+                user_id: uid,
+                updated_at: new Date().toISOString(),
+              });
+            }
+          });
+        } catch (_) {}
+      })
       .on(
         'postgres_changes',
         {
@@ -677,11 +709,24 @@ export default function ChatScreen() {
           setMessages((prev) => prev.filter((m) => m.id !== message_id));
         }
       })
-      .subscribe();
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED' && profile?.id) {
+          try {
+            await channel.track({
+              user_id: profile.id,
+              user_name: profile.full_name || 'Member',
+              online_at: new Date().toISOString(),
+            });
+          } catch (_) {}
+        }
+      });
 
     channelRef.current = channel;
 
     return () => {
+      try {
+        channel.untrack().catch(() => {});
+      } catch (_) {}
       channelRef.current = null;
       supabase.removeChannel(channel);
     };
@@ -1158,7 +1203,7 @@ export default function ChatScreen() {
       <Chat5Header
         channelName={activeCircle?.name || 'Circle Chat'}
         memberCount={members.length}
-        onlineCount={Math.max(1, members.filter((m: any) => m.is_active || m.is_online).length || Math.min(3, members.length))}
+        onlineCount={onlineCount}
         members={members}
         onBack={() => {
           if (navigation.canGoBack()) {

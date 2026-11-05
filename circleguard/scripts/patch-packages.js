@@ -176,49 +176,45 @@ try {
 
 // 6. Patch expo-modules-core EventEmitter runtime safe fallback to prevent "[runtime not ready]: TypeError: Cannot read property 'EventEmitter' of undefined"
 try {
-  const coreBuildDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'build');
-  const eePath = path.join(coreBuildDir, 'EventEmitter.js');
-  if (fs.existsSync(eePath)) {
+  const coreDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-core');
+  const coreBuildDir = path.join(coreDir, 'build');
+  const coreSrcDir = path.join(coreDir, 'src');
+
+  // Helper to patch build (JS) files
+  if (fs.existsSync(coreBuildDir)) {
+    const eePath = path.join(coreBuildDir, 'EventEmitter.js');
     fs.writeFileSync(eePath, `'use client';
 import { ensureNativeModulesAreInstalled } from './ensureNativeModulesAreInstalled';
 import { EventEmitter as FallbackEventEmitter } from './polyfill/CoreModule';
 ensureNativeModulesAreInstalled();
 export const EventEmitter = (typeof globalThis !== 'undefined' && globalThis.expo?.EventEmitter) ? globalThis.expo.EventEmitter : FallbackEventEmitter;
 `, 'utf8');
-  }
 
-  const nmPath = path.join(coreBuildDir, 'NativeModule.js');
-  if (fs.existsSync(nmPath)) {
+    const nmPath = path.join(coreBuildDir, 'NativeModule.js');
     fs.writeFileSync(nmPath, `'use client';
 import { ensureNativeModulesAreInstalled } from './ensureNativeModulesAreInstalled';
 import { NativeModule as FallbackNativeModule } from './polyfill/CoreModule';
 ensureNativeModulesAreInstalled();
 export const NativeModule = (typeof globalThis !== 'undefined' && globalThis.expo?.NativeModule) ? globalThis.expo.NativeModule : FallbackNativeModule;
 `, 'utf8');
-  }
 
-  const soPath = path.join(coreBuildDir, 'SharedObject.js');
-  if (fs.existsSync(soPath)) {
+    const soPath = path.join(coreBuildDir, 'SharedObject.js');
     fs.writeFileSync(soPath, `'use client';
 import { ensureNativeModulesAreInstalled } from './ensureNativeModulesAreInstalled';
 import { SharedObject as FallbackSharedObject } from './polyfill/CoreModule';
 ensureNativeModulesAreInstalled();
 export const SharedObject = (typeof globalThis !== 'undefined' && globalThis.expo?.SharedObject) ? globalThis.expo.SharedObject : FallbackSharedObject;
 `, 'utf8');
-  }
 
-  const srPath = path.join(coreBuildDir, 'SharedRef.js');
-  if (fs.existsSync(srPath)) {
+    const srPath = path.join(coreBuildDir, 'SharedRef.js');
     fs.writeFileSync(srPath, `'use client';
 import { ensureNativeModulesAreInstalled } from './ensureNativeModulesAreInstalled';
 import { SharedRef as FallbackSharedRef } from './polyfill/CoreModule';
 ensureNativeModulesAreInstalled();
 export const SharedRef = (typeof globalThis !== 'undefined' && globalThis.expo?.SharedRef) ? globalThis.expo.SharedRef : FallbackSharedRef;
 `, 'utf8');
-  }
 
-  const enmNativePath = path.join(coreBuildDir, 'ensureNativeModulesAreInstalled.native.js');
-  if (fs.existsSync(enmNativePath)) {
+    const enmNativePath = path.join(coreBuildDir, 'ensureNativeModulesAreInstalled.native.js');
     fs.writeFileSync(enmNativePath, `import { TurboModuleRegistry } from 'react-native';
 import { installExpoGlobalPolyfill } from './polyfill/dangerous-internal';
 
@@ -236,10 +232,8 @@ export function ensureNativeModulesAreInstalled() {
     }
 }
 `, 'utf8');
-  }
 
-  const enmJsPath = path.join(coreBuildDir, 'ensureNativeModulesAreInstalled.js');
-  if (fs.existsSync(enmJsPath)) {
+    const enmJsPath = path.join(coreBuildDir, 'ensureNativeModulesAreInstalled.js');
     fs.writeFileSync(enmJsPath, `import './polyfill';
 import { installExpoGlobalPolyfill } from './polyfill/dangerous-internal';
 
@@ -249,8 +243,176 @@ export function ensureNativeModulesAreInstalled() {
     }
 }
 `, 'utf8');
+
+    const dangerousPath = path.join(coreBuildDir, 'polyfill', 'dangerous-internal.js');
+    if (fs.existsSync(dangerousPath)) {
+      fs.writeFileSync(dangerousPath, `import uuid from '../uuid/index.web';
+import { EventEmitter, NativeModule, SharedObject, SharedRef } from './CoreModule';
+export * from '../ts-declarations/global';
+export function installExpoGlobalPolyfill() {
+    if (globalThis.expo && globalThis.expo.EventEmitter) return;
+    if (!globalThis.expo) {
+        globalThis.expo = {};
+    }
+    if (!globalThis.expo.EventEmitter) globalThis.expo.EventEmitter = EventEmitter;
+    if (!globalThis.expo.NativeModule) globalThis.expo.NativeModule = NativeModule;
+    if (!globalThis.expo.SharedObject) globalThis.expo.SharedObject = SharedObject;
+    if (!globalThis.expo.SharedRef) globalThis.expo.SharedRef = SharedRef;
+    if (!globalThis.expo.modules) globalThis.expo.modules = globalThis.ExpoDomWebView?.expoModulesProxy ?? {};
+    if (!globalThis.expo.uuidv4) globalThis.expo.uuidv4 = uuid.v4;
+    if (!globalThis.expo.uuidv5) globalThis.expo.uuidv5 = uuid.v5;
+    if (!globalThis.expo.getViewConfig) globalThis.expo.getViewConfig = () => { throw new Error('Method not implemented.'); };
+    if (!globalThis.expo.reloadAppAsync) globalThis.expo.reloadAppAsync = async () => {};
+    if (!globalThis.expo.installOnUIRuntime) globalThis.expo.installOnUIRuntime = (_uiRuntimeHolder) => { throw new Error('Method not implemented.'); };
+}
+`, 'utf8');
+    }
   }
-  console.log('[patch-packages] Patched expo-modules-core EventEmitter runtime safe fallbacks');
+
+  // Also patch src (TS) files because Metro resolves expo-source directly from src/
+  if (fs.existsSync(coreSrcDir)) {
+    const srcEePath = path.join(coreSrcDir, 'EventEmitter.ts');
+    fs.writeFileSync(srcEePath, `'use client';
+
+import { ensureNativeModulesAreInstalled } from './ensureNativeModulesAreInstalled';
+import { EventEmitter as FallbackEventEmitter } from './polyfill/CoreModule';
+import type { EventsMap, EventEmitter as ExpoEventEmitter } from './ts-declarations/EventEmitter';
+
+ensureNativeModulesAreInstalled();
+
+export interface EventSubscription {
+  remove(): void;
+}
+
+export type EventEmitter<TEventsMap extends EventsMap = Record<never, never>> =
+  ExpoEventEmitter<TEventsMap>;
+export const EventEmitter = (typeof globalThis !== 'undefined' && globalThis.expo?.EventEmitter)
+  ? globalThis.expo.EventEmitter
+  : (FallbackEventEmitter as unknown as typeof ExpoEventEmitter);
+`, 'utf8');
+
+    const srcNmPath = path.join(coreSrcDir, 'NativeModule.ts');
+    fs.writeFileSync(srcNmPath, `'use client';
+
+import { ensureNativeModulesAreInstalled } from './ensureNativeModulesAreInstalled';
+import { NativeModule as FallbackNativeModule } from './polyfill/CoreModule';
+import type { EventsMap } from './ts-declarations/EventEmitter';
+import type { ExpoGlobal } from './ts-declarations/global';
+
+ensureNativeModulesAreInstalled();
+
+export type NativeModule<TEventsMap extends EventsMap = Record<never, never>> =
+  typeof ExpoGlobal.NativeModule<EventsMap>;
+export const NativeModule: typeof ExpoGlobal.NativeModule = (typeof globalThis !== 'undefined' && globalThis.expo?.NativeModule)
+  ? globalThis.expo.NativeModule
+  : (FallbackNativeModule as any);
+`, 'utf8');
+
+    const srcSoPath = path.join(coreSrcDir, 'SharedObject.ts');
+    fs.writeFileSync(srcSoPath, `'use client';
+
+import { ensureNativeModulesAreInstalled } from './ensureNativeModulesAreInstalled';
+import { SharedObject as FallbackSharedObject } from './polyfill/CoreModule';
+import type { EventsMap } from './ts-declarations/EventEmitter';
+import type { ExpoGlobal } from './ts-declarations/global';
+
+ensureNativeModulesAreInstalled();
+
+export type SharedObject<TEventsMap extends EventsMap = Record<never, never>> =
+  typeof ExpoGlobal.SharedObject<TEventsMap>;
+export const SharedObject: typeof ExpoGlobal.SharedObject = (typeof globalThis !== 'undefined' && globalThis.expo?.SharedObject)
+  ? globalThis.expo.SharedObject
+  : (FallbackSharedObject as any);
+`, 'utf8');
+
+    const srcSrPath = path.join(coreSrcDir, 'SharedRef.ts');
+    fs.writeFileSync(srcSrPath, `'use client';
+
+import { ensureNativeModulesAreInstalled } from './ensureNativeModulesAreInstalled';
+import { SharedRef as FallbackSharedRef } from './polyfill/CoreModule';
+import type { EventsMap } from './ts-declarations/EventEmitter';
+import type { ExpoGlobal } from './ts-declarations/global';
+
+ensureNativeModulesAreInstalled();
+
+export type SharedRef<
+  TNativeRefType extends string = 'unknown',
+  TEventsMap extends EventsMap = Record<never, never>,
+> = typeof ExpoGlobal.SharedRef<TNativeRefType, TEventsMap>;
+export const SharedRef: typeof ExpoGlobal.SharedRef = (typeof globalThis !== 'undefined' && globalThis.expo?.SharedRef)
+  ? globalThis.expo.SharedRef
+  : (FallbackSharedRef as any);
+`, 'utf8');
+
+    const srcEnmNativePath = path.join(coreSrcDir, 'ensureNativeModulesAreInstalled.native.ts');
+    fs.writeFileSync(srcEnmNativePath, `import { TurboModuleRegistry } from 'react-native';
+import { installExpoGlobalPolyfill } from './polyfill/dangerous-internal';
+
+export function ensureNativeModulesAreInstalled(): void {
+  if (globalThis.expo && globalThis.expo.EventEmitter) {
+    return;
+  }
+  try {
+    (TurboModuleRegistry.get('ExpoModulesCore') as { installModules: () => void } | null)?.installModules();
+  } catch (error) {
+    console.error('Unable to install Expo modules:', error);
+  }
+  if (!globalThis.expo || !globalThis.expo.EventEmitter) {
+    installExpoGlobalPolyfill();
+  }
+}
+`, 'utf8');
+
+    const srcEnmJsPath = path.join(coreSrcDir, 'ensureNativeModulesAreInstalled.ts');
+    fs.writeFileSync(srcEnmJsPath, `import './polyfill';
+import { installExpoGlobalPolyfill } from './polyfill/dangerous-internal';
+
+export function ensureNativeModulesAreInstalled(): void {
+  if (!globalThis.expo || !globalThis.expo.EventEmitter) {
+    installExpoGlobalPolyfill();
+  }
+}
+`, 'utf8');
+
+    const srcDangerousPath = path.join(coreSrcDir, 'polyfill', 'dangerous-internal.ts');
+    if (fs.existsSync(srcDangerousPath)) {
+      fs.writeFileSync(srcDangerousPath, `import uuid from '../uuid/index.web';
+import { EventEmitter, NativeModule, SharedObject, SharedRef } from './CoreModule';
+export * from '../ts-declarations/global';
+
+export function installExpoGlobalPolyfill() {
+  if (globalThis.expo && globalThis.expo.EventEmitter) return;
+
+  if (!globalThis.expo) {
+    globalThis.expo = {} as any;
+  }
+
+  if (!globalThis.expo.EventEmitter) globalThis.expo.EventEmitter = EventEmitter;
+  if (!globalThis.expo.NativeModule) globalThis.expo.NativeModule = NativeModule;
+  if (!globalThis.expo.SharedObject) globalThis.expo.SharedObject = SharedObject;
+  if (!globalThis.expo.SharedRef) globalThis.expo.SharedRef = SharedRef;
+  if (!globalThis.expo.modules) globalThis.expo.modules = globalThis.ExpoDomWebView?.expoModulesProxy ?? {};
+  if (!globalThis.expo.uuidv4) globalThis.expo.uuidv4 = uuid.v4;
+  if (!globalThis.expo.uuidv5) globalThis.expo.uuidv5 = uuid.v5;
+  if (!globalThis.expo.getViewConfig) {
+    globalThis.expo.getViewConfig = () => {
+      throw new Error('Method not implemented.');
+    };
+  }
+  if (!globalThis.expo.reloadAppAsync) {
+    globalThis.expo.reloadAppAsync = async () => {};
+  }
+  if (!globalThis.expo.installOnUIRuntime) {
+    globalThis.expo.installOnUIRuntime = (_uiRuntimeHolder: object) => {
+      throw new Error('Method not implemented.');
+    };
+  }
+}
+`, 'utf8');
+    }
+  }
+
+  console.log('[patch-packages] Patched expo-modules-core EventEmitter runtime safe fallbacks (build & src)');
 } catch (e) {
   console.warn('[patch-packages] Error patching expo-modules-core EventEmitter:', e.message);
 }

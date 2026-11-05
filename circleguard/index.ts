@@ -1,11 +1,4 @@
-import 'react-native-url-polyfill/auto';
-// Ensure globalThis.expo and core emitter/module classes are installed before any module runs
-if (typeof globalThis !== 'undefined' && (!globalThis.expo || !globalThis.expo.EventEmitter)) {
-  try {
-    const { installExpoGlobalPolyfill } = require('expo-modules-core/build/polyfill/dangerous-internal');
-    installExpoGlobalPolyfill();
-  } catch (_) {}
-}
+import './src/utils/bootstrapExpo';
 
 import { registerRootComponent } from 'expo';
 

@@ -40,6 +40,8 @@ import { useLuxuryAlert } from '../components/LuxuryAlertModal';
 import BiometricLockGate from '../components/BiometricLockGate';
 import { supabase } from '../lib/supabase';
 import { useCircleStore } from '../store/useCircleStore';
+import { startGlobalPresence } from '../services/GlobalPresenceService';
+import { startBatteryOptimizedBackgroundLocation } from '../services/LocationBackgroundService';
 
 function PrivacyPermissionListener() {
   const { profile } = useAuthStore();
@@ -628,9 +630,12 @@ function GlobalLocationWatchNotificationListener() {
         { event: '*', schema: 'public', table: 'locations' },
         (payload: any) => {
           const newLoc = payload?.new;
-          if (newLoc?.user_id && newLoc?.latitude && newLoc?.longitude) {
-            const { useLocationWatchStore } = require('../store/useLocationWatchStore');
-            useLocationWatchStore.getState().evaluateLocationChange(newLoc.user_id, newLoc.latitude, newLoc.longitude);
+          if (newLoc?.user_id) {
+            useCircleStore.getState().updateMemberLocationDirect(newLoc);
+            if (newLoc.latitude && newLoc.longitude) {
+              const { useLocationWatchStore } = require('../store/useLocationWatchStore');
+              useLocationWatchStore.getState().evaluateLocationChange(newLoc.user_id, newLoc.latitude, newLoc.longitude);
+            }
           }
         }
       )
@@ -640,6 +645,25 @@ function GlobalLocationWatchNotificationListener() {
       supabase.removeChannel(channel);
     };
   }, [profile?.id, showToast, showInAppMessage]);
+
+  // Realtime listener for peer circle member telemetry
+  const activeCircleId = useCircleStore((s) => s.activeCircle?.id);
+  React.useEffect(() => {
+    if (!activeCircleId) return;
+    const channelName = `circle_locations_${activeCircleId}`;
+    const channel = supabase
+      .channel(channelName)
+      .on('broadcast', { event: 'location_update' }, (msg) => {
+        if (msg.payload && msg.payload.user_id) {
+          useCircleStore.getState().updateMemberLocationDirect(msg.payload);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeCircleId]);
 
   return null;
 }
@@ -653,6 +677,12 @@ export default function AppNavigator() {
   React.useEffect(() => {
     if (profile?.id) {
       registerForPushNotificationsAsync(profile.id);
+      const stopPresence = startGlobalPresence(profile.id, () => useCircleStore.getState().activeCircle?.id);
+      startBatteryOptimizedBackgroundLocation().catch(() => {});
+
+      return () => {
+        stopPresence();
+      };
     }
   }, [profile?.id]);
 

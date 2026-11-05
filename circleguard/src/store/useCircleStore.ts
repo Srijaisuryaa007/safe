@@ -442,7 +442,6 @@ export const useCircleStore = create<CircleState>((set, get) => ({
   updateMemberLocationDirect: (locPayload) => {
     if (!locPayload || !locPayload.user_id) return;
     const { user_id, latitude, longitude, speed_mps, is_driving, battery_pct, updated_at, activity_state } = locPayload;
-    if (typeof latitude !== 'number' || typeof longitude !== 'number' || isNaN(latitude) || isNaN(longitude)) return;
 
     set((state) => {
       const existingIdx = state.members.findIndex((m) => m.user_id === user_id);
@@ -451,9 +450,18 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       const updatedMembers = [...state.members];
       const target = { ...updatedMembers[existingIdx] };
 
-      // Apply coordinates and telematics directly in 0ms
-      target.latitude = latitude;
-      target.longitude = longitude;
+      // Apply coordinates if valid
+      if (
+        typeof latitude === 'number' &&
+        typeof longitude === 'number' &&
+        !isNaN(latitude) &&
+        !isNaN(longitude) &&
+        (latitude !== 0 || longitude !== 0)
+      ) {
+        target.latitude = latitude;
+        target.longitude = longitude;
+      }
+
       if (typeof speed_mps === 'number') {
         target.isDriving = (is_driving ?? speed_mps > 4.5);
       } else if (typeof is_driving === 'boolean') {
@@ -463,10 +471,17 @@ export const useCircleStore = create<CircleState>((set, get) => ({
       if (typeof battery_pct === 'number') target.batteryPct = battery_pct;
       if (updated_at) {
         target.updated_at = updated_at;
+      }
+
+      const isGhost = Boolean(target.isGhost || target.profile?.is_ghost_mode);
+      const hideOnline = Boolean(target.profile?.hide_online_presence);
+
+      if (!isGhost && !hideOnline) {
+        target.isOnline = true;
         target.lastActiveShort = 'Active now';
         target.lastActiveText = 'Online now';
+        target.lastSeenText = 'Online now';
       }
-      target.isOnline = true;
 
       updatedMembers[existingIdx] = target;
 

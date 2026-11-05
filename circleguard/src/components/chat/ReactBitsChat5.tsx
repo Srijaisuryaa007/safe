@@ -179,7 +179,12 @@ export function Chat5Header({
             {channelName ? (channelName.startsWith('#') ? channelName : `#${channelName}`) : '#circle-chat'}
           </Text>
           <View style={styles.headerSubtitleRow}>
-            <View style={styles.onlinePulseDot} />
+            <View
+              style={[
+                styles.onlinePulseDot,
+                { backgroundColor: onlineCount > 0 ? '#10B981' : '#64748B' },
+              ]}
+            />
             <Text style={[styles.headerMemberSubtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
               {memberCount} {memberCount === 1 ? 'member' : 'members'} · {onlineCount} online
             </Text>
@@ -1044,8 +1049,10 @@ export function Chat5MembersModal({
             {members.map((m) => {
               const name = m.profile?.full_name || m.full_name || 'Member';
               const avatar = m.profile?.avatar_url || m.avatar_url;
-              const battery = m.battery_level ?? m.profile?.battery_level;
+              const battery = m.battery_level ?? m.profile?.battery_level ?? m.batteryPct;
               const role = m.role || 'Member';
+              const isOnline = Boolean(m.isOnline);
+              const lastSeen = m.lastSeenText || (isOnline ? 'Online now' : 'Offline');
 
               return (
                 <View
@@ -1063,6 +1070,19 @@ export function Chat5MembersModal({
                         {name.charAt(0).toUpperCase()}
                       </Text>
                     )}
+                    <View
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        right: 0,
+                        width: 10,
+                        height: 10,
+                        borderRadius: 5,
+                        backgroundColor: isOnline ? '#10B981' : '#64748B',
+                        borderWidth: 1.5,
+                        borderColor: isDark ? '#14171E' : '#FFFFFF',
+                      }}
+                    />
                   </View>
 
                   <View style={{ flex: 1, marginHorizontal: 12 }}>
@@ -1070,8 +1090,21 @@ export function Chat5MembersModal({
                       {name}
                     </Text>
                     <View style={styles.memberListStatusRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text
+                          style={[
+                            styles.memberRoleText,
+                            {
+                              color: isOnline ? '#10B981' : (isDark ? '#94A3B8' : '#64748B'),
+                              fontWeight: isOnline ? '600' : '400',
+                            },
+                          ]}
+                        >
+                          {isOnline ? 'Online now' : lastSeen}
+                        </Text>
+                      </View>
                       <Text style={[styles.memberRoleText, { color: isDark ? '#94A3B8' : '#64748B' }]}>
-                        {role.toUpperCase()}
+                        {' '}· {role.toUpperCase()}
                       </Text>
                       {battery !== undefined && (
                         <Text style={[styles.memberRoleText, { color: isDark ? '#94A3B8' : '#64748B' }]}>
