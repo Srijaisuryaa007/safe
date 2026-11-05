@@ -86,7 +86,7 @@ export function isDuplicateLocation(
   return false;
 }
 
-import { calculateBearing } from './RoadRoutingService';
+import { calculateBearing } from '../utils/geoMath';
 
 /**
  * Calculates perpendicular/cross-track distance in meters from point P to line AB

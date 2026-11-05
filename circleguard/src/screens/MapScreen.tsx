@@ -14,10 +14,12 @@ import { isValidUuid } from '../lib/utils';
 import { useCircleStore, Place } from '../store/useCircleStore';
 import AlertModal from '../components/AlertModal';
 import AddPlaceModal from '../components/AddPlaceModal';
+import MemberLocationWatchModal from '../components/MemberLocationWatchModal';
 import SearchFilterModal from '../components/SearchFilterModal';
 import MapLayerModal, { MapStyleType } from '../components/MapLayerModal';
 import CircleSwitcherModal from '../components/CircleSwitcherModal';
 import SpringTouchable from '../components/SpringTouchable';
+import { useLocationWatchStore } from '../store/useLocationWatchStore';
 import { LEAFLET_JS, LEAFLET_CSS } from '../constants/leafletBundle';
 import { 
   LUXURY_THEME, 
@@ -34,8 +36,10 @@ import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import { useThemeStore } from '../store/useThemeStore';
 import { queueAndSyncLocationHistory, flushOfflineBreadcrumbs } from '../services/OfflineLocationQueueService';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
+import { StorageRecoveryService } from '../services/StorageRecoveryService';
 import { scheduleLocalNotification } from '../services/PushNotificationService';
 import { calculateDijkstraRouteBetweenUsers, fetchDrivingDistance, fetchMultipleDrivingRoutes, DrivingRouteOption, openExternalRoadNavigation } from '../services/RoadRoutingService';
+import { broadcastCircleLocationUpdate } from '../services/LocationBackgroundService';
 
 function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371e3;
@@ -191,6 +195,9 @@ const LEAFLET_HTML = `
       .leaflet-control-attribution { display: none !important; }
       .custom-icon, .leaflet-div-icon { background: transparent !important; border: none !important; }
       
+      *:focus {
+        outline: none !important;
+      }
       .leaflet-marker-icon, .leaflet-marker-shadow {
         pointer-events: auto;
         touch-action: manipulation;
@@ -199,14 +206,23 @@ const LEAFLET_HTML = `
         cursor: pointer !important;
         touch-action: manipulation !important;
         -webkit-tap-highlight-color: transparent !important;
-        user-select: none;
+        user-select: none !important;
+        -webkit-user-select: none !important;
+        -webkit-touch-callout: none !important;
+        outline: none !important;
+      }
+      .member-live-label {
+        user-select: none !important;
+        -webkit-user-select: none !important;
+        -webkit-touch-callout: none !important;
+        outline: none !important;
       }
       
       .member-avatar-online {
-        background: #1A1A1A; color: #10B981; border-radius: 50%;
+        background: #18181B; color: #FFFFFF; border-radius: 50%;
         display: flex; align-items: center; justify-content: center;
-        font-weight: bold; font-family: sans-serif; border: 2px solid #10B981;
-        box-shadow: 0 4px 14px rgba(16,185,129,0.45);
+        font-weight: bold; font-family: sans-serif; border: 2px solid #FFFFFF;
+        box-shadow: 0 4px 14px rgba(255,255,255,0.25);
       }
       .member-avatar-offline {
         background: #374151; color: #D1D5DB; border-radius: 50%;
@@ -229,8 +245,8 @@ const LEAFLET_HTML = `
         width: 46px;
         height: 46px;
         border-radius: 50%;
-        background: rgba(212, 175, 55, 0.22);
-        border: 2px solid #D4AF37;
+        background: rgba(255, 255, 255, 0.22);
+        border: 2px solid #FFFFFF;
         animation: selfPulseAnim 2s infinite ease-out;
         pointer-events: none;
       }
@@ -244,8 +260,8 @@ const LEAFLET_HTML = `
         height: 38px;
         border-radius: 50%;
         background: #0D0E12;
-        border: 2.5px solid #D4AF37;
-        box-shadow: 0 0 16px rgba(212, 175, 55, 0.8), 0 4px 12px rgba(0,0,0,0.6);
+        border: 2.5px solid #FFFFFF;
+        box-shadow: 0 0 16px rgba(255, 255, 255, 0.6), 0 4px 12px rgba(0,0,0,0.6);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -260,50 +276,101 @@ const LEAFLET_HTML = `
         height: 0;
         border-left: 6px solid transparent;
         border-right: 6px solid transparent;
-        border-bottom: 10px solid #D4AF37;
-        filter: drop-shadow(0 0 6px rgba(212,175,55,0.9));
+        border-bottom: 10px solid #FFFFFF;
+        filter: drop-shadow(0 0 6px rgba(255,255,255,0.8));
         z-index: 15;
         transition: transform 0.2s linear;
       }
       
-      .custom-poi-logo-icon {
+      .custom-poi-logo-icon, .custom-poi-pin-icon {
         background: transparent !important;
         border: none !important;
       }
-      .poi-badge-container {
+      .poi-pin-wrap {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45));
-        transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.45));
+        transition: transform 0.15s ease-out;
       }
-      .poi-badge-container:hover, .poi-badge-container:active {
-        transform: scale(1.18);
-        z-index: 99999 !important;
+      .poi-pin-wrap:hover, .poi-pin-wrap:active {
+        transform: scale(1.22);
+        z-index: 2500 !important;
+      }
+      .poi-pin-circle {
+        width: 26px;
+        height: 26px;
+        border-radius: 13px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid #FFFFFF;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+      }
+      .poi-pin-pointer {
+        width: 0;
+        height: 0;
+        border-left: 4.5px solid transparent;
+        border-right: 4.5px solid transparent;
+        border-top: 5px solid #2563EB;
+        margin-top: -1px;
+      }
+      .poi-selected-bubble {
+        position: absolute;
+        bottom: 34px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(15, 23, 42, 0.95);
+        color: #FFFFFF;
+        font-size: 10.5px;
+        font-weight: 700;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        padding: 4px 10px;
+        border-radius: 14px;
+        white-space: nowrap;
+        border: 1.5px solid #FFFFFF;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        pointer-events: none;
+        z-index: 2600;
+      }
+
+      /* Luxury POI & Searched Place Pin Badge */
+      .poi-badge-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
       }
       .poi-pill {
         display: inline-flex;
         align-items: center;
-        gap: 5px;
-        padding: 5px 9px;
-        border-radius: 16px;
+        justify-content: center;
+        padding: 6px 14px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.95);
         color: #FFFFFF;
-        font-size: 10px;
-        font-weight: 900;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        letter-spacing: 0.4px;
-        border: 1.5px solid rgba(255, 255, 255, 0.85);
+        font-size: 11.5px;
+        font-weight: 700;
         white-space: nowrap;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        border: 1.5px solid rgba(255, 255, 255, 0.9);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 10px rgba(59, 130, 246, 0.35);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        letter-spacing: 0.2px;
       }
       .poi-arrow {
         width: 0;
         height: 0;
         border-left: 5px solid transparent;
         border-right: 5px solid transparent;
-        margin: -1px auto 0 auto;
+        border-top: 6px solid rgba(15, 23, 42, 0.95);
+        margin-top: -1px;
       }
 
       /* Clean Lightweight Geofence Boundary Styles */
@@ -334,7 +401,7 @@ const LEAFLET_HTML = `
         backdrop-filter: blur(10px);
         -webkit-backdrop-filter: blur(10px);
         color: #FFFFFF;
-        border: 1.5px solid #10B981;
+        border: 1.5px solid #FFFFFF;
         padding: 4px 10px;
         border-radius: 16px;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -371,11 +438,11 @@ const LEAFLET_HTML = `
     <svg id="dome-defs-svg" style="position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;" aria-hidden="true">
       <defs>
         <radialGradient id="dome-grad-green" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
-          <stop offset="0%" stop-color="#A7F3D0" stop-opacity="0.80" />
-          <stop offset="20%" stop-color="#34D399" stop-opacity="0.50" />
-          <stop offset="55%" stop-color="#10B981" stop-opacity="0.24" />
-          <stop offset="85%" stop-color="#059669" stop-opacity="0.45" />
-          <stop offset="100%" stop-color="#047857" stop-opacity="0.90" />
+          <stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.80" />
+          <stop offset="20%" stop-color="#CBD5E1" stop-opacity="0.50" />
+          <stop offset="55%" stop-color="#94A3B8" stop-opacity="0.24" />
+          <stop offset="85%" stop-color="#64748B" stop-opacity="0.45" />
+          <stop offset="100%" stop-color="#334155" stop-opacity="0.90" />
         </radialGradient>
         <radialGradient id="dome-grad-blue" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
           <stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.80" />
@@ -406,11 +473,11 @@ const LEAFLET_HTML = `
           <stop offset="100%" stop-color="#991B1B" stop-opacity="0.90" />
         </radialGradient>
         <radialGradient id="dome-grad-gold" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
-          <stop offset="0%" stop-color="#FEF9C3" stop-opacity="0.80" />
-          <stop offset="20%" stop-color="#FACC15" stop-opacity="0.50" />
-          <stop offset="55%" stop-color="#D4AF37" stop-opacity="0.24" />
-          <stop offset="85%" stop-color="#CA8A04" stop-opacity="0.45" />
-          <stop offset="100%" stop-color="#854D0E" stop-opacity="0.90" />
+          <stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.80" />
+          <stop offset="20%" stop-color="#CBD5E1" stop-opacity="0.50" />
+          <stop offset="55%" stop-color="#94A3B8" stop-opacity="0.24" />
+          <stop offset="85%" stop-color="#64748B" stop-opacity="0.45" />
+          <stop offset="100%" stop-color="#334155" stop-opacity="0.90" />
         </radialGradient>
       </defs>
     </svg>
@@ -509,6 +576,10 @@ const LEAFLET_HTML = `
           try { map.removeLayer(window.searchedPlaceMarker); } catch(e) {}
           window.searchedPlaceMarker = null;
         }
+        if (window.searchedLocationMarker) {
+          try { map.removeLayer(window.searchedLocationMarker); } catch(e) {}
+          window.searchedLocationMarker = null;
+        }
         if (window.poiMarkers) {
           Object.keys(window.poiMarkers).forEach(function(k) {
             try { map.removeLayer(window.poiMarkers[k]); } catch(e) {}
@@ -604,8 +675,10 @@ const LEAFLET_HTML = `
       window.lastSelfPanLat = 0;
       window.lastSelfPanLng = 0;
 
-      window.updateSelfLiveGPS = function(lat, lng, heading, speed, accuracy, isDriving, followMode, userName, avatarUrl) {
+      window.updateSelfLiveGPS = function(lat, lng, heading, speed, accuracy, isDriving, followMode, userName, avatarUrl, isGhost) {
         if (!lat || !lng || isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) return;
+
+        var isGhostMode = Boolean(isGhost);
 
         // 1. Accuracy halo
         var accRadius = Math.max(10, Math.min(accuracy || 20, 150));
@@ -615,12 +688,35 @@ const LEAFLET_HTML = `
         } else {
           window.selfAccuracyCircle = L.circle([lat, lng], {
             radius: accRadius,
-            color: '#D4AF37',
-            fillColor: '#D4AF37',
+            color: '#FFFFFF',
+            fillColor: '#FFFFFF',
             fillOpacity: 0.12,
             weight: 1,
             dashArray: '3, 3'
           }).addTo(map);
+        }
+
+        // 1b. Ghost Mode Obfuscation Zone Indicator (shows where circle members see you)
+        if (isGhostMode) {
+          var charCode = (userName || 'Y').charCodeAt(0) || 65;
+          var fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
+          var fuzzedLat = parseFloat((lat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
+          var fuzzedLng = parseFloat((lng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
+          if (window.ghostFuzzedZoneCircle) {
+            window.ghostFuzzedZoneCircle.setLatLng([fuzzedLat, fuzzedLng]);
+          } else {
+            window.ghostFuzzedZoneCircle = L.circle([fuzzedLat, fuzzedLng], {
+              radius: 1200,
+              color: '#8B5CF6',
+              weight: 2,
+              dashArray: '6, 8',
+              fillColor: '#8B5CF6',
+              fillOpacity: 0.12
+            }).addTo(map);
+          }
+        } else if (window.ghostFuzzedZoneCircle) {
+          try { map.removeLayer(window.ghostFuzzedZoneCircle); } catch(e) {}
+          window.ghostFuzzedZoneCircle = null;
         }
 
         // 2. Self Marker with rotating heading arrow & live speed badge
@@ -628,23 +724,27 @@ const LEAFLET_HTML = `
         var speedKmh = Math.round(speedMps * 3.6);
         var isMoving = speedMps >= 0.8;
         
-        var speedText = isDriving ? ('Driving • ' + speedKmh + ' km/h') : (isMoving ? ('Walking • ' + speedKmh + ' km/h') : 'You (Live)');
-        var headingStyle = (heading !== undefined && heading !== null && isMoving) 
+        var speedText = isGhostMode
+          ? '👻 Ghost Mode Active (~1.2km fuzzed)'
+          : (isDriving ? ('Driving • ' + speedKmh + ' km/h') : (isMoving ? ('Walking • ' + speedKmh + ' km/h') : 'You (Live)'));
+        var headingStyle = (heading !== undefined && heading !== null && isMoving && !isGhostMode) 
           ? 'transform: rotate(' + heading + 'deg);' 
           : 'display:none;';
 
         var avatarContent = avatarUrl 
           ? '<img src="' + avatarUrl + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" />' 
-          : '<span style="color:#D4AF37;font-weight:900;font-size:12px;">YOU</span>';
+          : '<span style="color:#FFFFFF;font-weight:900;font-size:12px;">YOU</span>';
 
+        var borderColor = isGhostMode ? '#8B5CF6' : '#FFFFFF';
+        var glowColor = isGhostMode ? 'rgba(139, 92, 246, 0.65)' : 'rgba(255,255,255,0.25)';
         var selfLabel = speedText ? ('You · ' + speedText) : 'You';
         var selfHtml = '<div class="self-live-container">' +
-          '<div class="self-pulse-wave"></div>' +
+          '<div class="self-pulse-wave" style="' + (isGhostMode ? 'border-color:#8B5CF6; background:rgba(139,92,246,0.15);' : '') + '"></div>' +
           '<div class="self-heading-arrow" style="' + headingStyle + '"></div>' +
-          '<div style="position:absolute; bottom:44px; left:50%; transform:translateX(-50%); white-space:nowrap; background:rgba(15,23,42,0.92); color:#FFFFFF; font-size:10.5px; font-weight:700; font-family:-apple-system,BlinkMacSystemFont,Inter,sans-serif; padding:3px 9px; border-radius:999px; border:1.5px solid #3ADFAB; box-shadow:0 4px 14px rgba(0,0,0,0.45), 0 0 10px rgba(58,223,171,0.25); pointer-events:none; z-index:1000;">' +
+          '<div style="position:absolute; bottom:44px; left:50%; transform:translateX(-50%); white-space:nowrap; background:rgba(15,23,42,0.94); color:#FFFFFF; font-size:10.5px; font-weight:700; font-family:-apple-system,BlinkMacSystemFont,Inter,sans-serif; padding:3px 9px; border-radius:999px; border:1.5px solid ' + borderColor + '; box-shadow:0 4px 14px rgba(0,0,0,0.45), 0 0 12px ' + glowColor + '; pointer-events:none; z-index:1000;">' +
             selfLabel +
           '</div>' +
-          '<div class="self-avatar-circle">' + avatarContent + '</div>' +
+          '<div class="self-avatar-circle" style="' + (isGhostMode ? 'border:2.5px solid #8B5CF6; box-shadow:0 0 12px rgba(139,92,246,0.6);' : '') + '">' + avatarContent + '</div>' +
           '</div>';
 
         var selfIcon = L.divIcon({
@@ -877,27 +977,79 @@ const LEAFLET_HTML = `
 
       window.searchedLocationMarker = null;
       window.showSearchedPlace = function(lat, lng, name) {
-        if (!lat || !lng) {
+        if (!lat || !lng || isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
           if (window.searchedLocationMarker) {
-            map.removeLayer(window.searchedLocationMarker);
+            try { map.removeLayer(window.searchedLocationMarker); } catch(e) {}
             window.searchedLocationMarker = null;
           }
           return;
         }
 
-        var shortName = name && name.length > 25 ? name.substring(0, 23) + '...' : (name || 'Searched Location');
+        // GUARD: If this searched location coincides with or matches an active circle member,
+        // do NOT drop a search POI pin on top of the member marker!
+        var matchedMember = false;
+        var cleanSearchName = (name || '').toLowerCase().trim();
+
+        if (window.memberMarkers) {
+          Object.keys(window.memberMarkers).forEach(function(mId) {
+            var m = window.memberMarkers[mId];
+            if (m && m._targetData) {
+              var mName = (m._targetData.name || '').toLowerCase().trim();
+              var mLat = m._targetData.lat;
+              var mLng = m._targetData.lng;
+              if (mLat && mLng) {
+                var dy = Math.abs(lat - mLat) * 111320;
+                var dx = Math.abs(lng - mLng) * 111320 * Math.cos(lat * Math.PI / 180);
+                var distM = Math.sqrt(dx * dx + dy * dy);
+                if (distM < 50 || (cleanSearchName && mName && (mName === cleanSearchName || mName.indexOf(cleanSearchName) !== -1 || cleanSearchName.indexOf(mName) !== -1))) {
+                  matchedMember = true;
+                }
+              }
+            }
+          });
+        }
+
+        // Also check cached circle members data
+        if (!matchedMember && window.circleMembersData && Array.isArray(window.circleMembersData)) {
+          window.circleMembersData.forEach(function(mem) {
+            if (!mem) return;
+            var memName = (mem.name || '').toLowerCase().trim();
+            if (cleanSearchName && memName && (memName === cleanSearchName || memName.indexOf(cleanSearchName) !== -1 || cleanSearchName.indexOf(memName) !== -1)) {
+              matchedMember = true;
+            } else if (mem.lat && mem.lng) {
+              var dy = Math.abs(lat - mem.lat) * 111320;
+              var dx = Math.abs(lng - mem.lng) * 111320 * Math.cos(lat * Math.PI / 180);
+              if (Math.sqrt(dx * dx + dy * dy) < 50) {
+                matchedMember = true;
+              }
+            }
+          });
+        }
+
+        if (matchedMember) {
+          if (window.searchedLocationMarker) {
+            try { map.removeLayer(window.searchedLocationMarker); } catch(e) {}
+            window.searchedLocationMarker = null;
+          }
+          if (window.smoothFlyTo) {
+            window.smoothFlyTo(lat, lng, 16);
+          }
+          return;
+        }
+
+        var shortName = name && name.length > 28 ? name.substring(0, 26) + '...' : (name || 'Searched Location');
         var html = '<div class="poi-badge-container">' +
-          '<div class="poi-pill" style="background:linear-gradient(135deg, #D4AF37, #B45309); border:2px solid #FFFFFF; box-shadow:0 0 16px rgba(212,175,55,0.7);">' +
+          '<div class="poi-pill">' +
           '<span>' + shortName + '</span>' +
           '</div>' +
-          '<div class="poi-arrow" style="border-top:6px solid #B45309;"></div>' +
+          '<div class="poi-arrow"></div>' +
           '</div>';
 
         var icon = L.divIcon({
           className: 'custom-poi-logo-icon',
           html: html,
-          iconSize: [180, 48],
-          iconAnchor: [90, 42]
+          iconSize: [200, 48],
+          iconAnchor: [100, 42]
         });
 
         if (window.searchedLocationMarker) {
@@ -910,6 +1062,72 @@ const LEAFLET_HTML = `
           window.gtaZoomTo(lat, lng, 16, shortName, 'Searched GPS Location');
         } else {
           map.setView([lat, lng], 16);
+        }
+      };
+
+      // LIVE REAL-TIME MEMBER GPS INTERPOLATION & GLIDE
+      window.updateMemberLivePosition = function(id, lat, lng, speed, heading, battery, isDriving, activity) {
+        if (!id || !lat || !lng || isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) return;
+
+        // Auto-clear any search pin that overlaps this member
+        if (window.searchedLocationMarker) {
+          try {
+            var sPos = window.searchedLocationMarker.getLatLng();
+            if (sPos) {
+              var dY = Math.abs(lat - sPos.lat) * 111320;
+              var dX = Math.abs(lng - sPos.lng) * 111320 * Math.cos(lat * Math.PI / 180);
+              if (Math.sqrt(dX * dX + dY * dY) < 30) {
+                map.removeLayer(window.searchedLocationMarker);
+                window.searchedLocationMarker = null;
+              }
+            }
+          } catch(e) {}
+        }
+
+        var marker = memberMarkers[id];
+        if (marker) {
+          var curLatLng = marker.getLatLng();
+          var targetLatLng = L.latLng(lat, lng);
+          var dist = curLatLng.distanceTo(targetLatLng);
+
+          if (dist > 0.5 && dist < 500) {
+            var startLat = curLatLng.lat;
+            var startLng = curLatLng.lng;
+            var startTime = Date.now();
+            var duration = 650;
+
+            function step() {
+              var elapsed = Date.now() - startTime;
+              var progress = Math.min(1, elapsed / duration);
+              var ease = 1 - Math.pow(1 - progress, 3);
+              var curL = startLat + (lat - startLat) * ease;
+              var curG = startLng + (lng - startLng) * ease;
+              marker.setLatLng([curL, curG]);
+              if (progress < 1) {
+                requestAnimationFrame(step);
+              } else {
+                marker.setLatLng([lat, lng]);
+              }
+            }
+            requestAnimationFrame(step);
+          } else {
+            marker.setLatLng(targetLatLng);
+          }
+
+          marker._targetData = marker._targetData || {};
+          marker._targetData.lat = lat;
+          marker._targetData.lng = lng;
+
+          var el = marker.getElement();
+          if (el) {
+            var labelEl = el.querySelector('.member-live-label');
+            if (labelEl) {
+              var cleanName = (marker._targetData.name || 'Member').replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim() || 'Member';
+              var bTag = battery ? ' · ' + battery + '%' : '';
+              var aTag = activity ? ' · ' + activity : '';
+              labelEl.textContent = cleanName + aTag + bTag;
+            }
+          }
         }
       };
 
@@ -970,11 +1188,35 @@ const LEAFLET_HTML = `
 
         // 1. UPDATE CIRCLE MEMBERS
         if (data.members) {
+          window.circleMembersData = data.members;
           var currentMemberIds = {};
+
+          // Auto-remove any search pin that overlaps any member in the circle
+          if (window.searchedLocationMarker) {
+            try {
+              var sPos = window.searchedLocationMarker.getLatLng();
+              if (sPos) {
+                var shouldPurgePin = false;
+                data.members.forEach(function(mem) {
+                  if (mem.lat && mem.lng) {
+                    var pDy = Math.abs(mem.lat - sPos.lat) * 111320;
+                    var pDx = Math.abs(mem.lng - sPos.lng) * 111320 * Math.cos(mem.lat * Math.PI / 180);
+                    if (Math.sqrt(pDx * pDx + pDy * pDy) < 60) {
+                      shouldPurgePin = true;
+                    }
+                  }
+                });
+                if (shouldPurgePin) {
+                  map.removeLayer(window.searchedLocationMarker);
+                  window.searchedLocationMarker = null;
+                }
+              }
+            } catch(e) {}
+          }
 
           data.members.forEach(function(m, idx) {
             if (m.isSelf) {
-              window.updateSelfLiveGPS(m.lat, m.lng, m.heading, m.speed, m.accuracy, m.isDriving, data.isFollowActive, m.name, m.avatarUrl);
+              window.updateSelfLiveGPS(m.lat, m.lng, m.heading, m.speed, m.accuracy, m.isDriving, data.isFollowActive, m.name, m.avatarUrl, m.isGhost);
               return;
             }
 
@@ -1022,7 +1264,7 @@ const LEAFLET_HTML = `
               ? '<img src="' + m.avatarUrl + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" />'
               : '<span style="color:#FFF;font-weight:bold;font-size:14px;">' + m.initial + '</span>';
 
-            var roleColor = '#10B981';
+            var roleColor = '#FFFFFF';
             var roleBadgeSymbol = '';
 
             if (m.isGhost) {
@@ -1031,9 +1273,9 @@ const LEAFLET_HTML = `
             } else if (m.role === 'owner') {
               roleColor = '#F5A623';
             } else if (m.role === 'co_leader') {
-              roleColor = '#3ADFAB';
+              roleColor = '#FFFFFF';
             } else if (m.role === 'guardian') {
-              roleColor = '#2E7D5B';
+              roleColor = '#94A3B8';
             }
 
             var pulseStyle = m.isGhost
@@ -1048,7 +1290,7 @@ const LEAFLET_HTML = `
 
             // If close to Self or another member, invert label position (top: 44px) so labels NEVER intersect or collide!
             var labelPosStyle = (isNearSelf || (isNearOtherMember && idx % 2 === 1)) ? 'top:44px;' : 'bottom:44px;';
-            var labelHtml = '<div style="position:absolute; ' + labelPosStyle + ' left:50%; transform:translateX(-50%); white-space:nowrap; background:rgba(15,23,42,0.92); color:#FFFFFF; font-size:10.5px; font-weight:600; font-family:-apple-system,BlinkMacSystemFont,Inter,sans-serif; padding:3px 9px; border-radius:999px; border:1px solid ' + roleColor + '; box-shadow:0 4px 12px rgba(0,0,0,0.45); pointer-events:none; z-index:1000; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);">' + cleanMemberName + activityTag + batteryTag + '</div>';
+            var labelHtml = '<div class="member-live-label" style="position:absolute; ' + labelPosStyle + ' left:50%; transform:translateX(-50%); white-space:nowrap; background:rgba(15,23,42,0.92); color:#FFFFFF; font-size:10.5px; font-weight:600; font-family:-apple-system,BlinkMacSystemFont,Inter,sans-serif; padding:3px 9px; border-radius:999px; border:1px solid ' + roleColor + '; box-shadow:0 4px 12px rgba(0,0,0,0.45); pointer-events:none; z-index:1000; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);">' + cleanMemberName + activityTag + batteryTag + '</div>';
 
             var icon = L.divIcon({
               className: 'custom-icon member-marker-icon',
@@ -1121,14 +1363,14 @@ const LEAFLET_HTML = `
           
           var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
           defs.id = 'dome-defs-injected';
-          defs.innerHTML = '<radialGradient id="dome-grad-green" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#A7F3D0" stop-opacity="0.80" /><stop offset="22%" stop-color="#34D399" stop-opacity="0.50" /><stop offset="55%" stop-color="#10B981" stop-opacity="0.24" /><stop offset="85%" stop-color="#059669" stop-opacity="0.45" /><stop offset="100%" stop-color="#047857" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-blue" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.80" /><stop offset="22%" stop-color="#60A5FA" stop-opacity="0.50" /><stop offset="55%" stop-color="#3B82F6" stop-opacity="0.24" /><stop offset="85%" stop-color="#2563EB" stop-opacity="0.45" /><stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-amber" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#FEF08A" stop-opacity="0.80" /><stop offset="22%" stop-color="#FBBF24" stop-opacity="0.50" /><stop offset="55%" stop-color="#F59E0B" stop-opacity="0.24" /><stop offset="85%" stop-color="#D97706" stop-opacity="0.45" /><stop offset="100%" stop-color="#B45309" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-purple" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#DDD6FE" stop-opacity="0.80" /><stop offset="22%" stop-color="#A78BFA" stop-opacity="0.50" /><stop offset="55%" stop-color="#8B5CF6" stop-opacity="0.24" /><stop offset="85%" stop-color="#7C3AED" stop-opacity="0.45" /><stop offset="100%" stop-color="#5B21B6" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-red" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#FECACA" stop-opacity="0.80" /><stop offset="20%" stop-color="#F87171" stop-opacity="0.50" /><stop offset="55%" stop-color="#EF4444" stop-opacity="0.24" /><stop offset="85%" stop-color="#DC2626" stop-opacity="0.45" /><stop offset="100%" stop-color="#991B1B" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-gold" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#FEF9C3" stop-opacity="0.80" /><stop offset="20%" stop-color="#FACC15" stop-opacity="0.50" /><stop offset="55%" stop-color="#D4AF37" stop-opacity="0.24" /><stop offset="85%" stop-color="#CA8A04" stop-opacity="0.45" /><stop offset="100%" stop-color="#854D0E" stop-opacity="0.90" /></radialGradient>';
+          defs.innerHTML = '<radialGradient id="dome-grad-green" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.80" /><stop offset="22%" stop-color="#CBD5E1" stop-opacity="0.50" /><stop offset="55%" stop-color="#94A3B8" stop-opacity="0.24" /><stop offset="85%" stop-color="#64748B" stop-opacity="0.45" /><stop offset="100%" stop-color="#334155" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-blue" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.80" /><stop offset="22%" stop-color="#60A5FA" stop-opacity="0.50" /><stop offset="55%" stop-color="#3B82F6" stop-opacity="0.24" /><stop offset="85%" stop-color="#2563EB" stop-opacity="0.45" /><stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-amber" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#FEF08A" stop-opacity="0.80" /><stop offset="22%" stop-color="#FBBF24" stop-opacity="0.50" /><stop offset="55%" stop-color="#F59E0B" stop-opacity="0.24" /><stop offset="85%" stop-color="#D97706" stop-opacity="0.45" /><stop offset="100%" stop-color="#B45309" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-purple" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#DDD6FE" stop-opacity="0.80" /><stop offset="22%" stop-color="#A78BFA" stop-opacity="0.50" /><stop offset="55%" stop-color="#8B5CF6" stop-opacity="0.24" /><stop offset="85%" stop-color="#7C3AED" stop-opacity="0.45" /><stop offset="100%" stop-color="#5B21B6" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-red" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#FECACA" stop-opacity="0.80" /><stop offset="20%" stop-color="#F87171" stop-opacity="0.50" /><stop offset="55%" stop-color="#EF4444" stop-opacity="0.24" /><stop offset="85%" stop-color="#DC2626" stop-opacity="0.45" /><stop offset="100%" stop-color="#991B1B" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-gold" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.80" /><stop offset="20%" stop-color="#CBD5E1" stop-opacity="0.50" /><stop offset="55%" stop-color="#94A3B8" stop-opacity="0.24" /><stop offset="85%" stop-color="#64748B" stop-opacity="0.45" /><stop offset="100%" stop-color="#334155" stop-opacity="0.90" /></radialGradient>';
           overlaySvg.insertBefore(defs, overlaySvg.firstChild);
         } catch(e) {}
       }
 
       function getDomeTheme(cat) {
         if (cat === 'home') {
-          return { main: '#10B981', highlight: '#6EE7B7', dark: '#047857', gradKey: 'green', type: 'home', label: 'Safe Haven' };
+          return { main: '#FFFFFF', highlight: '#F1F5F9', dark: '#64748B', gradKey: 'green', type: 'home', label: 'Safe Haven' };
         } else if (cat === 'work') {
           return { main: '#3B82F6', highlight: '#93C5FD', dark: '#1D4ED8', gradKey: 'blue', type: 'work', label: 'Work Zone' };
         } else if (cat === 'school') {
@@ -1138,7 +1380,7 @@ const LEAFLET_HTML = `
         } else if (cat === 'danger') {
           return { main: '#EF4444', highlight: '#FCA5A5', dark: '#991B1B', gradKey: 'red', type: 'danger', label: 'Caution Zone' };
         }
-        return { main: '#10B981', highlight: '#6EE7B7', dark: '#047857', gradKey: 'green', type: 'safe', label: 'Safe Zone' };
+        return { main: '#FFFFFF', highlight: '#F1F5F9', dark: '#64748B', gradKey: 'green', type: 'safe', label: 'Safe Zone' };
       }
 
       function getPlaceSvgIcon(type, color) {
@@ -1328,7 +1570,7 @@ const LEAFLET_HTML = `
                 placeCircles[startKey].setLatLng(pLatLng);
               } else {
                 var sMarker = L.marker(pLatLng, {
-                  icon: L.divIcon({ className: 'custom-icon', html: '<div style="background:#10B981;border:2px solid #FFF;border-radius:50%;width:16px;height:16px;box-shadow:0 0 10px rgba(16,185,129,0.9);"></div>', iconSize: [16, 16] })
+                  icon: L.divIcon({ className: 'custom-icon', html: '<div style="background:#FFFFFF;border:2px solid #0F172A;border-radius:50%;width:16px;height:16px;box-shadow:0 0 10px rgba(255,255,255,0.9);"></div>', iconSize: [16, 16] })
                 }).addTo(map);
                 sMarker._placeId = p.id;
                 sMarker._placeKey = startKey;
@@ -1371,59 +1613,62 @@ const LEAFLET_HTML = `
           });
         }
 
-        // 3. UPDATE POIs
+        // 3. UPDATE POIs (Compact sleek circular pins)
         if (data.pois) {
           var currentPoiIds = {};
-          data.pois.forEach(function(p) {
+          // Only show up to 10 closest POIs so map remains crystal clear
+          var displayPois = data.pois.slice(0, 10);
+
+          displayPois.forEach(function(p) {
             currentPoiIds[p.id] = true;
             var poiLatLng = [p.lat, p.lng];
-            var poiLabel = p.name ? p.name.toUpperCase() : 'POI';
-            var bgGradient = 'linear-gradient(135deg, #EF4444, #B91C1C)';
-            var arrowColor = '#B91C1C';
+            var isSelected = (data.selectedPoiId === p.id);
+            var pinColor = '#2563EB';
+            var svgIcon = '<svg viewBox="0 0 24 24" width="13" height="13" fill="#FFF"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>';
 
             if (p.category === 'hospital') {
-              poiLabel = p.name || 'HOSPITAL';
-              bgGradient = 'linear-gradient(135deg, #EF4444, #DC2626)';
-              arrowColor = '#DC2626';
+              pinColor = '#EF4444';
+              svgIcon = '<svg viewBox="0 0 24 24" width="13" height="13" fill="#FFF"><path d="M19 10.5h-5.5V5c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v5.5H5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5h5.5V19c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-5.5H19c.83 0 1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5z"/></svg>';
             } else if (p.category === 'police') {
-              poiLabel = p.name || 'POLICE';
-              bgGradient = 'linear-gradient(135deg, #D4AF37, #B45309)';
-              arrowColor = '#B45309';
+              pinColor = '#2563EB';
+              svgIcon = '<svg viewBox="0 0 24 24" width="13" height="13" fill="#FFF"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>';
             } else if (p.category === 'school') {
-              poiLabel = p.name || 'SCHOOL';
-              bgGradient = 'linear-gradient(135deg, #3B82F6, #2563EB)';
-              arrowColor = '#2563EB';
+              pinColor = '#3B82F6';
+              svgIcon = '<svg viewBox="0 0 24 24" width="13" height="13" fill="#FFF"><path d="M5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82zM12 3L1 9l11 6 9-4.91V17h2V9L12 3z"/></svg>';
             } else if (p.category === 'restaurant') {
-              poiLabel = p.name || 'DINING';
-              bgGradient = 'linear-gradient(135deg, #F59E0B, #D97706)';
-              arrowColor = '#D97706';
+              pinColor = '#F59E0B';
+              svgIcon = '<svg viewBox="0 0 24 24" width="13" height="13" fill="#FFF"><path d="M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z"/></svg>';
             } else if (p.category === 'fuel') {
-              poiLabel = p.name || 'FUEL';
-              bgGradient = 'linear-gradient(135deg, #10B981, #059669)';
-              arrowColor = '#059669';
+              pinColor = '#64748B';
+              svgIcon = '<svg viewBox="0 0 24 24" width="13" height="13" fill="#FFF"><path d="M19.77 7.23l.01-.01-3.72-3.72L15 4.56l2.11 2.11c-.94.36-1.61 1.26-1.61 2.33 0 1.38 1.12 2.5 2.5 2.5.36 0 .69-.08 1-.22v5.72c0 .55-.45 1-1 1s-1-.45-1-1V14c0-1.1-.9-2-2-2h-1V5c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v16h10v-7.5h1.5v5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V9c0-.69-.28-1.32-.73-1.77zM12 10H6V5h6v5zm6 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"/></svg>';
             }
 
-            var shortLabel = poiLabel.length > 22 ? poiLabel.substring(0, 20) + '...' : poiLabel;
+            var cleanName = (p.name || 'POI').length > 20 ? p.name.substring(0, 18) + '...' : (p.name || 'POI');
+            var bubbleHtml = isSelected
+              ? '<div class="poi-selected-bubble">' + cleanName + (p.distanceText ? ' • ' + p.distanceText : '') + '</div>'
+              : '';
 
-            var htmlStr = '<div class="poi-badge-container">' +
-              '<div class="poi-pill" style="background:' + bgGradient + ';">' +
-              '<span>' + shortLabel + '</span>' +
+            var htmlStr = '<div class="poi-pin-wrap" style="position:relative;">' +
+              bubbleHtml +
+              '<div class="poi-pin-circle" style="background:' + pinColor + ';">' +
+              svgIcon +
               '</div>' +
-              '<div class="poi-arrow" style="border-top:6px solid ' + arrowColor + ';"></div>' +
+              '<div class="poi-pin-pointer" style="border-top-color:' + pinColor + ';"></div>' +
               '</div>';
 
             var icon = L.divIcon({
-              className: 'custom-poi-logo-icon',
+              className: 'custom-poi-pin-icon',
               html: htmlStr,
-              iconSize: [160, 44],
-              iconAnchor: [80, 38]
+              iconSize: [28, 32],
+              iconAnchor: [14, 30]
             });
 
             if (poiMarkers[p.id]) {
               poiMarkers[p.id].setLatLng(poiLatLng);
               poiMarkers[p.id].setIcon(icon);
+              poiMarkers[p.id].setZIndexOffset(isSelected ? 2500 : 500);
             } else {
-              poiMarkers[p.id] = L.marker(poiLatLng, { icon: icon, zIndexOffset: 1500 }).addTo(map);
+              poiMarkers[p.id] = L.marker(poiLatLng, { icon: icon, zIndexOffset: isSelected ? 2500 : 500 }).addTo(map);
               poiMarkers[p.id].on('click', function() {
                 sendAppMessage({ type: 'POI_CLICK', poiId: p.id });
               });
@@ -1515,6 +1760,15 @@ export default function MapScreen() {
   const [distanceUnit, setDistanceUnit] = useState<'km' | 'mi'>('km');
   const [showMapLayerModal, setShowMapLayerModal] = useState(false);
   const [showCircleSwitcherModal, setShowCircleSwitcherModal] = useState(false);
+  const [showLocationWatchModal, setShowLocationWatchModal] = useState(false);
+
+  const locationWatches = useLocationWatchStore(s => s.watches);
+  const hasActiveWatch = useMemo(() => {
+    if (!selectedMember) return false;
+    const uid = selectedMember.user_id || selectedMember.id;
+    return locationWatches.some(w => w.target_user_id === uid && w.status === 'active');
+  }, [selectedMember, locationWatches]);
+
   const currentMapCenterRef = useRef<{ lat: number; lng: number }>({ lat: 20.5937, lng: 78.9629 });
   const webViewRef = useRef<any>(null);
   const webIframeRef = useRef<any>(null);
@@ -1563,7 +1817,7 @@ export default function MapScreen() {
     borderBottomLeftRadius: 22,
     borderBottomRightRadius: 22,
     borderWidth: 1.5,
-    borderColor: isDark ? 'rgba(212, 175, 55, 0.45)' : 'rgba(0, 0, 0, 0.12)',
+    borderColor: isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.12)',
   }), [isDark]);
 
   useEffect(() => {
@@ -1618,6 +1872,7 @@ export default function MapScreen() {
 
   const lastHandledFocusKeyRef = useRef<string | null>(null);
   const pendingFocusRef = useRef<{ lat?: number; lng?: number; name?: string; userId?: string } | null>(null);
+  const lastKnownMemberPositionsRef = useRef<Record<string, { lat: number; lng: number }>>({});
 
   const handleToggleCollapse = () => {
     setIsCardCollapsed(prev => !prev);
@@ -2182,6 +2437,15 @@ export default function MapScreen() {
     setSelectedMember(m);
     setIsCardCollapsed(false);
     setSelectedRouteIndex(0);
+    pendingFocusRef.current = null;
+
+    // Clear any searched place POI badge so it never overlaps the member
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        if (window.showSearchedPlace) { window.showSearchedPlace(null, null, null); }
+        true;
+      `);
+    }
 
     const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
     const memberLoc = isSelf ? { latitude: userLoc?.latitude, longitude: userLoc?.longitude } : locations.find(l => l.user_id === m.user_id);
@@ -2243,6 +2507,13 @@ export default function MapScreen() {
       setSelectedPlace(null);
       setSelectedPoi(null);
       setSelectedMember(item);
+      pendingFocusRef.current = null;
+      if (webViewRef.current) {
+        webViewRef.current.injectJavaScript(`
+          if (window.showSearchedPlace) { window.showSearchedPlace(null, null, null); }
+          true;
+        `);
+      }
       const loc = locations.find(l => l.user_id === item.user_id);
       if (loc && webViewRef.current) {
         const js = `
@@ -2326,6 +2597,7 @@ export default function MapScreen() {
 
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [activeFilterCategories, setActiveFilterCategories] = useState<string[]>([]);
+  const [isNearbyRadarDismissed, setIsNearbyRadarDismissed] = useState(false);
   const activeFilterCategoriesRef = useRef<string[]>(activeFilterCategories);
   useEffect(() => {
     activeFilterCategoriesRef.current = activeFilterCategories;
@@ -2336,12 +2608,12 @@ export default function MapScreen() {
   const getCategoryColor = (catId: string) => {
     switch (catId) {
       case 'hospital': return '#EF4444';
-      case 'police': return '#D4AF37';
+      case 'police': return '#2563EB';
       case 'school': return '#3B82F6';
-      case 'fuel': return '#10B981';
+      case 'fuel': return isDark ? '#FFFFFF' : '#0F172A';
       case 'restaurant': return '#F59E0B';
-      case 'member': return '#2E7D5B';
-      case 'place': return '#10B981';
+      case 'member': return isDark ? '#FFFFFF' : '#0F172A';
+      case 'place': return isDark ? '#FFFFFF' : '#0F172A';
       default: return '#6B7280';
     }
   };
@@ -2450,10 +2722,10 @@ export default function MapScreen() {
   // Opening the app NEVER creates, recomputes, or re-times exit/entry events. App open only reads zone_events.
 
   useEffect(() => {
-    if (profile?.id && !activeCircle && !circleFetched) {
+    if (profile?.id && !activeCircle) {
       fetchActiveCircle(profile.id);
     }
-  }, [profile?.id, activeCircle, circleFetched]);
+  }, [profile?.id, activeCircle]);
 
   // HIGH-FREQUENCY REAL-TIME GPS WATCHER
   useEffect(() => {
@@ -2518,9 +2790,9 @@ export default function MapScreen() {
       
       locationSubscription.current = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 5000,
-          distanceInterval: 5,
+          accuracy: Location.Accuracy.High,
+          timeInterval: 2000,
+          distanceInterval: 2,
         },
         async (loc) => {
           if (!profile) return;
@@ -2635,11 +2907,26 @@ export default function MapScreen() {
             }
           }
           
+          // Obfuscate if Ghost Mode is active
+          const isGhost = Boolean(
+            profile?.is_ghost_mode ||
+            useCircleStore.getState().members.find(m => m.user_id === profile?.id)?.isGhost
+          );
+          let dbLat = finalLat;
+          let dbLng = finalLng;
+
+          if (isGhost && profile?.id) {
+            const charCode = profile.id.charCodeAt(0) || 65;
+            const fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
+            dbLat = parseFloat((finalLat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
+            dbLng = parseFloat((finalLng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
+          }
+
           // Instant live injection into Leaflet map
           if (webViewRef.current) {
             const jsCode = `
               if (window.updateSelfLiveGPS) {
-                window.updateSelfLiveGPS(${finalLat}, ${finalLng}, ${finalHeading}, ${finalSpeed}, ${accuracy}, ${isDriving}, ${isFollowUserActive}, "You", ${JSON.stringify(profile.avatar_url || null)});
+                window.updateSelfLiveGPS(${finalLat}, ${finalLng}, ${finalHeading}, ${finalSpeed}, ${accuracy}, ${isDriving}, ${isFollowUserActive}, "You", ${JSON.stringify(profile.avatar_url || null)}, ${isGhost});
               }
               true;
             `;
@@ -2658,21 +2945,22 @@ export default function MapScreen() {
               }
             } catch (e) {}
 
-            // Obfuscate if Ghost Mode is active
-            const isGhost = Boolean(profile?.is_ghost_mode);
-            let dbLat = finalLat;
-            let dbLng = finalLng;
+            // Authoritative user identification: match active Supabase session
+            let verifiedAuthUid: string | null = null;
+            try {
+              const sessRes = await supabase.auth.getSession();
+              verifiedAuthUid = sessRes?.data?.session?.user?.id || null;
+              if (!verifiedAuthUid) {
+                const refreshed = await supabase.auth.refreshSession();
+                verifiedAuthUid = refreshed?.data?.session?.user?.id || null;
+              }
+            } catch (_) {}
 
-            if (isGhost && profile?.id) {
-              const charCode = profile.id.charCodeAt(0) || 65;
-              const fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
-              dbLat = parseFloat((finalLat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
-              dbLng = parseFloat((finalLng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
-            }
+            const targetUid = verifiedAuthUid || useAuthStore.getState().user?.id || profile.id;
 
             const livePoint = `POINT(${dbLng} ${dbLat})`;
             const locationPayload: any = {
-              user_id: profile.id,
+              user_id: targetUid,
               latitude: dbLat,
               longitude: dbLng,
               geom: livePoint,
@@ -2687,15 +2975,61 @@ export default function MapScreen() {
               locationPayload.circle_id = activeCircle.id;
             }
 
-            try {
-              const { error: upsertErr } = await supabase.from('locations').upsert(locationPayload, {
-                onConflict: 'user_id'
-              });
-              if (upsertErr) {
-                console.error('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] MapScreen upsert error:', upsertErr.message);
+            // 1. Peer-to-peer Realtime Broadcast is ALWAYS sent unconditionally
+            // Ensures 0ms latency for circle members without waiting for or depending on DB writes
+            if (activeCircle?.id) {
+              const broadcastPayload = {
+                user_id: targetUid,
+                latitude: dbLat,
+                longitude: dbLng,
+                speed_mps: isGhost ? 0 : finalSpeed,
+                heading: finalHeading,
+                battery_pct: battPct,
+                is_driving: isGhost ? false : isDriving,
+                activity_state: locationPayload.activity_state,
+                updated_at: locationPayload.updated_at,
+                circle_id: activeCircle.id,
+              };
+
+              if (circleRealtimeChannelRef.current) {
+                circleRealtimeChannelRef.current.send({
+                  type: 'broadcast',
+                  event: 'LOCATION_UPDATE',
+                  payload: broadcastPayload,
+                }).catch((bErr: any) => {
+                  console.warn('[MapScreen Broadcast Warning]:', bErr?.message);
+                });
               }
-            } catch (e: any) {
-              console.error('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] MapScreen upsert exception:', e?.message);
+              // Also route through managed broadcast pool for rock-solid delivery
+              broadcastCircleLocationUpdate(activeCircle.id, broadcastPayload);
+            }
+
+            // 2. Persistent Supabase DB write with RLS & token refresh recovery
+            const writeUid = verifiedAuthUid || targetUid;
+            if (writeUid) {
+              locationPayload.user_id = writeUid;
+              try {
+                const { error: upsertErr } = await supabase.from('locations').upsert(locationPayload, {
+                  onConflict: 'user_id'
+                });
+                if (upsertErr) {
+                  // Proactively recover if token expired or RLS policy rejected
+                  if (upsertErr.message?.includes('row-level security') || upsertErr.message?.includes('JWT') || upsertErr.message?.includes('expired')) {
+                    try {
+                      const { data: refData } = await supabase.auth.refreshSession();
+                      const refreshedUid = refData?.session?.user?.id;
+                      if (refreshedUid) {
+                        locationPayload.user_id = refreshedUid;
+                        await supabase.from('locations').upsert(locationPayload, { onConflict: 'user_id' });
+                      }
+                    } catch (_) {}
+                  } else {
+                    console.warn('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] MapScreen upsert note:', upsertErr.message);
+                  }
+                }
+              } catch (e: any) {
+                console.warn('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] MapScreen upsert exception:', e?.message);
+              }
             }
 
             let shouldSaveHistory = false;
@@ -2718,15 +3052,15 @@ export default function MapScreen() {
             }
 
             if (shouldSaveHistory) {
-              const authenticPoint = `POINT(${finalLng} ${finalLat})`;
+              const historyPoint = isGhost ? `POINT(${dbLng} ${dbLat})` : `POINT(${finalLng} ${finalLat})`;
               await queueAndSyncLocationHistory({
-                user_id: profile.id,
-                geom: authenticPoint,
-                speed_mps: finalSpeed,
+                user_id: targetUid,
+                geom: historyPoint,
+                speed_mps: isGhost ? 0 : finalSpeed,
                 recorded_at: new Date(nowMs).toISOString(),
-                accuracy: accuracy ?? undefined,
-                latitude: finalLat,
-                longitude: finalLng,
+                accuracy: isGhost ? 500 : (accuracy ?? undefined),
+                latitude: isGhost ? dbLat : finalLat,
+                longitude: isGhost ? dbLng : finalLng,
               });
               lastHistorySavedPoint.current = { lat: finalLat, lng: finalLng, timeMs: nowMs };
             }
@@ -2745,6 +3079,7 @@ export default function MapScreen() {
   }, [profile, isFollowUserActive]);
 
   const lastActiveCircleIdRef = useRef<string | null>(activeCircle?.id || null);
+  const circleRealtimeChannelRef = useRef<any>(null);
 
   // STRICT CIRCLE ISOLATION: Dismiss selected member, road routes, and layers on circle switch
   useEffect(() => {
@@ -2801,81 +3136,263 @@ export default function MapScreen() {
       schedulePushMapData();
     });
     
-    const channelUid = Math.random().toString(36).substring(2, 9);
-    const channel = supabase
-      .channel(`map_locations_${activeCircle.id}_${channelUid}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'locations' },
-        (payload: any) => {
-          console.log(`[GPS_PIPELINE:LAYER_5_REALTIME_SYNC] Received Realtime postgres_changes event=${payload?.eventType} on locations for user_id=${payload?.new?.user_id || payload?.old?.user_id}`);
-          if (payload?.eventType === 'DELETE' && payload?.old?.user_id) {
-            const delUid = payload.old.user_id;
-            webViewRef.current?.injectJavaScript(`if (window.removeMemberMarker) { window.removeMemberMarker('${delUid}'); } true;`);
-            useCircleStore.getState().purgeUserFromStore(delUid);
-            setLocations(prev => prev.filter(l => l.user_id !== delUid));
-          }
-          fetchMembers(activeCircle.id).then(mems => {
-            fetchLocations((mems || []).map(m => m.user_id));
-            schedulePushMapData();
-          });
-        }
-      )
-      .on(
-        'broadcast',
-        { event: 'REMOVE_USER_MARKER' },
-        (eventPayload: any) => {
-          const deletedUid = eventPayload?.payload?.user_id || eventPayload?.user_id;
-          if (deletedUid) {
-            console.log(`[GPS_PIPELINE:LAYER_5_REALTIME_SYNC] Received broadcast REMOVE_USER_MARKER for user_id=${deletedUid}`);
-            webViewRef.current?.injectJavaScript(`if (window.removeMemberMarker) { window.removeMemberMarker('${deletedUid}'); } true;`);
-            useCircleStore.getState().purgeUserFromStore(deletedUid);
-            setLocations(prev => prev.filter(l => l.user_id !== deletedUid));
-            schedulePushMapData();
-          }
-        }
-      )
-      .subscribe();
+    let dbChannel: any = null;
+    let broadcastChannel: any = null;
 
-    const membersChannel = supabase
-      .channel(`map_members_${activeCircle.id}_${channelUid}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'circle_members', filter: `circle_id=eq.${activeCircle.id}` },
-        (payload: any) => {
-          if (payload?.eventType === 'DELETE' && payload?.old?.user_id) {
-            const delUid = payload.old.user_id;
-            webViewRef.current?.injectJavaScript(`if (window.removeMemberMarker) { window.removeMemberMarker('${delUid}'); } true;`);
-            useCircleStore.getState().purgeUserFromStore(delUid);
-            setLocations(prev => prev.filter(l => l.user_id !== delUid));
-          }
-          fetchMembers(activeCircle.id).then(mems => {
-            fetchLocations((mems || []).map(m => m.user_id));
+    try {
+      // Dedicated unique channel for Postgres CDC database changes to prevent subscription collisions
+      const channelUid = Math.random().toString(36).substring(2, 9);
+      const dbChannelName = `map_db_${activeCircle.id}_${channelUid}`;
+      dbChannel = supabase.channel(dbChannelName);
+
+      // Shared broadcast channel for ultra-low latency peer location updates
+      const broadcastChannelName = `circle_realtime_${activeCircle.id}`;
+      broadcastChannel = supabase.channel(broadcastChannelName);
+      circleRealtimeChannelRef.current = broadcastChannel;
+
+      broadcastChannel
+        .on(
+          'broadcast',
+          { event: 'LOCATION_UPDATE' },
+          (eventPayload: any) => {
+            const p = eventPayload?.payload;
+            const currentAuthId = useAuthStore.getState().user?.id || profile?.id;
+            if (!p || !p.user_id || (currentAuthId && String(p.user_id).toLowerCase() === String(currentAuthId).toLowerCase())) return;
+            console.log(`[GPS_PIPELINE:LAYER_5_REALTIME_SYNC] Received broadcast LOCATION_UPDATE for user=${p.user_id}`);
+
+            const lat = Number(p.latitude);
+            const lng = Number(p.longitude);
+            if (!lat || !lng || isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) return;
+
+            lastKnownMemberPositionsRef.current[p.user_id] = { lat, lng };
+
+            // 1. Instant Leaflet marker glide
+            webViewRef.current?.injectJavaScript(`
+              if (window.updateMemberLivePosition) {
+                window.updateMemberLivePosition(
+                  ${JSON.stringify(p.user_id)},
+                  ${lat},
+                  ${lng},
+                  ${p.speed_mps || 0},
+                  ${p.heading || 0},
+                  ${p.battery_pct != null ? p.battery_pct : 100},
+                  ${Boolean(p.is_driving)},
+                  ${JSON.stringify(p.activity_state || 'Online')}
+                );
+              }
+              true;
+            `);
+
+            // 2. Merge into locations state
+            const updatedLoc = {
+              user_id: p.user_id,
+              latitude: lat,
+              longitude: lng,
+              speed_mps: p.speed_mps || 0,
+              battery_pct: p.battery_pct,
+              is_driving: p.is_driving,
+              activity_state: p.activity_state,
+              updated_at: p.updated_at || new Date().toISOString(),
+              circle_id: p.circle_id || activeCircle.id,
+            };
+            setLocations(prev => {
+              const idx = prev.findIndex(l => l.user_id === p.user_id);
+              if (idx >= 0) {
+                const copy = [...prev];
+                copy[idx] = { ...copy[idx], ...updatedLoc };
+                return copy;
+              }
+              return [...prev, updatedLoc];
+            });
+
+            // 3. Update store members
+            useCircleStore.setState(state => ({
+              members: state.members.map(m => {
+                if (m.user_id === p.user_id) {
+                  return {
+                    ...m,
+                    latitude: lat,
+                    longitude: lng,
+                    batteryPct: p.battery_pct != null ? p.battery_pct : m.batteryPct,
+                    isOnline: true,
+                    lastSeenText: 'Just now'
+                  };
+                }
+                return m;
+              })
+            }));
+
+            if (selectedMember && selectedMember.user_id === p.user_id) {
+              setSelectedMember((prev: any) => prev ? ({
+                ...prev,
+                latitude: lat,
+                longitude: lng,
+                batteryPct: p.battery_pct != null ? p.battery_pct : prev.batteryPct,
+              }) : prev);
+            }
+
             schedulePushMapData();
-          });
-        }
-      )
-      .subscribe();
+          }
+        )
+        .on(
+          'broadcast',
+          { event: 'REMOVE_USER_MARKER' },
+          (eventPayload: any) => {
+            const deletedUid = eventPayload?.payload?.user_id || eventPayload?.user_id;
+            if (deletedUid) {
+              console.log(`[GPS_PIPELINE:LAYER_5_REALTIME_SYNC] Received broadcast REMOVE_USER_MARKER for user_id=${deletedUid}`);
+              webViewRef.current?.injectJavaScript(`if (window.removeMemberMarker) { window.removeMemberMarker('${deletedUid}'); } true;`);
+              useCircleStore.getState().purgeUserFromStore(deletedUid);
+              setLocations(prev => prev.filter(l => l.user_id !== deletedUid));
+              schedulePushMapData();
+            }
+          }
+        );
+
+      if (broadcastChannel.state !== 'joined' && broadcastChannel.state !== 'joining') {
+        broadcastChannel.subscribe();
+      }
+
+      dbChannel
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'locations' },
+          (payload: any) => {
+            console.log(`[GPS_PIPELINE:LAYER_5_REALTIME_SYNC] Realtime postgres_changes event=${payload?.eventType} on locations`);
+            if (payload?.eventType === 'DELETE' && payload?.old?.user_id) {
+              const delUid = payload.old.user_id;
+              webViewRef.current?.injectJavaScript(`if (window.removeMemberMarker) { window.removeMemberMarker('${delUid}'); } true;`);
+              useCircleStore.getState().purgeUserFromStore(delUid);
+              setLocations(prev => prev.filter(l => l.user_id !== delUid));
+              schedulePushMapData();
+              return;
+            }
+
+            if (payload?.new && payload.new.user_id) {
+              const newLoc = payload.new;
+              const currentAuthId = useAuthStore.getState().user?.id || profile?.id;
+              if (currentAuthId && String(newLoc.user_id).toLowerCase() === String(currentAuthId).toLowerCase()) return;
+
+              const pt = parseLocationPoint(newLoc);
+              const lat = pt.latitude;
+              const lng = pt.longitude;
+
+              if (lat && lng && lat !== 0 && lng !== 0) {
+                lastKnownMemberPositionsRef.current[newLoc.user_id] = { lat, lng };
+                webViewRef.current?.injectJavaScript(`
+                  if (window.updateMemberLivePosition) {
+                    window.updateMemberLivePosition(
+                      ${JSON.stringify(newLoc.user_id)},
+                      ${lat},
+                      ${lng},
+                      ${newLoc.speed_mps || 0},
+                      ${newLoc.heading || 0},
+                      ${newLoc.battery_pct != null ? newLoc.battery_pct : 100},
+                      ${Boolean(newLoc.is_driving)},
+                      ${JSON.stringify(newLoc.activity_state || 'Online')}
+                    );
+                  }
+                  true;
+                `);
+
+                const updatedLoc = {
+                  ...newLoc,
+                  latitude: lat,
+                  longitude: lng,
+                };
+
+                setLocations(prev => {
+                  const idx = prev.findIndex(l => l.user_id === newLoc.user_id);
+                  if (idx >= 0) {
+                    const copy = [...prev];
+                    copy[idx] = { ...copy[idx], ...updatedLoc };
+                    return copy;
+                  }
+                  return [...prev, updatedLoc];
+                });
+
+                useCircleStore.setState(state => ({
+                  members: state.members.map(m => {
+                    if (m.user_id === newLoc.user_id) {
+                      return {
+                        ...m,
+                        latitude: lat,
+                        longitude: lng,
+                        batteryPct: newLoc.battery_pct != null ? newLoc.battery_pct : m.batteryPct,
+                        isOnline: true,
+                        lastSeenText: 'Just now'
+                      };
+                    }
+                    return m;
+                  })
+                }));
+
+                if (selectedMember && selectedMember.user_id === newLoc.user_id) {
+                  setSelectedMember((prev: any) => prev ? ({
+                    ...prev,
+                    latitude: lat,
+                    longitude: lng,
+                    batteryPct: newLoc.battery_pct != null ? newLoc.battery_pct : prev.batteryPct,
+                  }) : prev);
+                }
+
+                schedulePushMapData();
+              }
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'circle_members', filter: `circle_id=eq.${activeCircle.id}` },
+          (payload: any) => {
+            if (payload?.eventType === 'DELETE' && payload?.old?.user_id) {
+              const delUid = payload.old.user_id;
+              webViewRef.current?.injectJavaScript(`if (window.removeMemberMarker) { window.removeMemberMarker('${delUid}'); } true;`);
+              useCircleStore.getState().purgeUserFromStore(delUid);
+              setLocations(prev => prev.filter(l => l.user_id !== delUid));
+            }
+            fetchMembers(activeCircle.id).then(mems => {
+              fetchLocations((mems || []).map(m => m.user_id));
+              schedulePushMapData();
+            });
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'places', filter: `circle_id=eq.${activeCircle.id}` },
+          () => fetchPlaces(activeCircle.id)
+        )
+        .subscribe((status: string, err: any) => {
+          if (status === 'SUBSCRIBED') {
+            console.log(`[GPS_PIPELINE:REALTIME] Successfully subscribed to ${dbChannelName}`);
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            console.warn(`[GPS_PIPELINE:REALTIME] Channel ${dbChannelName} state=${status}, triggering immediate fetchLocations()`);
+            fetchLocations();
+          }
+        });
+    } catch (realtimeErr) {
+      console.warn('[GPS_PIPELINE:REALTIME] Failed initializing Supabase channels, running fallback polling:', realtimeErr);
+    }
       
-    const placesChannel = supabase
-      .channel(`map_places_${activeCircle.id}_${channelUid}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'places', filter: `circle_id=eq.${activeCircle.id}` },
-        () => fetchPlaces(activeCircle.id)
-      )
-      .subscribe();
-      
-    // High-responsiveness polling to keep circle members' live positions synced
+    // High-responsiveness polling as rock-solid safety net (every 3.5s)
     const fallbackInterval = setInterval(() => {
       fetchLocations();
-    }, 8000);
+    }, 3500);
+
+    const unsubWatches = activeCircle?.id
+      ? useLocationWatchStore.getState().subscribeToWatches(activeCircle.id)
+      : () => {};
       
     return () => {
-      supabase.removeChannel(channel);
-      supabase.removeChannel(membersChannel);
-      supabase.removeChannel(placesChannel);
+      circleRealtimeChannelRef.current = null;
+      if (broadcastChannel) {
+        supabase.removeChannel(broadcastChannel);
+      }
+      if (dbChannel) {
+        supabase.removeChannel(dbChannel);
+      }
       clearInterval(fallbackInterval);
+      unsubWatches();
     };
   }, [activeCircle]);
 
@@ -2934,8 +3451,18 @@ export default function MapScreen() {
         ? overrideMemberIds
         : useCircleStore.getState().members.map(m => m.user_id).filter(Boolean);
 
-      if (profile?.id && !memberUserIds.includes(profile.id)) {
-        memberUserIds.push(profile.id);
+      const activeCId = activeCircle?.id;
+      if (activeCId && useCircleStore.getState().membersByCircle[activeCId]) {
+        useCircleStore.getState().membersByCircle[activeCId].forEach(m => {
+          if (m.user_id && !memberUserIds.includes(m.user_id)) {
+            memberUserIds.push(m.user_id);
+          }
+        });
+      }
+
+      const myId = useAuthStore.getState().user?.id || profile?.id;
+      if (myId && !memberUserIds.includes(myId)) {
+        memberUserIds.push(myId);
       }
 
       if (activeCircle?.id && memberUserIds.length <= 1) {
@@ -2954,7 +3481,6 @@ export default function MapScreen() {
 
       const validUids = memberUserIds.filter(isValidUuid);
       if (validUids.length === 0) {
-        setLocations([]);
         return;
       }
 
@@ -2965,9 +3491,16 @@ export default function MapScreen() {
         .in('user_id', validUids)
         .order('updated_at', { ascending: false });
 
-      if (!error && data) {
-        // Deduplicate by user_id: keep freshest updated_at row for each user, preferring matching activeCircle
-        const latestByUser: { [userId: string]: any } = {};
+      if (error) {
+        console.warn('[GPS_PIPELINE:LAYER_4_QUERY_FILTER] fetchLocations query note:', error.message);
+        if (error.message?.includes('JWT') || error.message?.includes('expired') || error.message?.includes('row-level security')) {
+          supabase.auth.refreshSession().catch(() => {});
+        }
+      }
+
+      // Deduplicate by user_id: keep freshest updated_at row for each user, preferring matching activeCircle
+      const latestByUser: { [userId: string]: any } = {};
+      if (data && data.length > 0) {
         data.forEach(item => {
           const uid = item.user_id;
           if (!latestByUser[uid]) {
@@ -2976,7 +3509,39 @@ export default function MapScreen() {
             latestByUser[uid] = item;
           }
         });
-        const allLocs = Object.values(latestByUser);
+      }
+
+      // RECOVERY: For any members who do not have a live fix in locations, query location_history for their latest recorded fix
+      const missingUids = validUids.filter(uid => !latestByUser[uid]);
+      if (missingUids.length > 0) {
+        try {
+          const { data: histData } = await supabase
+            .from('location_history')
+            .select('user_id, latitude, longitude, geom, speed_mps, recorded_at')
+            .in('user_id', missingUids)
+            .order('recorded_at', { ascending: false });
+          if (histData && histData.length > 0) {
+            histData.forEach(h => {
+              if (!latestByUser[h.user_id]) {
+                const pt = parseLocationPoint(h);
+                if (pt.latitude !== 0 && pt.longitude !== 0) {
+                  latestByUser[h.user_id] = {
+                    user_id: h.user_id,
+                    latitude: pt.latitude,
+                    longitude: pt.longitude,
+                    speed_mps: h.speed_mps || 0,
+                    updated_at: h.recorded_at,
+                    activity_state: 'Last known location',
+                  };
+                }
+              }
+            });
+          }
+        } catch (_) {}
+      }
+
+      const allLocs = Object.values(latestByUser);
+      if (allLocs.length > 0) {
         console.log(`[GPS_PIPELINE:LAYER_4_QUERY_FILTER] fetchLocations resolved ${allLocs.length} locations for ${validUids.length} members`);
 
         const formatted = allLocs.map(item => {
@@ -2988,9 +3553,65 @@ export default function MapScreen() {
           };
         }).filter(item => item.latitude !== 0 && item.longitude !== 0);
 
-        setLocations(formatted);
-      } else {
-        setLocations([]);
+        // Smoothly glide any member markers that moved since last check
+        formatted.forEach(f => {
+          if (f.user_id && f.user_id !== profile?.id && f.latitude && f.longitude) {
+            const prev = lastKnownMemberPositionsRef.current[f.user_id];
+            const hasMoved = !prev || (Math.abs(prev.lat - f.latitude) > 0.000005 || Math.abs(prev.lng - f.longitude) > 0.000005);
+            if (hasMoved) {
+              lastKnownMemberPositionsRef.current[f.user_id] = { lat: f.latitude, lng: f.longitude };
+              webViewRef.current?.injectJavaScript(`
+                if (window.updateMemberLivePosition) {
+                  window.updateMemberLivePosition(
+                    ${JSON.stringify(f.user_id)},
+                    ${f.latitude},
+                    ${f.longitude},
+                    ${f.speed_mps || 0},
+                    ${f.heading || 0},
+                    ${f.battery_pct != null ? f.battery_pct : 100},
+                    ${Boolean(f.is_driving)},
+                    ${JSON.stringify(f.activity_state || 'Online')}
+                  );
+                }
+                true;
+              `);
+            }
+          }
+        });
+
+        // Merge newly fetched locations into previous state so other circle members are NOT wiped out
+        setLocations(prev => {
+          const map = new Map<string, any>();
+          prev.forEach(l => { if (l.user_id) map.set(l.user_id, l); });
+          formatted.forEach(l => { if (l.user_id) map.set(l.user_id, l); });
+          return Array.from(map.values());
+        });
+
+        // Update useCircleStore members coordinates & battery in sync
+        useCircleStore.setState(state => ({
+          members: state.members.map(m => {
+            const fresh = formatted.find(f => f.user_id === m.user_id);
+            if (fresh) {
+              return {
+                ...m,
+                latitude: fresh.latitude,
+                longitude: fresh.longitude,
+                batteryPct: fresh.battery_pct != null ? fresh.battery_pct : m.batteryPct,
+              };
+            }
+            return m;
+          })
+        }));
+
+        schedulePushMapData();
+
+        // Evaluate ad-hoc temporary location watches for circle members
+        const evalWatch = useLocationWatchStore.getState().evaluateLocationChange;
+        formatted.forEach(f => {
+          if (f.user_id && f.latitude && f.longitude) {
+            evalWatch(f.user_id, f.latitude, f.longitude);
+          }
+        });
       }
     } catch (err) {
       console.error('Error in fetchLocations:', err);
@@ -3058,6 +3679,10 @@ export default function MapScreen() {
       userLocation: userLoc,
       members: (() => {
         let combinedMembers = [...members];
+        const activeCId = activeCircle?.id;
+        if (combinedMembers.length <= 1 && activeCId && useCircleStore.getState().membersByCircle[activeCId]?.length > 1) {
+          combinedMembers = [...useCircleStore.getState().membersByCircle[activeCId]];
+        }
         
         if (profile && !combinedMembers.some(m => String(m.user_id).toLowerCase() === String(profile.id).toLowerCase())) {
           combinedMembers.push({
@@ -3072,7 +3697,8 @@ export default function MapScreen() {
 
         return combinedMembers
           .map((m) => {
-            const isSelf = String(m.user_id).toLowerCase() === String(profile?.id).toLowerCase();
+            const currentAuthId = useAuthStore.getState().user?.id || profile?.id;
+            const isSelf = String(m.user_id).toLowerCase() === String(currentAuthId).toLowerCase();
             const loc = locations.find(l => String(l.user_id).toLowerCase() === String(m.user_id).toLowerCase());
             
             let lat = 0;
@@ -3088,6 +3714,10 @@ export default function MapScreen() {
                 lat = loc.latitude;
                 lng = loc.longitude;
                 isRealLocation = true;
+              } else if (lastKnownMemberPositionsRef.current[m.user_id]) {
+                lat = lastKnownMemberPositionsRef.current[m.user_id].lat;
+                lng = lastKnownMemberPositionsRef.current[m.user_id].lng;
+                if (lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng)) isRealLocation = true;
               } else if (m.latitude && m.longitude) {
                 lat = Number(m.latitude);
                 lng = Number(m.longitude);
@@ -3097,6 +3727,10 @@ export default function MapScreen() {
               lat = loc.latitude;
               lng = loc.longitude;
               isRealLocation = true;
+            } else if (lastKnownMemberPositionsRef.current[m.user_id]) {
+              lat = lastKnownMemberPositionsRef.current[m.user_id].lat;
+              lng = lastKnownMemberPositionsRef.current[m.user_id].lng;
+              if (lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng)) isRealLocation = true;
             } else if (m.latitude && m.longitude) {
               lat = Number(m.latitude);
               lng = Number(m.longitude);
@@ -3104,7 +3738,7 @@ export default function MapScreen() {
             }
 
             // ONLY REAL LOCATIONS: If a member has not broadcasted real GPS yet, do NOT plot them with mock coordinates
-            if (!isRealLocation || !lat || !lng || lat === 0 || lng === 0) {
+            if (!isRealLocation || !lat || !lng || lat === 0 || lng === 0 || isNaN(lat) || isNaN(lng)) {
               console.log(`[GPS_PIPELINE:LAYER_6_UI_RENDER] Member ${m.user_id} (${m.profile?.full_name || 'unknown'}) dropped from map render (isRealLocation=${isRealLocation}, lat=${lat}, lng=${lng})`);
               return null;
             }
@@ -3172,7 +3806,8 @@ export default function MapScreen() {
           assignedCount: assignedCount,
           assignedUserIds: p.assigned_user_ids || (p.target_user_id ? [p.target_user_id] : []),
         };
-      }),
+      })
+      .filter(p => p.lat !== 0 && p.lng !== 0 && !isNaN(p.lat) && !isNaN(p.lng)),
       pois: poiList
         .filter(p => activeFilterCategories.length > 0 && activeFilterCategories.includes(p.category))
         .map(p => ({
@@ -3191,11 +3826,13 @@ export default function MapScreen() {
   const mapPushTimerRef = useRef<any>(null);
 
   const schedulePushMapData = () => {
-    if (mapPushTimerRef.current) return;
+    if (mapPushTimerRef.current) {
+      clearTimeout(mapPushTimerRef.current);
+    }
     mapPushTimerRef.current = setTimeout(() => {
       mapPushTimerRef.current = null;
       pushMapData();
-    }, 100);
+    }, 60);
   };
 
   useEffect(() => {
@@ -3210,16 +3847,33 @@ export default function MapScreen() {
     if (msg.type === 'MAP_READY') {
       pushMapData();
       if (pendingFocusRef.current?.lat && pendingFocusRef.current?.lng) {
-        const { lat, lng, name } = pendingFocusRef.current;
-        const js = `
-          if (window.showSearchedPlace) {
-            window.showSearchedPlace(${lat}, ${lng}, ${JSON.stringify(name || 'Searched Location')});
-          } else if (window.map) {
-            window.map.setView([${lat}, ${lng}], 16);
-          }
-          true;
-        `;
-        executeMapScript(js);
+        const { lat, lng, name, userId } = pendingFocusRef.current;
+        const isCircleMember = userId || members.some(m => 
+          (name && m.profile?.full_name && m.profile.full_name.toLowerCase().trim() === name.toLowerCase().trim()) ||
+          (m.latitude && m.longitude && Math.abs(m.latitude - (lat || 0)) < 0.0005 && Math.abs(m.longitude - (lng || 0)) < 0.0005)
+        );
+        if (!isCircleMember) {
+          const js = `
+            if (window.showSearchedPlace) {
+              window.showSearchedPlace(${lat}, ${lng}, ${JSON.stringify(name || 'Searched Location')});
+            } else if (window.map) {
+              window.map.setView([${lat}, ${lng}], 16);
+            }
+            true;
+          `;
+          executeMapScript(js);
+        } else {
+          const js = `
+            if (window.showSearchedPlace) { window.showSearchedPlace(null, null, null); }
+            if (window.smoothFlyTo) {
+              window.smoothFlyTo(${lat}, ${lng}, 16);
+            } else if (window.map) {
+              window.map.setView([${lat}, ${lng}], 16);
+            }
+            true;
+          `;
+          executeMapScript(js);
+        }
       }
     } else if (msg.type === 'USER_DRAGGED_MAP') {
       setIsFollowUserActive(false);
@@ -3369,16 +4023,33 @@ export default function MapScreen() {
               pushMapData();
             }, 800);
             if (pendingFocusRef.current?.lat && pendingFocusRef.current?.lng) {
-              const { lat, lng, name } = pendingFocusRef.current;
-              const js = `
-                if (window.showSearchedPlace) {
-                  window.showSearchedPlace(${lat}, ${lng}, ${JSON.stringify(name || 'Searched Location')});
-                } else if (window.map) {
-                  window.map.setView([${lat}, ${lng}], 16);
-                }
-                true;
-              `;
-              executeMapScript(js);
+              const { lat, lng, name, userId } = pendingFocusRef.current;
+              const isCircleMember = userId || members.some(m => 
+                (name && m.profile?.full_name && m.profile.full_name.toLowerCase().trim() === name.toLowerCase().trim()) ||
+                (m.latitude && m.longitude && Math.abs(m.latitude - (lat || 0)) < 0.0005 && Math.abs(m.longitude - (lng || 0)) < 0.0005)
+              );
+              if (!isCircleMember) {
+                const js = `
+                  if (window.showSearchedPlace) {
+                    window.showSearchedPlace(${lat}, ${lng}, ${JSON.stringify(name || 'Searched Location')});
+                  } else if (window.map) {
+                    window.map.setView([${lat}, ${lng}], 16);
+                  }
+                  true;
+                `;
+                executeMapScript(js);
+              } else {
+                const js = `
+                  if (window.showSearchedPlace) { window.showSearchedPlace(null, null, null); }
+                  if (window.smoothFlyTo) {
+                    window.smoothFlyTo(${lat}, ${lng}, 16);
+                  } else if (window.map) {
+                    window.map.setView([${lat}, ${lng}], 16);
+                  }
+                  true;
+                `;
+                executeMapScript(js);
+              }
             }
           }}
         />
@@ -3417,16 +4088,33 @@ export default function MapScreen() {
               pushMapData();
             }, 300);
             if (pendingFocusRef.current?.lat && pendingFocusRef.current?.lng && webViewRef.current) {
-              const { lat, lng, name } = pendingFocusRef.current;
-              const js = `
-                if (window.showSearchedPlace) {
-                  window.showSearchedPlace(${lat}, ${lng}, ${JSON.stringify(name || 'Searched Location')});
-                } else if (window.map) {
-                  window.map.setView([${lat}, ${lng}], 16);
-                }
-                true;
-              `;
-              webViewRef.current.injectJavaScript(js);
+              const { lat, lng, name, userId } = pendingFocusRef.current;
+              const isCircleMember = userId || members.some(m => 
+                (name && m.profile?.full_name && m.profile.full_name.toLowerCase().trim() === name.toLowerCase().trim()) ||
+                (m.latitude && m.longitude && Math.abs(m.latitude - (lat || 0)) < 0.0005 && Math.abs(m.longitude - (lng || 0)) < 0.0005)
+              );
+              if (!isCircleMember) {
+                const js = `
+                  if (window.showSearchedPlace) {
+                    window.showSearchedPlace(${lat}, ${lng}, ${JSON.stringify(name || 'Searched Location')});
+                  } else if (window.map) {
+                    window.map.setView([${lat}, ${lng}], 16);
+                  }
+                  true;
+                `;
+                webViewRef.current.injectJavaScript(js);
+              } else {
+                const js = `
+                  if (window.showSearchedPlace) { window.showSearchedPlace(null, null, null); }
+                  if (window.smoothFlyTo) {
+                    window.smoothFlyTo(${lat}, ${lng}, 16);
+                  } else if (window.map) {
+                    window.map.setView([${lat}, ${lng}], 16);
+                  }
+                  true;
+                `;
+                webViewRef.current.injectJavaScript(js);
+              }
             }
           }}
           onError={(syntheticEvent) => {
@@ -3458,7 +4146,7 @@ export default function MapScreen() {
             onPress={() => setShowCircleSwitcherModal(true)}
             activeOpacity={0.8}
           >
-            <View style={[styles.circleSelectorDot, { backgroundColor: '#10B981' }]} />
+            <View style={[styles.circleSelectorDot, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]} />
             <Text style={[styles.circleSelectorPillText, { color: colors.foreground }]} numberOfLines={1}>
               {activeCircle?.name || 'My Family Circle'}
             </Text>
@@ -3482,17 +4170,40 @@ export default function MapScreen() {
           <TouchableOpacity
             style={[
               styles.quickSwitchBanner,
-              { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: 'rgba(212, 175, 55, 0.3)' }
+              { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9', borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0' }
             ]}
             onPress={() => setShowCircleSwitcherModal(true)}
             activeOpacity={0.8}
           >
-            <Ionicons name="swap-horizontal" size={14} color="#D4AF37" />
+            <Ionicons name="swap-horizontal" size={14} color={isDark ? '#FFFFFF' : '#0F172A'} />
             <Text style={[styles.quickSwitchBannerText, { color: colors.foreground }]} numberOfLines={1}>
               Switch circle or select family group
             </Text>
-            <Ionicons name="chevron-forward" size={14} color="#D4AF37" />
+            <Ionicons name="chevron-forward" size={14} color={isDark ? '#FFFFFF' : '#0F172A'} />
           </TouchableOpacity>
+        )}
+
+        {/* Ghost Privacy Active Banner */}
+        {Boolean(profile?.is_ghost_mode || members.find(m => m.user_id === profile?.id)?.isGhost) && (
+          <View
+            style={[
+              styles.ghostModeActiveBanner,
+              {
+                backgroundColor: isDark ? 'rgba(139, 92, 246, 0.2)' : '#F5F3FF',
+                borderColor: isDark ? '#8B5CF6' : '#DDD6FE',
+              }
+            ]}
+          >
+            <Ionicons name="eye-off" size={15} color={isDark ? '#C4B5FD' : '#7C3AED'} />
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text style={[styles.ghostBannerTitle, { color: isDark ? '#EDE9FE' : '#5B21B6' }]}>
+                Ghost Privacy Mode Active
+              </Text>
+              <Text style={[styles.ghostBannerSubtitle, { color: isDark ? '#DDD6FE' : '#6D28D9' }]}>
+                Your true location is hidden. Circle members only see a fuzzed zone ~1.2 km away.
+              </Text>
+            </View>
+          </View>
         )}
 
         <View style={[
@@ -3544,7 +4255,7 @@ export default function MapScreen() {
 
             {searchResults.places.map(p => (
               <TouchableOpacity key={p.id} style={styles.searchResultItem} onPress={() => handleSelectSearchResult(p, 'place')}>
-                <Ionicons name="shield-checkmark" size={16} color="#10B981" />
+                <Ionicons name="shield-checkmark" size={16} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 <View style={styles.searchResultTextWrapper}>
                   <Text style={[styles.searchResultTitle, { color: colors.foreground }]}>{p.name}</Text>
                   <Text style={[styles.searchResultSub, { color: colors.textMuted }]}>Safe Zone • {p.radius_m || 150}m</Text>
@@ -3642,7 +4353,7 @@ export default function MapScreen() {
                       ]}
                       onPress={() => handleSelectMember(m)}
                     >
-                      <View style={[styles.miniDot, { backgroundColor: m.isOnline ? '#10B981' : '#9CA3AF' }]} />
+                      <View style={[styles.miniDot, { backgroundColor: m.isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : '#9CA3AF' }]} />
                       <Text style={[styles.chipText, { color: colors.foreground }]}>
                         {chipTitle}{distLabel ? ` • ${distLabel}` : ''}
                       </Text>
@@ -3655,7 +4366,7 @@ export default function MapScreen() {
         })() : null}
 
         {/* Live Nearby Things Radar Carousel (Closest First) */}
-        {activeFilterCategories.length > 0 && sortedNearbyThings.length > 0 && (
+        {!isNearbyRadarDismissed && activeFilterCategories.length > 0 && sortedNearbyThings.length > 0 && (
           <View style={styles.nearbyRadarBar}>
             <View style={styles.nearbyRadarHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
@@ -3664,9 +4375,18 @@ export default function MapScreen() {
                   NEARBY PLACES (CLOSEST FIRST)
                 </Text>
               </View>
-              <Text style={[styles.nearbyRadarCount, { color: colors.textMuted }]}>
-                {sortedNearbyThings.length} found
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={[styles.nearbyRadarCount, { color: colors.textMuted }]}>
+                  {sortedNearbyThings.length} found
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setIsNearbyRadarDismissed(true)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  style={{ padding: 2 }}
+                >
+                  <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.nearbyRadarContent}>
               {sortedNearbyThings.slice(0, 15).map((item, idx) => {
@@ -3681,7 +4401,7 @@ export default function MapScreen() {
                       styles.nearbyRadarChip,
                       {
                         backgroundColor: isSelected
-                          ? (isDark ? 'rgba(212, 175, 55, 0.22)' : '#FEF9C3')
+                          ? (isDark ? 'rgba(255, 255, 255, 0.16)' : '#F1F5F9')
                           : colors.surface,
                         borderColor: isSelected ? colors.accentGold : colors.border,
                       }
@@ -3708,7 +4428,7 @@ export default function MapScreen() {
                     <View style={[
                       styles.nearbyRadarDistPill,
                       {
-                        backgroundColor: isDark ? 'rgba(212, 175, 55, 0.15)' : '#FEF08A',
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#F1F5F9',
                         borderColor: colors.accentGold,
                       }
                     ]}>
@@ -3802,11 +4522,11 @@ export default function MapScreen() {
                 {
                   backgroundColor: isSelected 
                     ? (isFastest 
-                        ? (isDark ? 'rgba(16, 185, 129, 0.14)' : '#F0FDF4') 
+                        ? (isDark ? 'rgba(255, 255, 255, 0.12)' : '#F1F5F9') 
                         : (isDark ? 'rgba(59, 130, 246, 0.14)' : '#EFF6FF')) 
                     : (isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC'),
                   borderColor: isSelected 
-                    ? (isFastest ? '#10B981' : '#3B82F6') 
+                    ? (isFastest ? (isDark ? '#FFFFFF' : '#0F172A') : '#3B82F6') 
                     : (isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0'),
                   borderWidth: isSelected ? 2 : 1.2,
                 }
@@ -3819,7 +4539,7 @@ export default function MapScreen() {
                   styles.routeCardDuration, 
                   { 
                     color: isSelected 
-                      ? (isFastest ? (isDark ? '#34D399' : '#059669') : (isDark ? '#60A5FA' : '#1D4ED8')) 
+                      ? (isFastest ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#60A5FA' : '#1D4ED8')) 
                       : colors.foreground 
                   }
                 ]}>
@@ -3829,7 +4549,7 @@ export default function MapScreen() {
                   styles.routeBadgePill,
                   {
                     backgroundColor: isFastest
-                      ? (isSelected ? (isDark ? 'rgba(16, 185, 129, 0.28)' : '#DCFCE7') : (isDark ? 'rgba(16, 185, 129, 0.12)' : '#F0FDF4'))
+                      ? (isSelected ? (isDark ? 'rgba(255, 255, 255, 0.20)' : '#E2E8F0') : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'))
                       : (isSelected ? (isDark ? 'rgba(59, 130, 246, 0.25)' : '#DBEAFE') : (isDark ? 'rgba(148, 163, 184, 0.15)' : '#F1F5F9')),
                   }
                 ]}>
@@ -3837,7 +4557,7 @@ export default function MapScreen() {
                     styles.routeBadgeText,
                     {
                       color: isFastest
-                        ? (isDark ? '#34D399' : '#059669')
+                        ? (isDark ? '#FFFFFF' : '#0F172A')
                         : (isSelected ? (isDark ? '#93C5FD' : '#1D4ED8') : (isDark ? '#94A3B8' : '#64748B')),
                     }
                   ]}>
@@ -3855,11 +4575,11 @@ export default function MapScreen() {
                     <Ionicons 
                       name="checkmark-circle" 
                       size={13} 
-                      color={isFastest ? (isDark ? '#34D399' : '#10B981') : (isDark ? '#60A5FA' : '#3B82F6')} 
+                      color={isFastest ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#60A5FA' : '#3B82F6')} 
                     />
                     <Text style={[
                       styles.routeActiveText, 
-                      { color: isFastest ? (isDark ? '#34D399' : '#059669') : (isDark ? '#60A5FA' : '#1D4ED8') }
+                      { color: isFastest ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#60A5FA' : '#1D4ED8') }
                     ]}>
                       Active
                     </Text>
@@ -3897,7 +4617,7 @@ export default function MapScreen() {
                     </Text>
                   </View>
                 )}
-                <View style={[styles.modernOnlineIndicator, { backgroundColor: selectedMember.isOnline ? '#10B981' : '#94A3B8' }]} />
+                <View style={[styles.modernOnlineIndicator, { backgroundColor: selectedMember.isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : '#94A3B8' }]} />
               </View>
 
               <View style={styles.modernMemberMeta}>
@@ -3973,12 +4693,12 @@ export default function MapScreen() {
                   <View style={[styles.etaHeroCard, { backgroundColor: isDark ? 'rgba(30, 41, 59, 0.7)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0' }]}>
                     <View style={styles.etaHeroLeft}>
                       <View style={styles.etaTimeRow}>
-                        <Text style={[styles.etaDurationText, { color: isRouteFastest ? '#10B981' : '#3B82F6' }]}>
+                        <Text style={[styles.etaDurationText, { color: isRouteFastest ? (isDark ? '#FFFFFF' : '#0F172A') : '#94A3B8' }]}>
                           {displayDuration}
                         </Text>
                         <View style={isRouteFastest ? styles.liveTrafficPill : styles.liveTrafficAltPill}>
-                          <View style={[styles.liveTrafficDot, { backgroundColor: isRouteFastest ? '#10B981' : '#3B82F6' }]} />
-                          <Text style={[styles.liveTrafficText, { color: isRouteFastest ? '#10B981' : '#3B82F6' }]}>
+                          <View style={[styles.liveTrafficDot, { backgroundColor: isRouteFastest ? (isDark ? '#FFFFFF' : '#0F172A') : '#94A3B8' }]} />
+                          <Text style={[styles.liveTrafficText, { color: isRouteFastest ? (isDark ? '#FFFFFF' : '#0F172A') : '#94A3B8' }]}>
                             {isRouteFastest ? 'Fastest' : 'Alternative'}
                           </Text>
                         </View>
@@ -4033,9 +4753,44 @@ export default function MapScreen() {
                     <TouchableOpacity 
                       style={[
                         styles.modernIconActionBtn, 
+                        hasActiveWatch ? {
+                          backgroundColor: isDark ? 'rgba(59, 130, 246, 0.2)' : '#EFF6FF',
+                          borderColor: '#3B82F6',
+                        } : { 
+                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9', 
+                          borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0' 
+                        }
+                      ]} 
+                      onPress={() => setShowLocationWatchModal(true)}
+                      activeOpacity={0.75}
+                      accessibilityLabel={`Notify me when ${selectedMember.profile?.full_name || 'member'} arrives or leaves`}
+                    >
+                      <Ionicons 
+                        name={hasActiveWatch ? "notifications" : "notifications-outline"} 
+                        size={18} 
+                        color={hasActiveWatch ? "#3B82F6" : (isDark ? '#FFFFFF' : '#0F172A')} 
+                      />
+                      {hasActiveWatch && (
+                        <View style={{
+                          position: 'absolute',
+                          top: 4,
+                          right: 4,
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
+                          backgroundColor: '#3B82F6',
+                        }} />
+                      )}
+                    </TouchableOpacity>
+                  )}
+
+                  {!isSelf && (
+                    <TouchableOpacity 
+                      style={[
+                        styles.modernIconActionBtn, 
                         { 
-                          backgroundColor: isDark ? 'rgba(58, 223, 171, 0.15)' : '#E8F8EE', 
-                          borderColor: isDark ? 'rgba(58, 223, 171, 0.3)' : '#A7F3D0' 
+                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9', 
+                          borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0' 
                         }
                       ]} 
                       onPress={() => {
@@ -4050,7 +4805,7 @@ export default function MapScreen() {
                       activeOpacity={0.75}
                       accessibilityLabel={`Chat and tag ${selectedMember.profile?.full_name || 'member'}`}
                     >
-                      <Ionicons name="chatbubble-ellipses-outline" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                      <Ionicons name="chatbubble-ellipses-outline" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
                     </TouchableOpacity>
                   )}
 
@@ -4092,12 +4847,12 @@ export default function MapScreen() {
         const radiusNum = typeof selectedPlace.radius_m === 'number' ? selectedPlace.radius_m : parseFloat(selectedPlace.radius_m || selectedPlace.radius || 150);
         const cat = selectedPlace.category || 'home';
         
-        let catColor = '#D4AF37';
+        let catColor = isDark ? '#FFFFFF' : '#0F172A';
         let catIcon = 'shield-checkmark';
         let catLabel = 'SAFE ZONE';
 
         if (cat === 'home') {
-          catColor = '#10B981';
+          catColor = isDark ? '#FFFFFF' : '#0F172A';
           catIcon = 'home';
           catLabel = 'HOME ZONE';
         } else if (cat === 'work') {
@@ -4197,15 +4952,15 @@ export default function MapScreen() {
                       const initial = mName.charAt(0).toUpperCase();
 
                       return (
-                        <View key={m.user_id} style={[styles.zoneMemberPill, { backgroundColor: colors.surfaceMuted, borderColor: isInside ? '#10B981' : colors.border, borderRadius: 12 }]}>
-                          <View style={[styles.miniAvatarWrap, { borderColor: isInside ? '#10B981' : colors.textMuted, backgroundColor: colors.surface }]}>
+                        <View key={m.user_id} style={[styles.zoneMemberPill, { backgroundColor: colors.surfaceMuted, borderColor: isInside ? (isDark ? '#FFFFFF' : '#0F172A') : colors.border, borderRadius: 12 }]}>
+                          <View style={[styles.miniAvatarWrap, { borderColor: isInside ? (isDark ? '#FFFFFF' : '#0F172A') : colors.textMuted, backgroundColor: colors.surface }]}>
                             <Text style={[styles.miniAvatarInitial, { color: colors.foreground }]}>{initial}</Text>
                           </View>
                           <View>
                             <Text style={[styles.zoneMemberName, { color: colors.foreground }]}>{mName.split(' ')[0]}</Text>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: isInside ? '#10B981' : '#94A3B8' }} />
-                              <Text style={[styles.zoneMemberStatus, { color: isInside ? '#10B981' : colors.textMuted }]}>
+                              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: isInside ? (isDark ? '#FFFFFF' : '#0F172A') : '#94A3B8' }} />
+                              <Text style={[styles.zoneMemberStatus, { color: isInside ? (isDark ? '#FFFFFF' : '#0F172A') : colors.textMuted }]}>
                                 {isInside ? 'Inside Zone' : distText}
                               </Text>
                             </View>
@@ -4221,7 +4976,7 @@ export default function MapScreen() {
                     style={[
                       styles.cardBtnPrimary, 
                       { 
-                        flex: 1.15,
+                        flex: 1,
                         height: 44,
                         paddingHorizontal: 8,
                         backgroundColor: primaryBtnStyles.backgroundColor,
@@ -4233,6 +4988,10 @@ export default function MapScreen() {
                         shadowOpacity: primaryBtnStyles.shadowOpacity,
                         shadowRadius: primaryBtnStyles.shadowRadius,
                         elevation: primaryBtnStyles.elevation,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
                       }
                     ]} 
                     onPress={() => {
@@ -4242,7 +5001,7 @@ export default function MapScreen() {
                     }}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="compass" size={15} color={primaryBtnStyles.textColor} />
+                    <Ionicons name="compass" size={16} color={primaryBtnStyles.textColor} />
                     <Text style={[styles.cardBtnPrimaryText, { color: primaryBtnStyles.textColor }]} numberOfLines={1}>DIRECTIONS</Text>
                   </TouchableOpacity>
 
@@ -4262,12 +5021,16 @@ export default function MapScreen() {
                         shadowOpacity: dangerBtnStyles.shadowOpacity,
                         shadowRadius: dangerBtnStyles.shadowRadius,
                         elevation: dangerBtnStyles.elevation,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
                       }
                     ]} 
                     onPress={handleDeleteSelectedPlace} 
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="trash" size={15} color={dangerBtnStyles.textColor} />
+                    <Ionicons name="trash-outline" size={16} color={dangerBtnStyles.textColor} />
                     <Text style={[styles.cardBtnDangerText, { color: dangerBtnStyles.textColor }]} numberOfLines={1}>DELETE</Text>
                   </TouchableOpacity>
 
@@ -4275,7 +5038,7 @@ export default function MapScreen() {
                     style={[
                       styles.cardBtnSecondary, 
                       { 
-                        flex: 0.85,
+                        flex: 1,
                         height: 44,
                         paddingHorizontal: 8,
                         backgroundColor: secondaryBtnStyles.backgroundColor,
@@ -4287,11 +5050,16 @@ export default function MapScreen() {
                         shadowOpacity: secondaryBtnStyles.shadowOpacity,
                         shadowRadius: secondaryBtnStyles.shadowRadius,
                         elevation: secondaryBtnStyles.elevation,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
                       }
                     ]} 
                     onPress={handleClosePlace} 
                     activeOpacity={0.8}
                   >
+                    <Ionicons name="close-circle-outline" size={16} color={secondaryBtnStyles.textColor} />
                     <Text style={[styles.cardBtnSecondaryText, { color: secondaryBtnStyles.textColor }]} numberOfLines={1}>CLOSE</Text>
                   </TouchableOpacity>
                 </View>
@@ -4442,11 +5210,26 @@ export default function MapScreen() {
         onSave={savePlace}
       />
 
+      <MemberLocationWatchModal
+        visible={showLocationWatchModal}
+        targetMember={selectedMember ? (() => {
+          const loc = locations.find(l => String(l.user_id).toLowerCase() === String(selectedMember.user_id || selectedMember.id).toLowerCase());
+          return {
+            ...selectedMember,
+            latitude: selectedMember.latitude || loc?.latitude,
+            longitude: selectedMember.longitude || loc?.longitude,
+          };
+        })() : null}
+        currentAddress={null}
+        onClose={() => setShowLocationWatchModal(false)}
+      />
+
       <SearchFilterModal
         visible={filterModalVisible}
         onClose={() => setFilterModalVisible(false)}
         selectedCategories={activeFilterCategories}
         onApplyFilters={(cats) => {
+          setIsNearbyRadarDismissed(false);
           setActiveFilterCategories(cats);
           const poiCats = cats.filter(c => c !== 'member' && c !== 'place');
           const firstMem = members.find(m => m.latitude && m.longitude);
@@ -4490,7 +5273,8 @@ export default function MapScreen() {
         selectedStyle={mapStyleSetting}
         onSelectStyle={(s) => {
           setMapStyleSetting(s);
-          AsyncStorage.setItem('@circleguard_map_style', s);
+          useThemeStore.getState().setMapStyle(s).catch(() => {});
+          StorageRecoveryService.safeSetItem('@circleguard_map_style', s).catch(() => {});
 
           const tileUrls: Record<MapStyleType, string> = {
             satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -4539,13 +5323,13 @@ export default function MapScreen() {
               styles.controlBtn, 
               floatingControlStyles,
               isFollowUserActive 
-                ? { borderColor: '#10B981', backgroundColor: themeMode === 'brand_green' ? '#E8F8EE' : 'rgba(16, 185, 129, 0.25)' } 
+                ? { borderColor: isDark ? '#FFFFFF' : '#0F172A', backgroundColor: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(15, 23, 42, 0.12)' } 
                 : null
             ]} 
             onPress={handleToggleFollow} 
             scaleTo={0.88}
           >
-            <Ionicons name="navigate" size={20} color={isFollowUserActive ? '#10B981' : colors.foreground} />
+            <Ionicons name="navigate" size={20} color={isFollowUserActive ? (isDark ? '#FFFFFF' : '#0F172A') : colors.foreground} />
           </SpringTouchable>
 
           {/* Locate Me */}
@@ -4616,7 +5400,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(22, 24, 31, 0.92)',
     borderWidth: 1.5,
-    borderColor: 'rgba(212, 175, 55, 0.4)',
+    borderColor: 'rgba(255, 255, 255, 0.16)',
     borderRadius: 14,
     paddingHorizontal: 16,
     height: 48,
@@ -4640,7 +5424,7 @@ const styles = StyleSheet.create({
     maxHeight: 240,
     backgroundColor: 'rgba(22, 24, 31, 0.96)',
     borderWidth: 1,
-    borderColor: 'rgba(212, 175, 55, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.16)',
     borderRadius: 14,
     marginTop: 6,
     elevation: 10,
@@ -4691,15 +5475,15 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   avatarChipOnline: {
-    borderColor: 'rgba(16, 185, 129, 0.5)',
+    borderColor: 'rgba(255, 255, 255, 0.45)',
   },
   avatarChipOffline: {
     borderColor: 'rgba(156, 163, 175, 0.3)',
     opacity: 0.8,
   },
   avatarChipSelected: {
-    borderColor: '#D4AF37',
-    backgroundColor: 'rgba(212, 175, 55, 0.25)',
+    borderColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
   },
   miniDot: {
     width: 6,
@@ -4721,7 +5505,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 14,
     borderWidth: 1.5,
-    borderColor: 'rgba(212, 175, 55, 0.45)',
+    borderColor: 'rgba(255, 255, 255, 0.16)',
     borderRadius: 22,
     zIndex: 25,
     shadowColor: '#000',
@@ -4770,7 +5554,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#10B981',
+    backgroundColor: '#64748B',
   },
   safeBadgeText: {
     fontSize: 10.5,
@@ -4853,7 +5637,7 @@ const styles = StyleSheet.create({
   zoneMemberPillText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#D4AF37',
+    color: '#FFFFFF',
   },
 
   cardActionRow: {
@@ -4939,13 +5723,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(22, 24, 31, 0.95)',
     borderWidth: 1.5,
-    borderColor: 'rgba(212, 175, 55, 0.65)',
+    borderColor: 'rgba(255, 255, 255, 0.25)',
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 10,
     marginTop: 10,
     gap: 12,
-    shadowColor: '#D4AF37',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 14,
@@ -4955,14 +5739,14 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(212, 175, 55, 0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(212, 175, 55, 0.4)',
+    borderColor: 'rgba(255, 255, 255, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   poiLoadingTitle: {
-    color: '#D4AF37',
+    color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '900',
     letterSpacing: 1.2,
@@ -4978,9 +5762,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
-    borderColor: '#10B981',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -4989,10 +5773,10 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#10B981',
+    backgroundColor: '#FFFFFF',
   },
   poiLoadingLiveText: {
-    color: '#10B981',
+    color: '#FFFFFF',
     fontSize: 9,
     fontWeight: '900',
     letterSpacing: 0.8,
@@ -5099,7 +5883,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(16, 185, 129, 0.14)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 7,
     paddingVertical: 2.5,
     borderRadius: 6,
@@ -5108,10 +5892,10 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 2.5,
-    backgroundColor: '#10B981',
+    backgroundColor: '#94A3B8',
   },
   liveTrafficText: {
-    color: '#10B981',
+    color: '#94A3B8',
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.3,
@@ -5404,5 +6188,28 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 11.5,
     fontWeight: '500',
+  },
+  ghostModeActiveBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  ghostBannerTitle: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  ghostBannerSubtitle: {
+    fontSize: 10,
+    fontWeight: '500',
+    marginTop: 1,
   },
 });

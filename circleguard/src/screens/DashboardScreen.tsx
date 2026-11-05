@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase';
 import { useNavigation, CompositeNavigationProp } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import { RootStackParamList } from '../navigation/navigationRef';
 import { MainTabParamList } from '../navigation/MainTabNavigator';
 import { useThemeStore } from '../store/useThemeStore';
 import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBorderStyles } from '../constants/theme';
@@ -63,16 +63,14 @@ export default function DashboardScreen() {
       if (seenUids.has(m.user_id)) continue;
 
       const mPhone = cleanPhone(m.profile?.phone);
-      const mName = m.profile?.full_name?.trim().toLowerCase();
+      // Strictly prevent dropping valid members: only skip if identical non-empty phone number matches self
+      const isSelfPhoneDup = !!selfPhone && !!mPhone && mPhone.length >= 7 && mPhone === selfPhone;
 
-      const isSelfPhoneDup = !!selfPhone && !!mPhone && mPhone === selfPhone;
-      const isSelfNameDup = !!selfFullName && !!mName && mName === selfFullName && (!mPhone || mPhone === selfPhone);
-
-      if (isSelfPhoneDup || isSelfNameDup) continue;
-      if (mPhone && seenPhones.has(mPhone)) continue;
+      if (isSelfPhoneDup) continue;
+      if (mPhone && mPhone.length >= 7 && seenPhones.has(mPhone)) continue;
 
       seenUids.add(m.user_id);
-      if (mPhone) seenPhones.add(mPhone);
+      if (mPhone && mPhone.length >= 7) seenPhones.add(mPhone);
       deduped.push(m);
     }
 
@@ -391,27 +389,12 @@ export default function DashboardScreen() {
         confirmText: 'DELETE CIRCLE',
         cancelText: 'CANCEL',
         isDestructive: true,
-        onConfirm: async () => {
-          try {
-            const { error } = await supabase.from('circles').delete().eq('id', activeCircle.id);
-            if (error) throw error;
-
-            setActiveCircle(null);
-            setMembers([]);
-            await useCircleStore.getState().fetchActiveCircle(userId);
-            showAlert({
-              title: 'Circle Deleted',
-              message: 'Your circle has been removed.',
-              type: 'info',
-              buttonText: 'DONE',
-            });
-          } catch (err: any) {
-            showAlert({
-              title: 'Error',
-              message: err.message || 'Failed to delete circle.',
-              type: 'error',
-            });
-          }
+        onConfirm: () => {
+          if (!activeCircle?.id) return;
+          useCircleStore.getState().startDeleteCircleWithAnimation(
+            activeCircle.id,
+            activeCircle.name || 'this circle'
+          );
         },
       });
     } else {
@@ -421,31 +404,13 @@ export default function DashboardScreen() {
         confirmText: 'LEAVE CIRCLE',
         cancelText: 'CANCEL',
         isDestructive: true,
-        onConfirm: async () => {
-          try {
-            const { error } = await supabase
-              .from('circle_members')
-              .delete()
-              .eq('circle_id', activeCircle.id)
-              .eq('user_id', userId);
-            if (error) throw error;
-
-            setActiveCircle(null);
-            setMembers([]);
-            await useCircleStore.getState().fetchActiveCircle(userId);
-            showAlert({
-              title: 'Left Circle',
-              message: 'You have left the circle.',
-              type: 'info',
-              buttonText: 'DONE',
-            });
-          } catch (err: any) {
-            showAlert({
-              title: 'Error',
-              message: err.message || 'Failed to leave circle.',
-              type: 'error',
-            });
-          }
+        onConfirm: () => {
+          if (!activeCircle?.id || !userId) return;
+          useCircleStore.getState().startLeaveCircleWithAnimation(
+            activeCircle.id,
+            activeCircle.name || 'this circle',
+            userId
+          );
         },
       });
     }

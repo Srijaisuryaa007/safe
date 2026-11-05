@@ -10,9 +10,10 @@ import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from '../lib/supabase';
 import { useThemeStore } from '../store/useThemeStore';
 import { LUXURY_THEME, getThemeCardStyles, getThemeButtonStyles, getThemeBorderStyles } from '../constants/theme';
-import { validateImageUpload } from '../lib/fileUploadSecurity';
+import { validateImageUpload, readLocalFileAsBase64Async } from '../lib/fileUploadSecurity';
 import { handleServiceError } from '../lib/errorHandler';
 import { EmergencyMedicalService, getPrimaryContactStorageKey } from '../services/EmergencyMedicalService';
+import { pickAndResolveContact } from '../utils/contactPickerHelper';
 
 
 // Modals
@@ -140,50 +141,46 @@ export default function ProfileScreen() {
         return;
       }
 
-      const contact = await Contacts.presentContactPickerAsync();
-      if (contact) {
-        const contactName =
-          contact.name ||
-          [contact.firstName, contact.lastName].filter(Boolean).join(' ') ||
-          'Emergency Contact';
+      const res = await pickAndResolveContact(country?.code || 'IN');
+      if (res.cancelled) return;
 
-        let phoneNumber = '';
-        if (contact.phoneNumbers && contact.phoneNumbers.length > 0) {
-          phoneNumber = contact.phoneNumbers[0].number || '';
-        }
+      const picked = res.contact;
+      if (!picked) return;
 
-        if (!phoneNumber) {
-          showAlert({
-            title: 'Phone Number Needed',
-            message: `${contactName} doesn't have a phone number saved. Please select a contact with a valid phone number.`,
-            type: 'info',
-          });
-          return;
-        }
-
-        const item: PrimaryContact = {
-          name: contactName,
-          phone: phoneNumber,
-        };
-
-        setEmergencyContact(item);
-
-        if (profile?.id) {
-          try {
-            await AsyncStorage.setItem(getPrimaryContactStorageKey(profile.id), JSON.stringify(item));
-            await EmergencyMedicalService.addEmergencyContact(profile.id, {
-              name: contactName,
-              phone: phoneNumber,
-              relationship: 'Emergency Contact',
-              sort_order: 0,
-            });
-          } catch (storageErr) {
-            console.warn('[ProfileScreen] Contact persist error:', storageErr);
-          }
-        }
-
-        triggerToast('Emergency contact added successfully');
+      if (!picked.hasPhone || picked.phoneNumbers.length === 0) {
+        showAlert({
+          title: 'Phone Number Needed',
+          message: `${picked.name} was selected, but no phone number was found in your device contacts. You can add them with their number in the Emergency Contacts directory.`,
+          type: 'info',
+          buttonText: 'Open Directory',
+          onPress: () => setContactsModalVisible(true),
+        });
+        return;
       }
+
+      const finalPhone = picked.formattedPhone || picked.rawPhoneNumber || '';
+      const item: PrimaryContact = {
+        name: picked.name,
+        phone: finalPhone,
+      };
+
+      setEmergencyContact(item);
+
+      if (profile?.id) {
+        try {
+          await AsyncStorage.setItem(getPrimaryContactStorageKey(profile.id), JSON.stringify(item));
+          await EmergencyMedicalService.addEmergencyContact(profile.id, {
+            name: picked.name,
+            phone: finalPhone,
+            relationship: 'Emergency Contact',
+            sort_order: 0,
+          });
+        } catch (storageErr) {
+          console.warn('[ProfileScreen] Contact persist error:', storageErr);
+        }
+      }
+
+      triggerToast('Emergency contact added successfully');
     } catch (err: any) {
       console.error('Error selecting contact:', err);
       const rawMsg = (err?.message || '').toLowerCase();
@@ -239,6 +236,7 @@ export default function ProfileScreen() {
   const onRefresh = async () => {
     if (profile?.id) {
       setRefreshing(true);
+      setImageError(false);
       try {
         const { data } = await supabase.from('profiles').select('*').eq('id', profile.id).single();
         if (data) setProfile(data);
@@ -292,9 +290,7 @@ export default function ProfileScreen() {
       const asset = result.assets[0];
       const uri = asset.uri;
       
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      const base64 = await readLocalFileAsBase64Async(uri);
 
       // Strict validation: File size, magic bytes, script/SVG rejection, path isolation
       const validation = validateImageUpload({
@@ -466,11 +462,11 @@ export default function ProfileScreen() {
         {/* Floating Success/Status Toast Banner */}
         {toastMessage && (
           <View style={styles.toastContainer} pointerEvents="none">
-            <View style={[styles.toastCard, { backgroundColor: '#1F2A24' }]}>
-              <View style={[styles.toastIconCircle, { backgroundColor: '#2E7D5B' }]}>
+            <View style={[styles.toastCard, { backgroundColor: isDark ? '#18181B' : '#0F172A' }]}>
+              <View style={[styles.toastIconCircle, { backgroundColor: 'rgba(255, 255, 255, 0.16)' }]}>
                 <Ionicons name="shield-checkmark" size={13} color="#FFFFFF" />
               </View>
-              <Text style={[styles.toastText, { color: '#FAF9F6' }]}>{toastMessage}</Text>
+              <Text style={[styles.toastText, { color: '#FFFFFF' }]}>{toastMessage}</Text>
             </View>
           </View>
         )}
@@ -480,6 +476,7 @@ export default function ProfileScreen() {
           visible={contactsModalVisible} 
           onClose={() => setContactsModalVisible(false)} 
           onContactsUpdated={loadPrimaryEmergencyContact}
+          initialPrimaryContact={emergencyContact}
         />
         <MedicalInfoModal 
           visible={medicalModalVisible} 

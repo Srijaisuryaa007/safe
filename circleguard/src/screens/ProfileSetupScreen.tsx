@@ -172,7 +172,7 @@ export default function ProfileSetupScreen() {
             style={[
               styles.stepBadge,
               {
-                backgroundColor: isDark ? 'rgba(212, 175, 55, 0.12)' : colors.accentGoldLight,
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : colors.accentGoldLight,
                 borderColor: colors.accentGold,
               },
             ]}
@@ -248,7 +248,7 @@ export default function ProfileSetupScreen() {
                   borderColor: isOverflow
                     ? '#EF4444'
                     : isLengthMatched
-                    ? '#10B981'
+                    ? (isDark ? '#FFFFFF' : '#0F172A')
                     : phoneFocused
                     ? colors.accentGold
                     : isDark
@@ -277,7 +277,7 @@ export default function ProfileSetupScreen() {
                 keyboardType="phone-pad"
               />
               {isLengthMatched ? (
-                <Ionicons name="checkmark-circle" size={18} color="#10B981" style={{ marginRight: 2 }} />
+                <Ionicons name="checkmark-circle" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} style={{ marginRight: 2 }} />
               ) : isOverflow ? (
                 <Ionicons name="alert-circle" size={18} color="#EF4444" style={{ marginRight: 2 }} />
               ) : null}
@@ -293,18 +293,18 @@ export default function ProfileSetupScreen() {
                   styles.lengthBadge,
                   {
                     backgroundColor: isLengthMatched
-                      ? 'rgba(16, 185, 129, 0.12)'
+                      ? (isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)')
                       : isOverflow
                       ? 'rgba(239, 68, 68, 0.12)'
                       : cleanDigits.length > 0
                       ? isDark
-                        ? 'rgba(212, 175, 55, 0.12)'
-                        : 'rgba(212, 175, 55, 0.18)'
+                        ? 'rgba(255, 255, 255, 0.12)'
+                        : 'rgba(15, 23, 42, 0.08)'
                       : isDark
                       ? 'rgba(255, 255, 255, 0.04)'
                       : '#F3F4F6',
                     borderColor: isLengthMatched
-                      ? '#10B981'
+                      ? (isDark ? '#FFFFFF' : '#0F172A')
                       : isOverflow
                       ? '#EF4444'
                       : cleanDigits.length > 0
@@ -318,7 +318,7 @@ export default function ProfileSetupScreen() {
                     styles.lengthBadgeText,
                     {
                       color: isLengthMatched
-                        ? '#10B981'
+                        ? (isDark ? '#FFFFFF' : '#0F172A')
                         : isOverflow
                         ? '#EF4444'
                         : cleanDigits.length > 0
@@ -345,11 +345,11 @@ export default function ProfileSetupScreen() {
             activeOpacity={0.85}
           >
             {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <ActivityIndicator color={isDark ? '#000000' : '#FFFFFF'} />
             ) : (
               <View style={styles.buttonContent}>
-                <Text style={styles.buttonText}>INITIALIZE PROFILE & ENTER</Text>
-                <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+                <Text style={[styles.buttonText, { color: isDark ? '#000000' : '#FFFFFF' }]}>INITIALIZE PROFILE & ENTER</Text>
+                <Ionicons name="arrow-forward" size={16} color={isDark ? '#000000' : '#FFFFFF'} />
               </View>
             )}
           </TouchableOpacity>

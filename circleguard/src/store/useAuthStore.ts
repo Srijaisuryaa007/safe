@@ -133,16 +133,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return { profile: null };
       }
 
-      // Safe field-by-field merge: never let an incoming null/empty field wipe existing non-empty medical or emergency contacts
+      // Safe field-by-field merge: never let an incoming null/empty field wipe existing non-empty medical, avatar, or emergency contacts
       const prev = state.profile;
+
+      const incomingMedical = incomingProfile.medical_info;
+      const isMeaningfulMedical =
+        incomingMedical &&
+        typeof incomingMedical === 'object' &&
+        Object.keys(incomingMedical).length > 0 &&
+        (Boolean(incomingMedical.blood_type && incomingMedical.blood_type !== 'O+') ||
+          Boolean(incomingMedical.allergies && incomingMedical.allergies.trim()) ||
+          Boolean(incomingMedical.conditions && incomingMedical.conditions.trim()) ||
+          Boolean(incomingMedical.medications && incomingMedical.medications.trim()) ||
+          Boolean(incomingMedical.notes && incomingMedical.notes.trim()));
+
+      const incomingContacts = incomingProfile.emergency_contacts;
+      const hasMeaningfulContacts = Array.isArray(incomingContacts) && incomingContacts.length > 0;
+
       const mergedProfile: Profile = {
         ...(prev || {}),
         ...incomingProfile,
-        medical_info: incomingProfile.medical_info !== undefined && incomingProfile.medical_info !== null
-          ? incomingProfile.medical_info
-          : (prev?.medical_info ?? null),
-        emergency_contacts: (incomingProfile.emergency_contacts && incomingProfile.emergency_contacts.length > 0)
-          ? incomingProfile.emergency_contacts
+        avatar_url: incomingProfile.avatar_url ? incomingProfile.avatar_url : (prev?.avatar_url || null),
+        medical_info: isMeaningfulMedical
+          ? incomingMedical
+          : (prev?.medical_info ?? (incomingMedical || null)),
+        emergency_contacts: hasMeaningfulContacts
+          ? incomingContacts
           : (prev?.emergency_contacts ?? []),
       };
 
@@ -154,11 +170,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   updateProfileFields: (partial) => {
     set((state) => {
       if (!state.profile) return {};
+
+      const partialMedical = partial.medical_info;
+      const isMeaningfulPartialMedical =
+        partialMedical &&
+        typeof partialMedical === 'object' &&
+        Object.keys(partialMedical).length > 0 &&
+        (Boolean(partialMedical.blood_type && partialMedical.blood_type !== 'O+') ||
+          Boolean(partialMedical.allergies && partialMedical.allergies.trim()) ||
+          Boolean(partialMedical.conditions && partialMedical.conditions.trim()) ||
+          Boolean(partialMedical.medications && partialMedical.medications.trim()) ||
+          Boolean(partialMedical.notes && partialMedical.notes.trim()));
+
       const updated: Profile = {
         ...state.profile,
         ...partial,
-        medical_info: partial.medical_info !== undefined ? partial.medical_info : state.profile.medical_info,
-        emergency_contacts: partial.emergency_contacts !== undefined ? partial.emergency_contacts : state.profile.emergency_contacts,
+        avatar_url: partial.avatar_url !== undefined
+          ? (partial.avatar_url ? partial.avatar_url : (state.profile.avatar_url || null))
+          : state.profile.avatar_url,
+        medical_info: partialMedical !== undefined
+          ? (isMeaningfulPartialMedical ? partialMedical : (state.profile.medical_info ?? partialMedical))
+          : state.profile.medical_info,
+        emergency_contacts: partial.emergency_contacts !== undefined
+          ? (Array.isArray(partial.emergency_contacts) && partial.emergency_contacts.length > 0 ? partial.emergency_contacts : state.profile.emergency_contacts)
+          : state.profile.emergency_contacts,
       };
       AsyncStorage.setItem(CACHED_PROFILE_STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
       return { profile: updated };

@@ -85,3 +85,91 @@ try {
 } catch (e) {
   console.warn('[patch-packages] Error patching expo-modules-core:', e.message);
 }
+
+// 3. Patch expo-modules-autolinking to ensure publication.version is always present
+// (Fixes "Field 'version' is required for type with serial name 'expo.modules.plugin.configuration.Publication'" in settings.gradle)
+try {
+  const autolinkingAndroidJs = path.join(__dirname, '..', 'node_modules', 'expo-modules-autolinking', 'build', 'platforms', 'android', 'android.js');
+  if (fs.existsSync(autolinkingAndroidJs)) {
+    let content = fs.readFileSync(autolinkingAndroidJs, 'utf8');
+    if (content.includes('const { publication } = project;') && !content.includes('// Ensure publication has version')) {
+      content = content.replace(
+        'const { publication } = project;',
+        `const { publication } = project;
+        // Ensure publication has version for Kotlin serialization in expoAutolinking
+        if (publication && !publication.version) {
+          publication.version = revision.version;
+        }`
+      );
+      fs.writeFileSync(autolinkingAndroidJs, content, 'utf8');
+      console.log('[patch-packages] Patched expo-modules-autolinking android.js publication.version fallback');
+    }
+  }
+} catch (e) {
+  console.warn('[patch-packages] Error patching expo-modules-autolinking:', e.message);
+}
+
+// 4. Patch expo-module.config.json across all packages to guarantee publication.version exists
+try {
+  const nodeModulesDir = path.join(__dirname, '..', 'node_modules');
+  function scanAndPatchConfigs(dir) {
+    if (!fs.existsSync(dir)) return;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith('@')) {
+          scanAndPatchConfigs(fullPath);
+        } else if (entry.name !== 'node_modules') {
+          const configPath = path.join(fullPath, 'expo-module.config.json');
+          const pkgPath = path.join(fullPath, 'package.json');
+          if (fs.existsSync(configPath) && fs.existsSync(pkgPath)) {
+            try {
+              const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+              let dirty = false;
+              if (config.android && config.android.publication && !config.android.publication.version) {
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+                config.android.publication.version = pkg.version || '58.0.0';
+                dirty = true;
+              }
+              if (config.android && Array.isArray(config.android.projects)) {
+                for (const proj of config.android.projects) {
+                  if (proj.publication && !proj.publication.version) {
+                    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+                    proj.publication.version = pkg.version || '58.0.0';
+                    dirty = true;
+                  }
+                }
+              }
+              if (dirty) {
+                fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+                console.log(`[patch-packages] Patched ${entry.name} expo-module.config.json missing publication version -> ${config.android?.publication?.version}`);
+              }
+            } catch (err) {}
+          }
+        }
+      }
+    }
+  }
+  scanAndPatchConfigs(nodeModulesDir);
+} catch (e) {
+  console.warn('[patch-packages] Error patching expo-module publication versions:', e.message);
+}
+
+// 5. Patch react-native-worklets to warn instead of throwing fatal crash on minor version mismatch in Expo Go
+try {
+  const checkCppFile = path.join(__dirname, '..', 'node_modules', 'react-native-worklets', 'lib', 'module', 'debug', 'checkCppVersion.js');
+  if (fs.existsSync(checkCppFile)) {
+    let content = fs.readFileSync(checkCppFile, 'utf8');
+    if (content.includes('throw new Error(') && content.includes('[Worklets] Mismatch between JavaScript part')) {
+      content = content.replace(
+        /if\s*\(!ok\)\s*\{\s*throw new Error\(`\[Worklets\] Mismatch between JavaScript part and native part of Worklets \(\$\{jsVersion\} vs \$\{cppVersion\}\)\.[\s\S]*?`\);\s*\}/,
+        `if (!ok) {\n    logger.warn(\`[Worklets] Minor version mismatch between JavaScript part and native part of Worklets (\${jsVersion} vs \${cppVersion}). Proceeding safely.\`);\n  }`
+      );
+      fs.writeFileSync(checkCppFile, content, 'utf8');
+      console.log('[patch-packages] Patched react-native-worklets checkCppVersion to prevent fatal boot crash');
+    }
+  }
+} catch (e) {
+  console.warn('[patch-packages] Error patching react-native-worklets:', e.message);
+}

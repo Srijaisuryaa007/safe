@@ -152,7 +152,7 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
                     {
                       backgroundColor:
                         gpsAccuracy <= 15
-                          ? (isDark ? 'rgba(34, 197, 94, 0.2)' : '#DCFCE7')
+                          ? (isDark ? 'rgba(255, 255, 255, 0.1)' : '#F1F5F9')
                           : (isDark ? 'rgba(234, 179, 8, 0.2)' : '#FEF9C3'),
                     },
                   ]}
@@ -160,7 +160,7 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
                   <Text
                     style={[
                       styles.accuracyText,
-                      { color: gpsAccuracy <= 15 ? (isDark ? '#4ADE80' : '#16A34A') : (isDark ? '#FACC15' : '#CA8A04') },
+                      { color: gpsAccuracy <= 15 ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#FACC15' : '#CA8A04') },
                     ]}
                   >
                     ±{gpsAccuracy}m
@@ -412,7 +412,7 @@ export default function SwiggyHeaderBar({ onNotificationPress, hasNotification }
                 </View>
 
                 <TouchableOpacity
-                  style={[styles.refreshBtn, { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderWidth: 1, borderColor: colors.accentGold, marginTop: 4 }]}
+                  style={[styles.refreshBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.08)', borderWidth: 1, borderColor: colors.accentGold, marginTop: 4 }]}
                   onPress={() => setEditMode(true)}
                 >
                   <Ionicons name="create-outline" size={16} color={colors.accentGold} />
@@ -571,13 +571,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   activeTag: {
-    backgroundColor: 'rgba(212, 175, 55, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
   },
   activeTagText: {
-    color: '#D4AF37',
+    color: '#FFFFFF',
     fontSize: 9,
     fontWeight: 'bold',
     letterSpacing: 1,

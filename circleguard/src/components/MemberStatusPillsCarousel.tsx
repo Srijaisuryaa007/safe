@@ -129,7 +129,7 @@ export default function MemberStatusPillsCarousel({
       return {
         label: `Walking • ${speedKmh} km/h`,
         icon: 'walk-outline' as const,
-        color: '#10B981',
+        color: isDark ? '#FFFFFF' : '#0F172A',
         isMoving: true,
       };
     }
@@ -147,7 +147,7 @@ export default function MemberStatusPillsCarousel({
             return {
               label: isHome ? 'At Home' : `At ${p.name || 'Safe Place'}`,
               icon: isHome ? ('home-outline' as const) : ('location-outline' as const),
-              color: '#10B981',
+              color: isDark ? '#FFFFFF' : '#0F172A',
               isMoving: false,
             };
           }
@@ -160,7 +160,7 @@ export default function MemberStatusPillsCarousel({
       return {
         label: 'Your Device',
         icon: 'phone-portrait-outline' as const,
-        color: '#10B981',
+        color: isDark ? '#FFFFFF' : '#0F172A',
         isMoving: false,
       };
     }
@@ -181,7 +181,7 @@ export default function MemberStatusPillsCarousel({
         return {
           label: 'With You',
           icon: 'people-outline' as const,
-          color: '#10B981',
+          color: isDark ? '#FFFFFF' : '#0F172A',
           isMoving: false,
         };
       }
@@ -205,7 +205,7 @@ export default function MemberStatusPillsCarousel({
     return {
       label: 'Stationary',
       icon: 'radio-outline' as const,
-      color: '#10B981',
+      color: colors.textMuted || '#8E8E93',
       isMoving: false,
     };
   };
@@ -263,7 +263,7 @@ export default function MemberStatusPillsCarousel({
                 styles.memberPill,
                 {
                   backgroundColor: isDark ? colors.surface : '#FFFFFF',
-                  borderColor: status.isMoving ? (colors.accentGold || '#10B981') : (colors.border || '#E5E7EB'),
+                  borderColor: status.isMoving ? (colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A')) : (colors.border || '#E5E7EB'),
                 },
               ]}
               onPress={() => handleMemberPress(member)}
@@ -288,7 +288,7 @@ export default function MemberStatusPillsCarousel({
                     <Ionicons
                       name={battery < 20 ? 'battery-dead' : 'battery-charging'}
                       size={11}
-                      color={battery < 20 ? '#EF4444' : '#10B981'}
+                      color={battery < 20 ? '#EF4444' : (isDark ? '#FFFFFF' : '#0F172A')}
                     />
                     <Text style={[styles.batteryText, { color: battery < 20 ? '#EF4444' : (colors.textMuted || '#8E8E93') }]}>
                       {battery}%

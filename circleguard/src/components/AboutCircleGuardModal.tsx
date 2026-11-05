@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView, Platform, 
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useLuxuryAlert } from './LuxuryAlertModal';
+import { useThemeStore } from '../store/useThemeStore';
 
 interface AboutCircleGuardModalProps {
   visible: boolean;
@@ -13,6 +14,7 @@ export default function AboutCircleGuardModal({
   visible,
   onClose,
 }: AboutCircleGuardModalProps) {
+  const { colors, isDark } = useThemeStore();
   const { showAlert } = useLuxuryAlert();
 
   const translateY = useRef(new Animated.Value(0)).current;
@@ -73,29 +75,29 @@ export default function AboutCircleGuardModal({
       icon: 'navigate-circle-outline' as const,
       title: '24/7 Live GPS Synchronization',
       desc: 'Sub-second real-time location streaming with intelligent battery-saving motion detection.',
-      color: '#2E7D5B',
-      bg: '#E8F5EE',
+      color: isDark ? '#FFFFFF' : '#0F172A',
+      bg: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
     },
     {
       icon: 'alert-circle-outline' as const,
       title: '0ms Realtime Emergency SOS',
       desc: 'Instant zero-delay emergency alerts dispatched to circle members with siren alarms.',
-      color: '#DC2626',
-      bg: '#FEE2E2',
+      color: '#EF4444',
+      bg: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEE2E2',
     },
     {
       icon: 'shield-checkmark-outline' as const,
       title: 'Geofence Safe Place Perimeter',
       desc: 'Automated 3D dome boundary enter/exit notifications for home, school, and workplace.',
-      color: '#E07A5F',
-      bg: '#FFF3EB',
+      color: isDark ? '#E2E8F0' : '#475569',
+      bg: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
     },
     {
       icon: 'lock-closed-outline' as const,
       title: 'AES-256 End-to-End Encryption',
       desc: 'Vault-level encryption protecting member locations, emergency contacts, and trip histories.',
-      color: '#2E7D5B',
-      bg: '#E8F5EE',
+      color: isDark ? '#FFFFFF' : '#0F172A',
+      bg: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
     },
   ];
 
@@ -139,12 +141,12 @@ export default function AboutCircleGuardModal({
 
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
             {/* App Brand Identity Card */}
-            <View style={styles.brandCard}>
-              <View style={styles.brandLogoCircle}>
-                <Ionicons name="shield-checkmark" size={32} color="#2E7D5B" />
+            <View style={[styles.brandCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={[styles.brandLogoCircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                <Ionicons name="shield-checkmark" size={32} color={isDark ? '#FFFFFF' : '#0F172A'} />
               </View>
-              <Text style={styles.brandName}>
-                Circle<Text style={{ color: '#2E7D5B' }}>Guard</Text>
+              <Text style={[styles.brandName, { color: colors.foreground }]}>
+                Circle<Text style={{ color: isDark ? '#FFFFFF' : '#0F172A' }}>Guard</Text>
               </Text>
               <Text style={styles.brandEdition}>FLAGSHIP EDITION • v1.2.0</Text>
               <Text style={styles.brandTagline}>
@@ -157,12 +159,12 @@ export default function AboutCircleGuardModal({
 
             <View style={styles.featureList}>
               {featureCards.map((feat, idx) => (
-                <View key={idx} style={styles.featureCard}>
+                <View key={idx} style={[styles.featureCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                   <View style={[styles.featureIconBox, { backgroundColor: feat.bg }]}>
                     <Ionicons name={feat.icon} size={20} color={feat.color} />
                   </View>
                   <View style={styles.featureTextWrapper}>
-                    <Text style={styles.featureTitle}>{feat.title}</Text>
+                    <Text style={[styles.featureTitle, { color: colors.foreground }]}>{feat.title}</Text>
                     <Text style={styles.featureDesc}>{feat.desc}</Text>
                   </View>
                 </View>
@@ -170,40 +172,40 @@ export default function AboutCircleGuardModal({
             </View>
 
             {/* Technical Build Specs Box */}
-            <View style={styles.techSpecsCard}>
+            <View style={[styles.techSpecsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.specRow}>
                 <Text style={styles.specKey}>BUILD VERSION</Text>
-                <Text style={styles.specVal}>v1.2.0 (Release 2026)</Text>
+                <Text style={[styles.specVal, { color: colors.foreground }]}>v1.2.0 (Release 2026)</Text>
               </View>
               <View style={styles.specDivider} />
               <View style={styles.specRow}>
                 <Text style={styles.specKey}>REALTIME ENGINE</Text>
-                <Text style={[styles.specVal, { color: '#2E7D5B' }]}>Supabase Realtime • Leaflet GPS</Text>
+                <Text style={[styles.specVal, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Supabase Realtime • Leaflet GPS</Text>
               </View>
               <View style={styles.specDivider} />
               <View style={styles.specRow}>
                 <Text style={styles.specKey}>PRIVACY PROTOCOL</Text>
-                <Text style={[styles.specVal, { color: '#2E7D5B' }]}>Ghost Mode & Disconnect Support</Text>
+                <Text style={[styles.specVal, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Ghost Mode & Disconnect Support</Text>
               </View>
             </View>
 
             {/* Action Buttons */}
             <View style={styles.actionRow}>
               <TouchableOpacity
-                style={styles.copyBtn}
+                style={[styles.copyBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9', borderColor: colors.border }]}
                 onPress={handleCopyInfo}
                 activeOpacity={0.8}
               >
-                <Ionicons name="copy-outline" size={15} color="#2E7D5B" />
-                <Text style={styles.copyBtnText}>COPY BUILD SPECS</Text>
+                <Ionicons name="copy-outline" size={15} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                <Text style={[styles.copyBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>COPY BUILD SPECS</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.closeModalBtn}
+                style={[styles.closeModalBtn, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}
                 onPress={onClose}
                 activeOpacity={0.8}
               >
-                <Text style={styles.closeModalBtnText}>CLOSE</Text>
+                <Text style={[styles.closeModalBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>CLOSE</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -251,14 +253,14 @@ const styles = StyleSheet.create({
   overline: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#2E7D5B',
+    color: '#64748B',
     letterSpacing: 0.8,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   title: {
     fontSize: 20,
     fontWeight: '800',
-    color: '#1F2A24',
+    color: '#0F172A',
     letterSpacing: -0.3,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
@@ -266,7 +268,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 11,
-    backgroundColor: '#F0EFEA',
+    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -279,14 +281,14 @@ const styles = StyleSheet.create({
     padding: 20,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#ECEAE4',
+    borderColor: '#E2E8F0',
     backgroundColor: '#FFFFFF',
   },
   brandLogoCircle: {
     width: 58,
     height: 58,
     borderRadius: 18,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 10,
@@ -294,14 +296,14 @@ const styles = StyleSheet.create({
   brandName: {
     fontSize: 22,
     fontWeight: '900',
-    color: '#1F2A24',
+    color: '#0F172A',
     letterSpacing: -0.3,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   brandEdition: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#5C665F',
+    color: '#64748B',
     letterSpacing: 0.6,
     marginTop: 2,
     marginBottom: 6,
@@ -309,14 +311,14 @@ const styles = StyleSheet.create({
   },
   brandTagline: {
     fontSize: 12,
-    color: '#5C665F',
+    color: '#64748B',
     fontStyle: 'italic',
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   sectionTitle: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#5C665F',
+    color: '#64748B',
     letterSpacing: 0.6,
     marginTop: 6,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
@@ -330,7 +332,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#ECEAE4',
+    borderColor: '#E2E8F0',
     padding: 12,
     gap: 12,
   },
@@ -347,12 +349,12 @@ const styles = StyleSheet.create({
   featureTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   featureDesc: {
     fontSize: 11,
-    color: '#5C665F',
+    color: '#64748B',
     marginTop: 2,
     lineHeight: 15,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
@@ -361,7 +363,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#ECEAE4',
+    borderColor: '#E2E8F0',
     padding: 14,
   },
   specRow: {
@@ -373,19 +375,19 @@ const styles = StyleSheet.create({
   specKey: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#5C665F',
+    color: '#64748B',
     letterSpacing: 0.5,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   specVal: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   specDivider: {
     height: 1,
-    backgroundColor: '#F0EFEA',
+    backgroundColor: '#F1F5F9',
     marginVertical: 6,
   },
   actionRow: {
@@ -398,8 +400,8 @@ const styles = StyleSheet.create({
     height: 46,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#C6E7D5',
-    backgroundColor: '#E8F5EE',
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F1F5F9',
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
@@ -408,7 +410,7 @@ const styles = StyleSheet.create({
   copyBtnText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#2E7D5B',
+    color: '#0F172A',
     letterSpacing: 0.5,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
@@ -416,7 +418,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 46,
     borderRadius: 14,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
     justifyContent: 'center',
     alignItems: 'center',
   },

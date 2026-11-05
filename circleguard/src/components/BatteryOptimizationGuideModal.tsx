@@ -28,32 +28,48 @@ export default function BatteryOptimizationGuideModal({ visible, onClose }: Prop
           style={[
             styles.modalCard,
             {
-              backgroundColor: isDark ? '#141C17' : '#FFFFFF',
-              borderColor: isDark ? 'rgba(58, 223, 171, 0.25)' : '#D1EAE0',
+              backgroundColor: isDark ? '#111318' : '#FFFFFF',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0',
             },
           ]}
         >
           <View style={styles.header}>
-            <View style={styles.iconCircle}>
-              <Ionicons name="battery-dead" size={28} color="#F59E0B" />
+            <View style={styles.badgeRow}>
+              <View style={[styles.optionBBadge, isDark && styles.optionBBadgeDark]}>
+                <Ionicons name="shield-checkmark" size={13} color={isDark ? '#38BDF8' : '#0284C7'} />
+                <Text style={[styles.optionBBadgeText, isDark && { color: '#38BDF8' }]}>
+                  OPTION B • 24/7 CONTINUOUS TRACKING
+                </Text>
+              </View>
             </View>
-            <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#111814' }]}>
+            <View style={styles.iconCircle}>
+              <Ionicons name="battery-charging" size={28} color="#10B981" />
+            </View>
+            <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
               {guide.title}
             </Text>
-            <Text style={[styles.subtitle, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
-              {guide.manufacturer} aggressively limits background apps. Follow these steps so your family circle receives reliable live location:
+            <Text style={[styles.subtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
+              To ensure Android never pauses tracking while driving or moving, set CircleGuard's battery usage to <Text style={{ fontWeight: '700', color: isDark ? '#FFFFFF' : '#0F172A' }}>"Unrestricted" (Don't optimize)</Text>:
+            </Text>
+          </View>
+
+          {/* Exact Settings Path Box */}
+          <View style={[styles.pathBox, isDark && styles.pathBoxDark]}>
+            <Text style={[styles.pathLabel, isDark && { color: '#94A3B8' }]}>EXACT ANDROID SETTING PATH:</Text>
+            <Text style={[styles.pathText, isDark && { color: '#34D399' }]}>
+              Settings ➔ Apps ➔ CircleGuard ➔ Battery ➔ Unrestricted (Don't optimize)
             </Text>
           </View>
 
           <View style={styles.stepsList}>
             {guide.steps.map((step, idx) => (
               <View key={idx} style={styles.stepRow}>
-                <View style={[styles.stepNumCircle, { backgroundColor: isDark ? '#1D2E25' : '#E3F5EC' }]}>
-                  <Text style={[styles.stepNum, { color: isDark ? '#3ADFAB' : '#006C4F' }]}>
+                <View style={[styles.stepNumCircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                  <Text style={[styles.stepNum, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                     {idx + 1}
                   </Text>
                 </View>
-                <Text style={[styles.stepText, { color: isDark ? '#CAD8D0' : '#2D3748' }]}>
+                <Text style={[styles.stepText, { color: isDark ? '#E2E8F0' : '#334155' }]}>
                   {step.replace(/^\d+\.\s*/, '')}
                 </Text>
               </View>
@@ -80,13 +96,13 @@ export default function BatteryOptimizationGuideModal({ visible, onClose }: Prop
             <TouchableOpacity
               style={[
                 styles.actionBtn,
-                { backgroundColor: isDark ? '#3ADFAB' : '#006C4F' },
+                { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' },
               ]}
               onPress={handleOpenSettings}
               activeOpacity={0.8}
             >
-              <Ionicons name="settings-outline" size={17} color="#FFFFFF" />
-              <Text style={styles.actionBtnText}>OPEN APP SETTINGS</Text>
+              <Ionicons name="settings-outline" size={17} color={isDark ? '#0F172A' : '#FFFFFF'} />
+              <Text style={[styles.actionBtnText, { color: isDark ? '#0F172A' : '#FFFFFF' }]}>OPEN APP SETTINGS</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -114,13 +130,59 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
+    marginBottom: 14,
+  },
+  badgeRow: {
+    marginBottom: 10,
+  },
+  optionBBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  optionBBadgeDark: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+  },
+  optionBBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#0284C7',
+    letterSpacing: 0.6,
+  },
+  pathBox: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 12,
     marginBottom: 16,
   },
+  pathBoxDark: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  pathLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  pathText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+    lineHeight: 16,
+  },
   iconCircle: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,

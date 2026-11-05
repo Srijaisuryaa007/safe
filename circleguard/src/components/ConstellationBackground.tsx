@@ -207,8 +207,8 @@ export default function ConstellationBackground({
   const width = SCREEN_WIDTH || 400;
   const height = SCREEN_HEIGHT || 800;
 
-  const goldColor = accentColor || (isDark ? '#F5D061' : '#D4AF37');
-  const coreColor = isDark ? '#FFF9E6' : '#996515';
+  const goldColor = accentColor || (isDark ? '#E2E8F0' : '#475569');
+  const coreColor = isDark ? '#FFFFFF' : '#0F172A';
 
   useEffect(() => {
     // Breathing opacity for constellation lines
@@ -269,7 +269,7 @@ export default function ConstellationBackground({
           const n2 = currentNodes[j];
           if (!n1 || !n2) return;
           const lineAlpha = (0.28 + Math.sin(t * 1.8 + i) * 0.12);
-          ctx.strokeStyle = isDark ? `rgba(245, 208, 97, ${lineAlpha})` : `rgba(212, 175, 55, ${lineAlpha})`;
+          ctx.strokeStyle = isDark ? `rgba(255, 255, 255, ${lineAlpha})` : `rgba(15, 23, 42, ${lineAlpha})`;
           ctx.beginPath();
           ctx.moveTo(n1.px, n1.py);
           ctx.lineTo(n2.px, n2.py);
@@ -279,19 +279,19 @@ export default function ConstellationBackground({
         // Draw Stars & Glowing Halos
         currentNodes.forEach((n) => {
           // Halo
-          ctx.fillStyle = isDark ? 'rgba(245, 208, 97, 0.18)' : 'rgba(212, 175, 55, 0.16)';
+          ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(15, 23, 42, 0.12)';
           ctx.beginPath();
           ctx.arc(n.px, n.py, n.radius * 3.4, 0, Math.PI * 2);
           ctx.fill();
 
           // Mid
-          ctx.fillStyle = isDark ? 'rgba(245, 208, 97, 0.42)' : 'rgba(212, 175, 55, 0.38)';
+          ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.42)' : 'rgba(15, 23, 42, 0.28)';
           ctx.beginPath();
           ctx.arc(n.px, n.py, n.radius * 1.7, 0, Math.PI * 2);
           ctx.fill();
 
           // Core
-          ctx.fillStyle = isDark ? '#FFF9E6' : '#8A6318';
+          ctx.fillStyle = isDark ? '#FFFFFF' : '#0F172A';
           ctx.beginPath();
           ctx.arc(n.px, n.py, n.radius, 0, Math.PI * 2);
           ctx.fill();

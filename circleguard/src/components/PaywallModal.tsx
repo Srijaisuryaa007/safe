@@ -23,7 +23,7 @@ interface PaywallModalProps {
 }
 
 export default function PaywallModal({ visible, onClose, gatedFeatureName }: PaywallModalProps) {
-  const { colors } = useThemeStore();
+  const { colors, isDark } = useThemeStore();
   const { isPremium, packages, setPremium } = useSubscriptionStore();
   const [selectedPeriod, setSelectedPeriod] = useState<'annual' | 'monthly'>('annual');
   const [loading, setLoading] = useState(false);
@@ -150,8 +150,8 @@ export default function PaywallModal({ visible, onClose, gatedFeatureName }: Pay
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerBadge}>
-              <Ionicons name="shield-checkmark" size={16} color={colors.accentGold} />
-              <Text style={[styles.headerBadgeText, { color: colors.accentGold }]}>CIRCLE GUARD PLUS</Text>
+              <Ionicons name="shield-checkmark" size={16} color={isDark ? '#FFFFFF' : '#0F172A'} />
+              <Text style={[styles.headerBadgeText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>CIRCLE GUARD PLUS</Text>
             </View>
             <TouchableOpacity
               style={styles.closeBtn}
@@ -167,9 +167,9 @@ export default function PaywallModal({ visible, onClose, gatedFeatureName }: Pay
             <Text style={[styles.title, { color: colors.foreground }]}>Unlock Premium Safety Architecture</Text>
             
             {gatedFeatureName ? (
-              <View style={[styles.gatedBox, { backgroundColor: 'rgba(212, 175, 55, 0.1)', borderColor: colors.accentGold }]}>
-                <Ionicons name="lock-closed" size={16} color={colors.accentGold} />
-                <Text style={[styles.gatedText, { color: colors.accentGold }]}>
+              <View style={[styles.gatedBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9', borderColor: isDark ? 'rgba(255, 255, 255, 0.20)' : '#CBD5E1' }]}>
+                <Ionicons name="lock-closed" size={16} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                <Text style={[styles.gatedText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                   "{gatedFeatureName}" is a Circle Guard Plus feature.
                 </Text>
               </View>
@@ -181,24 +181,24 @@ export default function PaywallModal({ visible, onClose, gatedFeatureName }: Pay
               <TouchableOpacity
                 style={[
                   styles.pkgCard,
-                  { backgroundColor: colors.background, borderColor: selectedPeriod === 'annual' ? colors.accentGold : colors.border },
+                  { backgroundColor: colors.background, borderColor: selectedPeriod === 'annual' ? (isDark ? '#FFFFFF' : '#0F172A') : colors.border },
                   selectedPeriod === 'annual' ? styles.selectedPkgCard : null,
                 ]}
                 onPress={() => setSelectedPeriod('annual')}
               >
-                <View style={styles.saveBadge}>
-                  <Text style={styles.saveBadgeText}>SAVE 28%</Text>
+                <View style={[styles.saveBadge, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}>
+                  <Text style={[styles.saveBadgeText, { color: isDark ? '#000000' : '#FFFFFF' }]}>SAVE 28%</Text>
                 </View>
                 <Text style={[styles.pkgPeriod, { color: colors.textMuted }]}>ANNUAL PLAN</Text>
                 <Text style={[styles.pkgPrice, { color: colors.foreground }]}>$59.99</Text>
-                <Text style={[styles.pkgSub, { color: colors.accentGold }]}>$4.99 / mo billed yearly</Text>
+                <Text style={[styles.pkgSub, { color: colors.foreground }]}>$4.99 / mo billed yearly</Text>
               </TouchableOpacity>
 
               {/* Monthly Package */}
               <TouchableOpacity
                 style={[
                   styles.pkgCard,
-                  { backgroundColor: colors.background, borderColor: selectedPeriod === 'monthly' ? colors.accentGold : colors.border },
+                  { backgroundColor: colors.background, borderColor: selectedPeriod === 'monthly' ? (isDark ? '#FFFFFF' : '#0F172A') : colors.border },
                   selectedPeriod === 'monthly' ? styles.selectedPkgCard : null,
                 ]}
                 onPress={() => setSelectedPeriod('monthly')}
@@ -214,32 +214,32 @@ export default function PaywallModal({ visible, onClose, gatedFeatureName }: Pay
               <Text style={[styles.featuresHeader, { color: colors.textMuted }]}>PLUS FEATURES INCLUDE:</Text>
               
               <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle-sharp" size={18} color={colors.accentGold} />
+                <Ionicons name="checkmark-circle-sharp" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 <Text style={[styles.featureText, { color: colors.foreground }]}>Unlimited Saved Safe Places (&gt; 2 per circle)</Text>
               </View>
 
               <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle-sharp" size={18} color={colors.accentGold} />
+                <Ionicons name="checkmark-circle-sharp" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 <Text style={[styles.featureText, { color: colors.foreground }]}>Speed-Adaptive Geofence Buffer</Text>
               </View>
 
               <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle-sharp" size={18} color={colors.accentGold} />
+                <Ionicons name="checkmark-circle-sharp" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 <Text style={[styles.featureText, { color: colors.foreground }]}>Active Hours & Days Scheduling</Text>
               </View>
 
               <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle-sharp" size={18} color={colors.accentGold} />
+                <Ionicons name="checkmark-circle-sharp" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 <Text style={[styles.featureText, { color: colors.foreground }]}>Commute Corridor Route & Live ETAs</Text>
               </View>
 
               <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle-sharp" size={18} color={colors.accentGold} />
+                <Ionicons name="checkmark-circle-sharp" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 <Text style={[styles.featureText, { color: colors.foreground }]}>Full Geofence Breach History Logs</Text>
               </View>
 
               <View style={[styles.freeNoticeBox, { borderColor: colors.border }]}>
-                <Ionicons name="shield-checkmark" size={16} color="#10B981" />
+                <Ionicons name="shield-checkmark" size={16} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 <Text style={[styles.freeNoticeText, { color: colors.textMuted }]}>
                   Manual SOS distress alerts, crash detection & live location sharing are always 100% FREE.
                 </Text>
@@ -262,14 +262,17 @@ export default function PaywallModal({ visible, onClose, gatedFeatureName }: Pay
           {/* Action Buttons */}
           <View style={styles.footer}>
             <TouchableOpacity
-              style={[styles.subscribeBtn, { backgroundColor: colors.accentGold }]}
+              style={[styles.subscribeBtn, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}
               onPress={handleSubscribe}
               disabled={loading}
+              activeOpacity={0.85}
             >
               {loading ? (
-                <ActivityIndicator size="small" color="#1A1A1A" />
+                <ActivityIndicator size="small" color={isDark ? '#000000' : '#FFFFFF'} />
               ) : (
-                <Text style={styles.subscribeBtnText}>START 14-DAY TRIAL ({selectedPkg.priceString})</Text>
+                <Text style={[styles.subscribeBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>
+                  START 14-DAY TRIAL ({selectedPkg.priceString})
+                </Text>
               )}
             </TouchableOpacity>
 
@@ -289,7 +292,7 @@ export default function PaywallModal({ visible, onClose, gatedFeatureName }: Pay
               </TouchableOpacity>
               <Text style={{ color: colors.border }}>•</Text>
               <TouchableOpacity onPress={handleToggleSandboxTest}>
-                <Text style={[styles.restoreText, { color: colors.accentGold }]}>
+                <Text style={[styles.restoreText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                   {isPremium ? 'TEST: DEMOTE TO FREE' : 'TEST: UNLOCK PLUS'}
                 </Text>
               </TouchableOpacity>
@@ -387,7 +390,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -10,
     right: 12,
-    backgroundColor: '#D4AF37',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 8,
@@ -395,7 +398,7 @@ const styles = StyleSheet.create({
   saveBadgeText: {
     fontSize: 8,
     fontWeight: '900',
-    color: '#1A1A1A',
+    color: '#000000',
     letterSpacing: 0.5,
   },
   pkgPeriod: {

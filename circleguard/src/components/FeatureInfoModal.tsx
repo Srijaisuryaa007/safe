@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  StatusBar,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -36,12 +35,14 @@ export default function FeatureInfoModal({
   title,
   subtitle,
   iconName = 'information-circle',
-  iconColor = '#2E7D5B',
+  iconColor,
   overview,
   bullets = [],
   tip,
 }: FeatureInfoModalProps) {
-  const { colors, isDark } = useThemeStore();
+  const { isDark } = useThemeStore();
+
+  const brandIconColor = isDark ? '#FFFFFF' : '#0F172A';
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
@@ -55,38 +56,63 @@ export default function FeatureInfoModal({
           style={[
             styles.card,
             {
-              backgroundColor: isDark ? '#141A17' : '#FFFFFF',
-              borderColor: isDark ? '#23312A' : '#EDEBE6',
+              backgroundColor: isDark ? '#111317' : '#FFFFFF',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
             },
           ]}
         >
           {/* Header */}
-          <View style={styles.header}>
-            <View style={[styles.iconWrap, { backgroundColor: isDark ? 'rgba(46, 125, 91, 0.18)' : '#E8F5EE' }]}>
-              <Ionicons name={iconName} size={22} color={iconColor} />
+          <View style={[styles.header, { borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+            <View style={[styles.iconWrap, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+              <Ionicons name={iconName} size={22} color={brandIconColor} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.title, { color: isDark ? '#F5FAF7' : '#1F2A24' }]}>{title}</Text>
+              <View style={[styles.tagPill, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                <Text style={[styles.tagText, { color: isDark ? '#94A3B8' : '#64748B' }]}>FEATURE GUIDE</Text>
+              </View>
+              <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>{title}</Text>
               {subtitle ? (
-                <Text style={[styles.subtitle, { color: isDark ? '#9EACA3' : '#64748B' }]}>{subtitle}</Text>
+                <Text style={[styles.subtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>{subtitle}</Text>
               ) : null}
             </View>
             <TouchableOpacity
               onPress={onClose}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              style={[styles.closeBtn, { backgroundColor: isDark ? '#1C2621' : '#F1F5F9' }]}
+              style={[styles.closeBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}
+              accessibilityLabel="Close info dialog"
             >
-              <Ionicons name="close" size={18} color={isDark ? '#9EACA3' : '#64748B'} />
+              <Ionicons name="close" size={18} color={isDark ? '#E2E8F0' : '#475569'} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-            {/* Overview Paragraph */}
-            <Text style={[styles.overviewText, { color: isDark ? '#D1DDD6' : '#334155' }]}>
-              {overview}
-            </Text>
+          {/* Scrollable Content with indicator and generous bottom padding so nothing is ever clipped */}
+          <ScrollView
+            style={styles.scrollArea}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={true}
+            bounces={true}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Clear Overview Hero Card */}
+            <View
+              style={[
+                styles.overviewCard,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
+                },
+              ]}
+            >
+              <View style={styles.overviewHeader}>
+                <Ionicons name="sparkles-outline" size={15} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                <Text style={[styles.overviewBadgeText, { color: isDark ? '#E2E8F0' : '#1E293B' }]}>HOW IT WORKS</Text>
+              </View>
+              <Text style={[styles.overviewText, { color: isDark ? '#CBD5E1' : '#334155' }]}>
+                {overview}
+              </Text>
+            </View>
 
-            {/* Bullets List */}
+            {/* Bullets List formatted as Clear Process Steps */}
             {bullets && bullets.length > 0 ? (
               <View style={styles.bulletsContainer}>
                 {bullets.map((b, idx) => (
@@ -95,19 +121,24 @@ export default function FeatureInfoModal({
                     style={[
                       styles.bulletItem,
                       {
-                        backgroundColor: isDark ? '#1A231F' : '#F8FAFC',
-                        borderColor: isDark ? '#26342D' : '#E2E8F0',
+                        backgroundColor: isDark ? '#181C24' : '#FFFFFF',
+                        borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
                       },
                     ]}
                   >
-                    <View style={[styles.bulletIconWrap, { backgroundColor: isDark ? 'rgba(74, 222, 128, 0.12)' : '#F0FDF4' }]}>
-                      <Ionicons name={b.icon} size={16} color={iconColor} />
+                    <View style={styles.stepIndicatorCol}>
+                      <View style={[styles.bulletIconWrap, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                        <Ionicons name={b.icon} size={17} color={brandIconColor} />
+                      </View>
+                      <Text style={[styles.stepNumber, { color: isDark ? '#64748B' : '#94A3B8' }]}>
+                        0{idx + 1}
+                      </Text>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.bulletTitle, { color: isDark ? '#F5FAF7' : '#1F2A24' }]}>
+                    <View style={{ flex: 1, paddingTop: 2 }}>
+                      <Text style={[styles.bulletTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                         {b.title}
                       </Text>
-                      <Text style={[styles.bulletDesc, { color: isDark ? '#9EACA3' : '#64748B' }]}>
+                      <Text style={[styles.bulletDesc, { color: isDark ? '#94A3B8' : '#475569' }]}>
                         {b.description}
                       </Text>
                     </View>
@@ -116,33 +147,43 @@ export default function FeatureInfoModal({
               </View>
             ) : null}
 
-            {/* Helpful Tip Box */}
+            {/* Helpful Pro-Tip Box (Clean Monochrome Slate, no gold) */}
             {tip ? (
               <View
                 style={[
                   styles.tipBox,
                   {
-                    backgroundColor: isDark ? 'rgba(212, 175, 55, 0.12)' : '#FEF9C3',
-                    borderColor: isDark ? 'rgba(212, 175, 55, 0.28)' : '#FDE047',
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F1F5F9',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#CBD5E1',
                   },
                 ]}
               >
-                <Ionicons name="bulb-outline" size={16} color="#D97706" style={{ marginTop: 1 }} />
-                <Text style={[styles.tipText, { color: isDark ? '#FDE68A' : '#854D0E' }]}>
-                  {tip}
-                </Text>
+                <View style={[styles.tipIconWrap, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0' }]}>
+                  <Ionicons name="bulb-outline" size={16} color={brandIconColor} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.tipHeaderTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
+                    RECOMMENDED SETUP
+                  </Text>
+                  <Text style={[styles.tipText, { color: isDark ? '#CBD5E1' : '#334155' }]}>
+                    {tip}
+                  </Text>
+                </View>
               </View>
             ) : null}
           </ScrollView>
 
-          {/* Action Button */}
-          <TouchableOpacity
-            style={[styles.gotItButton, { backgroundColor: '#4ADE80' }]}
-            onPress={onClose}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.gotItText}>Got It</Text>
-          </TouchableOpacity>
+          {/* Action Button - Firmly anchored at bottom, guaranteed high contrast and accessible */}
+          <View style={[styles.footer, { borderTopColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+            <TouchableOpacity
+              style={[styles.gotItButton, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}
+              onPress={onClose}
+              activeOpacity={0.85}
+              accessibilityLabel="Got it, dismiss dialog"
+            >
+              <Text style={[styles.gotItText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Got It</Text>
+            </TouchableOpacity>
+          </View>
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
@@ -152,23 +193,27 @@ export default function FeatureInfoModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 18,
   },
   card: {
     width: '100%',
     maxWidth: 440,
-    maxHeight: '82%',
+    maxHeight: '86%',
     borderRadius: 24,
     borderWidth: 1,
-    padding: 22,
+    paddingTop: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    display: 'flex',
+    flexDirection: 'column',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 12,
+    shadowOpacity: 0.35,
+    shadowRadius: 24,
+    elevation: 16,
   },
   header: {
     flexDirection: 'row',
@@ -176,7 +221,6 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(128, 128, 128, 0.15)',
   },
   iconWrap: {
     width: 44,
@@ -185,10 +229,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  tagPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+  tagText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
   title: {
-    fontSize: 17,
+    fontSize: 16.5,
     fontWeight: '800',
     letterSpacing: -0.2,
+    lineHeight: 21,
   },
   subtitle: {
     fontSize: 12,
@@ -202,74 +259,120 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  content: {
-    marginVertical: 16,
+  scrollArea: {
+    flex: 1,
+    marginVertical: 12,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 16,
+    gap: 14,
+  },
+  overviewCard: {
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  overviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  overviewBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
   overviewText: {
-    fontSize: 14,
-    lineHeight: 21,
-    marginBottom: 16,
+    fontSize: 13.5,
+    lineHeight: 20,
+    fontWeight: '500',
   },
   bulletsContainer: {
     gap: 10,
-    marginBottom: 16,
   },
   bulletItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
     padding: 12,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
   },
+  stepIndicatorCol: {
+    alignItems: 'center',
+    gap: 4,
+  },
   bulletIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 2,
+  },
+  stepNumber: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   bulletTitle: {
-    fontSize: 13,
+    fontSize: 13.5,
     fontWeight: '700',
-    marginBottom: 2,
+    marginBottom: 3,
+    letterSpacing: -0.1,
   },
   bulletDesc: {
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 12.5,
+    lineHeight: 18,
+    fontWeight: '400',
   },
   tipBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 10,
-    padding: 12,
-    borderRadius: 12,
+    gap: 12,
+    padding: 14,
+    borderRadius: 16,
     borderWidth: 1,
-    marginBottom: 8,
+  },
+  tipIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  tipHeaderTitle: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginBottom: 4,
   },
   tipText: {
-    flex: 1,
     fontSize: 12,
     lineHeight: 18,
     fontWeight: '500',
   },
+  footer: {
+    paddingTop: 12,
+    borderTopWidth: 1,
+  },
   gotItButton: {
-    paddingVertical: 14,
+    height: 48,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
-    shadowColor: '#4ADE80',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 4,
   },
   gotItText: {
-    color: '#0F291E',
     fontSize: 14,
     fontWeight: '800',
-    letterSpacing: 0.3,
+    letterSpacing: 0.4,
   },
 });
+

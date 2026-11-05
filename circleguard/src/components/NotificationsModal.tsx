@@ -6,24 +6,22 @@ import {
   Modal,
   TouchableOpacity,
   ScrollView,
-  Switch,
   TextInput,
+  Switch,
   ActivityIndicator,
-  Platform,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSafeTopInset } from '../utils/safeArea';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from '../lib/supabase';
+import { useAuthStore } from '../store/useAuthStore';
+import { useThemeStore } from '../store/useThemeStore';
 import { useCountryStore } from '../store/useCountryStore';
+import { useLuxuryAlert } from './LuxuryAlertModal';
 import {
   validateAndNormalizePhone,
-  checkDuplicatePhoneNumber,
   detectCountryFromPhone,
 } from '../lib/phoneValidation';
-import { useLuxuryAlert } from './LuxuryAlertModal';
 
 interface NotificationsModalProps {
   visible: boolean;
@@ -40,6 +38,7 @@ const KEYS = {
 export default function NotificationsModal({ visible, onClose }: NotificationsModalProps) {
   const insets = useSafeAreaInsets();
   const topInset = getSafeTopInset(insets.top);
+  const { isDark } = useThemeStore();
   const { profile, setProfile } = useAuthStore();
   const { country, countryCode } = useCountryStore();
   const { showAlert } = useLuxuryAlert();
@@ -54,10 +53,12 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
 
   useEffect(() => {
     if (visible) {
-      setPhone(profile?.phone || '');
       loadSettings();
+      if (profile?.phone) {
+        setPhone(profile.phone);
+      }
     }
-  }, [visible, profile?.phone]);
+  }, [visible, profile]);
 
   const loadSettings = async () => {
     try {
@@ -88,8 +89,8 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
     if (!profile) return;
     if (!phone.trim()) {
       showAlert({
-        title: 'Invalid Phone Number',
-        message: 'Please enter a valid emergency mobile number.',
+        title: 'Phone Number Required',
+        message: 'Please enter a valid mobile number.',
         type: 'warning',
       });
       return;
@@ -99,7 +100,7 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
     const validation = validateAndNormalizePhone(phone, detected);
     if (!validation.isValid) {
       showAlert({
-        title: 'Invalid Phone Number',
+        title: 'Invalid Number',
         message: validation.error || `Please enter a valid phone number for ${country.name}.`,
         type: 'warning',
       });
@@ -108,32 +109,16 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
 
     setSavingPhone(true);
     try {
-      const dupCheck = await checkDuplicatePhoneNumber(validation.e164, profile.id);
-      if (dupCheck.isDuplicate) {
-        showAlert({
-          title: 'Phone Already Registered',
-          message:
-            dupCheck.error ||
-            'This phone number is already registered to another account. Every member must have a unique phone number.',
-          type: 'error',
-        });
-        setSavingPhone(false);
-        return;
-      }
-
       const { error } = await supabase
         .from('profiles')
         .update({ phone: validation.e164 })
         .eq('id', profile.id);
 
       if (error) {
-        if (
-          error.message &&
-          (error.message.includes('unique constraint') || error.message.includes('profiles_phone_key'))
-        ) {
+        if (error.code === '23505' || error.message.includes('unique constraint')) {
           showAlert({
-            title: 'Phone Already Registered',
-            message: `The phone number ${validation.formattedDisplay} is already registered to another account.`,
+            title: 'Number in Use',
+            message: 'This mobile number is already registered to another account.',
             type: 'error',
           });
           return;
@@ -144,8 +129,8 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
       setProfile({ ...profile, phone: validation.e164 });
       setPhone(validation.formattedDisplay);
       showAlert({
-        title: 'Phone Number Updated',
-        message: `Registered phone number verified and updated to ${validation.formattedDisplay} for emergency calls.`,
+        title: 'Number Updated',
+        message: `Registered phone number updated to ${validation.formattedDisplay}.`,
         type: 'success',
       });
     } catch (err: any) {
@@ -161,137 +146,147 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
 
   if (!visible) return null;
 
+  // Design tokens
+  const bgScreen = isDark ? '#000000' : '#F2F2F7';
+  const bgCard = isDark ? '#101114' : '#FFFFFF';
+  const bgInput = isDark ? '#181A20' : '#F6F8FA';
+  const borderColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+  const dividerColor = isDark ? 'rgba(255, 255, 255, 0.05)' : '#E5E5EA';
+  const textPrimary = isDark ? '#FFFFFF' : '#111827';
+  const textSecondary = isDark ? '#94A3B8' : '#6B7280';
+  const textMuted = isDark ? '#64748B' : '#8E8E93';
+  const accentColor = isDark ? '#FFFFFF' : '#0F172A';
+  const switchTrack = { false: isDark ? '#27272A' : '#E5E5EA', true: isDark ? '#52525B' : '#0F172A' };
+
   return (
     <Modal visible={visible} animationType="slide" transparent={false} statusBarTranslucent={true}>
-      <View style={styles.container}>
-        {/* Header */}
-        <View style={[styles.header, { paddingTop: topInset + 8 }]}>
-          <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.8}>
-            <Ionicons name="close" size={20} color="#1F2A24" />
+      <View style={[styles.container, { backgroundColor: bgScreen }]}>
+        {/* Navigation Header */}
+        <View
+          style={[
+            styles.header,
+            {
+              paddingTop: topInset,
+              height: 52 + topInset,
+              backgroundColor: bgScreen,
+              borderBottomColor: borderColor,
+            },
+          ]}
+        >
+          <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={styles.headerBtn}>
+            <Text style={[styles.headerBackArrow, { color: textPrimary }]}>‹</Text>
           </TouchableOpacity>
-          <View style={styles.headerTitleBox}>
-            <Text style={styles.overline}>CHANNELS & DISPATCH</Text>
-            <Text style={styles.title}>Notifications & Alerts</Text>
-          </View>
+
+          <Text style={[styles.headerTitle, { color: textPrimary }]}>Notifications</Text>
+
+          <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={styles.headerBtn}>
+            <Text style={[styles.headerDoneText, { color: accentColor }]}>Done</Text>
+          </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <Text style={styles.subtitle}>
-            Configure verified phone numbers for circle dispatch and choose which family safety alerts you receive.
-          </Text>
-
-          {/* Section: Emergency Broadcast Phone */}
-          <Text style={styles.sectionTitle}>EMERGENCY BROADCAST PHONE</Text>
-          <View style={styles.phoneCard}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: 60 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Emergency Phone Section */}
+          <Text style={[styles.sectionHeader, { color: textMuted }]}>EMERGENCY MOBILE NUMBER</Text>
+          <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor, padding: 14 }]}>
             <View style={styles.phoneInputRow}>
-              <View style={[styles.iconSquircle, { backgroundColor: '#E8F5EE' }]}>
-                <Ionicons name="call" size={17} color="#2E7D5B" />
-              </View>
               <TextInput
-                style={styles.phoneInput}
+                style={[styles.phoneInput, { backgroundColor: bgInput, borderColor, color: textPrimary }]}
                 placeholder="Enter mobile number"
-                placeholderTextColor="#8E9992"
+                placeholderTextColor={textSecondary}
                 value={phone}
                 onChangeText={setPhone}
                 keyboardType="phone-pad"
               />
               <TouchableOpacity
-                style={styles.savePhoneBtn}
+                style={[styles.savePhoneBtn, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}
                 onPress={handleUpdatePhone}
                 disabled={savingPhone}
                 activeOpacity={0.8}
               >
                 {savingPhone ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={isDark ? '#0F172A' : '#FFFFFF'} />
                 ) : (
-                  <Text style={styles.savePhoneText}>UPDATE</Text>
+                  <Text style={[styles.savePhoneText, { color: isDark ? '#0F172A' : '#FFFFFF' }]}>Update</Text>
                 )}
               </TouchableOpacity>
             </View>
+            <Text style={[styles.phoneNote, { color: textSecondary }]}>
+              Used for priority circle dispatch and instant SMS alerts.
+            </Text>
           </View>
 
-          {/* Section: Priority Alert Preferences */}
-          <Text style={[styles.sectionTitle, { marginTop: 22 }]}>PRIORITY ALERT PREFERENCES</Text>
-
-          <View style={styles.cardGroup}>
-            {/* SOS Emergency Broadcast */}
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <View style={[styles.iconSquircle, { backgroundColor: '#FEE2E2' }]}>
-                  <Ionicons name="warning-outline" size={18} color="#DC2626" />
-                </View>
-                <View style={styles.textWrapper}>
-                  <Text style={styles.rowTitle}>SOS Distress Broadcasts</Text>
-                  <Text style={styles.rowDesc}>Immediate high-priority alert when a member hits SOS</Text>
-                </View>
+          {/* Alert Preferences */}
+          <Text style={[styles.sectionHeader, { color: textMuted }]}>ALERT PREFERENCES</Text>
+          <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
+            {/* SOS Alerts */}
+            <View style={styles.switchRow}>
+              <View style={styles.switchTextWrap}>
+                <Text style={[styles.rowTitle, { color: textPrimary }]}>SOS Distress Broadcasts</Text>
+                <Text style={[styles.rowSubtitle, { color: textSecondary }]}>
+                  Immediate priority alert when a circle member triggers SOS
+                </Text>
               </View>
               <Switch
                 value={sosNotif}
                 onValueChange={(val) => toggleSetting(KEYS.NOTIF_SOS, val, setSosNotif)}
-                trackColor={{ false: '#E2E4E9', true: '#2E7D5B' }}
+                trackColor={switchTrack}
                 thumbColor="#FFFFFF"
               />
             </View>
 
-            <View style={styles.divider} />
+            <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
-            {/* Geofence Perimeter Notifications */}
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <View style={[styles.iconSquircle, { backgroundColor: '#E8F5EE' }]}>
-                  <Ionicons name="location-outline" size={18} color="#2E7D5B" />
-                </View>
-                <View style={styles.textWrapper}>
-                  <Text style={styles.rowTitle}>Geofence Place Alerts</Text>
-                  <Text style={styles.rowDesc}>Arrival and departure chimes for designated safe places</Text>
-                </View>
+            {/* Geofence Alerts */}
+            <View style={styles.switchRow}>
+              <View style={styles.switchTextWrap}>
+                <Text style={[styles.rowTitle, { color: textPrimary }]}>Safe Zone Place Alerts</Text>
+                <Text style={[styles.rowSubtitle, { color: textSecondary }]}>
+                  Arrival and departure alerts for designated safe places
+                </Text>
               </View>
               <Switch
                 value={geofenceNotif}
                 onValueChange={(val) => toggleSetting(KEYS.NOTIF_GEOFENCE, val, setGeofenceNotif)}
-                trackColor={{ false: '#E2E4E9', true: '#2E7D5B' }}
+                trackColor={switchTrack}
                 thumbColor="#FFFFFF"
               />
             </View>
 
-            <View style={styles.divider} />
+            <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
-            {/* Low Battery Alerts */}
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <View style={[styles.iconSquircle, { backgroundColor: '#FFF3EB' }]}>
-                  <Ionicons name="battery-dead-outline" size={18} color="#E07A5F" />
-                </View>
-                <View style={styles.textWrapper}>
-                  <Text style={styles.rowTitle}>Low Battery Warnings</Text>
-                  <Text style={styles.rowDesc}>Notify when a member's phone battery drops below 15%</Text>
-                </View>
+            {/* Battery Alerts */}
+            <View style={styles.switchRow}>
+              <View style={styles.switchTextWrap}>
+                <Text style={[styles.rowTitle, { color: textPrimary }]}>Low Battery Warnings</Text>
+                <Text style={[styles.rowSubtitle, { color: textSecondary }]}>
+                  Alerts when a family member's phone battery drops below 15%
+                </Text>
               </View>
               <Switch
                 value={batteryNotif}
                 onValueChange={(val) => toggleSetting(KEYS.NOTIF_BATTERY, val, setBatteryNotif)}
-                trackColor={{ false: '#E2E4E9', true: '#2E7D5B' }}
+                trackColor={switchTrack}
                 thumbColor="#FFFFFF"
               />
             </View>
 
-            <View style={styles.divider} />
+            <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
-            {/* Loud Alarm Sound Tones */}
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <View style={[styles.iconSquircle, { backgroundColor: '#F0EFEA' }]}>
-                  <Ionicons name="volume-high-outline" size={18} color="#1F2A24" />
-                </View>
-                <View style={styles.textWrapper}>
-                  <Text style={styles.rowTitle}>Siren Sound Tones</Text>
-                  <Text style={styles.rowDesc}>Override Silent/Do-Not-Disturb for critical SOS alarms</Text>
-                </View>
+            {/* Siren Alerts */}
+            <View style={styles.switchRow}>
+              <View style={styles.switchTextWrap}>
+                <Text style={[styles.rowTitle, { color: textPrimary }]}>Emergency Siren Tones</Text>
+                <Text style={[styles.rowSubtitle, { color: textSecondary }]}>
+                  Audible alarm tone for critical SOS broadcasts
+                </Text>
               </View>
               <Switch
                 value={soundAlerts}
                 onValueChange={(val) => toggleSetting(KEYS.NOTIF_SOUND, val, setSoundAlerts)}
-                trackColor={{ false: '#E2E4E9', true: '#2E7D5B' }}
+                trackColor={switchTrack}
                 thumbColor="#FFFFFF"
               />
             </View>
@@ -305,147 +300,101 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAF9F6',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 56 : 42,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECEAE4',
-    backgroundColor: '#FFFFFF',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  closeBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: '#F0EFEA',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
+  headerBtn: {
+    minWidth: 50,
   },
-  headerTitleBox: {
-    flex: 1,
+  headerBackArrow: {
+    fontSize: 28,
+    fontWeight: '300',
+    lineHeight: 30,
   },
-  overline: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#2E7D5B',
-    letterSpacing: 0.8,
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  headerDoneText: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'right',
   },
-  title: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#1F2A24',
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '600',
     letterSpacing: -0.3,
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   content: {
-    padding: 20,
-    paddingBottom: 50,
+    paddingHorizontal: 16,
+    paddingTop: 20,
   },
-  subtitle: {
-    fontSize: 13,
-    color: '#5C665F',
-    lineHeight: 19,
-    marginBottom: 16,
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-  },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#5C665F',
-    letterSpacing: 0.6,
+  sectionHeader: {
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+    marginLeft: 12,
     marginBottom: 8,
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
-  phoneCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
+  groupedTable: {
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#ECEAE4',
-    padding: 6,
+    marginBottom: 24,
+    overflow: 'hidden',
   },
   phoneInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
   },
   phoneInput: {
     flex: 1,
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1F2A24',
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    fontSize: 15,
   },
   savePhoneBtn: {
+    height: 44,
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: '#2E7D5B',
-  },
-  savePhoneText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
-  },
-  cardGroup: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#ECEAE4',
-    overflow: 'hidden',
-    shadowColor: '#1F2A24',
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 14,
-  },
-  rowLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-    paddingRight: 10,
-  },
-  iconSquircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  textWrapper: {
+  savePhoneText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  phoneNote: {
+    fontSize: 12,
+    marginTop: 8,
+    lineHeight: 16,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+  },
+  switchTextWrap: {
     flex: 1,
+    paddingRight: 12,
   },
   rowTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#1F2A24',
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    fontSize: 15,
+    fontWeight: '500',
+    letterSpacing: -0.2,
   },
-  rowDesc: {
-    fontSize: 11,
-    color: '#5C665F',
+  rowSubtitle: {
+    fontSize: 12,
     marginTop: 2,
-    lineHeight: 15,
-    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+    lineHeight: 16,
   },
-  divider: {
-    height: 1,
-    backgroundColor: '#F0EFEA',
-    marginLeft: 62,
+  rowDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 16,
   },
 });

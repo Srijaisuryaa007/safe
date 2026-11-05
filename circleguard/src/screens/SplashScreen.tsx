@@ -1,4 +1,4 @@
-﻿import React, { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -206,25 +206,26 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
       <Animated.View style={[styles.centerWrapper, mainContainerStyle]}>
         {/* 220x220 Vector Logo Canvas */}
         <View style={{ width: logoSize, height: logoSize, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={styles.glowAura} />
           {/* Base Static Halo */}
           <Svg width={logoSize} height={logoSize} viewBox="0 0 200 200" style={{ position: 'absolute' }}>
             <Defs>
               <LinearGradient id="bgHaloGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <Stop offset="0%" stopColor="#D4AF37" stopOpacity="0.18" />
-                <Stop offset="100%" stopColor="#D4AF37" stopOpacity="0.02" />
+                <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.12" />
+                <Stop offset="100%" stopColor="#CBD5E1" stopOpacity="0.02" />
               </LinearGradient>
               <LinearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <Stop offset="0%" stopColor="#F3E5AB" stopOpacity="1" />
-                <Stop offset="100%" stopColor="#D4AF37" stopOpacity="1" />
+                <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+                <Stop offset="100%" stopColor="#CBD5E1" stopOpacity="1" />
               </LinearGradient>
               <LinearGradient id="shieldBgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
                 <Stop offset="0%" stopColor="#262626" stopOpacity="0.98" />
                 <Stop offset="100%" stopColor="#0D0D0D" stopOpacity="0.99" />
               </LinearGradient>
               <LinearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <Stop offset="0%" stopColor="#D4AF37" stopOpacity="1" />
-                <Stop offset="70%" stopColor="#F3E5AB" stopOpacity="0.8" />
-                <Stop offset="100%" stopColor="#D4AF37" stopOpacity="0.2" />
+                <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+                <Stop offset="70%" stopColor="#E2E8F0" stopOpacity="0.8" />
+                <Stop offset="100%" stopColor="#CBD5E1" stopOpacity="0.2" />
               </LinearGradient>
             </Defs>
             <Circle cx="100" cy="100" r="94" fill="url(#bgHaloGrad)" />
@@ -235,9 +236,9 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
             <Svg width={logoSize} height={logoSize} viewBox="0 0 200 200">
               <Defs>
                 <LinearGradient id="ringGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <Stop offset="0%" stopColor="#D4AF37" stopOpacity="1" />
-                  <Stop offset="70%" stopColor="#F3E5AB" stopOpacity="0.8" />
-                  <Stop offset="100%" stopColor="#D4AF37" stopOpacity="0.2" />
+                  <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+                  <Stop offset="70%" stopColor="#E2E8F0" stopOpacity="0.8" />
+                  <Stop offset="100%" stopColor="#CBD5E1" stopOpacity="0.2" />
                 </LinearGradient>
               </Defs>
               <Circle cx="100" cy="100" r="90" stroke="url(#ringGrad2)" strokeWidth="2.5" fill="none" />
@@ -249,8 +250,8 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
             <Svg width={logoSize} height={logoSize} viewBox="0 0 200 200">
               <Defs>
                 <LinearGradient id="goldGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <Stop offset="0%" stopColor="#F3E5AB" stopOpacity="1" />
-                  <Stop offset="100%" stopColor="#D4AF37" stopOpacity="1" />
+                  <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+                  <Stop offset="100%" stopColor="#CBD5E1" stopOpacity="1" />
                 </LinearGradient>
                 <LinearGradient id="shieldBgGrad2" x1="0%" y1="0%" x2="0%" y2="100%">
                   <Stop offset="0%" stopColor="#262626" stopOpacity="0.98" />
@@ -277,8 +278,8 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
             <Svg width={logoSize} height={logoSize} viewBox="0 0 200 200">
               <Defs>
                 <LinearGradient id="goldGrad3" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <Stop offset="0%" stopColor="#F3E5AB" stopOpacity="1" />
-                  <Stop offset="100%" stopColor="#D4AF37" stopOpacity="1" />
+                  <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+                  <Stop offset="100%" stopColor="#CBD5E1" stopOpacity="1" />
                 </LinearGradient>
               </Defs>
               <Path
@@ -295,7 +296,7 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
         {/* Brand Typography (Scene 6) */}
         <Animated.View style={[styles.textWrapper, textStyle]}>
           <Text style={styles.brandTitle}>
-            Circle<Text style={{ color: '#D4AF37' }}>Guard</Text>
+            Circle<Text style={{ color: '#E2E8F0' }}>Guard</Text>
           </Text>
 
           <Text style={styles.tagline}>
@@ -323,10 +324,10 @@ const styles = StyleSheet.create({
     width: 240,
     height: 240,
     borderRadius: 120,
-    backgroundColor: 'rgba(212, 175, 55, 0.08)',
-    shadowColor: '#D4AF37',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
+    shadowOpacity: 0.3,
     shadowRadius: 50,
     elevation: 30,
   },

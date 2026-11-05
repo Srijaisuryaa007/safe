@@ -37,7 +37,7 @@ export const PlacesDwellDonutChart: React.FC<PlacesDwellDonutChartProps> = ({
   const data = useMemo(() => {
     if (propSegments && propSegments.length > 0) return propSegments;
     return [
-      { id: 'home', name: 'Safe Haven (Home)', durationMins: 780, color: '#4ADE80', isSafeHaven: true },
+      { id: 'home', name: 'Safe Haven (Home)', durationMins: 780, color: isDark ? '#FFFFFF' : '#0F172A', isSafeHaven: true },
       { id: 'work', name: 'Workplace / Campus', durationMins: 390, color: '#007AFF' },
       { id: 'transit', name: 'Vehicular Transit', durationMins: 95, color: '#38E8FF' },
       { id: 'cafe', name: 'Third Places / Stops', durationMins: 45, color: '#FF9500' },

@@ -241,7 +241,7 @@ export default function SwiggySearchBar({ safePlaces = [] }: SwiggySearchBarProp
         onPress={() => setModalVisible(true)}
         activeOpacity={0.8}
       >
-        <Ionicons name="search" size={17} color={colors.accentGold || '#10B981'} />
+        <Ionicons name="search" size={17} color={colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A')} />
         <Text style={[styles.placeholderText, { color: colors.textMuted }]}>
           Search family members or places...
         </Text>
@@ -271,11 +271,11 @@ export default function SwiggySearchBar({ safePlaces = [] }: SwiggySearchBarProp
                 styles.activeSearchInputWrap,
                 {
                   backgroundColor: isDark ? '#282A36' : '#F1F5F9',
-                  borderColor: colors.accentGold || '#10B981',
+                  borderColor: colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A'),
                 },
               ]}
             >
-              <Ionicons name="search" size={18} color={colors.accentGold || '#10B981'} />
+              <Ionicons name="search" size={18} color={colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A')} />
               <TextInput
                 style={[styles.activeTextInput, { color: colors.foreground }]}
                 placeholder="Search member, safe place, city, or address..."
@@ -285,7 +285,7 @@ export default function SwiggySearchBar({ safePlaces = [] }: SwiggySearchBarProp
                 autoFocus
               />
               {isSearchingExternal ? (
-                <ActivityIndicator size="small" color={colors.accentGold || '#10B981'} />
+                <ActivityIndicator size="small" color={colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A')} />
               ) : searchQuery.length > 0 ? (
                 <TouchableOpacity onPress={() => setSearchQuery('')}>
                   <Ionicons name="close-circle" size={20} color={colors.textMuted} />
@@ -307,8 +307,8 @@ export default function SwiggySearchBar({ safePlaces = [] }: SwiggySearchBarProp
               {filteredPlaces.length > 0 && (
                 <View style={styles.sectionBlock}>
                   <View style={styles.sectionHeaderRow}>
-                    <Ionicons name="shield-checkmark" size={13} color={colors.accentGold || '#10B981'} />
-                    <Text style={[styles.sectionTitle, { color: colors.accentGold || '#10B981' }]}>
+                    <Ionicons name="shield-checkmark" size={13} color={colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A')} />
+                    <Text style={[styles.sectionTitle, { color: colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A') }]}>
                       CIRCLE SAFE PLACES ({filteredPlaces.length})
                     </Text>
                   </View>
@@ -321,8 +321,8 @@ export default function SwiggySearchBar({ safePlaces = [] }: SwiggySearchBarProp
                         onPress={() => handleSelectPlace(p)}
                         activeOpacity={0.7}
                       >
-                        <View style={[styles.placeIconBox, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-                          <Ionicons name={iconName} size={18} color="#10B981" />
+                        <View style={[styles.placeIconBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                          <Ionicons name={iconName} size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
                         </View>
                         <View style={{ flex: 1, marginLeft: 12 }}>
                           <Text style={[styles.resultTitle, { color: colors.foreground }]}>{p.name}</Text>
@@ -332,7 +332,7 @@ export default function SwiggySearchBar({ safePlaces = [] }: SwiggySearchBarProp
                         </View>
                         <View style={styles.viewOnMapPill}>
                           <Text style={styles.viewOnMapText}>VIEW</Text>
-                          <Ionicons name="chevron-forward" size={13} color={colors.accentGold || '#10B981'} />
+                          <Ionicons name="chevron-forward" size={13} color={colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A')} />
                         </View>
                       </TouchableOpacity>
                     );
@@ -344,8 +344,8 @@ export default function SwiggySearchBar({ safePlaces = [] }: SwiggySearchBarProp
               {filteredMembers.length > 0 && (
                 <View style={styles.sectionBlock}>
                   <View style={styles.sectionHeaderRow}>
-                    <Ionicons name="people" size={13} color={colors.accentGold || '#10B981'} />
-                    <Text style={[styles.sectionTitle, { color: colors.accentGold || '#10B981' }]}>
+                    <Ionicons name="people" size={13} color={colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A')} />
+                    <Text style={[styles.sectionTitle, { color: colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A') }]}>
                       CIRCLE MEMBERS ({filteredMembers.length})
                     </Text>
                   </View>
@@ -377,7 +377,7 @@ export default function SwiggySearchBar({ safePlaces = [] }: SwiggySearchBarProp
                             {m.latitude ? 'Tap to view live location' : (m.isOnline ? 'Active' : 'Offline')}
                           </Text>
                         </View>
-                        <Ionicons name="navigate-outline" size={18} color={colors.accentGold || '#10B981'} />
+                        <Ionicons name="navigate-outline" size={18} color={colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A')} />
                       </TouchableOpacity>
                     );
                   })}
@@ -388,8 +388,8 @@ export default function SwiggySearchBar({ safePlaces = [] }: SwiggySearchBarProp
               {externalLocations.length > 0 && (
                 <View style={styles.sectionBlock}>
                   <View style={styles.sectionHeaderRow}>
-                    <Ionicons name="map" size={13} color={colors.accentGold || '#10B981'} />
-                    <Text style={[styles.sectionTitle, { color: colors.accentGold || '#10B981' }]}>
+                    <Ionicons name="map" size={13} color={colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A')} />
+                    <Text style={[styles.sectionTitle, { color: colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A') }]}>
                       MATCHING PLACES & ADDRESSES ({externalLocations.length})
                     </Text>
                   </View>
@@ -547,12 +547,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
-    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   viewOnMapText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#D4AF37',
+    color: '#FFFFFF',
     letterSpacing: 0.5,
   },
   emptyStateContainer: {

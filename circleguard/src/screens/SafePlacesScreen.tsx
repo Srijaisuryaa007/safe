@@ -167,8 +167,12 @@ export default function SafePlacesScreen() {
   const [radius, setRadius] = useState(150);
   const [saving, setSaving] = useState(false);
   const [targetUserId, setTargetUserId] = useState<string | null>(initialTargetMemberId || null);
+  const [activeTab, setActiveTab] = useState<'list' | 'editor'>('list');
 
   useEffect(() => {
+    if (route.params?.openEditor || route.params?.memberId) {
+      setActiveTab('editor');
+    }
     if (route.params?.memberId) {
       setFilterMemberId(route.params.memberId);
       setTargetUserId(route.params.memberId);
@@ -177,7 +181,7 @@ export default function SafePlacesScreen() {
         setPlaceName(`${route.params.memberName.split(' ')[0]}'s Safe Zone`);
       }
     }
-  }, [route.params?.memberId, route.params?.memberName]);
+  }, [route.params?.openEditor, route.params?.memberId, route.params?.memberName]);
 
   // Premium Feature Form States
   const [speedAdaptive, setSpeedAdaptive] = useState(false);
@@ -307,11 +311,18 @@ export default function SafePlacesScreen() {
   }, []);
 
   useEffect(() => {
-    // Clear old circle's saved places immediately on active circle switch!
-    setSavedPlaces([]);
+    const currentCircleId = activeCircle?.id;
+    if (currentCircleId) {
+      // Instant cache hydration to prevent empty screen flicker
+      const cached = useCircleStore.getState().placesByCircle[currentCircleId] || useCircleStore.getState().places;
+      if (cached && cached.length > 0) {
+        setSavedPlaces(cached.filter(p => !p.circle_id || p.circle_id === currentCircleId) as any);
+        setLoadingPlaces(false);
+      } else {
+        setSavedPlaces([]);
+      }
 
-    if (activeCircle?.id) {
-      fetchSavedPlaces(activeCircle.id);
+      fetchSavedPlaces(currentCircleId);
       fetchMembers(activeCircle.id);
       fetchMemberLocations();
 
@@ -330,7 +341,7 @@ export default function SafePlacesScreen() {
     } else {
       setLoadingPlaces(false);
     }
-  }, [activeCircle?.id, userLoc]);
+  }, [activeCircle?.id]);
 
   const pushMiniMapData = (forceResetZoom = false) => {
     const centerLat = startPoint?.latitude || userLoc?.latitude || 20.5937;
@@ -510,10 +521,21 @@ export default function SafePlacesScreen() {
     try {
       const placesWithMembers = await fetchCirclePlacesWithMembers(circleId);
       if (useCircleStore.getState().activeCircle?.id === circleId) {
-        setSavedPlaces((placesWithMembers || []).filter(p => p && p.circle_id === circleId));
+        let list = (placesWithMembers || []).filter(p => p && p.circle_id === circleId);
+        if (list.length === 0) {
+          const storePlaces = useCircleStore.getState().placesByCircle[circleId] || useCircleStore.getState().places;
+          if (storePlaces && storePlaces.length > 0) {
+            list = storePlaces.filter(p => p && (!p.circle_id || p.circle_id === circleId)) as any;
+          }
+        }
+        setSavedPlaces(list);
       }
     } catch (err) {
       console.error('Error fetching places:', err);
+      const storePlaces = useCircleStore.getState().placesByCircle[circleId] || useCircleStore.getState().places;
+      if (storePlaces && storePlaces.length > 0) {
+        setSavedPlaces(storePlaces.filter(p => p && (!p.circle_id || p.circle_id === circleId)) as any);
+      }
     } finally {
       setLoadingPlaces(false);
     }
@@ -531,6 +553,22 @@ export default function SafePlacesScreen() {
       return isTarget || isAssigned || isPlaceMember || isCreatedBy;
     });
   }, [savedPlaces, filterMemberId]);
+
+  const totalInsideCount = React.useMemo(() => {
+    let count = 0;
+    displayedPlaces.forEach((p) => {
+      const placeCoords = parseLocationPoint(p);
+      const placeRadius = parseFloat(p.radius_m || p.radius || 150);
+      const inside = memberLocations.filter((m) => {
+        const hasValidLoc = m.latitude && m.longitude && m.latitude !== 0 && m.longitude !== 0;
+        if (!hasValidLoc || placeCoords.latitude === 0 || placeCoords.longitude === 0) return false;
+        const dist = getHaversineDistanceInMeters(m.latitude, m.longitude, placeCoords.latitude, placeCoords.longitude);
+        return dist <= placeRadius;
+      });
+      count += inside.length;
+    });
+    return count;
+  }, [displayedPlaces, memberLocations]);
 
   const handleSavePlace = async () => {
     if (!activeCircle || !profile) {
@@ -648,11 +686,13 @@ export default function SafePlacesScreen() {
         }
       }
 
+      setEditingPlaceId(null);
       setPlaceName('');
       setSelectedUserIds([]);
       handleResetPoints();
       fetchSavedPlaces(activeCircle.id);
       fetchPlaces(activeCircle.id);
+      setActiveTab('list');
     } catch (err: any) {
       const cleanMessage = handleServiceError('SafePlaces:savePlace', err, 'Failed to save geofence. Please check coordinates and try again.');
       if (cleanMessage.toLowerCase().includes('free tier') || cleanMessage.toLowerCase().includes('limit')) {
@@ -691,6 +731,9 @@ export default function SafePlacesScreen() {
       setEndPoint(null);
     }
 
+    setActiveTab('editor');
+    setTimeout(() => pushMiniMapData(true), 120);
+
     if (mainScrollViewRef.current) {
       mainScrollViewRef.current.scrollTo({ y: 0, animated: true });
     }
@@ -704,6 +747,7 @@ export default function SafePlacesScreen() {
     setTargetUserId(null);
     setSelectedUserIds([]);
     handleResetPoints();
+    setActiveTab('list');
   };
 
   const handleDeletePlace = (placeId: string, name: string) => {
@@ -781,7 +825,7 @@ export default function SafePlacesScreen() {
           user-select: none;
         }
         .start-pin-badge {
-          background: #10B981;
+          background: #0F172A;
           color: #FFFFFF;
           font-size: 9px;
           font-weight: 900;
@@ -791,16 +835,16 @@ export default function SafePlacesScreen() {
           border: 1.5px solid #FFFFFF;
           white-space: nowrap;
           letter-spacing: 0.5px;
-          box-shadow: 0 2px 8px rgba(16,185,129,0.7);
+          box-shadow: 0 2px 8px rgba(0,0,0,0.5);
           margin-bottom: 2px;
         }
         .start-pin-core {
           width: 26px;
           height: 26px;
-          background: radial-gradient(circle at 35% 35%, #34D399, #059669);
+          background: radial-gradient(circle at 35% 35%, #94A3B8, #334155);
           border: 2.5px solid #FFFFFF;
           border-radius: 50%;
-          box-shadow: 0 0 16px rgba(16,185,129,0.95), inset 0 0 4px rgba(0,0,0,0.35);
+          box-shadow: 0 0 16px rgba(255,255,255,0.4), inset 0 0 4px rgba(0,0,0,0.35);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -808,7 +852,7 @@ export default function SafePlacesScreen() {
           font-weight: 900;
           font-size: 11px;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          animation: pulse-green 2s infinite ease-in-out;
+          animation: pulse-start 2s infinite ease-in-out;
         }
         .end-pin-badge {
           background: #EF4444;
@@ -848,14 +892,14 @@ export default function SafePlacesScreen() {
           margin-top: -2px;
         }
         .start-pointer {
-          border-top: 7px solid #059669;
+          border-top: 7px solid #334155;
         }
         .end-pointer {
           border-top: 7px solid #DC2626;
         }
-        @keyframes pulse-green {
-          0%, 100% { transform: scale(1); box-shadow: 0 0 14px rgba(16,185,129,0.9); }
-          50% { transform: scale(1.08); box-shadow: 0 0 22px rgba(16,185,129,1); }
+        @keyframes pulse-start {
+          0%, 100% { transform: scale(1); box-shadow: 0 0 14px rgba(255,255,255,0.4); }
+          50% { transform: scale(1.08); box-shadow: 0 0 22px rgba(255,255,255,0.7); }
         }
         @keyframes pulse-red {
           0%, 100% { transform: scale(1); box-shadow: 0 0 14px rgba(239,68,68,0.9); }
@@ -865,13 +909,13 @@ export default function SafePlacesScreen() {
         /* 3D Geofence Dome Animations & Styles */
         @keyframes domePulseGlow {
           0% {
-            filter: drop-shadow(0 0 5px rgba(16, 185, 129, 0.45));
+            filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.25));
           }
           50% {
-            filter: drop-shadow(0 0 16px rgba(52, 211, 153, 0.85));
+            filter: drop-shadow(0 0 16px rgba(255, 255, 255, 0.55));
           }
           100% {
-            filter: drop-shadow(0 0 5px rgba(16, 185, 129, 0.45));
+            filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.25));
           }
         }
         @keyframes domeContourRotate {
@@ -906,9 +950,9 @@ export default function SafePlacesScreen() {
           width: 32px;
           height: 32px;
           border-radius: 50%;
-          border: 2px solid #10B981;
+          border: 2px solid #FFFFFF;
           position: relative;
-          background: #1F2A24;
+          background: #18181B;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -940,8 +984,8 @@ export default function SafePlacesScreen() {
           pointer-events: none;
         }
         .member-name-tag.self-tag {
-          border-color: #3ADFAB;
-          box-shadow: 0 0 8px rgba(58, 223, 171, 0.3);
+          border-color: #FFFFFF;
+          box-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
         }
       </style>
     </head>
@@ -949,11 +993,11 @@ export default function SafePlacesScreen() {
       <svg id="dome-defs-svg" style="position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;" aria-hidden="true">
         <defs>
           <radialGradient id="dome-grad-green" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
-            <stop offset="0%" stop-color="#A7F3D0" stop-opacity="0.80" />
-            <stop offset="20%" stop-color="#34D399" stop-opacity="0.50" />
-            <stop offset="55%" stop-color="#10B981" stop-opacity="0.24" />
-            <stop offset="85%" stop-color="#059669" stop-opacity="0.45" />
-            <stop offset="100%" stop-color="#047857" stop-opacity="0.90" />
+            <stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.80" />
+            <stop offset="20%" stop-color="#CBD5E1" stop-opacity="0.50" />
+            <stop offset="55%" stop-color="#94A3B8" stop-opacity="0.24" />
+            <stop offset="85%" stop-color="#64748B" stop-opacity="0.45" />
+            <stop offset="100%" stop-color="#334155" stop-opacity="0.90" />
           </radialGradient>
           <radialGradient id="dome-grad-blue" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
             <stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.80" />
@@ -963,11 +1007,11 @@ export default function SafePlacesScreen() {
             <stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.90" />
           </radialGradient>
           <radialGradient id="dome-grad-gold" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
-            <stop offset="0%" stop-color="#FEF9C3" stop-opacity="0.80" />
-            <stop offset="20%" stop-color="#FACC15" stop-opacity="0.50" />
-            <stop offset="55%" stop-color="#D4AF37" stop-opacity="0.24" />
-            <stop offset="85%" stop-color="#CA8A04" stop-opacity="0.45" />
-            <stop offset="100%" stop-color="#854D0E" stop-opacity="0.90" />
+            <stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.80" />
+            <stop offset="20%" stop-color="#CBD5E1" stop-opacity="0.50" />
+            <stop offset="55%" stop-color="#94A3B8" stop-opacity="0.24" />
+            <stop offset="85%" stop-color="#64748B" stop-opacity="0.45" />
+            <stop offset="100%" stop-color="#334155" stop-opacity="0.90" />
           </radialGradient>
         </defs>
       </svg>
@@ -1143,18 +1187,18 @@ export default function SafePlacesScreen() {
             
             var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
             defs.id = 'dome-defs-injected';
-            defs.innerHTML = '<radialGradient id="dome-grad-green" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#A7F3D0" stop-opacity="0.80" /><stop offset="22%" stop-color="#34D399" stop-opacity="0.50" /><stop offset="55%" stop-color="#10B981" stop-opacity="0.24" /><stop offset="85%" stop-color="#059669" stop-opacity="0.45" /><stop offset="100%" stop-color="#047857" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-blue" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.80" /><stop offset="22%" stop-color="#60A5FA" stop-opacity="0.50" /><stop offset="55%" stop-color="#3B82F6" stop-opacity="0.24" /><stop offset="85%" stop-color="#2563EB" stop-opacity="0.45" /><stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-gold" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#FEF9C3" stop-opacity="0.80" /><stop offset="20%" stop-color="#FACC15" stop-opacity="0.50" /><stop offset="55%" stop-color="#D4AF37" stop-opacity="0.24" /><stop offset="85%" stop-color="#CA8A04" stop-opacity="0.45" /><stop offset="100%" stop-color="#854D0E" stop-opacity="0.90" /></radialGradient>';
+            defs.innerHTML = '<radialGradient id="dome-grad-green" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.80" /><stop offset="22%" stop-color="#CBD5E1" stop-opacity="0.50" /><stop offset="55%" stop-color="#94A3B8" stop-opacity="0.24" /><stop offset="85%" stop-color="#64748B" stop-opacity="0.45" /><stop offset="100%" stop-color="#334155" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-blue" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.80" /><stop offset="22%" stop-color="#60A5FA" stop-opacity="0.50" /><stop offset="55%" stop-color="#3B82F6" stop-opacity="0.24" /><stop offset="85%" stop-color="#2563EB" stop-opacity="0.45" /><stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-gold" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.80" /><stop offset="20%" stop-color="#CBD5E1" stop-opacity="0.50" /><stop offset="55%" stop-color="#94A3B8" stop-opacity="0.24" /><stop offset="85%" stop-color="#64748B" stop-opacity="0.45" /><stop offset="100%" stop-color="#334155" stop-opacity="0.90" /></radialGradient>';
             overlaySvg.insertBefore(defs, overlaySvg.firstChild);
           } catch(e) {}
         }
 
         function getDomeTheme(cat) {
           if (cat === 'home') {
-            return { main: '#10B981', highlight: '#6EE7B7', dark: '#047857', gradKey: 'green' };
+            return { main: '#FFFFFF', highlight: '#F1F5F9', dark: '#64748B', gradKey: 'green' };
           } else if (cat === 'work') {
             return { main: '#3B82F6', highlight: '#93C5FD', dark: '#1D4ED8', gradKey: 'blue' };
           }
-          return { main: '#D4AF37', highlight: '#FEF08A', dark: '#854D0E', gradKey: 'gold' };
+          return { main: '#94A3B8', highlight: '#E2E8F0', dark: '#334155', gradKey: 'green' };
         }
 
         function getMeridianCoords(lat, lng, r) {
@@ -1395,13 +1439,13 @@ export default function SafePlacesScreen() {
               bounds.push([lat, lng]);
 
               var isCurrentSelf = m.isSelf;
-              var roleColor = m.role === 'owner' ? '#F5A623' : (m.role === 'co_leader' ? '#3ADFAB' : (m.role === 'guardian' ? '#2E7D5B' : '#64748B'));
+              var roleColor = m.role === 'owner' ? '#F5A623' : (m.role === 'co_leader' ? '#FFFFFF' : (m.role === 'guardian' ? '#94A3B8' : '#64748B'));
 
               var avatarHtml = m.avatarUrl 
                 ? '<img src="' + m.avatarUrl + '" style="width:100%;height:100%;object-fit:cover;' + (hasLoc ? '' : 'filter:grayscale(100%);opacity:0.6;') + '" />' 
                 : '<span style="color:' + (hasLoc ? '#FFF' : '#9CA3AF') + ';font-size:11px;font-weight:bold;">' + m.initial + '</span>';
 
-              var statusDotColor = (m.battery && m.battery <= 20) ? '#EF4444' : (hasLoc ? '#10B981' : '#6B7280');
+              var statusDotColor = (m.battery && m.battery <= 20) ? '#EF4444' : (hasLoc ? '#FFFFFF' : '#6B7280');
 
               var cleanName = (m.name || 'Member').replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim() || 'Member';
               var displayName = isCurrentSelf ? 'You' : cleanName;
@@ -1535,93 +1579,550 @@ export default function SafePlacesScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border, paddingTop: topInset + 8 }]}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.8}>
-          <Ionicons name="arrow-back" size={24} color={colors.foreground} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>{editingPlaceId ? 'EDIT GEOFENCE' : 'SAFE PLACES GEOFENCING'}</Text>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          {editingPlaceId ? (
-            <TouchableOpacity 
-              style={[
-                styles.saveBtn, 
-                { 
-                  backgroundColor: secondaryBtnStyles.backgroundColor, 
-                  borderColor: secondaryBtnStyles.borderColor,
-                  borderRadius: secondaryBtnStyles.borderRadius,
-                  borderWidth: secondaryBtnStyles.borderWidth,
-                }
-              ]} 
-              onPress={handleCancelEdit} 
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.saveBtnText, { color: secondaryBtnStyles.textColor }]}>CANCEL</Text>
-            </TouchableOpacity>
-          ) : null}
-
+        <View style={styles.headerLeft}>
           <TouchableOpacity 
-            style={[
-              styles.saveBtn, 
-              { 
-                backgroundColor: primaryBtnStyles.backgroundColor, 
-                borderColor: primaryBtnStyles.borderColor,
-                borderRadius: primaryBtnStyles.borderRadius,
-                borderWidth: primaryBtnStyles.borderWidth,
-              }
-            ]} 
-            onPress={handleSavePlace} 
-            disabled={saving} 
-            activeOpacity={0.8}
+            style={[styles.backBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9', borderColor: colors.border }]} 
+            onPress={() => navigation.goBack()} 
+            activeOpacity={0.7}
           >
-            <Text style={[styles.saveBtnText, { color: primaryBtnStyles.textColor, fontWeight: '800' }]}>{saving ? 'SAVING...' : editingPlaceId ? 'UPDATE' : 'SAVE'}</Text>
+            <Ionicons name="arrow-back" size={20} color={colors.foreground} />
           </TouchableOpacity>
         </View>
+
+        <View style={styles.headerCenter}>
+          <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
+            {editingPlaceId ? 'EDIT SAFE ZONE' : 'SAFE ZONES'}
+          </Text>
+          <Text style={[styles.headerSubtitle, { color: colors.textMuted }]} numberOfLines={1}>
+            {activeTab === 'list' 
+              ? `${displayedPlaces.length} Monitored ${displayedPlaces.length === 1 ? 'Perimeter' : 'Perimeters'}`
+              : (editingPlaceId ? 'Update Boundary Settings' : 'Configure New Geofence')}
+          </Text>
+        </View>
+
+        <View style={styles.headerRight}>
+          {activeTab === 'editor' ? (
+            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+              {editingPlaceId ? (
+                <TouchableOpacity 
+                  style={[styles.headerCancelBtn, { borderColor: colors.border, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9' }]} 
+                  onPress={handleCancelEdit} 
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close" size={15} color={colors.textMuted} />
+                  <Text style={[styles.headerCancelBtnText, { color: colors.textMuted }]}>Cancel</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              <TouchableOpacity 
+                style={[
+                  styles.headerSaveBtn, 
+                  { 
+                    backgroundColor: isDark ? '#FFFFFF' : '#0F172A',
+                    borderColor: isDark ? '#FFFFFF' : '#0F172A',
+                  }
+                ]} 
+                onPress={handleSavePlace} 
+                disabled={saving} 
+                activeOpacity={0.8}
+              >
+                {saving ? (
+                  <ActivityIndicator size="small" color={isDark ? '#000000' : '#FFFFFF'} />
+                ) : (
+                  <>
+                    <Ionicons name={editingPlaceId ? "checkmark" : "shield-checkmark"} size={14} color={isDark ? '#000000' : '#FFFFFF'} />
+                    <Text style={[styles.headerSaveBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>
+                      {editingPlaceId ? 'UPDATE' : 'SAVE'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity 
+              style={[styles.newZoneHeaderBtn, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]} 
+              onPress={() => setActiveTab('editor')} 
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add" size={15} color={isDark ? '#000000' : '#FFFFFF'} />
+              <Text style={[styles.newZoneHeaderBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>NEW ZONE</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Top Segmented Tab Switcher (React Bits Style) */}
+      <View style={[styles.safePlaceSegmentBar, { backgroundColor: isDark ? '#141519' : '#F1F5F9', borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0' }]}>
+        <TouchableOpacity
+          style={[
+            styles.safePlaceSegmentBtn,
+            activeTab === 'list' && (isDark ? styles.safePlaceSegmentActiveDark : styles.safePlaceSegmentActiveLight),
+          ]}
+          onPress={() => {
+            if (editingPlaceId) {
+              handleCancelEdit();
+            }
+            setActiveTab('list');
+          }}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name="shield-checkmark"
+            size={14}
+            color={activeTab === 'list' ? (isDark ? '#000000' : '#FFFFFF') : (isDark ? '#94A3B8' : '#64748B')}
+          />
+          <Text
+            style={[
+              styles.safePlaceSegmentText,
+              { color: isDark ? '#94A3B8' : '#64748B' },
+              activeTab === 'list' && (isDark ? { color: '#000000', fontWeight: '800' } : { color: '#FFFFFF', fontWeight: '800' }),
+            ]}
+          >
+            Active Zones ({displayedPlaces.length})
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.safePlaceSegmentBtn,
+            activeTab === 'editor' && (isDark ? styles.safePlaceSegmentActiveDark : styles.safePlaceSegmentActiveLight),
+          ]}
+          onPress={() => setActiveTab('editor')}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name={editingPlaceId ? 'create-outline' : 'add-circle-outline'}
+            size={14}
+            color={activeTab === 'editor' ? (isDark ? '#000000' : '#FFFFFF') : (isDark ? '#94A3B8' : '#64748B')}
+          />
+          <Text
+            style={[
+              styles.safePlaceSegmentText,
+              { color: isDark ? '#94A3B8' : '#64748B' },
+              activeTab === 'editor' && (isDark ? { color: '#000000', fontWeight: '800' } : { color: '#FFFFFF', fontWeight: '800' }),
+            ]}
+          >
+            {editingPlaceId ? 'Edit Geofence' : 'Configure Zone'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Active Member Filter Banner */}
       {filterMemberId && (
-        <View style={[styles.filterBanner, { backgroundColor: isDark ? '#142B1E' : '#F0FDF4', borderBottomColor: isDark ? '#1F4730' : '#BBF7D0' }]}>
+        <View style={[styles.filterBanner, { backgroundColor: isDark ? '#18181B' : '#F1F5F9', borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0' }]}>
           <View style={styles.filterBannerLeft}>
-            <Ionicons name="location" size={13} color="#16A34A" />
-            <Text style={[styles.filterBannerText, { color: isDark ? '#E2FBEF' : '#15803D' }]} numberOfLines={1}>
+            <Ionicons name="location" size={13} color={isDark ? '#FFFFFF' : '#0F172A'} />
+            <Text style={[styles.filterBannerText, { color: isDark ? '#FFFFFF' : '#0F172A' }]} numberOfLines={1}>
               Geofences for: {initialTargetMemberName || 'Selected Member'}
             </Text>
           </View>
           <TouchableOpacity
-            style={[styles.filterBannerClearBtn, { backgroundColor: '#16A34A' }]}
+            style={[styles.filterBannerClearBtn, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}
             onPress={() => setFilterMemberId(null)}
             activeOpacity={0.7}
           >
-            <Text style={styles.filterBannerClearText}>Show All</Text>
-            <Ionicons name="close" size={13} color="#FFFFFF" />
+            <Text style={[styles.filterBannerClearText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Show All</Text>
+            <Ionicons name="close" size={13} color={isDark ? '#000000' : '#FFFFFF'} />
           </TouchableOpacity>
         </View>
       )}
 
-      <ScrollView 
-        ref={mainScrollViewRef} 
-        contentContainerStyle={styles.content}
-        scrollEnabled={isScrollEnabled}
-        nestedScrollEnabled={true}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-          <View>
-            <Text style={[styles.overline, { color: colors.accentGold }]}>{editingPlaceId ? 'MODIFY BOUNDARY' : 'SETUP BOUNDARY'}</Text>
-            <Text style={[styles.title, { color: colors.foreground }]}>{editingPlaceId ? 'Edit Geofence' : 'Define Geofence'}</Text>
+      {activeTab === 'list' ? (
+        <ScrollView 
+          ref={mainScrollViewRef} 
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Executive Cockpit Pulse Bar */}
+          <View style={styles.cockpitPulseBar}>
+            <View style={[styles.cockpitPod, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E2E8F0' }]}>
+              <Text style={[styles.cockpitValue, { color: colors.foreground }]}>{displayedPlaces.length}</Text>
+              <Text style={[styles.cockpitLabel, { color: colors.textMuted }]}>ACTIVE ZONES</Text>
+            </View>
+
+            <View style={[styles.cockpitPod, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E2E8F0' }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: totalInsideCount > 0 ? '#10B981' : '#64748B' }} />
+                <Text style={[styles.cockpitValue, { color: totalInsideCount > 0 ? '#10B981' : colors.foreground }]}>{totalInsideCount}</Text>
+              </View>
+              <Text style={[styles.cockpitLabel, { color: colors.textMuted }]}>MEMBERS INSIDE</Text>
+            </View>
+
+            <View style={[styles.cockpitPod, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? 'rgba(255,255,255,0.12)' : '#E2E8F0' }]}>
+              <Text style={[styles.cockpitValue, { color: '#10B981' }]}>ARMED</Text>
+              <Text style={[styles.cockpitLabel, { color: colors.textMuted }]}>GEOFENCE RADAR</Text>
+            </View>
           </View>
+
+          {/* Hero Bento Add Zone Card */}
           <TouchableOpacity
-            onPress={() => setShowGeofenceInfoModal(true)}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            accessibilityLabel="Learn how safe places geofencing works"
-            style={{ padding: 6, borderRadius: 20, backgroundColor: isDark ? '#1C2621' : '#E8F5EE' }}
+            style={[styles.heroAddGeofenceCard, { backgroundColor: isDark ? '#18181B' : '#FFFFFF', borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0' }]}
+            onPress={() => {
+              handleCancelEdit();
+              setActiveTab('editor');
+            }}
+            activeOpacity={0.85}
           >
-            <Ionicons name="information-circle-outline" size={20} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+            <View style={[styles.heroAddIconBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F1F5F9' }]}>
+              <Ionicons name="add" size={24} color={isDark ? '#FFFFFF' : '#0F172A'} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.heroAddTitle, { color: colors.foreground }]}>Define New Safe Zone</Text>
+              <Text style={[styles.heroAddSub, { color: colors.textMuted }]}>
+                Set perimeter alerts for Home, Work, School or custom locations
+              </Text>
+            </View>
+            <View style={[styles.heroAddPill, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}>
+              <Text style={{ fontSize: 11, fontWeight: '800', color: isDark ? '#000000' : '#FFFFFF' }}>+ Add</Text>
+            </View>
           </TouchableOpacity>
-        </View>
+
+          {/* Section Title */}
+          <View style={styles.sectionHeaderRow}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+              {filterMemberId
+                ? `GEOFENCES FOR ${initialTargetMemberName ? initialTargetMemberName.toUpperCase() : 'MEMBER'} (${displayedPlaces.length})`
+                : `MONITORED SAFE ZONES (${displayedPlaces.length})`}
+            </Text>
+            <View style={[styles.accentLine, { backgroundColor: colors.accentGold }]} />
+          </View>
+
+          {loadingPlaces ? (
+            <View style={{ paddingVertical: 36, alignItems: 'center' }}>
+              <LuxuryRadarLoading
+                size={120}
+                message="SCANNING GEOFENCES..."
+                subMessage="Synchronizing real-time perimeters"
+              />
+            </View>
+          ) : displayedPlaces.length === 0 ? (
+            <View style={[styles.emptyCard, cardStyles, { borderRadius: 18, padding: 32 }]}>
+              <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                <Ionicons name="shield-checkmark-outline" size={28} color={colors.accentGold} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.foreground, fontSize: 13 }]}>
+                {filterMemberId ? 'NO GEOFENCES FOR THIS MEMBER' : 'NO SAFE PLACES CONFIGURED'}
+              </Text>
+              <Text style={[styles.emptySub, { color: colors.textMuted, maxWidth: 280, marginTop: 6, lineHeight: 18 }]}>
+                {filterMemberId
+                  ? 'No perimeter alerts have been assigned specifically to this member.'
+                  : 'Protect your circle by creating safe zones around home, school, workplace, or emergency check-in hubs.'}
+              </Text>
+              <TouchableOpacity
+                style={{
+                  marginTop: 18,
+                  backgroundColor: isDark ? '#FFFFFF' : '#0F172A',
+                  paddingHorizontal: 20,
+                  paddingVertical: 10,
+                  borderRadius: 12,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+                onPress={() => {
+                  handleCancelEdit();
+                  setActiveTab('editor');
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add-circle" size={16} color={isDark ? '#000000' : '#FFFFFF'} />
+                <Text style={{ color: isDark ? '#000000' : '#FFFFFF', fontWeight: '800', fontSize: 12 }}>
+                  CONFIGURE FIRST SAFE ZONE
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.placesList}>
+              {displayedPlaces.map((p) => {
+                const assignedIds: string[] = p.assigned_user_ids || (p.target_user_id ? [p.target_user_id] : []);
+                const assignedMembers = members.filter((m) => assignedIds.includes(m.user_id));
+                const placeCoords = parseLocationPoint(p);
+                const placeRadius = parseFloat(p.radius_m || p.radius || 150);
+
+                const insideMembers = memberLocations.filter((m) => {
+                  const hasValidLoc = m.latitude && m.longitude && m.latitude !== 0 && m.longitude !== 0;
+                  if (!hasValidLoc || placeCoords.latitude === 0 || placeCoords.longitude === 0) return false;
+                  const dist = getHaversineDistanceInMeters(m.latitude, m.longitude, placeCoords.latitude, placeCoords.longitude);
+                  return dist <= placeRadius;
+                });
+
+                const catId = p.category || 'home';
+                const catMeta = categories.find((c) => c.id === catId) || { label: catId.toUpperCase(), icon: 'bookmark' };
+
+                return (
+                  <View
+                    key={p.id}
+                    style={[
+                      styles.spaciousZoneCard,
+                      {
+                        backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+                        borderColor: insideMembers.length > 0 ? (isDark ? 'rgba(16, 185, 129, 0.4)' : '#A7F3D0') : (isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0'),
+                      },
+                    ]}
+                  >
+                    {/* Top Row: Category + Status Badge */}
+                    <View style={styles.spaciousZoneHeader}>
+                      <View
+                        style={[
+                          styles.zoneCategoryBadge,
+                          {
+                            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={(catMeta.icon as any) || 'bookmark'}
+                          size={13}
+                          color={isDark ? colors.accentGold : '#0F172A'}
+                        />
+                        <Text style={[styles.zoneCategoryText, { color: isDark ? colors.accentGold : '#0F172A' }]}>
+                          {catMeta.label}
+                        </Text>
+                      </View>
+
+                      {insideMembers.length > 0 ? (
+                        <View
+                          style={[
+                            styles.zoneStatusPill,
+                            {
+                              backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#DCFCE7',
+                              borderColor: '#10B981',
+                            },
+                          ]}
+                        >
+                          <View style={[styles.zoneStatusDot, { backgroundColor: '#10B981' }]} />
+                          <Text style={[styles.zoneStatusText, { color: isDark ? '#34D399' : '#047857' }]}>
+                            {insideMembers.length} INSIDE NOW
+                          </Text>
+                        </View>
+                      ) : (
+                        <View
+                          style={[
+                            styles.zoneStatusPill,
+                            {
+                              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+                              borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
+                            },
+                          ]}
+                        >
+                          <View style={[styles.zoneStatusDot, { backgroundColor: '#94A3B8' }]} />
+                          <Text style={[styles.zoneStatusText, { color: colors.textMuted }]}>
+                            PERIMETER ARMED
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Geofence Title */}
+                    <Text style={[styles.spaciousZoneTitle, { color: colors.foreground }]} numberOfLines={1}>
+                      {p.name}
+                    </Text>
+
+                    {/* Metadata Pills */}
+                    <View style={styles.spaciousZoneMetaRow}>
+                      <View
+                        style={[
+                          styles.spaciousZoneMetaPill,
+                          {
+                            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+                            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
+                          },
+                        ]}
+                      >
+                        <Ionicons name="radio" size={11} color={colors.accentGold} />
+                        <Text style={[styles.spaciousZoneMetaText, { color: colors.accentGold }]}>
+                          {placeRadius >= 1000 ? `${(placeRadius / 1000).toFixed(1)} km` : `${placeRadius}m`} Perimeter
+                        </Text>
+                      </View>
+
+                      <View
+                        style={[
+                          styles.spaciousZoneMetaPill,
+                          {
+                            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+                            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
+                          },
+                        ]}
+                      >
+                        <Ionicons name="people" size={11} color={colors.textMuted} />
+                        <Text style={[styles.spaciousZoneMetaText, { color: colors.textMuted }]} numberOfLines={1}>
+                          {assignedMembers.length > 0
+                            ? assignedMembers.map((m) => String(m.profile?.full_name || 'Member').split(' ')[0]).join(', ')
+                            : 'All Circle Members'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Live Occupants Section if any */}
+                    {insideMembers.length > 0 && (
+                      <View
+                        style={[
+                          styles.zoneOccupantsContainer,
+                          {
+                            backgroundColor: isDark ? 'rgba(16, 185, 129, 0.08)' : '#F0FDF4',
+                            borderColor: isDark ? 'rgba(16, 185, 129, 0.25)' : '#BBF7D0',
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.zoneOccupantsHeader,
+                            { color: isDark ? '#34D399' : '#047857' },
+                          ]}
+                        >
+                          CONFIRMED INSIDE ZONE:
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                          {insideMembers.map((m) => (
+                            <View
+                              key={m.userId}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 5,
+                                backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+                                borderWidth: 1,
+                                borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0',
+                                paddingHorizontal: 7,
+                                paddingVertical: 3,
+                                borderRadius: 12,
+                              }}
+                            >
+                              <View
+                                style={{
+                                  width: 16,
+                                  height: 16,
+                                  borderRadius: 8,
+                                  overflow: 'hidden',
+                                  backgroundColor: isDark ? '#FFFFFF' : '#0F172A',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                {m.avatarUrl ? (
+                                  <Image source={{ uri: m.avatarUrl }} style={{ width: '100%', height: '100%' }} />
+                                ) : (
+                                  <Text style={{ fontSize: 8, fontWeight: '900', color: isDark ? '#000000' : '#FFFFFF' }}>
+                                    {m.initial}
+                                  </Text>
+                                )}
+                              </View>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: colors.foreground }}>
+                                {m.name.split(' ')[0]} {m.isSelf ? '(You)' : ''}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Action Dock */}
+                    <View
+                      style={[
+                        styles.zoneActionDock,
+                        { borderTopColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' },
+                      ]}
+                    >
+                      <TouchableOpacity
+                        style={[
+                          styles.zoneDockBtn,
+                          {
+                            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F8FAFC',
+                            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
+                          },
+                        ]}
+                        onPress={() => {
+                          setStartPoint(placeCoords);
+                          setRadius(placeRadius);
+                          setSelectedCategory(p.category || 'home');
+                          setIsMapExpanded(true);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="map-outline" size={15} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                        <Text style={[styles.zoneDockBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]} numberOfLines={1}>
+                          Preview Map
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.zoneDockBtn,
+                          {
+                            backgroundColor: isDark ? '#FFFFFF' : '#0F172A',
+                            borderColor: isDark ? '#FFFFFF' : '#0F172A',
+                          },
+                        ]}
+                        onPress={() => handleStartEditPlace(p)}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="create-outline" size={15} color={isDark ? '#000000' : '#FFFFFF'} />
+                        <Text style={[styles.zoneDockBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]} numberOfLines={1}>
+                          Edit Zone
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.zoneDockIconOnlyBtn,
+                          {
+                            backgroundColor: isDark ? 'rgba(239, 68, 68, 0.12)' : '#FEE2E2',
+                            borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : '#FCA5A5',
+                          },
+                        ]}
+                        onPress={() => handleDeletePlace(p.id, p.name)}
+                        activeOpacity={0.7}
+                        accessibilityLabel="Delete Safe Zone"
+                      >
+                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </ScrollView>
+      ) : (
+        <ScrollView 
+          ref={mainScrollViewRef} 
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 120 }]}
+          scrollEnabled={isScrollEnabled}
+          nestedScrollEnabled={true}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.editorHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.overline, { color: colors.accentGold }]}>{editingPlaceId ? 'MODIFY BOUNDARY' : 'SETUP BOUNDARY'}</Text>
+              <Text style={[styles.title, { color: colors.foreground, marginBottom: 0 }]}>{editingPlaceId ? 'Edit Geofence' : 'Define Geofence'}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {editingPlaceId && (
+                <TouchableOpacity
+                  onPress={handleCancelEdit}
+                  style={[styles.cancelEditorHeaderBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F1F5F9', borderColor: colors.border }]}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close-circle-outline" size={14} color={colors.textMuted} />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textMuted }}>Cancel</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                onPress={() => setShowGeofenceInfoModal(true)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityLabel="Learn how safe places geofencing works"
+                style={[styles.infoCircleBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9', borderColor: colors.border }]}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="information-circle-outline" size={20} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+          </View>
 
         <Text style={[styles.inputLabel, { color: colors.textMuted }]}>GEOFENCE NAME</Text>
         <TextInput
-          style={[styles.underlineInput, { color: colors.foreground, borderBottomColor: colors.accentGold }]}
+          style={[styles.modernInputBox, { color: colors.foreground, borderColor: colors.border, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC' }]}
           placeholder="e.g. Home Safe Zone, School Perimeter, Commute Corridor"
           value={placeName}
           onChangeText={setPlaceName}
@@ -1640,10 +2141,8 @@ export default function SafePlacesScreen() {
                 style={[
                   styles.categoryTile, 
                   {
-                    backgroundColor: active ? (themeMode === 'brand_green' ? '#E8F8EE' : colors.surfaceMuted) : colors.surface,
-                    borderColor: active ? colors.accentGold : colors.border,
-                    borderRadius: 14,
-                    borderWidth: 1.5,
+                    backgroundColor: active ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC'),
+                    borderColor: active ? (isDark ? '#FFFFFF' : '#0F172A') : colors.border,
                   },
                   isRouteGated ? { opacity: 0.8 } : null
                 ]}
@@ -1662,18 +2161,25 @@ export default function SafePlacesScreen() {
                     setPlaceName(`${cat.label} Safe Zone`);
                   }
                 }}
+                activeOpacity={0.8}
               >
                 {isRouteGated ? (
-                  <View style={{ position: 'absolute', top: 4, right: 4, backgroundColor: colors.accentGold, borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1 }}>
+                  <View style={styles.categoryPlusBadge}>
                     <Text style={{ fontSize: 7, fontWeight: '900', color: '#1A1A1A' }}>PLUS</Text>
                   </View>
                 ) : null}
                 <Ionicons 
                   name={cat.icon as any} 
-                  size={20} 
-                  color={active ? colors.accentGold : colors.foreground} 
+                  size={19} 
+                  color={active ? (isDark ? '#000000' : '#FFFFFF') : colors.textMuted} 
                 />
-                <Text style={[styles.categoryLabel, { color: active ? colors.accentGold : colors.textMuted }]}>
+                <Text 
+                  style={[
+                    styles.categoryLabel, 
+                    { color: active ? (isDark ? '#000000' : '#FFFFFF') : colors.textMuted, fontWeight: active ? '800' : '600' }
+                  ]}
+                  numberOfLines={1}
+                >
                   {cat.label}
                 </Text>
               </TouchableOpacity>
@@ -1711,8 +2217,8 @@ export default function SafePlacesScreen() {
                 <Text style={{ fontSize: 11, fontWeight: '800', color: LUXURY_THEME.colors.foreground, letterSpacing: 0.5 }}>
                   SPEED-ADAPTIVE BUFFER
                 </Text>
-                <View style={{ backgroundColor: '#D4AF37', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
-                  <Text style={{ fontSize: 8, fontWeight: '900', color: '#1A1A1A' }}>PLUS</Text>
+                <View style={{ backgroundColor: isDark ? '#FFFFFF' : '#0F172A', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                  <Text style={{ fontSize: 8, fontWeight: '900', color: isDark ? '#000000' : '#FFFFFF' }}>PLUS</Text>
                 </View>
               </View>
               <Text style={{ fontSize: 10, color: LUXURY_THEME.colors.textMuted, lineHeight: 14 }}>
@@ -1729,13 +2235,25 @@ export default function SafePlacesScreen() {
         </View>
 
         {/* Tracked Member Target Selector */}
-        <Text style={styles.inputLabel}>TRACKED MEMBER ASSIGNMENT</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
+        <Text style={[styles.inputLabel, { color: colors.textMuted }]}>TRACKED MEMBER ASSIGNMENT</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.memberChipsScroll}>
           <TouchableOpacity
-            style={[styles.memberChip, targetUserId === null ? styles.activeMemberChip : null]}
+            style={[
+              styles.memberChip,
+              targetUserId === null
+                ? (isDark ? styles.activeMemberChipDark : styles.activeMemberChipLight)
+                : { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: colors.border }
+            ]}
             onPress={() => setTargetUserId(null)}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.memberChipText, targetUserId === null ? styles.activeMemberChipText : null]}>
+            <Ionicons name="people" size={13} color={targetUserId === null ? (isDark ? '#000000' : '#FFFFFF') : colors.textMuted} />
+            <Text style={[
+              styles.memberChipText, 
+              targetUserId === null 
+                ? (isDark ? { color: '#000000', fontWeight: '800' } : { color: '#FFFFFF', fontWeight: '800' }) 
+                : { color: colors.textMuted }
+            ]}>
               ALL CIRCLE MEMBERS
             </Text>
           </TouchableOpacity>
@@ -1745,39 +2263,49 @@ export default function SafePlacesScreen() {
             return (
               <TouchableOpacity
                 key={m.user_id}
-                style={[styles.memberChip, isSelected ? styles.activeMemberChip : null]}
+                style={[
+                  styles.memberChip,
+                  isSelected
+                    ? (isDark ? styles.activeMemberChipDark : styles.activeMemberChipLight)
+                    : { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: colors.border }
+                ]}
                 onPress={() => setTargetUserId(m.user_id)}
+                activeOpacity={0.8}
               >
-                <Text style={[styles.memberChipText, isSelected ? styles.activeMemberChipText : null]}>
+                <View style={[styles.miniAvatarDot, { backgroundColor: isSelected ? (isDark ? '#000000' : '#FFFFFF') : colors.textMuted }]}>
+                  <Text style={{ fontSize: 9, fontWeight: '900', color: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : '#FFFFFF' }}>{firstName.charAt(0)}</Text>
+                </View>
+                <Text style={[
+                  styles.memberChipText, 
+                  isSelected 
+                    ? (isDark ? { color: '#000000', fontWeight: '800' } : { color: '#FFFFFF', fontWeight: '800' }) 
+                    : { color: colors.textMuted }
+                ]}>
                   {firstName.toUpperCase()} ONLY
                 </Text>
               </TouchableOpacity>
             );
           })}
         </ScrollView>
+
         {/* Quick Member Pin Selector */}
         {memberLocations.length > 0 ? (
-          <View style={{ marginBottom: 16 }}>
-            <Text style={styles.inputLabel}>PIN GEOFENCE TO MEMBER'S LIVE LOCATION</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={{ marginBottom: 18 }}>
+            <Text style={[styles.inputLabel, { color: colors.textMuted }]}>PIN GEOFENCE TO MEMBER'S LIVE LOCATION</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
               {memberLocations.map(m => {
-                const roleColor = m.role === 'owner' ? '#F5A623' : (m.role === 'co_leader' ? '#3ADFAB' : (m.role === 'guardian' ? '#2E7D5B' : '#64748B'));
+                const roleColor = m.role === 'owner' ? '#F5A623' : (m.role === 'co_leader' ? (isDark ? '#FFFFFF' : '#0F172A') : (m.role === 'guardian' ? (isDark ? '#E2E8F0' : '#334155') : '#64748B'));
                 const firstName = m.name.split(' ')[0];
                 return (
                   <TouchableOpacity
                     key={m.userId}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 8,
-                      paddingHorizontal: 12,
-                      paddingVertical: 8,
-                      backgroundColor: LUXURY_THEME.colors.surface,
-                      borderWidth: 1.5,
-                      borderColor: roleColor,
-                      borderRadius: 12,
-                      marginRight: 10,
-                    }}
+                    style={[
+                      styles.memberLivePinBtn,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#FFFFFF',
+                        borderColor: roleColor,
+                      }
+                    ]}
                     onPress={() => {
                       if (m.latitude && m.longitude && m.latitude !== 0 && m.longitude !== 0) {
                         setStartPoint({ latitude: m.latitude, longitude: m.longitude });
@@ -1798,9 +2326,10 @@ export default function SafePlacesScreen() {
                         });
                       }
                     }}
+                    activeOpacity={0.75}
                   >
                     <Ionicons name="location-sharp" size={14} color={roleColor} />
-                    <Text style={{ fontSize: 10, fontWeight: '800', color: LUXURY_THEME.colors.foreground, letterSpacing: 0.5 }}>
+                    <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.foreground, letterSpacing: 0.5 }}>
                       {m.isSelf ? 'MY LOCATION' : firstName.toUpperCase()}
                     </Text>
                   </TouchableOpacity>
@@ -1810,48 +2339,80 @@ export default function SafePlacesScreen() {
           </View>
         ) : null}
 
-
-
         {/* Interactive Mini Map Picker (Mark Start & End Points) */}
         <View style={styles.miniMapHeaderRow}>
-          <Text style={[styles.inputLabel, { flex: 1, marginBottom: 0, marginRight: 8 }]} numberOfLines={1}>
+          <Text style={[styles.inputLabel, { flex: 1, marginBottom: 0, marginRight: 8, color: colors.textMuted }]} numberOfLines={1}>
             GEOFENCE MAP (TAP TO SET PINS)
           </Text>
           <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
             <TouchableOpacity 
-              style={[styles.resetMapBtn, { borderColor: '#38BDF8', backgroundColor: 'rgba(56, 189, 248, 0.12)' }]} 
+              style={[
+                styles.mapToolBtn, 
+                { 
+                  borderColor: '#38BDF8', 
+                  backgroundColor: isDark ? 'rgba(56, 189, 248, 0.14)' : '#E0F2FE' 
+                }
+              ]} 
               onPress={() => setIsMapExpanded(true)}
               activeOpacity={0.8}
             >
-              <Ionicons name="expand-outline" size={12} color="#38BDF8" />
-              <Text style={[styles.resetMapText, { color: '#38BDF8' }]}>EXPAND</Text>
+              <Ionicons name="expand-outline" size={13} color={isDark ? '#38BDF8' : '#0284C7'} />
+              <Text style={[styles.mapToolBtnText, { color: isDark ? '#38BDF8' : '#0284C7' }]}>EXPAND</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.resetMapBtn} onPress={handleResetPoints} activeOpacity={0.8}>
-              <Ionicons name="refresh-outline" size={12} color={LUXURY_THEME.colors.accentGold} />
-              <Text style={styles.resetMapText}>RESET PINS</Text>
+            <TouchableOpacity 
+              style={[
+                styles.mapToolBtn,
+                {
+                  borderColor: isDark ? 'rgba(255,255,255,0.18)' : '#CBD5E1',
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9',
+                }
+              ]} 
+              onPress={handleResetPoints} 
+              activeOpacity={0.8}
+            >
+              <Ionicons name="refresh-outline" size={13} color={colors.foreground} />
+              <Text style={[styles.mapToolBtnText, { color: colors.foreground }]}>RESET PINS</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        <View style={styles.modeToggleRow}>
+        <View style={[styles.modeToggleRow, { backgroundColor: isDark ? '#141519' : '#F1F5F9', borderColor: colors.border }]}>
           <TouchableOpacity 
-            style={[styles.modeBtn, activePointMode === 'start' ? styles.activeStartModeBtn : null]}
+            style={[
+              styles.modeBtn, 
+              activePointMode === 'start' && (isDark ? styles.modeBtnActiveDark : styles.modeBtnActiveLight)
+            ]}
             onPress={() => setActivePointMode('start')}
+            activeOpacity={0.8}
           >
             <View style={[styles.pinDot, { backgroundColor: '#10B981' }]} />
-            <Text style={[styles.modeBtnText, activePointMode === 'start' ? { color: '#FFFFFF' } : null]}>
-              {startPoint ? 'START: SET' : 'TAP MAP: SET START'}
+            <Text style={[
+              styles.modeBtnText, 
+              activePointMode === 'start' 
+                ? (isDark ? { color: '#000000', fontWeight: '800' } : { color: '#FFFFFF', fontWeight: '800' })
+                : { color: colors.textMuted }
+            ]} numberOfLines={1}>
+              {startPoint ? 'START PIN: SET ✓' : 'TAP MAP: SET START'}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity 
-            style={[styles.modeBtn, activePointMode === 'end' ? styles.activeEndModeBtn : null]}
+            style={[
+              styles.modeBtn, 
+              activePointMode === 'end' && (isDark ? styles.modeBtnActiveDark : styles.modeBtnActiveLight)
+            ]}
             onPress={() => setActivePointMode('end')}
+            activeOpacity={0.8}
           >
             <View style={[styles.pinDot, { backgroundColor: '#EF4444' }]} />
-            <Text style={[styles.modeBtnText, activePointMode === 'end' ? { color: '#FFFFFF' } : null]}>
-              {endPoint ? 'END: SET' : 'TAP MAP: SET END'}
+            <Text style={[
+              styles.modeBtnText, 
+              activePointMode === 'end' 
+                ? (isDark ? { color: '#000000', fontWeight: '800' } : { color: '#FFFFFF', fontWeight: '800' })
+                : { color: colors.textMuted }
+            ]} numberOfLines={1}>
+              {endPoint ? 'END PIN: SET ✓' : 'TAP MAP: SET END (OPTIONAL)'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -1982,8 +2543,8 @@ export default function SafePlacesScreen() {
 
               if (isInsideInner) {
                 statusText = 'INSIDE SAFE ZONE';
-                statusColor = '#10B981';
-                badgeBg = 'rgba(16, 185, 129, 0.15)';
+                statusColor = isDark ? '#FFFFFF' : '#0F172A';
+                badgeBg = isDark ? 'rgba(255, 255, 255, 0.12)' : '#F1F5F9';
               } else if (isInsideOuter) {
                 statusText = `BUFFER ZONE (~${etaMinutes} min)`;
                 statusColor = '#F59E0B';
@@ -2025,17 +2586,23 @@ export default function SafePlacesScreen() {
         ) : null}
 
         {/* Coordinates & Calculated Distance Readout */}
-        <View style={styles.coordReadoutBox}>
+        <View style={[styles.coordReadoutBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF', borderColor: colors.border }]}>
           <View style={styles.coordCol}>
-            <Text style={styles.coordLabel}>START PIN</Text>
-            <Text style={styles.coordVal}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+              <View style={[styles.miniDotIndicator, { backgroundColor: '#10B981' }]} />
+              <Text style={[styles.coordLabel, { color: colors.textMuted }]}>START PIN</Text>
+            </View>
+            <Text style={[styles.coordVal, { color: colors.foreground }]} numberOfLines={1}>
               {startPoint ? `${startPoint.latitude.toFixed(4)}, ${startPoint.longitude.toFixed(4)}` : 'Tap map to set'}
             </Text>
           </View>
-          <View style={styles.coordDivider} />
+          <View style={[styles.coordDivider, { backgroundColor: colors.border }]} />
           <View style={styles.coordCol}>
-            <Text style={styles.coordLabel}>END PIN</Text>
-            <Text style={styles.coordVal}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+              <View style={[styles.miniDotIndicator, { backgroundColor: '#EF4444' }]} />
+              <Text style={[styles.coordLabel, { color: colors.textMuted }]}>END PIN</Text>
+            </View>
+            <Text style={[styles.coordVal, { color: colors.foreground }]} numberOfLines={1}>
               {endPoint ? `${endPoint.latitude.toFixed(4)}, ${endPoint.longitude.toFixed(4)}` : 'Optional'}
             </Text>
           </View>
@@ -2043,8 +2610,13 @@ export default function SafePlacesScreen() {
 
         {/* Radius Selector */}
         <View style={styles.radiusHeaderRow}>
-          <Text style={styles.inputLabel}>AUTO-COMPUTED GEOFENCE RADIUS</Text>
-          <Text style={styles.radiusValText}>{radius >= 1000 ? `${(radius / 1000).toFixed(1)} km` : `${radius} m`}</Text>
+          <Text style={[styles.inputLabel, { color: colors.textMuted, marginBottom: 0 }]}>GEOFENCE RADIUS</Text>
+          <View style={[styles.radiusPillBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F1F5F9' }]}>
+            <Ionicons name="radio" size={12} color={colors.accentGold} />
+            <Text style={[styles.radiusValText, { color: colors.accentGold }]}>
+              {radius >= 1000 ? `${(radius / 1000).toFixed(1)} km` : `${radius} m`}
+            </Text>
+          </View>
         </View>
         
         <View style={styles.radiusRow}>
@@ -2053,10 +2625,21 @@ export default function SafePlacesScreen() {
             return (
               <TouchableOpacity
                 key={r}
-                style={[styles.radiusChip, active ? styles.activeRadiusChip : null]}
+                style={[
+                  styles.radiusChip, 
+                  active 
+                    ? (isDark ? styles.radiusChipActiveDark : styles.radiusChipActiveLight)
+                    : { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC', borderColor: colors.border }
+                ]}
                 onPress={() => setRadius(r)}
+                activeOpacity={0.7}
               >
-                <Text style={[styles.radiusText, active ? styles.activeRadiusText : null]}>
+                <Text style={[
+                  styles.radiusText, 
+                  active 
+                    ? (isDark ? { color: '#000000', fontWeight: '900' } : { color: '#FFFFFF', fontWeight: '900' })
+                    : { color: colors.textMuted }
+                ]}>
                   {r >= 1000 ? `${r / 1000}km` : `${r}m`}
                 </Text>
               </TouchableOpacity>
@@ -2064,180 +2647,59 @@ export default function SafePlacesScreen() {
           })}
         </View>
 
-
-
-        {/* Saved Geofences Section */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
-            {filterMemberId ? `GEOFENCES FOR ${initialTargetMemberName ? initialTargetMemberName.toUpperCase() : 'MEMBER'} (${displayedPlaces.length})` : `ACTIVE CIRCLE GEOFENCES (${displayedPlaces.length})`}
-          </Text>
-          <View style={[styles.accentLine, { backgroundColor: colors.accentGold }]} />
-        </View>
-
-        {loadingPlaces ? (
-          <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-            <LuxuryRadarLoading
-              size={120}
-              message="LOADING PLACES..."
-              subMessage="Syncing geofences"
-            />
-          </View>
-        ) : displayedPlaces.length === 0 ? (
-          <View style={[styles.emptyCard, cardStyles]}>
-            <Ionicons name="shield-checkmark-outline" size={32} color={colors.textMuted} />
-            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
-              {filterMemberId ? `NO GEOFENCES FOR THIS MEMBER` : 'NO GEOFENCES CONFIGURED'}
-            </Text>
-            <Text style={[styles.emptySub, { color: colors.textMuted }]}>
-              {filterMemberId
-                ? 'No custom geofences are assigned specifically to this member. Use the form above to add one, or show all circle geofences.'
-                : 'Tap points on the Mini Map above to automatically calculate radius and define geofence boundaries.'}
-            </Text>
-            {filterMemberId && (
-              <TouchableOpacity
-                style={{ marginTop: 14, backgroundColor: '#16A34A', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10, alignSelf: 'center' }}
-                onPress={() => setFilterMemberId(null)}
-              >
-                <Text style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 }}>SHOW ALL CIRCLE GEOFENCES</Text>
-              </TouchableOpacity>
+        {/* Editor Action Dock */}
+        <View style={styles.editorBottomDock}>
+          {editingPlaceId && (
+            <TouchableOpacity
+              style={[
+                styles.editorCancelBtn,
+                {
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F1F5F9',
+                  borderColor: colors.border,
+                }
+              ]}
+              onPress={handleCancelEdit}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close-circle-outline" size={16} color={colors.foreground} />
+              <Text style={[styles.editorCancelBtnText, { color: colors.foreground }]}>Cancel</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={[
+              styles.editorSubmitBtn,
+              {
+                flex: editingPlaceId ? 2 : 1,
+                backgroundColor: isDark ? '#FFFFFF' : '#0F172A',
+              }
+            ]}
+            onPress={handleSavePlace}
+            disabled={saving}
+            activeOpacity={0.8}
+          >
+            {saving ? (
+              <ActivityIndicator size="small" color={isDark ? '#000000' : '#FFFFFF'} />
+            ) : (
+              <>
+                <Ionicons
+                  name={editingPlaceId ? 'checkmark-circle' : 'shield-checkmark'}
+                  size={18}
+                  color={isDark ? '#000000' : '#FFFFFF'}
+                />
+                <Text
+                  style={[
+                    styles.editorSubmitBtnText,
+                    { color: isDark ? '#000000' : '#FFFFFF' }
+                  ]}
+                >
+                  {editingPlaceId ? 'UPDATE GEOFENCE' : 'ACTIVATE GEOFENCE'}
+                </Text>
+              </>
             )}
-          </View>
-        ) : (
-          <View style={styles.placesList}>
-            {displayedPlaces.map(p => {
-              const assignedIds: string[] = p.assigned_user_ids || (p.target_user_id ? [p.target_user_id] : []);
-              const assignedMembers = members.filter(m => assignedIds.includes(m.user_id));
-
-              const placeCoords = parseLocationPoint(p);
-              const placeRadius = parseFloat(p.radius_m || p.radius || 150);
-
-              // Calculate members currently inside this safe zone
-              const insideMembers = memberLocations.filter(m => {
-                const hasValidLoc = m.latitude && m.longitude && m.latitude !== 0 && m.longitude !== 0;
-                if (!hasValidLoc || placeCoords.latitude === 0 || placeCoords.longitude === 0) return false;
-                const dist = getHaversineDistanceInMeters(m.latitude, m.longitude, placeCoords.latitude, placeCoords.longitude);
-                return dist <= placeRadius;
-              });
-
-              return (
-                <View key={p.id} style={[styles.placeCard, cardStyles]}>
-                  <View style={styles.placeLeft}>
-                    <View style={[styles.placeIconBox, { backgroundColor: insideMembers.length > 0 ? 'rgba(16, 185, 129, 0.2)' : `${colors.accentGold}20`, borderColor: insideMembers.length > 0 ? '#10B981' : colors.accentGold, borderRadius: 10 }]}>
-                      <Ionicons name={insideMembers.length > 0 ? "shield-checkmark" : (p.end_lat ? "navigate" : "bookmark")} size={18} color={insideMembers.length > 0 ? '#10B981' : colors.accentGold} />
-                    </View>
-                    <View style={{ flex: 1, paddingRight: 8 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                        <Text style={[styles.placeName, { color: colors.foreground, flex: 1 }]} numberOfLines={1}>{p.name}</Text>
-                        {insideMembers.length > 0 ? (
-                          <View style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)', borderWidth: 1, borderColor: '#10B981', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 }}>
-                            <Text style={{ fontSize: 9, fontWeight: '900', color: '#10B981' }}>
-                              {insideMembers.length} INSIDE
-                            </Text>
-                          </View>
-                        ) : (
-                          <View style={{ backgroundColor: 'rgba(107, 114, 128, 0.12)', borderWidth: 1, borderColor: '#6B7280', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
-                            <Text style={{ fontSize: 8.5, fontWeight: '800', color: '#9CA3AF' }}>0 INSIDE</Text>
-                          </View>
-                        )}
-                      </View>
-                      
-                      <View style={styles.tagRow}>
-                        <Text style={[styles.placeRadius, { color: colors.accentGold }]}>RADIUS: {placeRadius}M</Text>
-                        <Text style={[styles.tagDot, { color: colors.textMuted }]}>•</Text>
-                        <Text style={[styles.targetTag, { color: colors.textMuted }]} numberOfLines={1} ellipsizeMode="tail">
-                          {assignedMembers.length > 0
-                            ? `TARGET: ${assignedMembers.map(m => String(m.profile?.full_name || 'Member').split(' ')[0]).join(', ').toUpperCase()}`
-                            : 'MONITORING: ALL MEMBERS'}
-                        </Text>
-                      </View>
-
-                      {/* Display Members Inside Zone or Assigned to Zone */}
-                      <View style={{ marginTop: 8 }}>
-                        <Text style={{ fontSize: 8.5, fontWeight: '800', color: insideMembers.length > 0 ? '#10B981' : colors.textMuted, letterSpacing: 0.5, marginBottom: 4 }}>
-                          {insideMembers.length > 0 ? `CURRENTLY INSIDE (${insideMembers.length}):` : 'CIRCLE MEMBERS IN ZONE:'}
-                        </Text>
-                        
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-                          {insideMembers.length > 0 ? (
-                            insideMembers.map((m) => (
-                              <View key={m.userId} style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 4,
-                                backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                                borderWidth: 1,
-                                borderColor: '#10B981',
-                                paddingHorizontal: 6,
-                                paddingVertical: 3,
-                                borderRadius: 12,
-                              }}>
-                                <View style={{ width: 16, height: 16, borderRadius: 8, overflow: 'hidden', backgroundColor: '#10B981', alignItems: 'center', justifyContent: 'center' }}>
-                                  {m.avatarUrl ? (
-                                    <Image source={{ uri: m.avatarUrl }} style={{ width: '100%', height: '100%' }} />
-                                  ) : (
-                                    <Text style={{ fontSize: 8, fontWeight: '900', color: '#FFFFFF' }}>{m.initial}</Text>
-                                  )}
-                                </View>
-                                <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.foreground }}>
-                                  {m.name.split(' ')[0]} {m.isSelf ? '(You)' : ''}
-                                </Text>
-                              </View>
-                            ))
-                          ) : (
-                            memberLocations.slice(0, 4).map((m) => (
-                              <View key={m.userId} style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 4,
-                                backgroundColor: colors.surfaceMuted,
-                                borderWidth: 1,
-                                borderColor: colors.border,
-                                paddingHorizontal: 6,
-                                paddingVertical: 2,
-                                borderRadius: 12,
-                                opacity: 0.7,
-                              }}>
-                                <View style={{ width: 14, height: 14, borderRadius: 7, overflow: 'hidden', backgroundColor: colors.border, alignItems: 'center', justifyContent: 'center' }}>
-                                  {m.avatarUrl ? (
-                                    <Image source={{ uri: m.avatarUrl }} style={{ width: '100%', height: '100%' }} />
-                                  ) : (
-                                    <Text style={{ fontSize: 7.5, fontWeight: '800', color: colors.foreground }}>{m.initial}</Text>
-                                  )}
-                                </View>
-                                <Text style={{ fontSize: 9, color: colors.textMuted }}>
-                                  {m.name.split(' ')[0]}
-                                </Text>
-                              </View>
-                            ))
-                          )}
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <TouchableOpacity 
-                      style={[styles.editBtn, { backgroundColor: colors.surfaceMuted, borderColor: colors.border, borderRadius: 8 }]}
-                      onPress={() => handleStartEditPlace(p)}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="create" size={16} color={colors.accentGold} />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity 
-                      style={[styles.deleteBtn, { backgroundColor: '#FEE2E2', borderColor: '#EF4444', borderRadius: 8 }]}
-                      onPress={() => handleDeletePlace(p.id, p.name)}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="trash" size={16} color="#EF4444" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-        )}
+          </TouchableOpacity>
+        </View>
       </ScrollView>
+      )}
 
       <PaywallModal
         visible={paywallVisible}
@@ -2276,66 +2738,78 @@ export default function SafePlacesScreen() {
 
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
               <TouchableOpacity 
-                style={[styles.resetMapBtn, { borderColor: colors.border, paddingHorizontal: 10 }]} 
+                style={[styles.modalHeaderBtn, { borderColor: colors.border, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9' }]} 
                 onPress={handleResetPoints} 
                 activeOpacity={0.8}
               >
-                <Ionicons name="refresh-outline" size={13} color={colors.accentGold} />
-                <Text style={styles.resetMapText}>RESET</Text>
+                <Ionicons name="refresh-outline" size={14} color={colors.foreground} />
+                <Text style={[styles.modalHeaderBtnText, { color: colors.foreground }]}>RESET</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 5,
-                  backgroundColor: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold,
-                  paddingHorizontal: 16,
-                  paddingVertical: 8,
-                  borderRadius: 10,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.2,
-                  shadowRadius: 4,
-                  elevation: 3
-                }}
+                style={[
+                  styles.modalHeaderBtn,
+                  {
+                    backgroundColor: isDark ? '#FFFFFF' : '#0F172A',
+                    borderColor: isDark ? '#FFFFFF' : '#0F172A',
+                    paddingHorizontal: 16,
+                  }
+                ]}
                 onPress={() => {
                   setIsMapExpanded(false);
                   setTimeout(() => pushMiniMapData(true), 150);
                 }}
                 activeOpacity={0.8}
               >
-                <Ionicons name="checkmark-sharp" size={15} color={themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A'} />
-                <Text style={{ color: themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A', fontWeight: '900', fontSize: 11, letterSpacing: 1 }}>DONE</Text>
+                <Ionicons name="checkmark-sharp" size={15} color={isDark ? '#000000' : '#FFFFFF'} />
+                <Text style={[styles.modalHeaderBtnText, { color: isDark ? '#000000' : '#FFFFFF', fontWeight: '900' }]}>DONE</Text>
               </TouchableOpacity>
             </View>
           </View>
 
           {/* Mode Toggle Row in Full Map */}
-          <View style={{ paddingHorizontal: 20, paddingVertical: 10, backgroundColor: isDark ? 'rgba(21, 23, 30, 0.95)' : 'rgba(245, 245, 245, 0.95)', borderBottomWidth: 1, borderBottomColor: colors.border }}>
-            <View style={styles.modeToggleRow}>
+          <View style={{ paddingHorizontal: 16, paddingVertical: 10, backgroundColor: isDark ? 'rgba(21, 23, 30, 0.95)' : 'rgba(245, 245, 245, 0.95)', borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <View style={[styles.modeToggleRow, { backgroundColor: isDark ? '#141519' : '#F1F5F9', borderColor: colors.border, marginBottom: 4 }]}>
               <TouchableOpacity 
-                style={[styles.modeBtn, activePointMode === 'start' ? styles.activeStartModeBtn : null]}
+                style={[
+                  styles.modeBtn, 
+                  activePointMode === 'start' && (isDark ? styles.modeBtnActiveDark : styles.modeBtnActiveLight)
+                ]}
                 onPress={() => setActivePointMode('start')}
+                activeOpacity={0.8}
               >
                 <View style={[styles.pinDot, { backgroundColor: '#10B981' }]} />
-                <Text style={[styles.modeBtnText, activePointMode === 'start' ? { color: '#FFFFFF' } : null]}>
-                  {startPoint ? 'START: SET' : 'TAP MAP: SET START'}
+                <Text style={[
+                  styles.modeBtnText, 
+                  activePointMode === 'start' 
+                    ? (isDark ? { color: '#000000', fontWeight: '800' } : { color: '#FFFFFF', fontWeight: '800' })
+                    : { color: colors.textMuted }
+                ]} numberOfLines={1}>
+                  {startPoint ? 'START PIN: SET ✓' : 'TAP MAP: SET START'}
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity 
-                style={[styles.modeBtn, activePointMode === 'end' ? styles.activeEndModeBtn : null]}
+                style={[
+                  styles.modeBtn, 
+                  activePointMode === 'end' && (isDark ? styles.modeBtnActiveDark : styles.modeBtnActiveLight)
+                ]}
                 onPress={() => setActivePointMode('end')}
+                activeOpacity={0.8}
               >
                 <View style={[styles.pinDot, { backgroundColor: '#EF4444' }]} />
-                <Text style={[styles.modeBtnText, activePointMode === 'end' ? { color: '#FFFFFF' } : null]}>
-                  {endPoint ? 'END: SET' : 'TAP MAP: SET END'}
+                <Text style={[
+                  styles.modeBtnText, 
+                  activePointMode === 'end' 
+                    ? (isDark ? { color: '#000000', fontWeight: '800' } : { color: '#FFFFFF', fontWeight: '800' })
+                    : { color: colors.textMuted }
+                ]} numberOfLines={1}>
+                  {endPoint ? 'END PIN: SET ✓' : 'TAP MAP: SET END (OPTIONAL)'}
                 </Text>
               </TouchableOpacity>
             </View>
-            <Text style={{ fontSize: 9.5, color: colors.textMuted, textAlign: 'center', marginTop: 6 }}>
-              Tap any location on the map to place boundary pins • Drag to pan • Pinch to zoom
+            <Text style={{ fontSize: 10, color: colors.textMuted, textAlign: 'center', marginTop: 4 }}>
+              Tap anywhere on the map to position boundary • Drag to pan • Pinch to zoom
             </Text>
           </View>
 
@@ -2407,9 +2881,9 @@ export default function SafePlacesScreen() {
             }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: 8 }}>
-                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#10B981' }} />
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }} />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 9, fontWeight: '800', color: '#10B981', letterSpacing: 0.5 }}>START POINT (A)</Text>
+                    <Text style={{ fontSize: 9, fontWeight: '800', color: isDark ? '#FFFFFF' : '#0F172A', letterSpacing: 0.5 }}>START POINT (A)</Text>
                     <Text style={{ fontSize: 11, fontWeight: '700', color: colors.foreground }} numberOfLines={1}>
                       {startPoint ? `${startPoint.latitude.toFixed(5)}, ${startPoint.longitude.toFixed(5)}` : 'Tap map to choose'}
                     </Text>
@@ -2430,84 +2904,71 @@ export default function SafePlacesScreen() {
               </View>
 
               {/* Action Buttons */}
-              <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                 {userLoc ? (
                   <TouchableOpacity
-                    style={{
-                      flex: 1,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4,
-                      paddingVertical: 7,
-                      borderRadius: 8,
-                      backgroundColor: 'rgba(56, 189, 248, 0.12)',
-                      borderWidth: 1,
-                      borderColor: '#38BDF8',
-                    }}
+                    style={[
+                      styles.modalDockBtn,
+                      {
+                        backgroundColor: isDark ? 'rgba(56, 189, 248, 0.14)' : '#E0F2FE',
+                        borderColor: '#38BDF8',
+                      }
+                    ]}
                     onPress={() => centerMapOn(userLoc.latitude, userLoc.longitude, 16)}
+                    activeOpacity={0.75}
                   >
-                    <Ionicons name="locate-outline" size={13} color="#38BDF8" />
-                    <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#38BDF8' }}>MY LOC</Text>
+                    <Ionicons name="locate-outline" size={14} color={isDark ? '#38BDF8' : '#0284C7'} />
+                    <Text style={[styles.modalDockBtnText, { color: isDark ? '#38BDF8' : '#0284C7' }]} numberOfLines={1}>MY LOC</Text>
                   </TouchableOpacity>
                 ) : null}
 
                 {startPoint ? (
                   <TouchableOpacity
-                    style={{
-                      flex: 1,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4,
-                      paddingVertical: 7,
-                      borderRadius: 8,
-                      backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                      borderWidth: 1,
-                      borderColor: '#10B981',
-                    }}
+                    style={[
+                      styles.modalDockBtn,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                        borderColor: isDark ? 'rgba(255, 255, 255, 0.2)' : '#CBD5E1',
+                      }
+                    ]}
                     onPress={() => centerMapOn(startPoint.latitude, startPoint.longitude, 16)}
+                    activeOpacity={0.75}
                   >
-                    <Ionicons name="flag-outline" size={13} color="#10B981" />
-                    <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#10B981' }}>GO TO START</Text>
+                    <Ionicons name="flag-outline" size={14} color={colors.foreground} />
+                    <Text style={[styles.modalDockBtnText, { color: colors.foreground }]} numberOfLines={1}>GO TO START</Text>
                   </TouchableOpacity>
                 ) : null}
 
                 {endPoint ? (
                   <TouchableOpacity
-                    style={{
-                      flex: 1,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4,
-                      paddingVertical: 7,
-                      borderRadius: 8,
-                      backgroundColor: 'rgba(239, 68, 68, 0.12)',
-                      borderWidth: 1,
-                      borderColor: '#EF4444',
-                    }}
+                    style={[
+                      styles.modalDockBtn,
+                      {
+                        backgroundColor: isDark ? 'rgba(239, 68, 68, 0.12)' : '#FEE2E2',
+                        borderColor: '#EF4444',
+                      }
+                    ]}
                     onPress={() => centerMapOn(endPoint.latitude, endPoint.longitude, 16)}
+                    activeOpacity={0.75}
                   >
-                    <Ionicons name="navigate-outline" size={13} color="#EF4444" />
-                    <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#EF4444' }}>GO TO END</Text>
+                    <Ionicons name="navigate-outline" size={14} color="#EF4444" />
+                    <Text style={[styles.modalDockBtnText, { color: '#EF4444' }]} numberOfLines={1}>GO TO END</Text>
                   </TouchableOpacity>
                 ) : null}
 
                 <TouchableOpacity
-                  style={{
-                    paddingHorizontal: 10,
-                    paddingVertical: 7,
-                    borderRadius: 8,
-                    backgroundColor: 'rgba(239, 68, 68, 0.08)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(239, 68, 68, 0.3)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
+                  style={[
+                    styles.modalDockIconBtn,
+                    {
+                      backgroundColor: isDark ? 'rgba(239, 68, 68, 0.1)' : '#FEE2E2',
+                      borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : '#FCA5A5',
+                    }
+                  ]}
                   onPress={handleResetPoints}
+                  activeOpacity={0.75}
+                  accessibilityLabel="Reset points"
                 >
-                  <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                  <Ionicons name="trash-outline" size={16} color="#EF4444" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -2521,7 +2982,7 @@ export default function SafePlacesScreen() {
         title="Safe Places & Geofencing"
         subtitle="Automated arrival and departure intelligence"
         iconName="shield-checkmark"
-        iconColor="#2E7D5B"
+        iconColor={isDark ? '#FFFFFF' : '#0F172A'}
         overview="Safe Places creates dynamic virtual perimeters around home, school, work, or frequent transit routes. When circle members cross these boundaries, CircleGuard automatically alerts guardians without draining battery."
         bullets={[
           {
@@ -2547,28 +3008,140 @@ export default function SafePlacesScreen() {
 }
 
 const styles = StyleSheet.create({
-  backBtn: {
-    padding: 4,
-  },
   container: {
     flex: 1,
     backgroundColor: LUXURY_THEME.colors.background,
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingBottom: 16,
-    backgroundColor: LUXURY_THEME.colors.surface,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: LUXURY_THEME.colors.border,
+  },
+  headerLeft: {
+    width: 38,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  },
+  backBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  headerTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textAlign: 'center',
+  },
+  headerSubtitle: {
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 1.5,
+    textAlign: 'center',
+  },
+  headerRight: {
+    minWidth: 38,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  headerCancelBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    height: 34,
+    paddingHorizontal: 10,
+    borderRadius: 9,
+    borderWidth: 1,
+  },
+  headerCancelBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  headerSaveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 9,
+    borderWidth: 1,
+  },
+  headerSaveBtnText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  newZoneHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 9,
+  },
+  newZoneHeaderBtnText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  safePlaceSegmentBar: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 10,
+    padding: 4,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+  },
+  safePlaceSegmentBtn: {
+    flex: 1,
+    height: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 9,
+  },
+  safePlaceSegmentActiveLight: {
+    backgroundColor: '#0F172A',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  safePlaceSegmentActiveDark: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  safePlaceSegmentText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   filterBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     borderBottomWidth: 1,
   },
@@ -2597,107 +3170,358 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
-  headerTitle: {
+  content: {
+    padding: 20,
+  },
+  cockpitPulseBar: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  cockpitPod: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cockpitValue: {
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+  },
+  cockpitLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginTop: 3,
+    textAlign: 'center',
+  },
+  heroAddGeofenceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    gap: 12,
+    marginBottom: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  heroAddIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroAddTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    marginBottom: 2,
+  },
+  heroAddSub: {
     fontSize: 11,
-    fontWeight: '700',
-    color: LUXURY_THEME.colors.foreground,
-    letterSpacing: LUXURY_THEME.typography.letterSpacingWide,
+    lineHeight: 15,
   },
-  saveBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: LUXURY_THEME.colors.accentGold,
-    borderRadius: 8,
+  heroAddPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
   },
-  saveBtnText: {
-    color: '#1A1A1A',
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  sectionTitle: {
     fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 1.5,
+    letterSpacing: 1.2,
   },
-  content: {
+  accentLine: {
+    flex: 1,
+    height: 1,
+  },
+  emptyCard: {
+    borderWidth: 1,
     padding: 24,
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginTop: 10,
+  },
+  emptySub: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  placesList: {
+    gap: 12,
+  },
+  spaciousZoneCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  spaciousZoneHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  zoneCategoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  zoneCategoryText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  zoneStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  zoneStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  zoneStatusText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  spaciousZoneTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    marginBottom: 4,
+  },
+  spaciousZoneMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 12,
+  },
+  spaciousZoneMetaPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  spaciousZoneMetaText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  zoneOccupantsContainer: {
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  zoneOccupantsHeader: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+  },
+  zoneActionDock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 14,
+    marginTop: 4,
+    borderTopWidth: 1,
+  },
+  zoneDockBtn: {
+    flex: 1,
+    height: 40,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+  },
+  zoneDockBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  zoneDockIconOnlyBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  editorHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  cancelEditorHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  infoCircleBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   overline: {
     fontSize: 10,
-    fontWeight: '700',
-    color: LUXURY_THEME.colors.textMuted,
-    letterSpacing: LUXURY_THEME.typography.letterSpacingWide,
-    marginBottom: 4,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    marginBottom: 3,
   },
   title: {
-    fontSize: 26,
-    fontFamily: LUXURY_THEME.typography.fontFamilySerif,
-    fontWeight: 'bold',
-    color: LUXURY_THEME.colors.foreground,
-    marginBottom: 24,
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: -0.3,
   },
   inputLabel: {
     fontSize: 10,
-    fontWeight: '700',
-    color: LUXURY_THEME.colors.foreground,
-    letterSpacing: 1.5,
+    fontWeight: '800',
+    letterSpacing: 1.2,
     marginBottom: 8,
+  },
+  modernInputBox: {
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 20,
   },
   underlineInput: {
     borderBottomWidth: 1,
-    borderBottomColor: LUXURY_THEME.colors.foreground,
     paddingVertical: 12,
     fontSize: 15,
-    color: LUXURY_THEME.colors.foreground,
     marginBottom: 24,
   },
   categoryGrid: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     marginBottom: 20,
   },
   categoryTile: {
     flex: 1,
-    backgroundColor: LUXURY_THEME.colors.surface,
-    borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.border,
-    paddingVertical: 12,
+    height: 62,
+    borderWidth: 1.5,
+    borderRadius: 12,
     alignItems: 'center',
-    gap: 6,
-    borderRadius: 8,
+    justifyContent: 'center',
+    gap: 4,
+    paddingHorizontal: 2,
+    position: 'relative',
   },
-  activeCategoryTile: {
-    backgroundColor: 'rgba(212, 175, 55, 0.16)',
-    borderColor: LUXURY_THEME.colors.accentGold,
+  categoryPlusBadge: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    backgroundColor: '#F5A623',
+    borderRadius: 4,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
   },
   categoryLabel: {
-    fontSize: 8,
-    fontWeight: '700',
-    color: LUXURY_THEME.colors.foreground,
-    letterSpacing: 1,
+    fontSize: 9.5,
+    letterSpacing: 0.3,
+    textAlign: 'center',
   },
-  activeCategoryLabel: {
-    color: LUXURY_THEME.colors.accentGold,
-    fontWeight: '800',
+  plusFeatureCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    padding: 14,
+    borderRadius: 14,
+  },
+  memberChipsScroll: {
+    gap: 8,
+    marginBottom: 18,
   },
   memberChip: {
+    height: 36,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: LUXURY_THEME.colors.surface,
+    borderRadius: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.border,
-    marginRight: 8,
-    borderRadius: 8,
   },
-  activeMemberChip: {
-    backgroundColor: 'rgba(212, 175, 55, 0.16)',
-    borderColor: LUXURY_THEME.colors.accentGold,
+  activeMemberChipDark: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FFFFFF',
+  },
+  activeMemberChipLight: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
   },
   memberChipText: {
-    fontSize: 9,
+    fontSize: 10.5,
     fontWeight: '700',
-    color: LUXURY_THEME.colors.foreground,
-    letterSpacing: 1,
+    letterSpacing: 0.4,
   },
-  activeMemberChipText: {
-    color: LUXURY_THEME.colors.accentGold,
-    fontWeight: '800',
+  miniAvatarDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memberLivePinBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 12,
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 1.5,
   },
   miniMapHeaderRow: {
     flexDirection: 'row',
@@ -2706,64 +3530,69 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginTop: 4,
   },
-  resetMapBtn: {
+  mapToolBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    height: 30,
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: 'rgba(212, 175, 55, 0.12)',
-    borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.accentGold,
     borderRadius: 8,
+    borderWidth: 1,
   },
-  resetMapText: {
-    fontSize: 10,
+  mapToolBtnText: {
+    fontSize: 10.5,
     fontWeight: '800',
-    color: LUXURY_THEME.colors.accentGold,
-    letterSpacing: 1,
+    letterSpacing: 0.6,
   },
   modeToggleRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
+    gap: 4,
+    padding: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+    height: 44,
   },
   modeBtn: {
     flex: 1,
+    height: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: LUXURY_THEME.colors.surface,
-    borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.border,
-    paddingVertical: 8,
+    borderRadius: 9,
   },
-  activeStartModeBtn: {
-    backgroundColor: '#047857',
-    borderColor: '#10B981',
+  modeBtnActiveDark: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  activeEndModeBtn: {
-    backgroundColor: '#B91C1C',
-    borderColor: '#EF4444',
+  modeBtnActiveLight: {
+    backgroundColor: '#0F172A',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 3,
+    elevation: 2,
   },
   pinDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
   },
   modeBtnText: {
-    fontSize: 9,
+    fontSize: 10.5,
     fontWeight: '700',
-    color: LUXURY_THEME.colors.foreground,
-    letterSpacing: 1,
+    letterSpacing: 0.3,
   },
   miniMapContainer: {
-    height: 220,
-    backgroundColor: LUXURY_THEME.colors.surface,
+    height: 230,
     borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.border,
-    marginBottom: 12,
+    borderRadius: 14,
+    marginBottom: 14,
     overflow: 'hidden',
   },
   miniMap: {
@@ -2772,183 +3601,204 @@ const styles = StyleSheet.create({
   coordReadoutBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: LUXURY_THEME.colors.surface,
     borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.border,
+    borderRadius: 14,
     padding: 12,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   coordCol: {
     flex: 1,
   },
+  miniDotIndicator: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
   coordLabel: {
     fontSize: 9,
-    fontWeight: '700',
-    color: LUXURY_THEME.colors.textMuted,
-    letterSpacing: 1,
-    marginBottom: 2,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
   coordVal: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: LUXURY_THEME.colors.foreground,
+    fontSize: 11.5,
+    fontWeight: '700',
+    marginTop: 2,
   },
   coordDivider: {
     width: 1,
-    height: 24,
-    backgroundColor: LUXURY_THEME.colors.border,
+    height: 28,
     marginHorizontal: 12,
   },
   radiusHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
+  },
+  radiusPillBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   radiusValText: {
     fontSize: 12,
-    fontWeight: '700',
-    color: LUXURY_THEME.colors.accentGold,
+    fontWeight: '800',
   },
   radiusRow: {
     flexDirection: 'row',
     gap: 6,
-    marginBottom: 32,
+    marginBottom: 22,
   },
   radiusChip: {
     flex: 1,
-    backgroundColor: LUXURY_THEME.colors.surface,
+    height: 40,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.border,
-    paddingVertical: 10,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  activeRadiusChip: {
-    backgroundColor: '#D4AF37',
-    borderColor: '#D4AF37',
+  radiusChipActiveDark: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  radiusChipActiveLight: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
   },
   radiusText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#9CA3AF',
-    letterSpacing: 1,
-  },
-  activeRadiusText: {
-    color: '#0D0E12',
-    fontWeight: '800',
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 1.5,
-  },
-  accentLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: LUXURY_THEME.colors.border,
-  },
-  emptyCard: {
-    backgroundColor: LUXURY_THEME.colors.surface,
-    borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.border,
-    padding: 24,
-    alignItems: 'center',
-  },
-  emptyTitle: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 1.5,
-    marginTop: 10,
+    letterSpacing: 0.4,
   },
-  emptySub: {
-    fontSize: 12,
-    color: LUXURY_THEME.colors.textMuted,
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  placesList: {
-    gap: 12,
-  },
-  placeCard: {
+  editorBottomDock: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: LUXURY_THEME.colors.surface,
-    borderWidth: 1,
-    borderColor: LUXURY_THEME.colors.border,
-    padding: 16,
+    gap: 10,
+    marginTop: 20,
+    marginBottom: 20,
   },
-  placeLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
+  editorCancelBtn: {
     flex: 1,
-  },
-  placeIconBox: {
-    width: 38,
-    height: 38,
-    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    height: 50,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#D4AF37',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 10,
-  },
-  placeName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: LUXURY_THEME.colors.foreground,
-    marginBottom: 2,
-  },
-  tagRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
     gap: 6,
   },
-  placeRadius: {
-    fontSize: 9,
+  editorCancelBtnText: {
+    fontSize: 13,
     fontWeight: '700',
-    color: '#9CA3AF',
-    letterSpacing: 0.8,
   },
-  tagDot: {
-    fontSize: 9,
-    color: '#9CA3AF',
-  },
-  targetTag: {
-    flexShrink: 1,
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#D4AF37',
-    letterSpacing: 0.8,
-  },
-  editBtn: {
-    width: 36,
-    height: 36,
-    borderWidth: 1,
-    borderColor: '#D4AF37',
-    backgroundColor: 'rgba(212, 175, 55, 0.08)',
-    borderRadius: 8,
-    justifyContent: 'center',
+  editorSubmitBtn: {
+    height: 50,
+    borderRadius: 14,
     alignItems: 'center',
-  },
-  deleteBtn: {
-    width: 36,
-    height: 36,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.4)',
-    backgroundColor: 'rgba(239, 68, 68, 0.08)',
-    borderRadius: 8,
     justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
   },
+  editorSubmitBtnText: {
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  modalHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    height: 36,
+    paddingHorizontal: 12,
+    borderRadius: 9,
+    borderWidth: 1,
+  },
+  modalHeaderBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  modalDockBtn: {
+    flex: 1,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  modalDockBtnText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  modalDockIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Legacy compatibility styles
+  resetMapBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  resetMapText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  saveBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  saveBtnText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+  },
+  activeCategoryTile: {},
+  activeCategoryLabel: {},
+  activeMemberChip: {},
+  activeMemberChipText: {},
+  activeStartModeBtn: {},
+  activeEndModeBtn: {},
+  activeRadiusChip: {},
+  activeRadiusText: {},
+  placeCard: {},
+  placeLeft: {},
+  placeIconBox: {},
+  placeName: {},
+  tagRow: {},
+  placeRadius: {},
+  tagDot: {},
+  targetTag: {},
+  editBtn: {},
+  deleteBtn: {},
 });

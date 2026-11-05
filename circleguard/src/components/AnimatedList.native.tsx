@@ -185,8 +185,8 @@ const styles = StyleSheet.create({
     borderColor: '#EDEBE6',
   },
   defaultItemSelected: {
-    backgroundColor: '#E8F5EE',
-    borderColor: '#2E7D5B',
+    backgroundColor: '#F1F5F9',
+    borderColor: '#0F172A',
   },
   defaultItemText: {
     color: '#1F2A24',

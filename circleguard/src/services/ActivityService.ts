@@ -1,8 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
-import { sendInstantLocationPing } from './LocationBackgroundService';
 import { sendExpoPushNotification } from './PushNotificationService';
 import type { CircleMember } from '../store/useCircleStore';
+import {
+  formatEventDisplayTime,
+  formatPreciseTime,
+  formatFullPreciseDateTime,
+  resolveAuthenticPlaceEventTime,
+  ResolvedPlaceEventTime,
+} from '../utils/activityTimeUtils';
+export {
+  formatEventDisplayTime,
+  formatPreciseTime,
+  formatFullPreciseDateTime,
+  resolveAuthenticPlaceEventTime,
+  ResolvedPlaceEventTime,
+};
 
 export interface ActivityEvent {
   id: string;
@@ -35,241 +48,6 @@ const getActivityStorageKey = (circleId: string) => `@circleguard_local_activity
 // Standard 7-day retention period (silent automatic background purge without mentioning in UI)
 export const ACTIVITY_RETENTION_DAYS = 7;
 export const ACTIVITY_RETENTION_MS = ACTIVITY_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-
-/**
- * Formats a clean date/time label for chronological activity items
- */
-export const formatEventDisplayTime = (timestamp: number, rawIso?: string): string => {
-  const date = timestamp ? new Date(timestamp) : (rawIso ? new Date(rawIso) : new Date());
-  if (isNaN(date.getTime())) return 'Recently';
-
-  const now = new Date();
-  const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-  if (now.toDateString() === date.toDateString()) {
-    return timeStr;
-  }
-
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (yesterday.toDateString() === date.toDateString()) {
-    return `Yesterday, ${timeStr}`;
-  }
-
-  const month = date.toLocaleString('default', { month: 'short' });
-  const day = date.getDate();
-  return `${month} ${day}, ${timeStr}`;
-};
-
-/**
- * Formats precise time including seconds (e.g., 10:48:32 AM)
- */
-export const formatPreciseTime = (timestamp: number, rawIso?: string): string => {
-  const date = timestamp ? new Date(timestamp) : (rawIso ? new Date(rawIso) : new Date());
-  if (isNaN(date.getTime())) return 'Recently';
-  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
-};
-
-/**
- * Formats full precise date and time with seconds (e.g., Today at 10:48:32 AM or Sep 28 at 10:48:32 AM)
- */
-export const formatFullPreciseDateTime = (timestamp: number, rawIso?: string): string => {
-  const date = timestamp ? new Date(timestamp) : (rawIso ? new Date(rawIso) : new Date());
-  if (isNaN(date.getTime())) return 'Recently';
-
-  const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
-  const now = new Date();
-
-  if (now.toDateString() === date.toDateString()) {
-    return `Today at ${timeStr}`;
-  }
-
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (yesterday.toDateString() === date.toDateString()) {
-    return `Yesterday at ${timeStr}`;
-  }
-
-  const month = date.toLocaleString('default', { month: 'short' });
-  const day = date.getDate();
-  return `${month} ${day} at ${timeStr}`;
-};
-
-export interface ResolvedPlaceEventTime {
-  effectiveOccurredAtIso: string;
-  effectiveTimestamp: number;
-  timeOnly: string;
-  shortTime: string;
-  preciseTime: string;
-  dwellDurationText: string;
-  isAdjustedBatchArtifact: boolean;
-}
-
-/**
- * Resolves authentic timestamps for place events.
- * Specifically detects batch-inserted app-launch departure artifacts (e.g. multiple members
- * recorded leaving a safe zone within seconds of each other upon app open) and resolves the
- * genuine, distinct departure time for each individual member.
- */
-export function resolveAuthenticPlaceEventTime(
-  item: any,
-  allPlaceEvents: any[],
-  locMap?: Map<string, any> | Record<string, any>,
-  memberMap?: Map<string, any> | Record<string, any>
-): ResolvedPlaceEventTime {
-  const isArrival = item.event_type === 'arrival';
-  const rawDate = new Date(item.occurred_at);
-  const rawTimestamp = !isNaN(rawDate.getTime()) ? rawDate.getTime() : Date.now();
-
-  if (isArrival) {
-    const elapsedMins = Math.max(0, Math.round((Date.now() - rawTimestamp) / 60000));
-    let dwellDurationText = '';
-    if (elapsedMins < 5) {
-      dwellDurationText = 'Just arrived';
-    } else if (elapsedMins < 60) {
-      dwellDurationText = `${elapsedMins}m ago`;
-    } else if (elapsedMins < 1440) {
-      dwellDurationText = `${Math.floor(elapsedMins / 60)}h ago`;
-    } else {
-      dwellDurationText = `${Math.floor(elapsedMins / 1440)}d ago`;
-    }
-
-    const isToday = rawDate.toDateString() === new Date().toDateString();
-    const timeOnly = !isNaN(rawDate.getTime())
-      ? rawDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
-      : 'Recently';
-    const shortDateStr = !isToday && !isNaN(rawDate.getTime())
-      ? rawDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', '
-      : '';
-    const shortTime = shortDateStr + timeOnly;
-    const preciseTime = !isNaN(rawDate.getTime())
-      ? rawDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })
-      : 'Recently';
-
-    return {
-      effectiveOccurredAtIso: item.occurred_at,
-      effectiveTimestamp: rawTimestamp,
-      timeOnly,
-      shortTime,
-      preciseTime,
-      dwellDurationText,
-      isAdjustedBatchArtifact: false,
-    };
-  }
-
-  // 1. Locate prior arrival for this member at this place
-  const priorArrival = (allPlaceEvents || []).find((other: any) =>
-    other.user_id === item.user_id &&
-    other.place_id === item.place_id &&
-    other.event_type === 'arrival' &&
-    new Date(other.occurred_at).getTime() < rawTimestamp
-  );
-
-  // 2. Detect if item.occurred_at is a batch-evaluated app-launch artifact
-  const isClusteredWithOtherDeparture = (allPlaceEvents || []).some((other: any) =>
-    String(other.id) !== String(item.id) &&
-    other.user_id !== item.user_id &&
-    other.place_id === item.place_id &&
-    other.event_type === 'departure' &&
-    Math.abs(new Date(other.occurred_at).getTime() - rawTimestamp) <= 15000
-  );
-
-  const isKnownBatchRow = item.id === 160 || item.id === 161 || item.id === 211 || String(item.id) === '160' || String(item.id) === '161' || String(item.id) === '211';
-  const arrivalDate = priorArrival
-    ? new Date(priorArrival.occurred_at)
-    : new Date(rawTimestamp - 14 * 3600000);
-  const isOvernight = (rawTimestamp - arrivalDate.getTime()) > 6 * 3600000;
-  const isAfternoonAppOpen = rawDate.getHours() >= 11 && rawDate.getHours() <= 16;
-  const isBatchArtifact = isClusteredWithOtherDeparture || isKnownBatchRow || (isOvernight && isAfternoonAppOpen);
-
-  const getLoc = (uid: string) => {
-    if (!locMap) return null;
-    return locMap instanceof Map ? locMap.get(uid) : (locMap as Record<string, any>)[uid];
-  };
-  const getMem = (uid: string) => {
-    if (!memberMap) return null;
-    return memberMap instanceof Map ? memberMap.get(uid) : (memberMap as Record<string, any>)[uid];
-  };
-
-  let effectiveDate = rawDate;
-  let isAdjusted = false;
-
-  if (isBatchArtifact) {
-    const locRecord = getLoc(item.user_id);
-    const memRecord = getMem(item.user_id);
-    const candidateLocTime = locRecord?.updated_at || memRecord?.updated_at;
-
-    // Check if the member has genuine GPS telemetry recorded outside the zone
-    if (
-      candidateLocTime &&
-      priorArrival &&
-      new Date(candidateLocTime).getTime() > new Date(priorArrival.occurred_at).getTime() &&
-      Math.abs(new Date(candidateLocTime).getTime() - rawTimestamp) > 30000
-    ) {
-      effectiveDate = new Date(candidateLocTime);
-      isAdjusted = true;
-    } else {
-      let hash = 0;
-      const str = String(item.user_id || item.id || '');
-      for (let i = 0; i < str.length; i++) {
-        hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
-      }
-      const absHash = Math.abs(hash);
-
-      if (isOvernight) {
-        // Genuine morning departure on the date of departure (approx 8:35 - 8:45 AM)
-        const depDay = new Date(rawDate);
-        depDay.setHours(8, 40, (absHash % 45), 0);
-        effectiveDate = depDay;
-      } else {
-        // Daytime departure: stayed between 45m and 3 hours
-        const dwellMins = (absHash % 135) + 45;
-        effectiveDate = new Date(arrivalDate.getTime() + dwellMins * 60000);
-        if (effectiveDate.getTime() > rawTimestamp) {
-          effectiveDate = new Date(rawTimestamp - ((absHash % 30) + 10) * 60000);
-        }
-      }
-      isAdjusted = true;
-    }
-  }
-
-  const effectiveTimestamp = effectiveDate.getTime();
-  const effectiveOccurredAtIso = effectiveDate.toISOString();
-
-  // Dwell duration calculation using genuine departure time
-  let dwellDurationText = '';
-  if (priorArrival) {
-    const diffMs = Math.max(0, effectiveTimestamp - new Date(priorArrival.occurred_at).getTime());
-    const diffMins = Math.round(diffMs / 60000);
-    if (diffMins > 0) {
-      dwellDurationText = diffMins >= 60
-        ? `${Math.floor(diffMins / 60)}h ${diffMins % 60}m`
-        : `${diffMins} mins`;
-    }
-  }
-
-  const isToday = effectiveDate.toDateString() === new Date().toDateString();
-  const timeOnly = !isNaN(effectiveTimestamp)
-    ? effectiveDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
-    : 'Recently';
-  const shortDateStr = !isToday && !isNaN(effectiveTimestamp)
-    ? effectiveDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', '
-    : '';
-  const shortTime = shortDateStr + timeOnly;
-  const preciseTime = !isNaN(effectiveTimestamp)
-    ? effectiveDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })
-    : 'Recently';
-
-  return {
-    effectiveOccurredAtIso,
-    effectiveTimestamp,
-    timeOnly,
-    shortTime,
-    preciseTime,
-    dwellDurationText,
-    isAdjustedBatchArtifact: isAdjusted,
-  };
-}
 
 /**
  * Silently deletes/purges expired events older than the retention period
@@ -362,6 +140,7 @@ export const broadcastCheckIn = async ({
 }): Promise<{ success: boolean; event: ActivityEvent }> => {
   // 1. Send GPS ping
   try {
+    const { sendInstantLocationPing } = require('./LocationBackgroundService');
     await sendInstantLocationPing();
   } catch (e) {}
 
@@ -404,7 +183,7 @@ export const broadcastCheckIn = async ({
     message: content,
     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     icon: 'checkmark-circle',
-    color: '#4ADE80',
+    color: '#0F172A',
     memberName: userName,
     avatarUrl: userAvatar,
     userId,
@@ -509,7 +288,7 @@ export const broadcastAutoGeofenceCheckIn = async ({
     message: content,
     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     icon: 'checkmark-circle',
-    color: '#4ADE80',
+    color: '#0F172A',
     memberName: userName,
     avatarUrl: userAvatar,
     userId,
@@ -648,6 +427,11 @@ export const fetchCircleActivities = async (
     if (!error && Array.isArray(data)) {
       msgEvents = data
         .filter((item: any) => {
+          // In the activity section, only include safety check-in broadcasts and check-in requests, not general chat messages
+          const isCheckIn = item.message_type === 'CHECKIN';
+          const isRequest = item.message_type === 'CHECKIN_REQUEST';
+          if (!isCheckIn && !isRequest) return false;
+
           const content = (item.content || '').toUpperCase().trim();
           return (
             !content.startsWith('📍 LEFT ') &&
@@ -665,7 +449,7 @@ export const fetchCircleActivities = async (
 
         let title = `${name} checked in safely`;
         let icon = 'checkmark-circle';
-        let color = '#4ADE80';
+        let color = '#0F172A';
         let type: ActivityEvent['type'] = 'CHECKIN';
 
         if (isRequest) {
@@ -954,7 +738,7 @@ export const fetchCircleActivities = async (
             time: timing.shortTime,
             preciseTime: timing.preciseTime,
             icon: isArrival ? 'location' : 'walk-outline',
-            color: isArrival ? '#4ADE80' : '#F59E0B',
+            color: isArrival ? '#0F172A' : '#F59E0B',
             memberName: name,
             avatarUrl: member?.profile?.avatar_url || (Array.isArray(item.profiles) ? item.profiles[0]?.avatar_url : item.profiles?.avatar_url),
             phone: member?.profile?.phone || (Array.isArray(item.profiles) ? item.profiles[0]?.phone : item.profiles?.phone),
@@ -1055,7 +839,7 @@ export const fetchCircleActivities = async (
               time: shortTime,
               preciseTime,
               icon: 'location',
-              color: '#4ADE80',
+              color: '#0F172A',
               memberName: name,
               avatarUrl: m.profile?.avatar_url,
               phone: m.profile?.phone,
@@ -1105,7 +889,7 @@ export const fetchCircleActivities = async (
               time: shortTime,
               preciseTime,
               icon: 'radio',
-              color: '#4ADE80',
+              color: '#0F172A',
               memberName: name,
               avatarUrl: m.profile?.avatar_url,
               phone: m.profile?.phone,
@@ -1128,7 +912,7 @@ export const fetchCircleActivities = async (
             time: shortTime,
             preciseTime,
             icon: 'shield-checkmark',
-            color: '#4ADE80',
+            color: '#0F172A',
             memberName: name,
             avatarUrl: m.profile?.avatar_url,
             phone: m.profile?.phone,
@@ -1300,7 +1084,7 @@ export const fetchCircleActivities = async (
       placeName: bestPlaceName,
       placeId: bestPlaceId || baseEvent.placeId,
       time: timingDisplay,
-      color: '#4ADE80',
+      color: '#0F172A',
       icon: 'checkmark-circle',
       title: hasAutoCheckIn
         ? `${bestUserName} arrived at ${bestPlaceName} • Auto Checked-In`

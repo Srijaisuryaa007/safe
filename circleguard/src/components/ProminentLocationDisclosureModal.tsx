@@ -54,8 +54,8 @@ export default function ProminentLocationDisclosureModal({
           style={[
             styles.modalCard,
             {
-              backgroundColor: isDark ? '#141C17' : '#FFFFFF',
-              borderColor: isDark ? 'rgba(58, 223, 171, 0.28)' : '#D1EAE0',
+              backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
               paddingBottom: Math.max(insets.bottom + 16, 24),
             },
           ]}
@@ -65,13 +65,13 @@ export default function ProminentLocationDisclosureModal({
             <View
               style={[
                 styles.iconSquircle,
-                { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E0F5EB' },
+                { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' },
               ]}
             >
               <Ionicons
                 name="shield-checkmark"
                 size={28}
-                color={isDark ? '#3ADFAB' : '#006C4F'}
+                color={isDark ? '#FFFFFF' : '#0F172A'}
               />
             </View>
           </View>
@@ -94,13 +94,13 @@ export default function ProminentLocationDisclosureModal({
               style={[
                 styles.featureCard,
                 {
-                  backgroundColor: isDark ? '#18241D' : '#F6FAF7',
-                  borderColor: isDark ? '#26372E' : '#E2ECE6',
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2ECE6',
                 },
               ]}
             >
               <View style={styles.cardHeader}>
-                <Ionicons name="navigate-circle" size={20} color={isDark ? '#3ADFAB' : '#059669'} />
+                <Ionicons name="navigate-circle" size={20} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 <Text style={[styles.cardTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
                   What Data is Collected?
                 </Text>
@@ -116,8 +116,8 @@ export default function ProminentLocationDisclosureModal({
               style={[
                 styles.featureCard,
                 {
-                  backgroundColor: isDark ? '#18241D' : '#F6FAF7',
-                  borderColor: isDark ? '#26372E' : '#E2ECE6',
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2ECE6',
                 },
               ]}
             >
@@ -148,8 +148,8 @@ export default function ProminentLocationDisclosureModal({
               style={[
                 styles.featureCard,
                 {
-                  backgroundColor: isDark ? '#18241D' : '#F6FAF7',
-                  borderColor: isDark ? '#26372E' : '#E2ECE6',
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2ECE6',
                 },
               ]}
             >
@@ -187,13 +187,13 @@ export default function ProminentLocationDisclosureModal({
             <TouchableOpacity
               style={[
                 styles.agreeButton,
-                { backgroundColor: isDark ? '#3ADFAB' : '#006C4F' },
+                { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' },
               ]}
               onPress={handleAccept}
               activeOpacity={0.8}
             >
-              <Ionicons name="shield-checkmark-outline" size={17} color="#FFFFFF" />
-              <Text style={styles.agreeButtonText}>Agree & Continue</Text>
+              <Ionicons name="shield-checkmark-outline" size={17} color={isDark ? '#000000' : '#FFFFFF'} />
+              <Text style={[styles.agreeButtonText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Agree & Continue</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -311,7 +311,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    shadowColor: '#3ADFAB',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.25,
     shadowRadius: 6,

@@ -134,22 +134,22 @@ export default function NetworkStatusBanner() {
 
   // UI/UX Pro Max Liquid Glass Palette
   const bannerBg = showRestored
-    ? 'rgba(10, 32, 22, 0.94)'
+    ? (isDark ? 'rgba(24, 24, 27, 0.95)' : 'rgba(15, 23, 42, 0.95)')
     : isOffline
     ? 'rgba(32, 12, 14, 0.95)'
     : 'rgba(32, 26, 12, 0.94)';
 
   const borderColor = showRestored
-    ? 'rgba(16, 185, 129, 0.6)'
+    ? (isDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(15, 23, 42, 0.35)')
     : isOffline
     ? 'rgba(239, 68, 68, 0.55)'
-    : 'rgba(233, 195, 73, 0.55)';
+    : 'rgba(245, 158, 11, 0.55)';
 
   const accentColor = showRestored
-    ? '#10B981'
+    ? (isDark ? '#FFFFFF' : '#0F172A')
     : isOffline
     ? '#EF4444'
-    : '#E9C349';
+    : '#F59E0B';
 
   const textColor = '#FFFFFF';
   const subtextColor = 'rgba(255, 255, 255, 0.78)';
@@ -162,7 +162,7 @@ export default function NetworkStatusBanner() {
           {
             backgroundColor: bannerBg,
             borderColor: borderColor,
-            shadowColor: isOffline ? '#EF4444' : isSlow ? '#F59E0B' : '#10B981',
+            shadowColor: isOffline ? '#EF4444' : isSlow ? '#F59E0B' : (isDark ? '#000000' : '#0F172A'),
           },
         ]}
       >
@@ -277,7 +277,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: -2,
     right: -4,
-    backgroundColor: '#E9C349',
+    backgroundColor: '#F59E0B',
     borderRadius: 6,
     padding: 1,
   },

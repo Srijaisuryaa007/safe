@@ -7,6 +7,8 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useCountryStore } from '../store/useCountryStore';
 import { DeadReckoningEngine } from './DeadReckoningEngine';
 
+import { useCircleStore } from '../store/useCircleStore';
+
 export interface OfflineSmsResult {
   sent: boolean;
   smsUrl?: string;
@@ -18,6 +20,7 @@ export interface OfflineSmsResult {
 }
 
 const EMERGENCY_CONTACTS_CACHE_KEY = '@circleguard_cached_emergency_contacts';
+const CIRCLE_PHONES_CACHE_KEY = '@circleguard_cached_circle_phones';
 
 class OfflineSmsSosService {
   /**
@@ -31,23 +34,64 @@ class OfflineSmsSosService {
   }
 
   /**
-   * Retrieve cached emergency contacts.
+   * Cache circle members phone numbers as an automatic fallback
+   */
+  async cacheCirclePhones(contacts: Array<{ name: string; phone: string }>): Promise<void> {
+    try {
+      await AsyncStorage.setItem(CIRCLE_PHONES_CACHE_KEY, JSON.stringify(contacts));
+    } catch (_) {}
+  }
+
+  /**
+   * Retrieve cached emergency contacts with circle members fallback.
    */
   async getCachedEmergencyContacts(): Promise<Array<{ name: string; phone: string }>> {
+    // 1. Try explicit emergency contacts cache
     try {
       const raw = await AsyncStorage.getItem(EMERGENCY_CONTACTS_CACHE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
     } catch (_) {}
 
-    // Fallback: try fetching from supabase if online
+    // 2. Fallback: try fetching explicit emergency contacts from Supabase if online
     try {
-      const uid = useAuthStore.getState().user?.id;
+      const auth = useAuthStore.getState();
+      const uid = auth.profile?.id || auth.user?.id || auth.session?.user?.id;
       if (uid) {
         const { data } = await supabase.from('emergency_contacts').select('name, phone').eq('user_id', uid);
         if (data && data.length > 0) {
           await this.cacheEmergencyContacts(data);
           return data;
         }
+      }
+    } catch (_) {}
+
+    // 3. Dynamic Fallback: Check active circle members with phones
+    try {
+      const members = useCircleStore.getState().members || [];
+      const auth = useAuthStore.getState();
+      const myId = auth.profile?.id || auth.user?.id || auth.session?.user?.id;
+      const circlePhones = members
+        .filter(m => m.user_id !== myId && m.profile?.phone)
+        .map(m => ({
+          name: m.profile?.full_name || 'Circle Member',
+          phone: m.profile!.phone!,
+        }));
+
+      if (circlePhones.length > 0) {
+        await this.cacheCirclePhones(circlePhones);
+        return circlePhones;
+      }
+    } catch (_) {}
+
+    // 4. Cached circle phones fallback if offline
+    try {
+      const cachedCircle = await AsyncStorage.getItem(CIRCLE_PHONES_CACHE_KEY);
+      if (cachedCircle) {
+        const parsed = JSON.parse(cachedCircle);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch (_) {}
 

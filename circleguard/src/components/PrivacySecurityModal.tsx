@@ -23,6 +23,7 @@ import { useLuxuryAlert } from './LuxuryAlertModal';
 import PrivacyPolicyModal from './PrivacyPolicyModal';
 import TermsOfServiceModal from './TermsOfServiceModal';
 import DeleteAccountModal from './DeleteAccountModal';
+import { useThemeStore } from '../store/useThemeStore';
 
 interface PrivacySecurityModalProps {
   visible: boolean;
@@ -41,6 +42,7 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
   const topInset = getSafeTopInset(insets.top);
   const { profile } = useAuthStore();
   const { showAlert, showConfirm } = useLuxuryAlert();
+  const { colors, isDark } = useThemeStore();
 
   const [ghostMode, setGhostMode] = useState(false);
   const [ghostDuration, setGhostDuration] = useState<'1h' | '4h' | '8h' | 'always'>('4h');
@@ -252,8 +254,10 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
         useCircleStore.setState({ members: updated });
 
         try {
-          const { updateBackgroundSessionCache } = require('../services/LocationBackgroundService');
+          const { updateBackgroundSessionCache, sendInstantLocationPing } = require('../services/LocationBackgroundService');
           await updateBackgroundSessionCache({ isGhostMode: value });
+          // Immediately broadcast fuzzed/restored location to Supabase with 0ms delay
+          await sendInstantLocationPing();
         } catch (_) {}
       } catch (err) {
         console.warn('Failed to sync ghost mode to cloud:', err);
@@ -348,15 +352,15 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false} statusBarTranslucent={true}>
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         {/* Header */}
-        <View style={[styles.header, { paddingTop: topInset + 8 }]}>
-          <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.8}>
-            <Ionicons name="close" size={20} color="#1F2A24" />
+        <View style={[styles.header, { paddingTop: topInset + 8, backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+          <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F1F5F9' }]} activeOpacity={0.8}>
+            <Ionicons name="close" size={20} color={colors.foreground} />
           </TouchableOpacity>
           <View style={styles.headerTitleBox}>
-            <Text style={styles.overline}>SECURITY SUITE</Text>
-            <Text style={styles.title}>Privacy & Security</Text>
+            <Text style={[styles.overline, { color: colors.textMuted }]}>SECURITY SUITE</Text>
+            <Text style={[styles.title, { color: colors.foreground }]}>Privacy & Security</Text>
           </View>
         </View>
 
@@ -372,8 +376,8 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
             {/* Ghost Mode Toggle */}
             <View style={styles.row}>
               <View style={styles.rowLeft}>
-                <View style={[styles.iconSquircle, { backgroundColor: '#E8F5EE' }]}>
-                  <Ionicons name="eye-off-outline" size={18} color="#2E7D5B" />
+                <View style={[styles.iconSquircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                  <Ionicons name="eye-off-outline" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 </View>
                 <View style={styles.textWrapper}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -383,19 +387,19 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
                       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                       accessibilityLabel="Learn how Ghost Mode and Option A/B work"
                     >
-                      <Ionicons name="information-circle-outline" size={15} color="#2E7D5B" />
+                      <Ionicons name="information-circle-outline" size={15} color={isDark ? '#FFFFFF' : '#0F172A'} />
                     </TouchableOpacity>
                     {hasCircles && (
                       <View
                         style={[
                           styles.modeBadge,
-                          { backgroundColor: isOptionA ? '#E8F5EE' : 'rgba(245, 158, 11, 0.12)' },
+                          { backgroundColor: isOptionA ? (isDark ? 'rgba(255, 255, 255, 0.1)' : '#F1F5F9') : 'rgba(245, 158, 11, 0.12)' },
                         ]}
                       >
                         <Text
                           style={[
                             styles.modeBadgeText,
-                            { color: isOptionA ? '#2E7D5B' : '#D97706' },
+                            { color: isOptionA ? (isDark ? '#FFFFFF' : '#0F172A') : '#D97706' },
                           ]}
                         >
                           {isOptionA ? 'OPTION A • NO APPROVAL NEEDED' : isLeader ? 'OPTION B • LEADER' : 'OPTION B • LEADER APPROVAL'}
@@ -415,7 +419,7 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
               <Switch
                 value={ghostMode}
                 onValueChange={(val) => toggleSetting(KEYS.GHOST_MODE, val, setGhostMode)}
-                trackColor={{ false: '#E2E4E9', true: '#2E7D5B' }}
+                trackColor={{ false: '#E2E4E9', true: isDark ? '#FFFFFF' : '#0F172A' }}
                 thumbColor="#FFFFFF"
               />
             </View>
@@ -472,9 +476,16 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
                 </View>
 
                 <View style={styles.ghostStatusBanner}>
-                  <Ionicons name="shield-checkmark" size={14} color="#2E7D5B" />
+                  <Ionicons name="shield-checkmark" size={14} color={isDark ? '#FFFFFF' : '#0F172A'} />
                   <Text style={styles.ghostStatusBannerText}>
                     Circle sees: "{profile?.full_name || 'Member'} • Ghost Mode ({ghostReason})"
+                  </Text>
+                </View>
+
+                <View style={[styles.ghostInfoNotice, { backgroundColor: isDark ? 'rgba(139, 92, 246, 0.12)' : '#F5F3FF', borderColor: isDark ? 'rgba(139, 92, 246, 0.25)' : '#DDD6FE' }]}>
+                  <Ionicons name="information-circle" size={15} color={isDark ? '#C4B5FD' : '#7C3AED'} />
+                  <Text style={[styles.ghostInfoNoticeText, { color: isDark ? '#DDD6FE' : '#5B21B6' }]}>
+                    Your device shows your true location so you can navigate safely. Circle members only see a fuzzed zone ~1.2 km away with speed & presence hidden.
                   </Text>
                 </View>
               </View>
@@ -485,15 +496,15 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
             {/* Hide Online Status Toggle */}
             <View style={styles.row}>
               <View style={styles.rowLeft}>
-                <View style={[styles.iconSquircle, { backgroundColor: '#F0EFEA' }]}>
-                  <Ionicons name="radio-outline" size={18} color="#1F2A24" />
+                <View style={[styles.iconSquircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                  <Ionicons name="radio-outline" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 </View>
                 <View style={styles.textWrapper}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <Text style={styles.rowTitle}>Hide Online Presence</Text>
                     {hasCircles && isOptionA && (
-                      <View style={[styles.modeBadge, { backgroundColor: '#E8F5EE' }]}>
-                        <Text style={[styles.modeBadgeText, { color: '#2E7D5B' }]}>
+                      <View style={[styles.modeBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#F1F5F9' }]}>
+                        <Text style={[styles.modeBadgeText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                           OPTION A • NO APPROVAL NEEDED
                         </Text>
                       </View>
@@ -509,7 +520,7 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
               <Switch
                 value={hideOnline}
                 onValueChange={(val) => toggleSetting(KEYS.HIDE_ONLINE, val, setHideOnline)}
-                trackColor={{ false: '#E2E4E9', true: '#2E7D5B' }}
+                trackColor={{ false: '#E2E4E9', true: isDark ? '#FFFFFF' : '#0F172A' }}
                 thumbColor="#FFFFFF"
               />
             </View>
@@ -521,8 +532,8 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
           <View style={styles.cardGroup}>
             <View style={styles.row}>
               <View style={styles.rowLeft}>
-                <View style={[styles.iconSquircle, { backgroundColor: batterySaver ? '#E8F5EE' : '#F0EFEA' }]}>
-                  <Ionicons name={batterySaver ? 'battery-charging' : 'battery-full'} size={18} color={batterySaver ? '#2E7D5B' : '#1F2A24'} />
+                <View style={[styles.iconSquircle, { backgroundColor: batterySaver ? (isDark ? 'rgba(255, 255, 255, 0.15)' : '#0F172A') : (isDark ? 'rgba(255, 255, 255, 0.06)' : '#F1F5F9') }]}>
+                  <Ionicons name={batterySaver ? 'battery-charging' : 'battery-full'} size={18} color={batterySaver ? '#FFFFFF' : (isDark ? '#94A3B8' : '#0F172A')} />
                 </View>
                 <View style={styles.textWrapper}>
                   <Text style={styles.rowTitle}>Smart Battery Saver GPS</Text>
@@ -536,7 +547,7 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
               <Switch
                 value={batterySaver}
                 onValueChange={handleToggleBatterySaver}
-                trackColor={{ false: '#E2E4E9', true: '#2E7D5B' }}
+                trackColor={{ false: '#E2E4E9', true: isDark ? '#FFFFFF' : '#0F172A' }}
                 thumbColor="#FFFFFF"
               />
             </View>
@@ -547,7 +558,7 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
 
           <View style={[styles.cardGroup, { padding: 14 }]}>
             <View style={styles.trustItem}>
-              <Ionicons name="lock-closed" size={16} color="#2E7D5B" />
+              <Ionicons name="lock-closed" size={16} color={isDark ? '#FFFFFF' : '#0F172A'} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.trustItemTitle}>Private Circle Isolation</Text>
                 <Text style={styles.trustItemDesc}>
@@ -559,7 +570,7 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
             <View style={styles.trustDivider} />
 
             <View style={styles.trustItem}>
-              <Ionicons name="shield-checkmark" size={16} color="#2E7D5B" />
+              <Ionicons name="shield-checkmark" size={16} color={isDark ? '#FFFFFF' : '#0F172A'} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.trustItemTitle}>Zero Data Brokers</Text>
                 <Text style={styles.trustItemDesc}>
@@ -576,8 +587,8 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
             {/* Biometric App Lock */}
             <View style={styles.row}>
               <View style={styles.rowLeft}>
-                <View style={[styles.iconSquircle, { backgroundColor: '#E8F5EE' }]}>
-                  <Ionicons name="finger-print-outline" size={18} color="#2E7D5B" />
+                <View style={[styles.iconSquircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                  <Ionicons name="finger-print-outline" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 </View>
                 <View style={styles.textWrapper}>
                   <Text style={styles.rowTitle}>Biometric App Lock</Text>
@@ -589,7 +600,7 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
               <Switch
                 value={appLock}
                 onValueChange={(val) => toggleSetting(KEYS.APP_LOCK, val, setAppLock)}
-                trackColor={{ false: '#E2E4E9', true: '#2E7D5B' }}
+                trackColor={{ false: '#E2E4E9', true: isDark ? '#FFFFFF' : '#0F172A' }}
                 thumbColor="#FFFFFF"
               />
             </View>
@@ -627,8 +638,8 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
               onPress={() => setPolicyModalVisible(true)}
               activeOpacity={0.8}
             >
-              <View style={[styles.iconSquircle, { backgroundColor: '#E8F5EE' }]}>
-                <Ionicons name="document-text-outline" size={18} color="#2E7D5B" />
+              <View style={[styles.iconSquircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                <Ionicons name="document-text-outline" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
               </View>
               <Text style={styles.policyTitle}>Read Privacy Policy</Text>
               <Ionicons name="chevron-forward" size={16} color="#8E9992" />
@@ -641,8 +652,8 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
               onPress={() => setTermsModalVisible(true)}
               activeOpacity={0.8}
             >
-              <View style={[styles.iconSquircle, { backgroundColor: '#E8F5EE' }]}>
-                <Ionicons name="shield-checkmark-outline" size={18} color="#2E7D5B" />
+              <View style={[styles.iconSquircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                <Ionicons name="shield-checkmark-outline" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
               </View>
               <Text style={styles.policyTitle}>Read Terms of Service</Text>
               <Ionicons name="chevron-forward" size={16} color="#8E9992" />
@@ -704,7 +715,7 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
           title="Ghost Mode & Privacy Options"
           subtitle="How Option A & Option B handle location fuzzing"
           iconName="eye-off"
-          iconColor="#2E7D5B"
+          iconColor={isDark ? '#FFFFFF' : '#0F172A'}
           overview="Ghost Privacy Mode (Fuzzy Mode) masks your exact coordinates and broadcasts a randomized ~500m radius perimeter so circle members know you are safe without tracking your exact steps."
           bullets={[
             {
@@ -715,7 +726,7 @@ export default function PrivacySecurityModal({ visible, onClose }: PrivacySecuri
             {
               icon: 'shield-checkmark',
               title: 'Option B: Continuous 24/7 Tracking',
-              description: 'Continuous family safety mode. To protect children and maintain safety integrity, non-leader members must request approval from the Circle Leader before ghosting their location.',
+              description: 'Continuous family safety mode. Non-leader members cannot ghost location without leader approval. On Android, requires setting Battery usage to "Unrestricted" (Don\'t optimize) so tracking never pauses while driving or moving.',
             },
             {
               icon: 'locate-outline',
@@ -769,7 +780,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: '#F0EFEA',
+    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 14,
@@ -780,14 +791,14 @@ const styles = StyleSheet.create({
   overline: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#2E7D5B',
+    color: '#64748B',
     letterSpacing: 0.8,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   title: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#1F2A24',
+    color: '#0F172A',
     letterSpacing: -0.3,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
@@ -797,7 +808,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 13,
-    color: '#5C665F',
+    color: '#64748B',
     lineHeight: 19,
     marginBottom: 16,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
@@ -805,7 +816,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#5C665F',
+    color: '#64748B',
     letterSpacing: 0.6,
     marginBottom: 8,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
@@ -814,10 +825,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#ECEAE4',
+    borderColor: '#E2E8F0',
     overflow: 'hidden',
-    shadowColor: '#1F2A24',
-    shadowOpacity: 0.03,
+    shadowColor: '#000000',
+    shadowOpacity: 0.04,
     shadowRadius: 8,
     elevation: 2,
   },
@@ -847,19 +858,19 @@ const styles = StyleSheet.create({
   rowTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   rowDesc: {
     fontSize: 11,
-    color: '#5C665F',
+    color: '#64748B',
     marginTop: 2,
     lineHeight: 15,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   divider: {
     height: 1,
-    backgroundColor: '#F0EFEA',
+    backgroundColor: '#F1F5F9',
     marginLeft: 62,
   },
   policyRow: {
@@ -871,7 +882,7 @@ const styles = StyleSheet.create({
   policyTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
     flex: 1,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
@@ -892,7 +903,7 @@ const styles = StyleSheet.create({
   },
   dangerBtnDesc: {
     fontSize: 11,
-    color: '#5C665F',
+    color: '#64748B',
     marginTop: 2,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
@@ -928,8 +939,8 @@ const styles = StyleSheet.create({
     borderColor: '#D1D5DB',
   },
   chipBtnActive: {
-    backgroundColor: '#2E7D5B',
-    borderColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
   },
   chipBtnText: {
     fontSize: 11,
@@ -951,8 +962,24 @@ const styles = StyleSheet.create({
   },
   ghostStatusBannerText: {
     fontSize: 11,
-    color: '#2E7D5B',
+    color: '#0F172A',
     fontWeight: '600',
+    fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
+  },
+  ghostInfoNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 8,
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  ghostInfoNoticeText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '500',
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   trustItem: {
@@ -964,19 +991,19 @@ const styles = StyleSheet.create({
   trustItemTitle: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   trustItemDesc: {
     fontSize: 11,
-    color: '#5C665F',
+    color: '#64748B',
     marginTop: 1,
     lineHeight: 15,
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
   },
   trustDivider: {
     height: 1,
-    backgroundColor: '#F0EFEA',
+    backgroundColor: '#F1F5F9',
     marginVertical: 8,
     marginLeft: 26,
   },

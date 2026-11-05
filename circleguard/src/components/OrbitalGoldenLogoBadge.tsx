@@ -75,9 +75,9 @@ export default function OrbitalGoldenLogoBadge({
         <Svg width={size * 0.72} height={size * 0.72} viewBox="0 0 100 100">
           <Defs>
             <LinearGradient id="goldShieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <Stop offset="0%" stopColor="#FDE68A" />
-              <Stop offset="50%" stopColor="#D4AF37" />
-              <Stop offset="100%" stopColor="#B48218" />
+              <Stop offset="0%" stopColor="#FFFFFF" />
+              <Stop offset="50%" stopColor="#E2E8F0" />
+              <Stop offset="100%" stopColor="#94A3B8" />
             </LinearGradient>
             <LinearGradient id="shieldDarkBg" x1="0%" y1="0%" x2="0%" y2="100%">
               <Stop offset="0%" stopColor={isDark ? '#262626' : '#2A2926'} />
@@ -131,11 +131,11 @@ export default function OrbitalGoldenLogoBadge({
         <Svg width={size} height={size} viewBox="0 0 100 100">
           <Defs>
             <LinearGradient id="goldenOrbit3D" x1="0%" y1="0%" x2="100%" y2="100%">
-              <Stop offset="0%" stopColor="#FDE68A" stopOpacity="1" />
-              <Stop offset="25%" stopColor="#D4AF37" stopOpacity="0.95" />
-              <Stop offset="50%" stopColor="#B48218" stopOpacity="0.35" />
-              <Stop offset="75%" stopColor="#D4AF37" stopOpacity="0.95" />
-              <Stop offset="100%" stopColor="#FFFBEB" stopOpacity="1" />
+              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+              <Stop offset="25%" stopColor="#CBD5E1" stopOpacity="0.95" />
+              <Stop offset="50%" stopColor="#64748B" stopOpacity="0.35" />
+              <Stop offset="75%" stopColor="#CBD5E1" stopOpacity="0.95" />
+              <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="1" />
             </LinearGradient>
           </Defs>
 
@@ -150,15 +150,15 @@ export default function OrbitalGoldenLogoBadge({
           />
 
           {/* Orbiting Satellite Gleam Spheres */}
-          <Circle cx="50" cy="6" r="3.2" fill="#FDE68A" />
-          <Circle cx="50" cy="6" r="1.6" fill="#FFFFFF" />
+          <Circle cx="50" cy="6" r="3.2" fill="#FFFFFF" />
+          <Circle cx="50" cy="6" r="1.6" fill="#0F172A" />
 
-          <Circle cx="94" cy="50" r="2.6" fill="#D4AF37" />
+          <Circle cx="94" cy="50" r="2.6" fill="#CBD5E1" />
 
-          <Circle cx="50" cy="94" r="3.2" fill="#FDE68A" />
-          <Circle cx="50" cy="94" r="1.6" fill="#FFFFFF" />
+          <Circle cx="50" cy="94" r="3.2" fill="#FFFFFF" />
+          <Circle cx="50" cy="94" r="1.6" fill="#0F172A" />
 
-          <Circle cx="6" cy="50" r="2.6" fill="#D4AF37" />
+          <Circle cx="6" cy="50" r="2.6" fill="#CBD5E1" />
         </Svg>
       </Animated.View>
     </View>
@@ -198,16 +198,16 @@ const styles = StyleSheet.create({
   },
   discLight: {
     backgroundColor: '#FAF8F5',
-    borderColor: 'rgba(212, 175, 55, 0.35)',
-    shadowColor: '#D4AF37',
+    borderColor: 'rgba(15, 23, 42, 0.15)',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
   },
   discDark: {
     backgroundColor: '#161917',
-    borderColor: 'rgba(212, 175, 55, 0.45)',
+    borderColor: 'rgba(255, 255, 255, 0.18)',
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.35,
@@ -218,10 +218,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
   },
   glowLight: {
-    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    backgroundColor: 'rgba(15, 23, 42, 0.04)',
   },
   glowDark: {
-    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
   },
   emblemContainer: {
     position: 'relative',

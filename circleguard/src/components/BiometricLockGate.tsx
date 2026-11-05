@@ -275,6 +275,7 @@ export default function BiometricLockGate({ children }: BiometricLockGateProps) 
     return () => sub.remove();
   }, [authenticate]);
 
+  console.log('[BiometricLockGate] render, isLocked:', isLocked);
   if (isLocked) {
     const isFace = biometricMode === 'face_id';
     const isIOS = Platform.OS === 'ios';
@@ -312,13 +313,13 @@ export default function BiometricLockGate({ children }: BiometricLockGateProps) 
     }
 
     return (
-      <View style={[styles.lockScreen, { backgroundColor: isDark ? '#0A0F0C' : '#F8FAF8' }]}>
+      <View style={[styles.lockScreen, { backgroundColor: isDark ? '#000000' : '#FFFFFF' }]}>
         {/* Subtle Ambient Radial Lighting */}
         <View
           style={[
             styles.ambientAura,
             {
-              backgroundColor: isDark ? 'rgba(46, 125, 91, 0.08)' : 'rgba(46, 125, 91, 0.05)',
+              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
             },
           ]}
         />
@@ -334,7 +335,7 @@ export default function BiometricLockGate({ children }: BiometricLockGateProps) 
           {/* Top Brand Anchor */}
           <View style={styles.brandRow}>
             <View style={[styles.brandIconBox, isDark && styles.brandIconBoxDark]}>
-              <Ionicons name="shield-checkmark" size={14} color="#2E7D5B" />
+              <Ionicons name="shield-checkmark" size={14} color={isDark ? '#FFFFFF' : '#0F172A'} />
             </View>
             <Text style={[styles.brandText, isDark && styles.brandTextDark]}>CIRCLEGUARD</Text>
           </View>
@@ -348,7 +349,7 @@ export default function BiometricLockGate({ children }: BiometricLockGateProps) 
                 {
                   transform: [{ scale: pulseAnim }],
                   opacity: pulseOpacity,
-                  borderColor: isDark ? '#3ADFAB' : '#2E7D5B',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.35)' : 'rgba(15, 23, 42, 0.3)',
                 },
               ]}
             />
@@ -358,8 +359,8 @@ export default function BiometricLockGate({ children }: BiometricLockGateProps) 
               style={[
                 styles.sensorDisc,
                 {
-                  backgroundColor: isDark ? 'rgba(46, 125, 91, 0.16)' : 'rgba(46, 125, 91, 0.07)',
-                  borderColor: isDark ? 'rgba(58, 223, 171, 0.28)' : 'rgba(46, 125, 91, 0.22)',
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0',
                 },
               ]}
               onPress={authenticate}
@@ -369,7 +370,7 @@ export default function BiometricLockGate({ children }: BiometricLockGateProps) 
               <Ionicons
                 name={iconName}
                 size={40}
-                color={isDark ? '#3ADFAB' : '#2E7D5B'}
+                color={isDark ? '#FFFFFF' : '#0F172A'}
               />
             </TouchableOpacity>
           </View>
@@ -478,12 +479,12 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 8,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
   brandIconBoxDark: {
-    backgroundColor: 'rgba(46, 125, 91, 0.25)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   brandText: {
     fontSize: 11,
@@ -515,7 +516,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#2E7D5B',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 10,
@@ -565,12 +566,12 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 52,
     borderRadius: 16,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 9,
-    shadowColor: '#2E7D5B',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.22,
     shadowRadius: 8,

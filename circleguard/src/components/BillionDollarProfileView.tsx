@@ -124,7 +124,7 @@ export default function BillionDollarProfileView({
   const textPrimary = isDark ? '#FFFFFF' : '#111827';
   const textSecondary = isDark ? '#94A3B8' : '#6B7280';
   const textMuted = isDark ? '#64748B' : '#9CA3AF';
-  const accentColor = isDark ? '#30D158' : '#059669';
+  const accentColor = isDark ? '#FFFFFF' : '#0F172A';
   const chevronColor = isDark ? '#475569' : '#9CA3AF';
 
   return (
@@ -243,7 +243,7 @@ export default function BillionDollarProfileView({
             </View>
             <View style={styles.rowRightCol}>
               <Text style={[styles.rowDetail, { color: textSecondary }]} numberOfLines={1}>
-                {emergencyContact ? emergencyContact.name : 'Not set'}
+                {emergencyContact ? (emergencyContact.phone ? `${emergencyContact.name} (${emergencyContact.phone})` : emergencyContact.name) : 'Not set'}
               </Text>
               <Text style={[styles.chevronArrow, { color: chevronColor }]}>›</Text>
             </View>

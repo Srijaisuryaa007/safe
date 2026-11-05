@@ -55,7 +55,7 @@ export default function AnimatedCircleGuardLogo({
       case 'traveling':
         return { primary: '#F59E0B', secondary: '#FBBF24', dark: '#451A03' };
       default:
-        return { primary: '#D4AF37', secondary: '#F3E5AB', dark: '#1C1917' };
+        return { primary: '#FFFFFF', secondary: '#E2E8F0', dark: '#0F172A' };
     }
   };
 

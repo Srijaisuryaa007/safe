@@ -1,6 +1,6 @@
 import './global.css';
 import React, { useEffect } from 'react';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 
 import { supabase } from './src/lib/supabase';
@@ -21,8 +21,13 @@ import { LogBox } from 'react-native';
 import { LuxuryAlertProvider } from './src/components/LuxuryAlertModal';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 
-// Silence LogBox banner overlays in development so custom luxury in-app messages are prioritized
-LogBox.ignoreAllLogs(true);
+// Ignore specific non-fatal development warnings in Expo Go
+LogBox.ignoreLogs([
+  'Push notifications (remote notifications) are unavailable in Expo Go',
+  'expo-notifications functionality is not fully supported in Expo Go',
+  'setLayoutAnimationEnabledExperimental is currently a no-op',
+  'ImageBackground is deprecated',
+]);
 
 function App() {
   const { setSession, setProfile, setLoading } = useAuthStore();
@@ -271,8 +276,9 @@ function App() {
     }
   };
 
+  console.log('[App] Rendering App, AppNavigator type:', typeof AppNavigator);
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <StatusBar style="auto" />
       <ErrorBoundary>
         <LuxuryAlertProvider>

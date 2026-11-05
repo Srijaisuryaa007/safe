@@ -20,8 +20,10 @@ import { useThemeStore } from '../store/useThemeStore';
 import { useCircleStore, CircleMember } from '../store/useCircleStore';
 import { supabase } from '../lib/supabase';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental && !(global as any)._IS_FABRIC && !(global as any).nativeFabricUIManager) {
+  try {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+  } catch (_) {}
 }
 
 interface BranchAssignmentModalProps {
@@ -247,8 +249,8 @@ export default function BranchAssignmentModal({
               {avatarUrl ? (
                 <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
               ) : (
-                <View style={[styles.avatarFallback, { backgroundColor: isDark ? '#2E7D5B' : '#E8F5EE' }]}>
-                  <Text style={[styles.avatarInitial, { color: isDark ? '#FFFFFF' : '#2E7D5B' }]}>{memberInitial}</Text>
+                <View style={[styles.avatarFallback, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                  <Text style={[styles.avatarInitial, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>{memberInitial}</Text>
                 </View>
               )}
             </View>
@@ -323,7 +325,7 @@ export default function BranchAssignmentModal({
               const isCoLeader = sup.role === 'co_leader';
               const isGuardian = sup.role === 'guardian';
 
-              const roleColor = isCoLeader ? '#7E22CE' : isGuardian ? '#0284C7' : '#2E7D5B';
+              const roleColor = isCoLeader ? '#7E22CE' : isGuardian ? '#0284C7' : (isDark ? '#FFFFFF' : '#0F172A');
               const roleBadge = isCoLeader ? 'CO-LEADER' : isGuardian ? 'GUARDIAN' : 'PROMOTE TO GUARDIAN';
               const roleIcon: keyof typeof Ionicons.glyphMap = isCoLeader
                 ? 'shield-checkmark'
@@ -334,7 +336,7 @@ export default function BranchAssignmentModal({
                 ? (isDark ? 'rgba(126, 34, 206, 0.16)' : '#F5EEFC')
                 : isGuardian
                 ? (isDark ? 'rgba(2, 132, 199, 0.16)' : '#EFF8FF')
-                : (isDark ? 'rgba(46, 125, 91, 0.16)' : '#E8F5EE');
+                : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9');
 
               return (
                 <TouchableOpacity

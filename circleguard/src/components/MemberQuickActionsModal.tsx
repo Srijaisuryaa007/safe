@@ -180,16 +180,16 @@ export default function MemberQuickActionsModal({
   const isAppLock = localLock !== null ? localLock : Boolean(profile.app_lock_enabled);
 
   const gpsFreqLabel =
-    gpsFrequency === 'realtime'
+    gpsFrequency === 'realtime' || gpsFrequency === 'high'
       ? 'Ultra Fast • 5s live breadcrumb telemetry'
-      : gpsFrequency === 'battery_saver'
+      : gpsFrequency === 'battery_saver' || gpsFrequency === 'saver'
       ? 'Eco Mode • 60s battery saver sync'
       : 'Balanced • 15s adaptive movement sync';
 
   const gpsFreqTag =
-    gpsFrequency === 'realtime'
+    gpsFrequency === 'realtime' || gpsFrequency === 'high'
       ? '5s FAST'
-      : gpsFrequency === 'battery_saver'
+      : gpsFrequency === 'battery_saver' || gpsFrequency === 'saver'
       ? '60s ECO'
       : '15s BAL';
 
@@ -255,8 +255,9 @@ export default function MemberQuickActionsModal({
       try { Vibration.vibrate(12); } catch (_) {}
     }
 
-    const order = ['realtime', 'balanced', 'battery_saver'];
-    const currentIndex = order.indexOf(gpsFrequency);
+    const order = ['high', 'balanced', 'saver'];
+    const normalized = (gpsFrequency === 'realtime') ? 'high' : (gpsFrequency === 'battery_saver' ? 'saver' : gpsFrequency);
+    const currentIndex = order.indexOf(normalized);
     const nextFreq = order[(currentIndex + 1) % order.length];
 
     setLocalGps(nextFreq);
@@ -278,16 +279,24 @@ export default function MemberQuickActionsModal({
     }));
 
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ gps_frequency: nextFreq })
-        .eq('id', targetUserId);
+      const { error: rpcErr } = await supabase.rpc('update_member_gps_frequency', {
+        p_target_user_id: targetUserId,
+        p_frequency: nextFreq,
+      });
 
-      if (error) throw error;
+      if (rpcErr) {
+        // Fallback to direct profiles table update if RPC not present
+        const { error } = await supabase
+          .from('profiles')
+          .update({ gps_frequency: nextFreq })
+          .eq('id', targetUserId);
+
+        if (error) throw error;
+      }
     } catch (err: any) {
       console.error('[MemberQuickActionsModal] Failed to update gps_frequency:', err);
       setLocalGps(profile.gps_frequency || 'balanced');
-      Alert.alert('Update Failed', 'Could not update GPS frequency.');
+      Alert.alert('Update Failed', err?.message || 'Could not update GPS frequency.');
     }
   };
 
@@ -460,33 +469,18 @@ export default function MemberQuickActionsModal({
       ? 'eye'
       : 'person';
 
-  // Bespoke Luxury CircleGuard Role Tokens: Champagne Gold, Neon Mint, Deep Jade & Frosted Platinum
+  // Minimal Monochrome CircleGuard Role Tokens
   const roleColor =
     role === 'owner'
-      ? (isDark ? '#F5A623' : '#D97706')
+      ? (isDark ? '#FFFFFF' : '#0F172A')
       : role === 'co_leader'
-      ? (isDark ? '#3ADFAB' : '#059669')
+      ? (isDark ? '#E2E8F0' : '#1E293B')
       : role === 'guardian'
-      ? (isDark ? '#4AE3B5' : '#047857')
-      : (isDark ? '#CAD8D0' : '#475C50');
+      ? (isDark ? '#CBD5E1' : '#334155')
+      : (isDark ? '#94A3B8' : '#64748B');
 
-  const roleBg =
-    role === 'owner'
-      ? (isDark ? 'rgba(245, 166, 35, 0.14)' : '#FEF3C7')
-      : role === 'co_leader'
-      ? (isDark ? 'rgba(58, 223, 171, 0.14)' : '#ECFDF5')
-      : role === 'guardian'
-      ? (isDark ? 'rgba(46, 125, 91, 0.20)' : '#E6F4ED')
-      : (isDark ? 'rgba(202, 216, 208, 0.10)' : '#F0F4F2');
-
-  const roleBorder =
-    role === 'owner'
-      ? (isDark ? 'rgba(245, 166, 35, 0.38)' : 'rgba(217, 119, 6, 0.35)')
-      : role === 'co_leader'
-      ? (isDark ? 'rgba(58, 223, 171, 0.38)' : 'rgba(5, 150, 105, 0.35)')
-      : role === 'guardian'
-      ? (isDark ? 'rgba(46, 125, 91, 0.40)' : 'rgba(4, 120, 87, 0.30)')
-      : (isDark ? 'rgba(202, 216, 208, 0.22)' : 'rgba(71, 92, 80, 0.20)');
+  const roleBg = isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9';
+  const roleBorder = isDark ? 'rgba(255, 255, 255, 0.14)' : '#E2E8F0';
 
   const handleDirections = () => {
     if (Platform.OS !== 'web') {
@@ -574,28 +568,28 @@ export default function MemberQuickActionsModal({
             style={[
               styles.profileCard,
               {
-                backgroundColor: isDark ? '#141C17' : '#FFFFFF',
-                borderColor: isDark ? 'rgba(58, 223, 171, 0.18)' : '#E2ECE6',
+                backgroundColor: isDark ? '#111318' : '#FFFFFF',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0',
               },
             ]}
           >
             <View style={styles.profileCardTop}>
-              {/* Avatar with Dual Orbit Halo & Live Beacon */}
+              {/* Avatar with Halo & Live Beacon */}
               <View
                 style={[
                   styles.avatarOrbitHalo,
                   {
                     borderColor: isOnline
-                      ? (isDark ? 'rgba(58, 223, 171, 0.40)' : 'rgba(16, 185, 129, 0.40)')
-                      : (isDark ? '#233028' : '#D1DCD6'),
+                      ? (isDark ? 'rgba(255, 255, 255, 0.40)' : 'rgba(15, 23, 42, 0.30)')
+                      : (isDark ? '#27272A' : '#E2E8F0'),
                   },
                 ]}
               >
-                <View style={[styles.avatarInnerRing, { backgroundColor: isDark ? '#18221D' : '#F4FAF6' }]}>
+                <View style={[styles.avatarInnerRing, { backgroundColor: isDark ? '#18181B' : '#F1F5F9' }]}>
                   {avatarUrl ? (
                     <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
                   ) : (
-                    <View style={[styles.avatarFallback, { backgroundColor: isDark ? '#1E2B23' : '#E0EFE7' }]}>
+                    <View style={[styles.avatarFallback, { backgroundColor: isDark ? '#27272A' : '#E2E8F0' }]}>
                       <Text style={[styles.avatarInitial, { color: roleColor }]}>
                         {name.charAt(0).toUpperCase()}
                       </Text>
@@ -608,15 +602,15 @@ export default function MemberQuickActionsModal({
                   style={[
                     styles.onlineGlowDot,
                     {
-                      backgroundColor: isDriving ? '#F5A623' : isOnline ? '#10B981' : '#718579',
-                      borderColor: isDark ? '#141C17' : '#FFFFFF',
+                      backgroundColor: isDriving ? '#F5A623' : isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : '#718579',
+                      borderColor: isDark ? '#111318' : '#FFFFFF',
                     },
                   ]}
                 >
                   <Ionicons
                     name={isDriving ? 'car' : isOnline ? 'checkmark' : 'time'}
                     size={7.5}
-                    color="#FFFFFF"
+                    color={isOnline && !isDriving ? (isDark ? '#0F172A' : '#FFFFFF') : '#FFFFFF'}
                   />
                 </View>
               </View>
@@ -635,12 +629,12 @@ export default function MemberQuickActionsModal({
                       style={[
                         styles.selfTag,
                         {
-                          backgroundColor: isDark ? 'rgba(58, 223, 171, 0.15)' : '#E0F5EB',
-                          borderColor: isDark ? 'rgba(58, 223, 171, 0.35)' : 'rgba(46, 125, 91, 0.30)',
+                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                          borderColor: isDark ? 'rgba(255, 255, 255, 0.16)' : '#E2E8F0',
                         },
                       ]}
                     >
-                      <Text style={[styles.selfTagText, { color: isDark ? '#3ADFAB' : '#006C4F' }]}>YOU</Text>
+                      <Text style={[styles.selfTagText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>YOU</Text>
                     </View>
                   )}
                 </View>
@@ -650,7 +644,7 @@ export default function MemberQuickActionsModal({
                   <Ionicons
                     name={isDriving ? 'car-sport' : isOnline ? 'radio' : 'time-outline'}
                     size={11.5}
-                    color={isDriving ? '#F5A623' : isOnline ? '#10B981' : (isDark ? '#7E9387' : '#6A7D71')}
+                    color={isDriving ? '#F5A623' : isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#94A3B8' : '#64748B')}
                   />
                   <Text
                     style={[
@@ -659,8 +653,8 @@ export default function MemberQuickActionsModal({
                         color: isDriving
                           ? (isDark ? '#FCD34D' : '#B45309')
                           : isOnline
-                          ? (isDark ? '#3ADFAB' : '#047857')
-                          : (isDark ? '#8A9E92' : '#62766A'),
+                          ? (isDark ? '#FFFFFF' : '#0F172A')
+                          : (isDark ? '#94A3B8' : '#64748B'),
                       },
                     ]}
                     numberOfLines={1}
@@ -682,22 +676,22 @@ export default function MemberQuickActionsModal({
                       {
                         backgroundColor: isLowBattery
                           ? (isDark ? 'rgba(239, 68, 68, 0.16)' : '#FEE2E2')
-                          : (isDark ? 'rgba(58, 223, 171, 0.10)' : '#EAF7F0'),
+                          : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'),
                         borderColor: isLowBattery
                           ? 'rgba(239, 68, 68, 0.40)'
-                          : (isDark ? 'rgba(58, 223, 171, 0.22)' : '#D1EAE0'),
+                          : (isDark ? 'rgba(255, 255, 255, 0.16)' : '#E2E8F0'),
                       },
                     ]}
                   >
                     <Ionicons
                       name={isLowBattery ? 'battery-dead' : 'battery-charging'}
                       size={11}
-                      color={isLowBattery ? '#EF4444' : (isDark ? '#3ADFAB' : '#007A55')}
+                      color={isLowBattery ? '#EF4444' : (isDark ? '#FFFFFF' : '#0F172A')}
                     />
                     <Text
                       style={[
                         styles.batteryText,
-                        { color: isLowBattery ? '#EF4444' : (isDark ? '#CAD8D0' : '#143827') },
+                        { color: isLowBattery ? '#EF4444' : (isDark ? '#FFFFFF' : '#0F172A') },
                       ]}
                     >
                       {battery}
@@ -709,15 +703,15 @@ export default function MemberQuickActionsModal({
                       style={[
                         styles.phoneBadge,
                         {
-                          backgroundColor: isDark ? '#1C2720' : '#F1F6F3',
-                          borderColor: isDark ? '#2B3D32' : '#DEE7E2',
+                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : '#F1F5F9',
+                          borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
                         },
                       ]}
                       onPress={handleCall}
                       activeOpacity={0.7}
                     >
-                      <Ionicons name="call" size={9} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-                      <Text style={[styles.phoneBadgeText, { color: isDark ? '#9EACA3' : '#4C6054' }]} numberOfLines={1}>
+                      <Ionicons name="call" size={9} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                      <Text style={[styles.phoneBadgeText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
                         {phone}
                       </Text>
                     </TouchableOpacity>
@@ -728,24 +722,24 @@ export default function MemberQuickActionsModal({
 
             {/* Integrated Executive 4-Button Action Toolbar */}
             {!isSelf ? (
-              <View style={[styles.quickContactStrip, { borderTopColor: isDark ? '#1E2922' : '#E7EFEA' }]}>
+              <View style={[styles.quickContactStrip, { borderTopColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0' }]}>
                 {/* 1. Direct Call */}
                 <TouchableOpacity
                   style={[
                     styles.contactActionBtn,
                     {
-                      backgroundColor: isDark ? 'rgba(58, 223, 171, 0.12)' : '#E8FAF2',
-                      borderColor: isDark ? 'rgba(58, 223, 171, 0.28)' : 'rgba(58, 223, 171, 0.45)',
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.16)' : '#E2E8F0',
                     },
                   ]}
                   onPress={handleCall}
                   activeOpacity={0.72}
                   accessibilityLabel={`Call ${name}`}
                 >
-                  <View style={[styles.contactIconCircle, { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.18)' : '#D0F5E4' }]}>
-                    <Ionicons name="call" size={12} color={isDark ? '#3ADFAB' : '#059669'} />
+                  <View style={[styles.contactIconCircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0' }]}>
+                    <Ionicons name="call" size={12} color={isDark ? '#FFFFFF' : '#0F172A'} />
                   </View>
-                  <Text style={[styles.contactActionBtnText, { color: isDark ? '#3ADFAB' : '#059669' }]}>
+                  <Text style={[styles.contactActionBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                     Call
                   </Text>
                 </TouchableOpacity>
@@ -777,18 +771,18 @@ export default function MemberQuickActionsModal({
                     style={[
                       styles.contactActionBtn,
                       {
-                        backgroundColor: isDark ? 'rgba(46, 125, 91, 0.18)' : '#EBF7F1',
-                        borderColor: isDark ? 'rgba(46, 125, 91, 0.35)' : 'rgba(46, 125, 91, 0.40)',
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                        borderColor: isDark ? 'rgba(255, 255, 255, 0.16)' : '#E2E8F0',
                       },
                     ]}
                     onPress={handleChat}
                     activeOpacity={0.72}
                     accessibilityLabel={`Tag ${name} in Chat`}
                   >
-                    <View style={[styles.contactIconCircle, { backgroundColor: isDark ? 'rgba(46, 125, 91, 0.26)' : '#D7EFE3' }]}>
-                      <Ionicons name="chatbubbles" size={12} color={isDark ? '#4AE3B5' : '#047857'} />
+                    <View style={[styles.contactIconCircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0' }]}>
+                      <Ionicons name="chatbubbles" size={12} color={isDark ? '#FFFFFF' : '#0F172A'} />
                     </View>
-                    <Text style={[styles.contactActionBtnText, { color: isDark ? '#4AE3B5' : '#047857' }]}>
+                    <Text style={[styles.contactActionBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                       Chat
                     </Text>
                   </TouchableOpacity>
@@ -816,13 +810,13 @@ export default function MemberQuickActionsModal({
                 </TouchableOpacity>
               </View>
             ) : (
-              <View style={[styles.quickContactStrip, { borderTopColor: isDark ? '#1E2922' : '#E7EFEA' }]}>
+              <View style={[styles.quickContactStrip, { borderTopColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0' }]}>
                 <TouchableOpacity
                   style={[
                     styles.contactActionBtn,
                     {
-                      backgroundColor: isDark ? 'rgba(58, 223, 171, 0.12)' : '#E8FAF2',
-                      borderColor: isDark ? 'rgba(58, 223, 171, 0.28)' : 'rgba(58, 223, 171, 0.45)',
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.16)' : '#E2E8F0',
                     },
                   ]}
                   onPress={() => {
@@ -832,10 +826,10 @@ export default function MemberQuickActionsModal({
                   }}
                   activeOpacity={0.72}
                 >
-                  <View style={[styles.contactIconCircle, { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.18)' : '#D0F5E4' }]}>
-                    <Ionicons name="locate" size={12} color={isDark ? '#3ADFAB' : '#059669'} />
+                  <View style={[styles.contactIconCircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0' }]}>
+                    <Ionicons name="locate" size={12} color={isDark ? '#FFFFFF' : '#0F172A'} />
                   </View>
-                  <Text style={[styles.contactActionBtnText, { color: isDark ? '#3ADFAB' : '#059669' }]}>
+                  <Text style={[styles.contactActionBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                     Locate Me
                   </Text>
                 </TouchableOpacity>
@@ -867,8 +861,8 @@ export default function MemberQuickActionsModal({
                   style={[
                     styles.contactActionBtn,
                     {
-                      backgroundColor: isDark ? 'rgba(16, 185, 129, 0.12)' : '#ECFDF5',
-                      borderColor: isDark ? 'rgba(16, 185, 129, 0.28)' : 'rgba(16, 185, 129, 0.40)',
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.16)' : '#E2E8F0',
                     },
                   ]}
                   onPress={() => {
@@ -878,10 +872,10 @@ export default function MemberQuickActionsModal({
                   }}
                   activeOpacity={0.72}
                 >
-                  <View style={[styles.contactIconCircle, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.18)' : '#D1FAE5' }]}>
-                    <Ionicons name="speedometer" size={12} color={isDark ? '#10B981' : '#047857'} />
+                  <View style={[styles.contactIconCircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0' }]}>
+                    <Ionicons name="speedometer" size={12} color={isDark ? '#FFFFFF' : '#0F172A'} />
                   </View>
-                  <Text style={[styles.contactActionBtnText, { color: isDark ? '#10B981' : '#047857' }]}>
+                  <Text style={[styles.contactActionBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                     Driving
                   </Text>
                 </TouchableOpacity>
@@ -896,11 +890,11 @@ export default function MemberQuickActionsModal({
             nestedScrollEnabled={true}
             contentContainerStyle={styles.scrollContent}
           >
-            {/* Quick Actions Header with Emerald Accent Dot */}
+            {/* Quick Actions Header */}
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionTitleWithDot}>
-                <View style={[styles.sectionTitleDot, { backgroundColor: isDark ? '#3ADFAB' : '#2E7D5B' }]} />
-                <Text style={[styles.sectionTitle, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                <View style={[styles.sectionTitleDot, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]} />
+                <Text style={[styles.sectionTitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                   QUICK ACTIONS
                 </Text>
               </View>
@@ -915,8 +909,8 @@ export default function MemberQuickActionsModal({
                   style={[
                     styles.gridTile,
                     {
-                      backgroundColor: isDark ? '#16201B' : '#F6FAF7',
-                      borderColor: isDark ? 'rgba(58, 223, 171, 0.22)' : 'rgba(46, 125, 91, 0.20)',
+                      backgroundColor: isDark ? '#18181B' : '#F8FAFC',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0',
                     },
                   ]}
                   onPress={handleDirections}
@@ -925,16 +919,16 @@ export default function MemberQuickActionsModal({
                   <View
                     style={[
                       styles.tileIconSquircle,
-                      { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E3F5EC' },
+                      { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' },
                     ]}
                   >
-                    <Ionicons name="navigate" size={19} color={isDark ? '#3ADFAB' : '#006C4F'} />
+                    <Ionicons name="navigate" size={19} color={isDark ? '#FFFFFF' : '#0F172A'} />
                   </View>
                   <View style={styles.tileTextWrap}>
-                    <Text style={[styles.tileTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                    <Text style={[styles.tileTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                       Directions
                     </Text>
-                    <Text style={[styles.tileSubtitle, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                    <Text style={[styles.tileSubtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                       Live GPS route
                     </Text>
                   </View>
@@ -969,10 +963,10 @@ export default function MemberQuickActionsModal({
                     />
                   </View>
                   <View style={styles.tileTextWrap}>
-                    <Text style={[styles.tileTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                    <Text style={[styles.tileTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                       {isSelf ? 'Locate Phone' : 'Ring Device'}
                     </Text>
-                    <Text style={[styles.tileSubtitle, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                    <Text style={[styles.tileSubtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                       {isSelf ? 'Center on map' : 'Audible chime'}
                     </Text>
                   </View>
@@ -1006,10 +1000,10 @@ export default function MemberQuickActionsModal({
                     <Ionicons name="time" size={19} color={isDark ? '#F5A623' : '#D97706'} />
                   </View>
                   <View style={styles.tileTextWrap}>
-                    <Text style={[styles.tileTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                    <Text style={[styles.tileTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                       Timeline
                     </Text>
-                    <Text style={[styles.tileSubtitle, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                    <Text style={[styles.tileSubtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                       24h breadcrumbs
                     </Text>
                   </View>
@@ -1020,8 +1014,8 @@ export default function MemberQuickActionsModal({
                   style={[
                     styles.gridTile,
                     {
-                      backgroundColor: isDark ? '#142019' : '#F4FBF7',
-                      borderColor: isDark ? 'rgba(16, 185, 129, 0.22)' : 'rgba(16, 185, 129, 0.20)',
+                      backgroundColor: isDark ? '#18181B' : '#F8FAFC',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0',
                     },
                   ]}
                   onPress={() => {
@@ -1034,16 +1028,16 @@ export default function MemberQuickActionsModal({
                   <View
                     style={[
                       styles.tileIconSquircle,
-                      { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.16)' : '#E6F9F0' },
+                      { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' },
                     ]}
                   >
-                    <Ionicons name="speedometer" size={19} color={isDark ? '#10B981' : '#059669'} />
+                    <Ionicons name="speedometer" size={19} color={isDark ? '#FFFFFF' : '#0F172A'} />
                   </View>
                   <View style={styles.tileTextWrap}>
-                    <Text style={[styles.tileTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                    <Text style={[styles.tileTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                       Drive Safety
                     </Text>
-                    <Text style={[styles.tileSubtitle, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                    <Text style={[styles.tileSubtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                       Speed & trips
                     </Text>
                   </View>
@@ -1096,8 +1090,8 @@ export default function MemberQuickActionsModal({
               <>
                 <View style={[styles.sectionHeaderRow, { marginTop: 14 }]}>
                   <View style={styles.sectionTitleWithDot}>
-                    <View style={[styles.sectionTitleDot, { backgroundColor: isDark ? '#00D2FF' : '#0284C7' }]} />
-                    <Text style={[styles.sectionTitle, { color: isDark ? '#829589' : '#73867A' }]}>
+                    <View style={[styles.sectionTitleDot, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]} />
+                    <Text style={[styles.sectionTitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                       {canManageRanks && !isSelf
                         ? 'SECURITY & PRIVACY PROTOCOLS (LEADER CONTROL)'
                         : 'SECURITY & PRIVACY PROTOCOLS (LEADER AUDIT)'}
@@ -1109,8 +1103,8 @@ export default function MemberQuickActionsModal({
                   style={[
                     styles.groupedCard,
                     {
-                      backgroundColor: isDark ? '#17201B' : '#F7FAF8',
-                      borderColor: isDark ? '#26372E' : '#E3ECE6',
+                      backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0',
                     },
                   ]}
                 >
@@ -1122,21 +1116,21 @@ export default function MemberQuickActionsModal({
                         {
                           backgroundColor: isGhostActive
                             ? (isDark ? 'rgba(245, 166, 35, 0.18)' : '#FEF3C7')
-                            : (isDark ? '#1D2E25' : '#E3F5EC'),
+                            : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'),
                         },
                       ]}
                     >
                       <Ionicons
                         name={isGhostActive ? 'eye-off' : 'eye'}
                         size={17}
-                        color={isGhostActive ? '#F5A623' : (isDark ? '#3ADFAB' : '#006C4F')}
+                        color={isGhostActive ? '#F5A623' : (isDark ? '#FFFFFF' : '#0F172A')}
                       />
                     </View>
                     <View style={styles.groupedTextCol}>
-                      <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                      <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                         Ghost Location Mode
                       </Text>
-                      <Text style={[styles.groupedSubtitle, { color: isGhostActive ? '#F5A623' : (isDark ? '#8A9E92' : '#6A7D71') }]}>
+                      <Text style={[styles.groupedSubtitle, { color: isGhostActive ? '#F5A623' : (isDark ? '#94A3B8' : '#64748B') }]}>
                         {isGhostActive ? 'Active • Location fuzzed (~500m offset)' : 'Disabled • Exact real-time GPS stream'}
                       </Text>
                     </View>
@@ -1144,7 +1138,7 @@ export default function MemberQuickActionsModal({
                       <Switch
                         value={isGhostActive}
                         onValueChange={(val) => handleLeaderToggleSetting('is_ghost_mode', val)}
-                        trackColor={{ false: isDark ? '#26372E' : '#D1D5DB', true: '#F5A623' }}
+                        trackColor={{ false: isDark ? '#27272A' : '#D1D5DB', true: '#F5A623' }}
                         thumbColor="#FFFFFF"
                       />
                     ) : (
@@ -1154,14 +1148,14 @@ export default function MemberQuickActionsModal({
                           {
                             backgroundColor: isGhostActive
                               ? (isDark ? 'rgba(245, 166, 35, 0.20)' : '#FEF3C7')
-                              : (isDark ? 'rgba(58, 223, 171, 0.15)' : '#E3F5EC'),
+                              : (isDark ? 'rgba(255, 255, 255, 0.10)' : '#F1F5F9'),
                           },
                         ]}
                       >
                         <Text
                           style={[
                             styles.auditStatusText,
-                            { color: isGhostActive ? '#F5A623' : (isDark ? '#3ADFAB' : '#006C4F') },
+                            { color: isGhostActive ? '#F5A623' : (isDark ? '#FFFFFF' : '#0F172A') },
                           ]}
                         >
                           {isGhostActive ? 'FUZZED' : 'EXACT'}
@@ -1193,14 +1187,14 @@ export default function MemberQuickActionsModal({
                     </View>
                     <View style={styles.groupedTextCol}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                        <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                        <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                           GPS Sync Frequency
                         </Text>
                         {canManageRanks && !isSelf && (
                           <Ionicons name="swap-horizontal" size={14} color={isDark ? '#00D2FF' : '#0284C7'} />
                         )}
                       </View>
-                      <Text style={[styles.groupedSubtitle, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                      <Text style={[styles.groupedSubtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                         {gpsFreqLabel}
                       </Text>
                     </View>
@@ -1231,21 +1225,21 @@ export default function MemberQuickActionsModal({
                         {
                           backgroundColor: isHideOnline
                             ? (isDark ? 'rgba(239, 68, 68, 0.16)' : '#FEE2E2')
-                            : (isDark ? '#1D2E25' : '#E3F5EC'),
+                            : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'),
                         },
                       ]}
                     >
                       <Ionicons
                         name={isHideOnline ? 'cloud-offline' : 'wifi'}
                         size={17}
-                        color={isHideOnline ? '#EF4444' : (isDark ? '#3ADFAB' : '#006C4F')}
+                        color={isHideOnline ? '#EF4444' : (isDark ? '#FFFFFF' : '#0F172A')}
                       />
                     </View>
                     <View style={styles.groupedTextCol}>
-                      <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                      <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                         Online Presence
                       </Text>
-                      <Text style={[styles.groupedSubtitle, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                      <Text style={[styles.groupedSubtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                         {isHideOnline ? 'Hidden • Offline stealth status enabled' : 'Visible • Circle broadcast active'}
                       </Text>
                     </View>
@@ -1253,7 +1247,7 @@ export default function MemberQuickActionsModal({
                       <Switch
                         value={!isHideOnline}
                         onValueChange={(val) => handleLeaderToggleSetting('hide_online_presence', !val)}
-                        trackColor={{ false: isDark ? '#26372E' : '#D1D5DB', true: isDark ? '#3ADFAB' : '#006C4F' }}
+                        trackColor={{ false: isDark ? '#27272A' : '#D1D5DB', true: isDark ? '#FFFFFF' : '#0F172A' }}
                         thumbColor="#FFFFFF"
                       />
                     ) : (
@@ -1263,14 +1257,14 @@ export default function MemberQuickActionsModal({
                           {
                             backgroundColor: isHideOnline
                               ? (isDark ? 'rgba(239, 68, 68, 0.18)' : '#FEE2E2')
-                              : (isDark ? 'rgba(58, 223, 171, 0.15)' : '#E3F5EC'),
+                              : (isDark ? 'rgba(255, 255, 255, 0.10)' : '#F1F5F9'),
                           },
                         ]}
                       >
                         <Text
                           style={[
                             styles.auditStatusText,
-                            { color: isHideOnline ? '#EF4444' : (isDark ? '#3ADFAB' : '#006C4F') },
+                            { color: isHideOnline ? '#EF4444' : (isDark ? '#FFFFFF' : '#0F172A') },
                           ]}
                         >
                           {isHideOnline ? 'HIDDEN' : 'BROADCAST'}
@@ -1305,10 +1299,10 @@ export default function MemberQuickActionsModal({
                       />
                     </View>
                     <View style={styles.groupedTextCol}>
-                      <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                      <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                         Shake Phone for SOS
                       </Text>
-                      <Text style={[styles.groupedSubtitle, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                      <Text style={[styles.groupedSubtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                         {isShakeSos ? 'Armed • Accelerometer triggers instant alert' : 'Disabled • Manual alert only'}
                       </Text>
                     </View>
@@ -1316,7 +1310,7 @@ export default function MemberQuickActionsModal({
                       <Switch
                         value={isShakeSos}
                         onValueChange={(val) => handleLeaderToggleSetting('shake_sos_enabled', val)}
-                        trackColor={{ false: isDark ? '#26372E' : '#D1D5DB', true: '#EF4444' }}
+                        trackColor={{ false: isDark ? '#27272A' : '#D1D5DB', true: '#EF4444' }}
                         thumbColor="#FFFFFF"
                       />
                     ) : (
@@ -1356,7 +1350,7 @@ export default function MemberQuickActionsModal({
                         styles.groupedIconSquircle,
                         {
                           backgroundColor: isAppLock
-                            ? (isDark ? 'rgba(58, 223, 171, 0.18)' : '#E3F5EC')
+                            ? (isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0')
                             : (isDark ? 'rgba(100, 116, 139, 0.15)' : '#F1F5F9'),
                         },
                       ]}
@@ -1364,14 +1358,14 @@ export default function MemberQuickActionsModal({
                       <Ionicons
                         name={isAppLock ? 'finger-print' : 'lock-open-outline'}
                         size={17}
-                        color={isAppLock ? (isDark ? '#3ADFAB' : '#006C4F') : (isDark ? '#94A3B8' : '#64748B')}
+                        color={isAppLock ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#94A3B8' : '#64748B')}
                       />
                     </View>
                     <View style={styles.groupedTextCol}>
-                      <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                      <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                         Biometric App Lock
                       </Text>
-                      <Text style={[styles.groupedSubtitle, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                      <Text style={[styles.groupedSubtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                         {isAppLock ? 'Enforced • Biometric authentication active' : 'Disabled • Open launch'}
                       </Text>
                     </View>
@@ -1379,7 +1373,7 @@ export default function MemberQuickActionsModal({
                       <Switch
                         value={isAppLock}
                         onValueChange={(val) => handleLeaderToggleSetting('app_lock_enabled', val)}
-                        trackColor={{ false: isDark ? '#26372E' : '#D1D5DB', true: isDark ? '#3ADFAB' : '#006C4F' }}
+                        trackColor={{ false: isDark ? '#27272A' : '#D1D5DB', true: isDark ? '#FFFFFF' : '#0F172A' }}
                         thumbColor="#FFFFFF"
                       />
                     ) : (
@@ -1388,7 +1382,7 @@ export default function MemberQuickActionsModal({
                           styles.auditStatusPill,
                           {
                             backgroundColor: isAppLock
-                              ? (isDark ? 'rgba(58, 223, 171, 0.15)' : '#E3F5EC')
+                              ? (isDark ? 'rgba(255, 255, 255, 0.10)' : '#F1F5F9')
                               : (isDark ? 'rgba(100, 116, 139, 0.15)' : '#F1F5F9'),
                           },
                         ]}
@@ -1396,7 +1390,7 @@ export default function MemberQuickActionsModal({
                         <Text
                           style={[
                             styles.auditStatusText,
-                            { color: isAppLock ? (isDark ? '#3ADFAB' : '#006C4F') : (isDark ? '#94A3B8' : '#64748B') },
+                            { color: isAppLock ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#94A3B8' : '#64748B') },
                           ]}
                         >
                           {isAppLock ? 'ENFORCED' : 'OFF'}
@@ -1412,7 +1406,7 @@ export default function MemberQuickActionsModal({
                     <View style={[styles.sectionHeaderRow, { marginTop: 14 }]}>
                       <View style={styles.sectionTitleWithDot}>
                         <View style={[styles.sectionTitleDot, { backgroundColor: isDark ? '#F5A623' : '#D97706' }]} />
-                        <Text style={[styles.sectionTitle, { color: isDark ? '#829589' : '#73867A' }]}>
+                        <Text style={[styles.sectionTitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                           CIRCLE LOCATION SHARING (LEADER ACTION)
                         </Text>
                       </View>
@@ -1456,7 +1450,7 @@ export default function MemberQuickActionsModal({
             {!isTargetOwner && (
               <>
                 <View style={[styles.sectionHeaderRow, { marginTop: 14 }]}>
-                  <Text style={[styles.sectionTitle, { color: isDark ? '#829589' : '#73867A' }]}>
+                  <Text style={[styles.sectionTitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                     CIRCLE GOVERNANCE & SUPERVISION
                   </Text>
                 </View>
@@ -1465,8 +1459,8 @@ export default function MemberQuickActionsModal({
                   style={[
                     styles.groupedCard,
                     {
-                      backgroundColor: isDark ? '#17201B' : '#F7FAF8',
-                      borderColor: isDark ? '#26372E' : '#E3ECE6',
+                      backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0',
                     },
                   ]}
                 >
@@ -1484,20 +1478,20 @@ export default function MemberQuickActionsModal({
                     <View
                       style={[
                         styles.groupedIconSquircle,
-                        { backgroundColor: isDark ? '#1D2E25' : '#E3F5EC' },
+                        { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' },
                       ]}
                     >
-                      <Ionicons name="shield-checkmark" size={17} color={isDark ? '#3ADFAB' : '#006C4F'} />
+                      <Ionicons name="shield-checkmark" size={17} color={isDark ? '#FFFFFF' : '#0F172A'} />
                     </View>
                     <View style={styles.groupedTextCol}>
-                      <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                      <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                         Guardian Supervisor
                       </Text>
-                      <Text style={[styles.groupedSubtitle, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                      <Text style={[styles.groupedSubtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                         Designate alert recipient for SOS & zones
                       </Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={16} color={isDark ? '#4F6357' : '#94A3B8'} />
+                    <Ionicons name="chevron-forward" size={16} color={isDark ? '#94A3B8' : '#64748B'} />
                   </TouchableOpacity>
 
                   {/* Divider */}
@@ -1531,14 +1525,14 @@ export default function MemberQuickActionsModal({
                         <Ionicons name="ribbon" size={17} color={isDark ? '#F5A623' : '#D97706'} />
                       </View>
                       <View style={styles.groupedTextCol}>
-                        <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                        <Text style={[styles.groupedTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                           Member Permissions
                         </Text>
-                        <Text style={[styles.groupedSubtitle, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                        <Text style={[styles.groupedSubtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                           Adjust role as Co-Leader, Guardian or Member
                         </Text>
                       </View>
-                      <Ionicons name="chevron-forward" size={16} color={isDark ? '#4F6357' : '#94A3B8'} />
+                      <Ionicons name="chevron-forward" size={16} color={isDark ? '#94A3B8' : '#64748B'} />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -1591,24 +1585,24 @@ export default function MemberQuickActionsModal({
               style={[
                 styles.shareModalSheet,
                 {
-                  backgroundColor: isDark ? '#141E18' : '#FFFFFF',
-                  borderColor: isDark ? '#26372E' : '#E2ECE6',
+                  backgroundColor: isDark ? '#121214' : '#FFFFFF',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
                   paddingBottom: Math.max(insets.bottom + 16, 28),
                 },
               ]}
             >
               {/* Drag Handle */}
               <View style={styles.shareDragHandleBox}>
-                <View style={[styles.shareDragHandle, { backgroundColor: isDark ? '#2E3D34' : '#D1D5DB' }]} />
+                <View style={[styles.shareDragHandle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.2)' : '#D1D5DB' }]} />
               </View>
 
               {/* Header */}
               <View style={styles.shareSheetHeader}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.shareSheetTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                  <Text style={[styles.shareSheetTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                     Share {name}'s Location
                   </Text>
-                  <Text style={[styles.shareSheetSubtitle, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                  <Text style={[styles.shareSheetSubtitle, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                     Broadcast to other circle members or external apps
                   </Text>
                 </View>
@@ -1617,7 +1611,7 @@ export default function MemberQuickActionsModal({
                   onPress={() => setIsShareModalOpen(false)}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Ionicons name="close" size={18} color={isDark ? '#CAD8D0' : '#475C50'} />
+                  <Ionicons name="close" size={18} color={isDark ? '#94A3B8' : '#64748B'} />
                 </TouchableOpacity>
               </View>
 
@@ -1626,19 +1620,19 @@ export default function MemberQuickActionsModal({
                 style={[
                   styles.shareLocationCard,
                   {
-                    backgroundColor: isDark ? '#1C2821' : '#F4F9F6',
-                    borderColor: isDark ? '#2E4236' : '#DCEDE3',
+                    backgroundColor: isDark ? '#18181B' : '#F8FAFC',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0',
                   },
                 ]}
               >
-                <View style={[styles.shareLocationIconBox, { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E3F5EC' }]}>
-                  <Ionicons name="location" size={20} color={isDark ? '#3ADFAB' : '#006C4F'} />
+                <View style={[styles.shareLocationIconBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                  <Ionicons name="location" size={20} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={[styles.shareLocationTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]} numberOfLines={1}>
+                  <Text style={[styles.shareLocationTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]} numberOfLines={1}>
                     {member.latestPlaceEvent?.place_name || (hasValidLocation ? 'Live GPS Coordinates' : 'Location Updating')}
                   </Text>
-                  <Text style={[styles.shareLocationCoord, { color: isDark ? '#8A9E92' : '#6A7D71' }]} numberOfLines={1}>
+                  <Text style={[styles.shareLocationCoord, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
                     {hasValidLocation
                       ? `${Number(memberLat).toFixed(5)}, ${Number(memberLng).toFixed(5)} • ${statusSubtitle}`
                       : 'Connecting to member telemetry...'}
@@ -1651,8 +1645,8 @@ export default function MemberQuickActionsModal({
                 style={[
                   styles.shareActionCard,
                   {
-                    backgroundColor: isDark ? '#1A241E' : '#FFFFFF',
-                    borderColor: isDark ? '#2C3E33' : '#E2ECE6',
+                    backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0',
                   },
                 ]}
                 activeOpacity={0.75}
@@ -1663,17 +1657,17 @@ export default function MemberQuickActionsModal({
                   <Ionicons name="radio" size={19} color={isDark ? '#F5A623' : '#D97706'} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.shareActionTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                  <Text style={[styles.shareActionTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                     Broadcast Push to Circle
                   </Text>
-                  <Text style={[styles.shareActionSub, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                  <Text style={[styles.shareActionSub, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                     Send high-priority alert & map link to all circle members
                   </Text>
                 </View>
                 {isBroadcasting ? (
                   <Text style={{ fontSize: 12, color: '#F5A623', fontWeight: '700' }}>Sending...</Text>
                 ) : (
-                  <Ionicons name="chevron-forward" size={17} color={isDark ? '#4F6357' : '#94A3B8'} />
+                  <Ionicons name="chevron-forward" size={17} color={isDark ? '#94A3B8' : '#64748B'} />
                 )}
               </TouchableOpacity>
 
@@ -1682,25 +1676,25 @@ export default function MemberQuickActionsModal({
                 style={[
                   styles.shareActionCard,
                   {
-                    backgroundColor: isDark ? '#1A241E' : '#FFFFFF',
-                    borderColor: isDark ? '#2C3E33' : '#E2ECE6',
+                    backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0',
                   },
                 ]}
                 activeOpacity={0.75}
                 onPress={handlePostLocationToChat}
               >
-                <View style={[styles.shareActionIconBox, { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E3F5EC' }]}>
-                  <Ionicons name="chatbubbles" size={19} color={isDark ? '#3ADFAB' : '#006C4F'} />
+                <View style={[styles.shareActionIconBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                  <Ionicons name="chatbubbles" size={19} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.shareActionTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                  <Text style={[styles.shareActionTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                     Post to Circle Chat
                   </Text>
-                  <Text style={[styles.shareActionSub, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                  <Text style={[styles.shareActionSub, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                     Pin location into group chat for all members to view
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={17} color={isDark ? '#4F6357' : '#94A3B8'} />
+                <Ionicons name="chevron-forward" size={17} color={isDark ? '#94A3B8' : '#64748B'} />
               </TouchableOpacity>
 
               {/* Action 3: External Share (WhatsApp / SMS / Maps) */}
@@ -1708,8 +1702,8 @@ export default function MemberQuickActionsModal({
                 style={[
                   styles.shareActionCard,
                   {
-                    backgroundColor: isDark ? '#1A241E' : '#FFFFFF',
-                    borderColor: isDark ? '#2C3E33' : '#E2ECE6',
+                    backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0',
                   },
                 ]}
                 activeOpacity={0.75}
@@ -1719,14 +1713,14 @@ export default function MemberQuickActionsModal({
                   <Ionicons name="share-outline" size={19} color={isDark ? '#00D2FF' : '#0284C7'} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.shareActionTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>
+                  <Text style={[styles.shareActionTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                     External Share (WhatsApp / SMS)
                   </Text>
-                  <Text style={[styles.shareActionSub, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
+                  <Text style={[styles.shareActionSub, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                     Share Google Maps live link with external contacts
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={17} color={isDark ? '#4F6357' : '#94A3B8'} />
+                <Ionicons name="chevron-forward" size={17} color={isDark ? '#94A3B8' : '#64748B'} />
               </TouchableOpacity>
             </View>
           </View>

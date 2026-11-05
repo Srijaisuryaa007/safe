@@ -169,7 +169,7 @@ export const SafetyRadarChart: React.FC<SafetyRadarChartProps> = ({
       {/* Top Header */}
       <View style={styles.headerRow}>
         <View style={styles.titleWrapper}>
-          <View style={[styles.headerDot, { backgroundColor: '#00E599' }]} />
+          <View style={[styles.headerDot, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]} />
           <Text style={[styles.titleText, { color: isDark ? '#A0AEC0' : '#4A5568' }]}>
             {title}
           </Text>
@@ -190,7 +190,7 @@ export const SafetyRadarChart: React.FC<SafetyRadarChartProps> = ({
           <Defs>
             {/* Primary Driver Glow Gradient */}
             <LinearGradient id="radarDriverGrad" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0%" stopColor="#00E599" stopOpacity={0.45} />
+              <Stop offset="0%" stopColor={isDark ? '#FFFFFF' : '#0F172A'} stopOpacity={0.45} />
               <Stop offset="100%" stopColor="#38E8FF" stopOpacity={0.25} />
             </LinearGradient>
 
@@ -251,7 +251,7 @@ export const SafetyRadarChart: React.FC<SafetyRadarChartProps> = ({
                 <Polygon
                   points={sp.pointsString}
                   fill="url(#radarDriverGrad)"
-                  stroke="#00E599"
+                  stroke={isDark ? '#FFFFFF' : '#0F172A'}
                   strokeWidth={2.4}
                   strokeLinejoin="round"
                 />
@@ -265,7 +265,7 @@ export const SafetyRadarChart: React.FC<SafetyRadarChartProps> = ({
                         cx={coord.x}
                         cy={coord.y}
                         r={isHighlighted ? 7 : 4.5}
-                        fill="#00E599"
+                        fill={isDark ? '#FFFFFF' : '#0F172A'}
                         fillOpacity={isHighlighted ? 0.4 : 0.2}
                       />
                       <Circle
@@ -273,7 +273,7 @@ export const SafetyRadarChart: React.FC<SafetyRadarChartProps> = ({
                         cy={coord.y}
                         r={isHighlighted ? 4 : 2.5}
                         fill="#FFFFFF"
-                        stroke="#00E599"
+                        stroke={isDark ? '#FFFFFF' : '#0F172A'}
                         strokeWidth={1.8}
                       />
                     </G>
@@ -301,7 +301,7 @@ export const SafetyRadarChart: React.FC<SafetyRadarChartProps> = ({
                 x={spoke.labelX}
                 y={spoke.labelY + (isTop ? -4 : isBottom ? 10 : 3)}
                 textAnchor={anchor}
-                fill={isSelected ? '#00E599' : isDark ? '#A0AEC0' : '#4A5568'}
+                fill={isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : isDark ? '#A0AEC0' : '#4A5568'}
                 fontSize={9.5}
                 fontWeight={isSelected ? '900' : '700'}
                 letterSpacing={0.4}
@@ -327,20 +327,20 @@ export const SafetyRadarChart: React.FC<SafetyRadarChartProps> = ({
                 styles.metricPill,
                 {
                   backgroundColor: isSelected
-                    ? isDark ? 'rgba(0, 229, 153, 0.16)' : '#E8F5EE'
+                    ? isDark ? 'rgba(255, 255, 255, 0.16)' : '#F1F5F9'
                     : isDark ? 'rgba(255, 255, 255, 0.04)' : '#F7FAFC',
                   borderColor: isSelected
-                    ? '#00E599'
+                    ? (isDark ? '#FFFFFF' : '#0F172A')
                     : isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
                 },
               ]}
               onPress={() => setActiveMetricKey(isSelected ? null : m.key)}
               activeOpacity={0.7}
             >
-              <Text style={[styles.metricPillLabel, { color: isSelected ? '#00E599' : isDark ? '#E2E8F0' : '#2D3748' }]}>
+              <Text style={[styles.metricPillLabel, { color: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : isDark ? '#E2E8F0' : '#2D3748' }]}>
                 {m.label}
               </Text>
-              <Text style={[styles.metricPillScore, { color: isSelected ? '#00E599' : isDark ? '#A0AEC0' : '#718096' }]}>
+              <Text style={[styles.metricPillScore, { color: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : isDark ? '#A0AEC0' : '#718096' }]}>
                 {Math.round(scoreVal)}%
               </Text>
             </TouchableOpacity>
@@ -350,8 +350,8 @@ export const SafetyRadarChart: React.FC<SafetyRadarChartProps> = ({
 
       {/* Explanatory Context Footer */}
       {activeMetricObj && (
-        <View style={[styles.detailBox, { backgroundColor: isDark ? 'rgba(0, 229, 153, 0.08)' : '#F0FFF4' }]}>
-          <Text style={[styles.detailTitle, { color: '#00E599' }]}>
+        <View style={[styles.detailBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+          <Text style={[styles.detailTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
             {activeMetricObj.label.toUpperCase()}
           </Text>
           <Text style={[styles.detailDesc, { color: isDark ? '#E2E8F0' : '#2D3748' }]}>
@@ -363,7 +363,7 @@ export const SafetyRadarChart: React.FC<SafetyRadarChartProps> = ({
       {/* Legend */}
       <View style={styles.legendRow}>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: '#00E599' }]} />
+          <View style={[styles.legendDot, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]} />
           <Text style={[styles.legendText, { color: isDark ? '#A0AEC0' : '#718096' }]}>Driver Evaluation</Text>
         </View>
         {showBenchmark && (
@@ -419,23 +419,23 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   scoreBadge: {
-    backgroundColor: 'rgba(0, 229, 153, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(0, 229, 153, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   scoreBadgeText: {
     fontSize: 11,
     fontWeight: '900',
-    color: '#00E599',
+    color: '#FFFFFF',
     fontVariant: ['tabular-nums'],
   },
   scoreBadgeDenom: {
     fontSize: 8.5,
     fontWeight: '700',
-    color: 'rgba(0, 229, 153, 0.7)',
+    color: 'rgba(255, 255, 255, 0.7)',
   },
   svgWrapper: {
     alignItems: 'center',
@@ -474,7 +474,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginTop: 10,
     borderWidth: 1,
-    borderColor: 'rgba(0, 229, 153, 0.25)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   detailTitle: {
     fontSize: 9,

@@ -549,7 +549,7 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
               {/* Info Banner */}
               <View style={styles.infoBanner}>
                 <View style={styles.infoIconBox}>
-                  <Ionicons name="shield-checkmark" size={20} color="#2E7D5B" />
+                  <Ionicons name="shield-checkmark" size={20} color="#0F172A" />
                 </View>
                 <Text style={styles.infoBannerText}>
                   Triggers an authentic incoming phone call with clear audio assistance to escort you home safely and deter unwanted attention.
@@ -567,7 +567,7 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
                     <View style={styles.singleCallerTitleRow}>
                       <Text style={styles.singleCallerName}>{effectiveCallerName}</Text>
                       <View style={styles.singleCallerVerifiedBadge}>
-                        <Ionicons name="checkmark-circle" size={13} color="#2E7D5B" />
+                        <Ionicons name="checkmark-circle" size={13} color="#0F172A" />
                         <Text style={styles.singleCallerVerifiedText}>Live Audio</Text>
                       </View>
                     </View>
@@ -719,7 +719,7 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
               </TouchableOpacity>
 
               <TouchableOpacity style={[styles.callBtn, styles.acceptBtn]} onPress={handleAnswer} activeOpacity={0.8}>
-                <Ionicons name="call" size={32} color="#FFFFFF" />
+                <Ionicons name="call" size={32} color="#000000" />
                 <Text style={styles.btnLabel}>ANSWER</Text>
               </TouchableOpacity>
             </View>
@@ -733,8 +733,8 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
           <View style={[styles.activeWrapper, { paddingTop: topInset + 8 }]}>
             <View style={styles.topInfo}>
               <View style={styles.callActiveBadge}>
-                <View style={[styles.callDot, { backgroundColor: '#10B981' }]} />
-                <Text style={[styles.overline, { color: '#10B981' }]}>CALL IN PROGRESS</Text>
+                <View style={[styles.callDot, { backgroundColor: '#FFFFFF' }]} />
+                <Text style={[styles.overline, { color: '#FFFFFF' }]}>CALL IN PROGRESS</Text>
               </View>
               <Text style={styles.callerName}>{effectiveCallerName}</Text>
               <Text style={styles.callTimerText}>{formatTimer(callTimer)}</Text>
@@ -783,11 +783,11 @@ export default function FakeCallModal({ visible, onClose, callerName }: FakeCall
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.quickTalkPill, { borderColor: '#10B981' }]}
+                  style={[styles.quickTalkPill, { borderColor: 'rgba(255,255,255,0.3)' }]}
                   onPress={() => handleQuickResponse('safeInside')}
                   activeOpacity={0.8}
                 >
-                  <Text style={[styles.quickTalkPillText, { color: '#6EE7B7' }]}>"I'm safely inside"</Text>
+                  <Text style={[styles.quickTalkPillText, { color: '#FFFFFF' }]}>"I'm safely inside"</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -914,12 +914,12 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
   },
   headerOverline: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#2E7D5B',
+    color: '#64748B',
     letterSpacing: 1,
   },
   headerTitle: {
@@ -943,11 +943,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#C6E7D6',
+    borderColor: '#E2E8F0',
     marginBottom: 16,
   },
   infoIconBox: {
@@ -1017,7 +1017,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 12,
@@ -1025,7 +1025,7 @@ const styles = StyleSheet.create({
   singleCallerVerifiedText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   singleCallerSubtitle: {
     fontSize: 12,
@@ -1247,7 +1247,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
@@ -1279,7 +1279,7 @@ const styles = StyleSheet.create({
   callTimerText: {
     fontSize: 17,
     fontWeight: '800',
-    color: '#10B981',
+    color: '#FFFFFF',
     marginTop: 4,
     letterSpacing: 1,
   },
@@ -1325,7 +1325,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   acceptBtn: {
-    backgroundColor: '#10B981',
+    backgroundColor: '#FFFFFF',
   },
   declineBtn: {
     backgroundColor: '#EF4444',

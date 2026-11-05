@@ -150,7 +150,7 @@ export async function registerForPushNotificationsAsync(userId: string): Promise
           name: 'CircleGuard Safe Zones',
           importance: Notifications.AndroidImportance.HIGH,
           vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#3ADFAB',
+          lightColor: '#FFFFFF',
           sound: 'default',
           enableLights: true,
           enableVibrate: true,
@@ -273,15 +273,35 @@ export async function sendExpoPushNotification(
 
     if (userIdsToLookup.length > 0) {
       try {
+        // 1. Authoritative: Fetch from public.push_tokens
+        const { data: ptRows } = await supabase
+          .from('push_tokens')
+          .select('expo_push_token')
+          .in('user_id', userIdsToLookup);
+
+        if (ptRows) {
+          ptRows.forEach(pt => {
+            if (pt?.expo_push_token && pt.expo_push_token.startsWith('ExponentPushToken')) {
+              if (!resolvedTokens.includes(pt.expo_push_token)) {
+                resolvedTokens.push(pt.expo_push_token);
+              }
+            }
+          });
+        }
+
+        // 2. Backward compatibility: Fetch from profiles
         const { data: profs } = await supabase
           .from('profiles')
-          .select('push_token')
+          .select('push_token, expo_push_token')
           .in('id', userIdsToLookup);
 
         if (profs) {
-          profs.forEach(p => {
-            if (p?.push_token && p.push_token.startsWith('ExponentPushToken')) {
-              resolvedTokens.push(p.push_token);
+          profs.forEach((p: any) => {
+            const tok = p?.expo_push_token || p?.push_token;
+            if (tok && tok.startsWith('ExponentPushToken')) {
+              if (!resolvedTokens.includes(tok)) {
+                resolvedTokens.push(tok);
+              }
             }
           });
         }

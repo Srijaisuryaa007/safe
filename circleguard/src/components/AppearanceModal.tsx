@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSafeTopInset } from '../utils/safeArea';
-import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore, ThemeMode } from '../store/useThemeStore';
 
@@ -26,37 +25,33 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
   const topInset = getSafeTopInset(insets.top);
 
   const { themeMode, setThemeMode, isDark, mapStyle, setMapStyle } = useThemeStore();
-  const [gpsRate, setGpsRate] = useState<'high' | 'saver'>('high');
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
-  const [highContrastRadar, setHighContrastRadar] = useState(true);
+  const [highContrast, setHighContrast] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const rate = await AsyncStorage.getItem('@circleguard_gps_sync_rate');
-        if (rate === 'saver') setGpsRate('saver');
-
         const haptic = await AsyncStorage.getItem('@circleguard_haptics_enabled');
         if (haptic === 'false') setHapticsEnabled(false);
 
         const contrast = await AsyncStorage.getItem('@circleguard_high_contrast');
-        if (contrast === 'false') setHighContrastRadar(false);
+        if (contrast === 'true') setHighContrast(true);
       } catch (e) {}
     })();
   }, []);
 
   const handleSelectTheme = (mode: ThemeMode) => {
     if (Platform.OS !== 'web') {
-      try { Vibration.vibrate(10); } catch (_) {}
+      try { Vibration.vibrate(8); } catch (_) {}
     }
     setThemeMode(mode);
   };
 
-  const handleToggleGpsRate = async (rate: 'high' | 'saver') => {
-    setGpsRate(rate);
-    try {
-      await AsyncStorage.setItem('@circleguard_gps_sync_rate', rate);
-    } catch (e) {}
+  const handleSelectMapStyle = (style: 'vector' | 'satellite') => {
+    if (Platform.OS !== 'web') {
+      try { Vibration.vibrate(8); } catch (_) {}
+    }
+    setMapStyle(style);
   };
 
   const handleToggleHaptics = async (val: boolean) => {
@@ -67,7 +62,7 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
   };
 
   const handleToggleContrast = async (val: boolean) => {
-    setHighContrastRadar(val);
+    setHighContrast(val);
     try {
       await AsyncStorage.setItem('@circleguard_high_contrast', val ? 'true' : 'false');
     } catch (e) {}
@@ -75,375 +70,174 @@ export default function AppearanceModal({ visible, onClose }: AppearanceModalPro
 
   if (!visible) return null;
 
-  const surfaceBg = isDark ? '#0F1411' : '#FAF9F6';
-  const headerBg = isDark ? 'rgba(20, 26, 23, 0.96)' : 'rgba(250, 249, 246, 0.96)';
-  const cardBg = isDark ? '#1A231F' : '#FFFFFF';
-  const cardBorder = isDark ? '#283730' : '#EDEBE6';
-  const textPrimary = isDark ? '#FFFFFF' : '#151C27';
-  const textSecondary = isDark ? '#CAD5CE' : '#5C665F';
-  const accentColor = isDark ? '#3ADFAB' : '#2E7D5B';
+  // Ultra-clean design tokens
+  const bgScreen = isDark ? '#000000' : '#F2F2F7';
+  const bgCard = isDark ? '#101114' : '#FFFFFF';
+  const borderColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+  const dividerColor = isDark ? 'rgba(255, 255, 255, 0.05)' : '#E5E5EA';
+  const textPrimary = isDark ? '#FFFFFF' : '#111827';
+  const textSecondary = isDark ? '#94A3B8' : '#6B7280';
+  const textMuted = isDark ? '#64748B' : '#8E8E93';
+  const accentColor = isDark ? '#FFFFFF' : '#0F172A';
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
-      <View style={[styles.container, { backgroundColor: surfaceBg }]}>
-        {/* Top Header */}
+      <View style={[styles.container, { backgroundColor: bgScreen }]}>
+        {/* Navigation Header */}
         <View
           style={[
             styles.header,
             {
               paddingTop: topInset,
-              height: 58 + topInset,
-              backgroundColor: headerBg,
-              borderBottomColor: cardBorder,
+              height: 52 + topInset,
+              backgroundColor: bgScreen,
+              borderBottomColor: borderColor,
             },
           ]}
         >
-          <TouchableOpacity
-            onPress={onClose}
-            style={[styles.closeBtn, { backgroundColor: isDark ? '#1C2621' : '#ECEAE4' }]}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="close" size={20} color={textPrimary} />
+          <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={styles.headerBtn}>
+            <Text style={[styles.headerBackArrow, { color: textPrimary }]}>‹</Text>
           </TouchableOpacity>
-          <View style={styles.headerTitleBox}>
-            <Text style={[styles.overline, { color: accentColor }]}>PREFERENCES</Text>
-            <Text style={[styles.title, { color: textPrimary }]}>Appearance & Theme</Text>
-          </View>
+
+          <Text style={[styles.headerTitle, { color: textPrimary }]}>Appearance</Text>
+
+          <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={styles.headerBtn}>
+            <Text style={[styles.headerDoneText, { color: accentColor }]}>Done</Text>
+          </TouchableOpacity>
         </View>
 
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: Math.max(insets.bottom, 24) + 30 },
-          ]}
+          contentContainerStyle={[styles.content, { paddingBottom: 60 }]}
         >
-          {/* Active Flagship Architecture Banner */}
-          <View
-            style={[
-              styles.heroBanner,
-              {
-                backgroundColor: cardBg,
-                borderColor: cardBorder,
-              },
-            ]}
-          >
-            <View style={styles.heroBadgeRow}>
-              <View style={[styles.livePulseDot, { backgroundColor: accentColor }]} />
-              <Text style={[styles.heroBadgeText, { color: accentColor }]}>
-                ACTIVE FLAGSHIP ARCHITECTURE
-              </Text>
-            </View>
-            <Text style={[styles.heroTitle, { color: textPrimary }]}>
-              CircleGuard Luxury Safety Architecture
-            </Text>
-            <Text style={[styles.heroSubtitle, { color: textSecondary }]}>
-              Engineered with clean ergonomics: Pine Emerald, Terracotta Peach, warm cream canvas, and rounded glassmorphism.
-            </Text>
-
-            <View style={[styles.activePillRow, { backgroundColor: isDark ? '#23352B' : '#E8F5EE' }]}>
-              <Ionicons name="checkmark-circle" size={16} color={accentColor} />
-              <Text style={[styles.activePillText, { color: accentColor }]}>
-                {isDark ? 'ACTIVE: DARK UI MODE' : 'ACTIVE: LIGHT UI MODE'}
-              </Text>
-            </View>
-          </View>
-
-          {/* Theme Mode Selector Cards */}
-          <Text style={[styles.sectionHeader, { color: textSecondary }]}>
-            SELECT INTERFACE THEME
-          </Text>
-          <View style={[styles.settingsCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
-            {/* Light UI Mode */}
+          {/* Theme Mode Selector */}
+          <Text style={[styles.sectionHeader, { color: textMuted }]}>INTERFACE THEME</Text>
+          <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
+            {/* Light Mode */}
             <TouchableOpacity
-              style={[
-                styles.styleOptionRow,
-                themeMode === 'light' && {
-                  backgroundColor: isDark ? '#23352B' : '#E8F5EE',
-                },
-              ]}
+              style={styles.radioRow}
               onPress={() => handleSelectTheme('light')}
-              activeOpacity={0.8}
+              activeOpacity={0.65}
             >
-              <View style={styles.styleLeft}>
-                <View style={[styles.styleIconBox, { backgroundColor: '#FEF3C7' }]}>
-                  <Ionicons name="sunny" size={20} color="#D97706" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={[styles.styleTitle, { color: textPrimary }]}>Light UI Mode</Text>
-                    {themeMode === 'light' && (
-                      <View style={[styles.activeTag, { backgroundColor: isDark ? '#3ADFAB' : '#2E7D5B' }]}>
-                        <Text style={[styles.activeTagText, isDark && { color: '#002116' }]}>ACTIVE</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={[styles.styleSub, { color: textSecondary }]}>
-                    Clean alabaster canvas, crisp white surfaces, and botanical emerald accents
-                  </Text>
-                </View>
+              <View style={styles.radioTextWrap}>
+                <Text style={[styles.rowTitle, { color: textPrimary }]}>Light Mode</Text>
+                <Text style={[styles.rowSubtitle, { color: textSecondary }]}>
+                  Crisp white canvas with clean monochrome accents
+                </Text>
               </View>
-              <Ionicons
-                name={themeMode === 'light' ? 'checkmark-circle' : 'ellipse-outline'}
-                size={22}
-                color={themeMode === 'light' ? (isDark ? '#3ADFAB' : '#2E7D5B') : isDark ? 'rgba(255,255,255,0.2)' : '#D1D5DB'}
-              />
+              {themeMode === 'light' && (
+                <Text style={[styles.checkMarkText, { color: accentColor }]}>✓</Text>
+              )}
             </TouchableOpacity>
 
-            <View style={[styles.divider, { backgroundColor: isDark ? '#283730' : '#F0EFEA' }]} />
+            <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
-            {/* Dark UI Mode */}
+            {/* Dark Mode */}
             <TouchableOpacity
-              style={[
-                styles.styleOptionRow,
-                themeMode === 'dark' && {
-                  backgroundColor: isDark ? '#23352B' : '#E8F5EE',
-                },
-              ]}
+              style={styles.radioRow}
               onPress={() => handleSelectTheme('dark')}
-              activeOpacity={0.8}
+              activeOpacity={0.65}
             >
-              <View style={styles.styleLeft}>
-                <View style={[styles.styleIconBox, { backgroundColor: isDark ? '#26342D' : '#1E2023' }]}>
-                  <Ionicons name="moon" size={20} color={isDark ? '#3ADFAB' : '#A7D7C5'} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={[styles.styleTitle, { color: textPrimary }]}>Dark UI Mode</Text>
-                    {themeMode === 'dark' && (
-                      <View style={[styles.activeTag, { backgroundColor: isDark ? '#3ADFAB' : '#2E7D5B' }]}>
-                        <Text style={[styles.activeTagText, isDark && { color: '#002116' }]}>ACTIVE</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={[styles.styleSub, { color: textSecondary }]}>
-                    Classic dark surface, high-contrast labels, and gentle night-time contrast
-                  </Text>
-                </View>
+              <View style={styles.radioTextWrap}>
+                <Text style={[styles.rowTitle, { color: textPrimary }]}>Dark Mode</Text>
+                <Text style={[styles.rowSubtitle, { color: textSecondary }]}>
+                  Deep Obsidian OLED dark mode with high contrast
+                </Text>
               </View>
-              <Ionicons
-                name={themeMode === 'dark' ? 'checkmark-circle' : 'ellipse-outline'}
-                size={22}
-                color={themeMode === 'dark' ? (isDark ? '#3ADFAB' : '#2E7D5B') : isDark ? 'rgba(255,255,255,0.2)' : '#D1D5DB'}
-              />
+              {themeMode === 'dark' && (
+                <Text style={[styles.checkMarkText, { color: accentColor }]}>✓</Text>
+              )}
             </TouchableOpacity>
 
-            <View style={[styles.divider, { backgroundColor: isDark ? '#283730' : '#F0EFEA' }]} />
+            <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
             {/* Match System */}
             <TouchableOpacity
-              style={[
-                styles.styleOptionRow,
-                themeMode === 'system' && {
-                  backgroundColor: isDark ? '#23352B' : '#E8F5EE',
-                },
-              ]}
+              style={styles.radioRow}
               onPress={() => handleSelectTheme('system')}
-              activeOpacity={0.8}
+              activeOpacity={0.65}
             >
-              <View style={styles.styleLeft}>
-                <View style={[styles.styleIconBox, { backgroundColor: isDark ? '#26342D' : '#F3F4F6' }]}>
-                  <Ionicons name="phone-portrait-outline" size={20} color={isDark ? '#3ADFAB' : '#4B5563'} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={[styles.styleTitle, { color: textPrimary }]}>Match System</Text>
-                    {themeMode === 'system' && (
-                      <View style={[styles.activeTag, { backgroundColor: isDark ? '#3ADFAB' : '#2E7D5B' }]}>
-                        <Text style={[styles.activeTagText, isDark && { color: '#002116' }]}>ACTIVE</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={[styles.styleSub, { color: textSecondary }]}>
-                    Automatically matches your device OS dark or light appearance schedule
-                  </Text>
-                </View>
+              <View style={styles.radioTextWrap}>
+                <Text style={[styles.rowTitle, { color: textPrimary }]}>Match System</Text>
+                <Text style={[styles.rowSubtitle, { color: textSecondary }]}>
+                  Automatically synchronize with device OS theme
+                </Text>
               </View>
-              <Ionicons
-                name={themeMode === 'system' ? 'checkmark-circle' : 'ellipse-outline'}
-                size={22}
-                color={themeMode === 'system' ? (isDark ? '#3ADFAB' : '#2E7D5B') : isDark ? 'rgba(255,255,255,0.2)' : '#D1D5DB'}
-              />
+              {themeMode === 'system' && (
+                <Text style={[styles.checkMarkText, { color: accentColor }]}>✓</Text>
+              )}
             </TouchableOpacity>
           </View>
 
-          {/* Color Palette & Safety Tokens */}
-          <Text style={[styles.sectionHeader, { color: textSecondary }]}>
-            COLOR PALETTE & SAFETY TOKENS
-          </Text>
-          <View style={styles.paletteGrid}>
-            <View style={[styles.paletteCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
-              <View style={[styles.colorBlock, { backgroundColor: '#2E7D5B' }]}>
-                <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
-              </View>
-              <Text style={[styles.colorName, { color: textPrimary }]}>Pine Emerald</Text>
-              <Text style={styles.colorHex}>#2E7D5B</Text>
-              <Text style={[styles.colorUsage, { color: textSecondary }]}>
-                Live GPS telemetry & safe geofences
-              </Text>
-            </View>
-
-            <View style={[styles.paletteCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
-              <View style={[styles.colorBlock, { backgroundColor: '#DC2626' }]}>
-                <Ionicons name="warning" size={18} color="#FFFFFF" />
-              </View>
-              <Text style={[styles.colorName, { color: textPrimary }]}>Emergency Red</Text>
-              <Text style={styles.colorHex}>#DC2626</Text>
-              <Text style={[styles.colorUsage, { color: textSecondary }]}>
-                High priority SOS distress signals
-              </Text>
-            </View>
-
-            <View style={[styles.paletteCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
-              <View style={[styles.colorBlock, { backgroundColor: '#FAF9F6', borderWidth: 1, borderColor: accentColor }]}>
-                <Ionicons name="cube" size={18} color={accentColor} />
-              </View>
-              <Text style={[styles.colorName, { color: textPrimary }]}>Warm Alabaster</Text>
-              <Text style={styles.colorHex}>#FAF9F6</Text>
-              <Text style={[styles.colorUsage, { color: textSecondary }]}>
-                Sunlight-optimized clean canvas
-              </Text>
-            </View>
-
-            <View style={[styles.paletteCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
-              <View style={[styles.colorBlock, { backgroundColor: '#E07A5F' }]}>
-                <Ionicons name="flash" size={18} color="#FFFFFF" />
-              </View>
-              <Text style={[styles.colorName, { color: textPrimary }]}>Terracotta Peach</Text>
-              <Text style={styles.colorHex}>#E07A5F</Text>
-              <Text style={[styles.colorUsage, { color: textSecondary }]}>
-                Quick action hub & safety hotlines
-              </Text>
-            </View>
-          </View>
-
-          {/* Map Engine Layer */}
-          <Text style={[styles.sectionHeader, { color: textSecondary }]}>MAP ENGINE LAYER</Text>
-          <View style={[styles.settingsCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+          {/* Map Style Selector */}
+          <Text style={[styles.sectionHeader, { color: textMuted }]}>MAP DISPLAY STYLE</Text>
+          <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
             <TouchableOpacity
-              style={[
-                styles.styleOptionRow,
-                mapStyle === 'vector' && {
-                  backgroundColor: isDark ? '#23352B' : '#E8F5EE',
-                },
-              ]}
-              onPress={() => setMapStyle('vector')}
-              activeOpacity={0.8}
+              style={styles.radioRow}
+              onPress={() => handleSelectMapStyle('vector')}
+              activeOpacity={0.65}
             >
-              <View style={styles.styleLeft}>
-                <View style={[styles.styleIconBox, { backgroundColor: isDark ? '#26342D' : '#E8F5EE' }]}>
-                  <Ionicons name="map" size={18} color={accentColor} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.styleTitle, { color: textPrimary }]}>
-                    Standard Vector Street Map
-                  </Text>
-                  <Text style={[styles.styleSub, { color: textSecondary }]}>
-                    Clean street grid with sharp roads, buildings, and places
-                  </Text>
-                </View>
+              <View style={styles.radioTextWrap}>
+                <Text style={[styles.rowTitle, { color: textPrimary }]}>Standard Vector</Text>
+                <Text style={[styles.rowSubtitle, { color: textSecondary }]}>
+                  High-speed roads, terrain, and building outlines
+                </Text>
               </View>
-              {mapStyle === 'vector' && <Ionicons name="checkmark-circle" size={20} color={accentColor} />}
+              {mapStyle !== 'satellite' && (
+                <Text style={[styles.checkMarkText, { color: accentColor }]}>✓</Text>
+              )}
             </TouchableOpacity>
 
-            <View style={[styles.divider, { backgroundColor: isDark ? '#283730' : '#F0EFEA' }]} />
+            <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
             <TouchableOpacity
-              style={[
-                styles.styleOptionRow,
-                mapStyle === 'satellite' && {
-                  backgroundColor: isDark ? '#23352B' : '#E8F5EE',
-                },
-              ]}
-              onPress={() => setMapStyle('satellite')}
-              activeOpacity={0.8}
+              style={styles.radioRow}
+              onPress={() => handleSelectMapStyle('satellite')}
+              activeOpacity={0.65}
             >
-              <View style={styles.styleLeft}>
-                <View style={[styles.styleIconBox, { backgroundColor: isDark ? '#26342D' : '#FFF3EB' }]}>
-                  <Ionicons name="earth" size={18} color="#E07A5F" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.styleTitle, { color: textPrimary }]}>
-                    High-Resolution Satellite Imagery
-                  </Text>
-                  <Text style={[styles.styleSub, { color: textSecondary }]}>
-                    Real aerial photography and geographic terrain contours
-                  </Text>
-                </View>
+              <View style={styles.radioTextWrap}>
+                <Text style={[styles.rowTitle, { color: textPrimary }]}>Satellite Hybrid</Text>
+                <Text style={[styles.rowSubtitle, { color: textSecondary }]}>
+                  Real satellite aerial imagery with labeled streets
+                </Text>
               </View>
-              {mapStyle === 'satellite' && <Ionicons name="checkmark-circle" size={20} color={accentColor} />}
+              {mapStyle === 'satellite' && (
+                <Text style={[styles.checkMarkText, { color: accentColor }]}>✓</Text>
+              )}
             </TouchableOpacity>
           </View>
 
-          {/* Section: Telemetry & Performance */}
-          <Text style={[styles.sectionHeader, { color: textSecondary }]}>TELEMETRY & SENSORS</Text>
-          <View style={[styles.settingsCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
-            <View style={styles.toggleRow}>
-              <View style={styles.toggleLeft}>
-                <View style={[styles.toggleIconSquircle, { backgroundColor: isDark ? '#26342D' : '#E8F5EE' }]}>
-                  <Ionicons name="speedometer-outline" size={18} color={accentColor} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.toggleTitle, { color: textPrimary }]}>
-                    High-Frequency GPS Polling
-                  </Text>
-                  <Text style={[styles.toggleSub, { color: textSecondary }]}>
-                    Faster real-time position updates when family members are traveling
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={gpsRate === 'high'}
-                onValueChange={(val) => handleToggleGpsRate(val ? 'high' : 'saver')}
-                trackColor={{ false: isDark ? '#33463C' : '#D1D5DB', true: accentColor }}
-                thumbColor="#FFFFFF"
-              />
-            </View>
-
-            <View style={[styles.divider, { backgroundColor: isDark ? '#283730' : '#F0EFEA' }]} />
-
-            <View style={styles.toggleRow}>
-              <View style={styles.toggleLeft}>
-                <View style={[styles.toggleIconSquircle, { backgroundColor: isDark ? '#26342D' : '#FFF3EB' }]}>
-                  <Ionicons name="finger-print-outline" size={18} color="#E07A5F" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.toggleTitle, { color: textPrimary }]}>
-                    Tactile Haptic Feedback
-                  </Text>
-                  <Text style={[styles.toggleSub, { color: textSecondary }]}>
-                    Vibration confirmations on SOS trigger, check-ins, and button presses
-                  </Text>
-                </View>
+          {/* System Feedback */}
+          <Text style={[styles.sectionHeader, { color: textMuted }]}>TOUCH & ACCESSIBILITY</Text>
+          <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
+            <View style={styles.switchRow}>
+              <View style={styles.switchTextWrap}>
+                <Text style={[styles.rowTitle, { color: textPrimary }]}>Haptic Feedback</Text>
+                <Text style={[styles.rowSubtitle, { color: textSecondary }]}>
+                  Tactile vibrations on check-ins, switches, and buttons
+                </Text>
               </View>
               <Switch
                 value={hapticsEnabled}
                 onValueChange={handleToggleHaptics}
-                trackColor={{ false: isDark ? '#33463C' : '#D1D5DB', true: accentColor }}
+                trackColor={{ false: isDark ? '#27272A' : '#E5E5EA', true: isDark ? '#52525B' : '#0F172A' }}
                 thumbColor="#FFFFFF"
               />
             </View>
 
-            <View style={[styles.divider, { backgroundColor: isDark ? '#283730' : '#F0EFEA' }]} />
+            <View style={[styles.rowDivider, { backgroundColor: dividerColor }]} />
 
-            <View style={styles.toggleRow}>
-              <View style={styles.toggleLeft}>
-                <View style={[styles.toggleIconSquircle, { backgroundColor: isDark ? '#26342D' : '#E8F5EE' }]}>
-                  <Ionicons name="contrast-outline" size={18} color={accentColor} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.toggleTitle, { color: textPrimary }]}>
-                    High-Contrast Perimeter Rings
-                  </Text>
-                  <Text style={[styles.toggleSub, { color: textSecondary }]}>
-                    Boosts geofence border visibility in direct outdoor sunlight
-                  </Text>
-                </View>
+            <View style={styles.switchRow}>
+              <View style={styles.switchTextWrap}>
+                <Text style={[styles.rowTitle, { color: textPrimary }]}>High Contrast Markers</Text>
+                <Text style={[styles.rowSubtitle, { color: textSecondary }]}>
+                  Bold borders around live member beacons
+                </Text>
               </View>
               <Switch
-                value={highContrastRadar}
+                value={highContrast}
                 onValueChange={handleToggleContrast}
-                trackColor={{ false: isDark ? '#33463C' : '#D1D5DB', true: accentColor }}
+                trackColor={{ false: isDark ? '#27272A' : '#E5E5EA', true: isDark ? '#52525B' : '#0F172A' }}
                 thumbColor="#FFFFFF"
               />
             </View>
@@ -461,194 +255,82 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
+  headerBtn: {
+    minWidth: 50,
   },
-  headerTitleBox: {
-    flex: 1,
+  headerBackArrow: {
+    fontSize: 28,
+    fontWeight: '300',
+    lineHeight: 30,
   },
-  overline: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    marginBottom: 2,
+  headerDoneText: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'right',
   },
-  title: {
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  scrollContent: {
-    padding: 16,
-    gap: 12,
-  },
-  heroBanner: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 18,
-    gap: 8,
-  },
-  heroBadgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  livePulseDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-  },
-  heroBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  heroTitle: {
+  headerTitle: {
     fontSize: 17,
-    fontWeight: '800',
-    lineHeight: 22,
+    fontWeight: '600',
+    letterSpacing: -0.3,
   },
-  heroSubtitle: {
-    fontSize: 12.5,
-    lineHeight: 18,
-  },
-  activePillRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4.5,
-    borderRadius: 20,
-    marginTop: 4,
-  },
-  activePillText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 20,
   },
   sectionHeader: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    marginTop: 10,
-    marginLeft: 4,
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+    marginLeft: 12,
+    marginBottom: 8,
   },
-  settingsCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  styleOptionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 14,
-  },
-  styleLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-    marginRight: 10,
-  },
-  styleIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  styleTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  styleSub: {
-    fontSize: 11.5,
-    lineHeight: 15.5,
-    marginTop: 2,
-  },
-  activeTag: {
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: 4,
-  },
-  activeTagText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
-  },
-  divider: {
-    height: 1,
-    marginLeft: 64,
-  },
-  paletteGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  paletteCard: {
-    flex: 1,
-    minWidth: '47%',
+  groupedTable: {
     borderRadius: 14,
     borderWidth: 1,
-    padding: 12,
-    gap: 6,
+    marginBottom: 24,
+    overflow: 'hidden',
   },
-  colorBlock: {
-    height: 34,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  colorName: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  colorHex: {
-    fontSize: 10.5,
-    color: '#9CA3AF',
-    fontFamily: 'monospace',
-  },
-  colorUsage: {
-    fontSize: 11,
-    lineHeight: 14.5,
-  },
-  toggleRow: {
+  radioRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
   },
-  toggleLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+  radioTextWrap: {
     flex: 1,
-    marginRight: 10,
+    paddingRight: 8,
   },
-  toggleIconSquircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  toggleTitle: {
-    fontSize: 13.5,
+  checkMarkText: {
+    fontSize: 16,
     fontWeight: '700',
+    paddingLeft: 8,
   },
-  toggleSub: {
-    fontSize: 11,
-    lineHeight: 15,
-    marginTop: 1,
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+  },
+  switchTextWrap: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  rowTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    letterSpacing: -0.2,
+  },
+  rowSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  rowDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 16,
   },
 });

@@ -112,11 +112,19 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
       {
         text: title,
         style: 'destructive',
-        onPress: async () => {
+        onPress: () => {
+          onClose();
           if (isOwnerOfCircle) {
-            await deleteCircle(circle.id);
+            useCircleStore.getState().startDeleteCircleWithAnimation(
+              circle.id,
+              circle.name || 'Circle'
+            );
           } else if (profile?.id) {
-            await leaveCircle(circle.id, profile.id);
+            useCircleStore.getState().startLeaveCircleWithAnimation(
+              circle.id,
+              circle.name || 'Circle',
+              profile.id
+            );
           }
         },
       },
@@ -169,7 +177,7 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
           <View style={styles.headerRow}>
             <View style={styles.headerLeft}>
               <View style={[styles.shieldBadge, isDark && styles.shieldBadgeDark]}>
-                <Ionicons name="shield-checkmark" size={20} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                <Ionicons name="shield-checkmark" size={20} color={isDark ? '#FFFFFF' : '#0F172A'} />
               </View>
               <View>
                 <Text style={[styles.headerTitle, isDark && styles.textLight]}>Your Safety Circles</Text>
@@ -225,7 +233,7 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
                         style={[
                           styles.circleName,
                           isDark && styles.textLight,
-                          isActive && (isDark ? { color: '#3ADFAB' } : styles.circleNameActive),
+                          isActive && (isDark ? { color: '#FFFFFF' } : styles.circleNameActive),
                         ]}
                         numberOfLines={1}
                       >
@@ -268,7 +276,7 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
               })
             ) : isLoading ? (
               <View style={styles.emptyContainer}>
-                <ActivityIndicator size="small" color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                <ActivityIndicator size="small" color={isDark ? '#FFFFFF' : '#0F172A'} />
                 <Text style={[styles.emptyText, isDark && styles.textSubDark]}>Loading your circles...</Text>
               </View>
             ) : (
@@ -295,7 +303,7 @@ export default function CircleSwitcherModal({ visible, onClose }: CircleSwitcher
               onPress={handleJoinCircle}
               activeOpacity={0.85}
             >
-              <Ionicons name="enter-outline" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Ionicons name="enter-outline" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
               <Text style={[styles.secondaryActionText, isDark && styles.secondaryActionTextDark]}>
                 Join With Code / QR
               </Text>
@@ -372,7 +380,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: '#E8F5E9',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -412,8 +420,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FAFAFA',
   },
   circleItemActive: {
-    borderColor: '#2E7D5B',
-    backgroundColor: '#F0FDF4',
+    borderColor: '#0F172A',
+    backgroundColor: '#F8FAFC',
   },
   circleAvatar: {
     width: 42,
@@ -424,7 +432,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   circleAvatarActive: {
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
   },
   circleAvatarText: {
     fontSize: 17,
@@ -444,7 +452,7 @@ const styles = StyleSheet.create({
     color: '#1E293B',
   },
   circleNameActive: {
-    color: '#2E7D5B',
+    color: '#0F172A',
     fontWeight: '700',
   },
   metaRow: {
@@ -466,7 +474,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
     paddingHorizontal: 9,
     paddingVertical: 4.5,
     borderRadius: 12,
@@ -515,7 +523,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
     paddingVertical: 13,
     borderRadius: 14,
   },
@@ -536,7 +544,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   secondaryActionText: {
-    color: '#2E7D5B',
+    color: '#0F172A',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -568,8 +576,8 @@ const styles = StyleSheet.create({
     borderColor: '#283730',
   },
   circleItemActiveDark: {
-    backgroundColor: '#23352B',
-    borderColor: '#3ADFAB',
+    backgroundColor: '#1E293B',
+    borderColor: '#475569',
   },
   circleAvatarDark: {
     backgroundColor: '#26342D',

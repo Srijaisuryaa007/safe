@@ -23,6 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   static getDerivedStateFromError(error: Error): State {
+    console.error('[ErrorBoundary] getDerivedStateFromError caught error:', error?.name, error?.message);
     return {
       hasError: true,
       error,
@@ -54,6 +55,7 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   render() {
+    console.log('[ErrorBoundary] render, hasError:', this.state.hasError, 'error:', this.state.error?.message);
     if (this.state.hasError) {
       return (
         <SafeAreaView style={styles.container}>

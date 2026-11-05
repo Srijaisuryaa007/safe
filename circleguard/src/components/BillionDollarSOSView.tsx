@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
 import { useCountryStore } from '../store/useCountryStore';
@@ -25,7 +26,6 @@ import { useThemeStore } from '../store/useThemeStore';
 import { supabase } from '../lib/supabase';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
 import FakeCallModal from './FakeCallModal';
-import EmergencyContactsModal from './EmergencyContactsModal';
 import MedicalInfoModal from './MedicalInfoModal';
 import ShareLocationModal from './ShareLocationModal';
 import CountrySelectorModal from './CountrySelectorModal';
@@ -33,6 +33,7 @@ import CovertCalculatorModal from './CovertCalculatorModal';
 import FeatureInfoModal from './FeatureInfoModal';
 import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
 import { offlineSmsSosService } from '../services/OfflineSmsSosService';
+import { EmergencyMedicalService, getPrimaryContactStorageKey } from '../services/EmergencyMedicalService';
 import { getSafeTopInset } from '../utils/safeArea';
 
 const FONT_SANS = Platform.OS === 'web' ? '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' : undefined;
@@ -53,11 +54,15 @@ export default function BillionDollarSOSView() {
   const [countdownSec, setCountdownSec] = useState<number | null>(null);
   const [isDiscreetMode, setIsDiscreetMode] = useState(false);
 
-  // Modals
+  // Modals & Responder State
   const [fakeCallVisible, setFakeCallVisible] = useState(false);
   const [emergencyMenuVisible, setEmergencyMenuVisible] = useState(false);
-  const [emergencyContactsVisible, setEmergencyContactsVisible] = useState(false);
   const [medicalInfoVisible, setMedicalInfoVisible] = useState(false);
+  const [primaryContact, setPrimaryContact] = useState<{
+    name: string;
+    phone: string;
+    relationship?: string;
+  } | null>(null);
   const [shareLocationVisible, setShareLocationVisible] = useState(false);
   const [countryModalVisible, setCountryModalVisible] = useState(false);
   const [covertCalculatorVisible, setCovertCalculatorVisible] = useState(false);
@@ -157,6 +162,68 @@ export default function BillionDollarSOSView() {
     setTimeout(() => {
       setToastMessage(null);
     }, 2800);
+  };
+
+  const loadPrimaryResponder = useCallback(async () => {
+    const userId = profile?.id || useAuthStore.getState().user?.id;
+    if (!userId) return;
+
+    try {
+      // 1. Fetch from EmergencyMedicalService
+      const res = await EmergencyMedicalService.fetchEmergencyContacts(userId);
+      if (res.data && res.data.length > 0) {
+        setPrimaryContact({
+          name: res.data[0].name,
+          phone: res.data[0].phone,
+          relationship: res.data[0].relationship || 'Primary Contact',
+        });
+        return;
+      }
+
+      // 2. Fallback to user-scoped primary contact in AsyncStorage
+      const saved = await AsyncStorage.getItem(getPrimaryContactStorageKey(userId));
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.name && parsed?.phone) {
+          setPrimaryContact(parsed);
+          return;
+        }
+      }
+
+      // 3. Fallback to profile in store
+      const storeContacts = profile?.emergency_contacts;
+      if (Array.isArray(storeContacts) && storeContacts.length > 0) {
+        setPrimaryContact({
+          name: storeContacts[0].name,
+          phone: storeContacts[0].phone,
+          relationship: storeContacts[0].relationship || 'Primary Contact',
+        });
+        return;
+      }
+
+      setPrimaryContact(null);
+    } catch (e) {
+      console.warn('[SOS] Error loading primary contact:', e);
+    }
+  }, [profile?.id, profile?.emergency_contacts]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadPrimaryResponder();
+    }, [loadPrimaryResponder])
+  );
+
+  const handleCallEmergencyContact = (phoneToCall?: string) => {
+    const target = phoneToCall || primaryContact?.phone;
+    if (!target) {
+      showToast('No emergency contact configured yet');
+      navigation.navigate('Profile');
+      return;
+    }
+    const cleanNumber = target.replace(/[^0-9+]/g, '');
+    Linking.openURL(`tel:${cleanNumber}`).catch(() => {
+      showToast('Could not open phone dialer');
+    });
   };
 
   // Drag-to-dismiss gesture for the Emergency Menu Sheet
@@ -340,6 +407,21 @@ export default function BillionDollarSOSView() {
     }, 4500);
   };
 
+  const handleTriggerOfflineSms = async () => {
+    try {
+      showToast('Opening cellular SMS with live GPS & battery...');
+      if (Platform.OS !== 'web') {
+        Vibration.vibrate(60);
+      }
+      const result = await offlineSmsSosService.triggerOfflineSmsSos();
+      if (!result.sent && result.error) {
+        showToast(result.error);
+      }
+    } catch (_) {
+      showToast('Could not open SMS dialer');
+    }
+  };
+
   const handleCancelActiveSos = async () => {
     setSosSent(false);
     setSilentAlertSent(false);
@@ -362,24 +444,24 @@ export default function BillionDollarSOSView() {
   // Filter out self from responders to display active circle guardians/members
   const responderMembers = members.filter((m) => m.user_id !== profile?.id);
 
-  // CircleGuard Botanical Luxury Theme Tokens
-  const bg = isDark ? '#0F1411' : '#FAF9F6';
-  const headerBg = isDark ? 'rgba(20, 26, 23, 0.98)' : 'rgba(255, 255, 255, 0.98)';
-  const headerBorder = isDark ? '#212C26' : '#EDEBE6';
-  const chipBg = isDark ? '#1C2621' : '#F1F5F9';
-  const chipBorder = isDark ? '#2B3A33' : '#E2E8F0';
+  // CircleGuard Minimal Monochrome Theme Tokens
+  const bg = isDark ? '#000000' : '#F8FAFC';
+  const headerBg = isDark ? '#000000' : '#FFFFFF';
+  const headerBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0';
+  const chipBg = isDark ? '#18181B' : '#F1F5F9';
+  const chipBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0';
 
-  const cardBg = isDark ? '#161E1A' : '#FFFFFF';
-  const cardBorder = isDark ? '#212C26' : '#EDEBE6';
+  const cardBg = isDark ? '#101114' : '#FFFFFF';
+  const cardBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0';
 
-  const textPrimary = isDark ? '#F5FAF7' : '#1F2A24';
-  const textSecondary = isDark ? '#9EACA3' : '#5C665F';
-  const textTertiary = isDark ? '#6E7C74' : '#8A978F';
+  const textPrimary = isDark ? '#FFFFFF' : '#0F172A';
+  const textSecondary = isDark ? '#94A3B8' : '#64748B';
+  const textTertiary = isDark ? '#64748B' : '#94A3B8';
 
-  const brandGreen = isDark ? '#3ADFAB' : '#2E7D5B';
-  const brandGreenSoft = isDark ? 'rgba(58, 223, 171, 0.14)' : '#E8F5EE';
-  const brandGold = isDark ? '#E9C349' : '#D4AF37';
-  const brandGoldSoft = isDark ? 'rgba(233, 195, 73, 0.14)' : 'rgba(212, 175, 55, 0.1)';
+  const brandGreen = isDark ? '#FFFFFF' : '#0F172A';
+  const brandGreenSoft = isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9';
+  const brandGold = isDark ? '#FFFFFF' : '#0F172A';
+  const brandGoldSoft = isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9';
 
   const canGoBack = navigation.canGoBack && navigation.canGoBack();
 
@@ -507,8 +589,8 @@ export default function BillionDollarSOSView() {
                   borderColor: sosSent
                     ? '#EF4444'
                     : isDark
-                    ? 'rgba(58, 223, 171, 0.3)'
-                    : 'rgba(46, 125, 91, 0.25)',
+                    ? 'rgba(255, 255, 255, 0.12)'
+                    : '#E2E8F0',
                 },
               ]}
             >
@@ -650,116 +732,126 @@ export default function BillionDollarSOSView() {
                 </Text>
               </TouchableOpacity>
             </Animated.View>
+          </View>
 
-            {/* Interactive Status & Cancellation */}
-            <View style={styles.heroHintRow}>
-              {sosSent ? (
-                <TouchableOpacity
-                  style={[styles.cancelActiveSosBtn, { backgroundColor: brandGreen }]}
-                  onPress={handleCancelActiveSos}
-                  activeOpacity={0.8}
+          {/* Interactive Status & Cancellation */}
+          <View style={styles.heroHintRow}>
+            {sosSent ? (
+              <TouchableOpacity
+                style={[styles.cancelActiveSosBtn, { backgroundColor: brandGreen }]}
+                onPress={handleCancelActiveSos}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="checkmark-circle" size={17} color="#FFFFFF" />
+                <Text style={styles.cancelActiveSosText}>I Am Safe • Cancel Alert</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.protectionHintRow}>
+                <Ionicons
+                  name={isSeniorSimpleMode ? 'shield-checkmark' : 'finger-print-outline'}
+                  size={15}
+                  color={isSeniorSimpleMode ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#F87171' : '#DC2626')}
+                />
+                <Text
+                  style={[
+                    styles.protectionHintText,
+                    { color: textSecondary },
+                    isSeniorSimpleMode && { fontSize: 13, fontWeight: '700' },
+                  ]}
                 >
-                  <Ionicons name="checkmark-circle" size={17} color="#FFFFFF" />
-                  <Text style={styles.cancelActiveSosText}>I Am Safe • Cancel Alert</Text>
+                  {sosHolding
+                    ? (isSeniorSimpleMode ? 'Keep holding to trigger 8-second countdown...' : 'Keep holding to trigger 5-second countdown...')
+                    : isSeniorSimpleMode
+                    ? 'Senior Easy Mode Active • 100% false-alarm protected with 8-second cancel buffer.'
+                    : 'Continuous 3s hold prevents accidental false alarms.'}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setActiveInfoModal('falseAlarm')}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  accessibilityLabel="Learn how false alarm protection works"
+                >
+                  <Ionicons name="information-circle-outline" size={15} color={isDark ? '#9EACA3' : '#64748B'} />
                 </TouchableOpacity>
-              ) : (
-                <View style={styles.protectionHintRow}>
-                  <Ionicons name={isSeniorSimpleMode ? 'shield-checkmark' : 'finger-print-outline'} size={15} color={isSeniorSimpleMode ? '#16A34A' : (isDark ? '#F87171' : '#DC2626')} />
-                  <Text style={[styles.protectionHintText, { color: textSecondary }, isSeniorSimpleMode && { fontSize: 13, fontWeight: '700' }]}>
-                    {sosHolding
-                      ? (isSeniorSimpleMode ? 'Keep holding to trigger 8-second countdown...' : 'Keep holding to trigger 5-second countdown...')
-                      : isSeniorSimpleMode
-                      ? 'Senior Easy Mode Active • 100% false-alarm protected with 8-second cancel buffer.'
-                      : 'Continuous 3s hold prevents accidental false alarms.'}
+              </View>
+            )}
+          </View>
+
+          {/* Discreet / Silent SOS Toggle Pill */}
+          <TouchableOpacity
+            style={[
+              styles.discreetToggleCard,
+              {
+                backgroundColor: isDiscreetMode
+                  ? (isDark ? 'rgba(100, 116, 139, 0.18)' : '#F1F5F9')
+                  : cardBg,
+                borderColor: isDiscreetMode
+                  ? (isDark ? '#64748B' : '#475569')
+                  : cardBorder,
+              },
+            ]}
+            onPress={() => {
+              const nextVal = !isDiscreetMode;
+              setIsDiscreetMode(nextVal);
+              if (Platform.OS !== 'web') Vibration.vibrate(40);
+              showToast(
+                nextVal
+                  ? 'Silent & Discreet SOS Mode Enabled (No siren audio)'
+                  : 'Standard Audible SOS Enabled'
+              );
+            }}
+            activeOpacity={0.8}
+          >
+            <View style={styles.discreetToggleLeft}>
+              <View
+                style={[
+                  styles.discreetIconBox,
+                  {
+                    backgroundColor: isDiscreetMode
+                      ? (isDark ? 'rgba(100, 116, 139, 0.25)' : '#E2E8F0')
+                      : chipBg,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name={isDiscreetMode ? 'volume-mute' : 'volume-high'}
+                  size={18}
+                  color={isDiscreetMode ? (isDark ? '#94A3B8' : '#475569') : textSecondary}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={styles.discreetTitleRow}>
+                  <Text style={[styles.discreetToggleTitle, { color: textPrimary }]} numberOfLines={1}>
+                    {isDiscreetMode ? 'Silent & Discreet SOS Mode' : 'Audible Siren SOS Mode'}
                   </Text>
                   <TouchableOpacity
-                    onPress={() => setActiveInfoModal('falseAlarm')}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                    accessibilityLabel="Learn how false alarm protection works"
+                    onPress={() => setActiveInfoModal('discreet')}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    accessibilityLabel="Learn what discreet mode does"
                   >
                     <Ionicons name="information-circle-outline" size={15} color={isDark ? '#9EACA3' : '#64748B'} />
                   </TouchableOpacity>
                 </View>
-              )}
+                <Text style={[styles.discreetToggleSub, { color: textSecondary }]}>
+                  {isDiscreetMode
+                    ? 'Dispatches live GPS quietly without sounding loud sirens'
+                    : 'Sounds acoustic siren & alerts emergency circle'}
+                </Text>
+              </View>
             </View>
-
-            {/* Discreet / Silent SOS Toggle Pill */}
-            <TouchableOpacity
+            <View
+              style={[
+                styles.discreetSwitchTrack,
+                { backgroundColor: isDiscreetMode ? (isDark ? '#64748B' : '#475569') : (isDark ? '#26332C' : '#CBD5E1') },
+              ]}
+            >
+              <View
                 style={[
-                  styles.discreetToggleCard,
-                  {
-                    backgroundColor: isDiscreetMode
-                      ? (isDark ? 'rgba(100, 116, 139, 0.18)' : '#F1F5F9')
-                      : cardBg,
-                    borderColor: isDiscreetMode
-                      ? (isDark ? '#64748B' : '#475569')
-                      : cardBorder,
-                  },
+                  styles.discreetSwitchThumb,
+                  { transform: [{ translateX: isDiscreetMode ? 18 : 0 }] },
                 ]}
-                onPress={() => {
-                  const nextVal = !isDiscreetMode;
-                  setIsDiscreetMode(nextVal);
-                  if (Platform.OS !== 'web') Vibration.vibrate(40);
-                  showToast(
-                    nextVal
-                      ? 'Silent & Discreet SOS Mode Enabled (No siren audio)'
-                      : 'Standard Audible SOS Enabled'
-                  );
-                }}
-                activeOpacity={0.8}
-              >
-                <View style={styles.discreetToggleLeft}>
-                  <View
-                    style={[
-                      styles.discreetIconBox,
-                      {
-                        backgroundColor: isDiscreetMode
-                          ? (isDark ? 'rgba(100, 116, 139, 0.25)' : '#E2E8F0')
-                          : chipBg,
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name={isDiscreetMode ? 'volume-mute' : 'volume-high'}
-                      size={18}
-                      color={isDiscreetMode ? (isDark ? '#94A3B8' : '#475569') : textSecondary}
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={[styles.discreetToggleTitle, { color: textPrimary }]}>
-                        {isDiscreetMode ? 'Silent & Discreet SOS Mode' : 'Audible Siren SOS Mode'}
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => setActiveInfoModal('discreet')}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        accessibilityLabel="Learn what discreet mode does"
-                      >
-                        <Ionicons name="information-circle-outline" size={15} color={isDark ? '#9EACA3' : '#64748B'} />
-                      </TouchableOpacity>
-                    </View>
-                    <Text style={[styles.discreetToggleSub, { color: textSecondary }]}>
-                      {isDiscreetMode
-                        ? 'Dispatches live GPS quietly without sounding loud sirens'
-                        : 'Sounds acoustic siren & alerts emergency circle'}
-                    </Text>
-                  </View>
-                </View>
-                <View
-                  style={[
-                    styles.discreetSwitchTrack,
-                    { backgroundColor: isDiscreetMode ? (isDark ? '#64748B' : '#475569') : (isDark ? '#26332C' : '#CBD5E1') },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.discreetSwitchThumb,
-                      { transform: [{ translateX: isDiscreetMode ? 18 : 0 }] },
-                    ]}
-                  />
-                </View>
-              </TouchableOpacity>
-          </View>
+              />
+            </View>
+          </TouchableOpacity>
 
           {/* Symmetrical 2x2 Emergency Actions Grid */}
           <View style={styles.sectionHeaderRow}>
@@ -777,117 +869,166 @@ export default function BillionDollarSOSView() {
           </View>
 
           <View style={styles.actionGrid}>
-            {/* Action 1: Call 112 / First Responders */}
-            <TouchableOpacity
-              style={[
-                styles.gridCard,
-                { backgroundColor: cardBg, borderColor: cardBorder },
-              ]}
-              onPress={() => Linking.openURL(`tel:${emergencyNumber}`)}
-              activeOpacity={0.8}
-            >
-              <View style={styles.gridCardTop}>
-                <View style={[styles.gridIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
-                  <Ionicons name="call" size={22} color="#EF4444" />
+            <View style={styles.actionGridRow}>
+              {/* Action 1: Call Emergency Number */}
+              <TouchableOpacity
+                style={[
+                  styles.gridCard,
+                  { backgroundColor: cardBg, borderColor: cardBorder },
+                ]}
+                onPress={() => Linking.openURL(`tel:${emergencyNumber}`)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.gridCardTop}>
+                  <View style={[styles.gridIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                    <Ionicons name="call" size={20} color="#EF4444" />
+                  </View>
+                  <View style={[styles.gridTag, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                    <Text style={[styles.gridTagText, { color: '#EF4444' }]}>{country?.code || 'SOS'}</Text>
+                  </View>
                 </View>
-                <View style={[styles.gridTag, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
-                  <Text style={[styles.gridTagText, { color: '#EF4444' }]}>{country?.code || 'SOS'}</Text>
-                </View>
-              </View>
-              <Text style={[styles.gridCardTitle, { color: textPrimary }]}>
-                Call {emergencyNumber}
-              </Text>
-              <Text style={[styles.gridCardSub, { color: textSecondary }]}>
-                Direct line to official emergency & police services in {country?.name || 'your region'}.
-              </Text>
-            </TouchableOpacity>
-
-            {/* Action 2: Silent Stealth Alert */}
-            <TouchableOpacity
-              style={[
-                styles.gridCard,
-                { backgroundColor: cardBg, borderColor: cardBorder },
-              ]}
-              onPress={handleSilentAlert}
-              activeOpacity={0.8}
-            >
-              <View style={styles.gridCardTop}>
-                <View style={[styles.gridIconBox, { backgroundColor: brandGreenSoft }]}>
-                  <Ionicons name="notifications-off" size={22} color={brandGreen} />
-                </View>
-                <View style={[styles.gridTag, { backgroundColor: brandGreenSoft }]}>
-                  <Text style={[styles.gridTagText, { color: brandGreen }]}>
-                    {silentAlertSent ? 'SENT' : 'NO SIREN'}
+                <View style={styles.gridCardTitleRow}>
+                  <Text style={[styles.gridCardTitle, { color: textPrimary }]} numberOfLines={1}>
+                    Call {emergencyNumber}
                   </Text>
                 </View>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[styles.gridCardTitle, { color: textPrimary }]}>
-                  Silent Beacon
+                <Text style={[styles.gridCardSub, { color: textSecondary }]} numberOfLines={3}>
+                  Direct line to official emergency & police services in {country?.name || 'your region'}.
                 </Text>
-                <TouchableOpacity
-                  onPress={() => setActiveInfoModal('discreet')}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityLabel="Learn how silent beacon works"
-                >
-                  <Ionicons name="information-circle-outline" size={14} color={brandGreen} />
-                </TouchableOpacity>
-              </View>
-              <Text style={[styles.gridCardSub, { color: textSecondary }]}>
-                Discreet GPS broadcast to circle with zero audio or visual cues on device.
-              </Text>
-            </TouchableOpacity>
+              </TouchableOpacity>
 
-            {/* Action 3: Safety Escort Call */}
-            <TouchableOpacity
-              style={[
-                styles.gridCard,
-                { backgroundColor: cardBg, borderColor: cardBorder },
-              ]}
-              onPress={() => setFakeCallVisible(true)}
-              activeOpacity={0.8}
-            >
-              <View style={styles.gridCardTop}>
-                <View style={[styles.gridIconBox, { backgroundColor: isDark ? 'rgba(46, 125, 91, 0.20)' : '#E8F5EE' }]}>
-                  <Ionicons name="shield-checkmark" size={22} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              {/* Action 2: Silent Stealth Alert */}
+              <TouchableOpacity
+                style={[
+                  styles.gridCard,
+                  { backgroundColor: cardBg, borderColor: cardBorder },
+                ]}
+                onPress={handleSilentAlert}
+                activeOpacity={0.8}
+              >
+                <View style={styles.gridCardTop}>
+                  <View style={[styles.gridIconBox, { backgroundColor: brandGreenSoft }]}>
+                    <Ionicons name="notifications-off" size={20} color={brandGreen} />
+                  </View>
+                  <View style={[styles.gridTag, { backgroundColor: brandGreenSoft }]}>
+                    <Text style={[styles.gridTagText, { color: brandGreen }]}>
+                      {silentAlertSent ? 'SENT' : 'NO SIREN'}
+                    </Text>
+                  </View>
                 </View>
-                <View style={[styles.gridTag, { backgroundColor: isDark ? 'rgba(46, 125, 91, 0.20)' : '#E8F5EE' }]}>
-                  <Text style={[styles.gridTagText, { color: isDark ? '#3ADFAB' : '#2E7D5B' }]}>DETERRENT</Text>
+                <View style={styles.gridCardTitleRow}>
+                  <Text style={[styles.gridCardTitle, { color: textPrimary }]} numberOfLines={1}>
+                    Silent Beacon
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setActiveInfoModal('discreet')}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityLabel="Learn how silent beacon works"
+                  >
+                    <Ionicons name="information-circle-outline" size={14} color={brandGreen} />
+                  </TouchableOpacity>
                 </View>
-              </View>
-              <Text style={[styles.gridCardTitle, { color: textPrimary }]}>
-                Escort Call
-              </Text>
-              <Text style={[styles.gridCardSub, { color: textSecondary }]}>
-                Simulates a realistic incoming companion call to deter unwanted attention.
-              </Text>
-            </TouchableOpacity>
+                <Text style={[styles.gridCardSub, { color: textSecondary }]} numberOfLines={3}>
+                  Discreet GPS broadcast to circle with zero audio or visual cues on device.
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-            {/* Action 4: High-Decibel Siren */}
-            <TouchableOpacity
-              style={[
-                styles.gridCard,
-                { backgroundColor: cardBg, borderColor: cardBorder },
-              ]}
-              onPress={handleTestSiren}
-              activeOpacity={0.8}
-            >
-              <View style={styles.gridCardTop}>
-                <View style={[styles.gridIconBox, { backgroundColor: 'rgba(245, 158, 11, 0.12)' }]}>
-                  <Ionicons name="volume-high" size={22} color="#F59E0B" />
+            <View style={styles.actionGridRow}>
+              {/* Action 3: Safety Escort Call */}
+              <TouchableOpacity
+                style={[
+                  styles.gridCard,
+                  { backgroundColor: cardBg, borderColor: cardBorder },
+                ]}
+                onPress={() => setFakeCallVisible(true)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.gridCardTop}>
+                  <View style={[styles.gridIconBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                    <Ionicons name="shield-checkmark" size={20} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                  </View>
+                  <View style={[styles.gridTag, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                    <Text style={[styles.gridTagText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>DETERRENT</Text>
+                  </View>
                 </View>
-                <View style={[styles.gridTag, { backgroundColor: 'rgba(245, 158, 11, 0.12)' }]}>
-                  <Text style={[styles.gridTagText, { color: '#F59E0B' }]}>
-                    {isSirenActive ? 'SOUNDING' : '110 dB'}
+                <View style={styles.gridCardTitleRow}>
+                  <Text style={[styles.gridCardTitle, { color: textPrimary }]} numberOfLines={1}>
+                    Escort Call
                   </Text>
                 </View>
+                <Text style={[styles.gridCardSub, { color: textSecondary }]} numberOfLines={3}>
+                  Simulates a realistic incoming companion call to deter unwanted attention.
+                </Text>
+              </TouchableOpacity>
+
+              {/* Action 4: High-Decibel Siren */}
+              <TouchableOpacity
+                style={[
+                  styles.gridCard,
+                  { backgroundColor: cardBg, borderColor: cardBorder },
+                ]}
+                onPress={handleTestSiren}
+                activeOpacity={0.8}
+              >
+                <View style={styles.gridCardTop}>
+                  <View style={[styles.gridIconBox, { backgroundColor: 'rgba(245, 158, 11, 0.12)' }]}>
+                    <Ionicons name="volume-high" size={20} color="#F59E0B" />
+                  </View>
+                  <View style={[styles.gridTag, { backgroundColor: 'rgba(245, 158, 11, 0.12)' }]}>
+                    <Text style={[styles.gridTagText, { color: '#F59E0B' }]}>
+                      {isSirenActive ? 'SOUNDING' : '110 dB'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.gridCardTitleRow}>
+                  <Text style={[styles.gridCardTitle, { color: textPrimary }]} numberOfLines={1}>
+                    Siren Alarm
+                  </Text>
+                </View>
+                <Text style={[styles.gridCardSub, { color: textSecondary }]} numberOfLines={3}>
+                  Acoustic distress alarm and haptic pulsation to summon immediate help.
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Action 5: Offline Cellular SMS Distress (Zero-Data / Wilderness Resilience) */}
+          <View
+            style={[
+              styles.offlineSmsBanner,
+              {
+                backgroundColor: isDark ? 'rgba(30, 41, 59, 0.6)' : '#F8FAFC',
+                borderColor: isDark ? 'rgba(59, 130, 246, 0.3)' : '#BFDBFE',
+              },
+            ]}
+          >
+            <View style={styles.offlineSmsHeaderRow}>
+              <View style={[styles.offlineSmsIconBox, { backgroundColor: isDark ? 'rgba(59, 130, 246, 0.15)' : '#EFF6FF' }]}>
+                <Ionicons name="chatbubble-ellipses" size={20} color="#3B82F6" />
               </View>
-              <Text style={[styles.gridCardTitle, { color: textPrimary }]}>
-                Siren Alarm
-              </Text>
-              <Text style={[styles.gridCardSub, { color: textSecondary }]}>
-                Acoustic distress alarm and haptic pulsation to summon immediate help.
-              </Text>
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <View style={styles.offlineSmsTitleRow}>
+                  <Text style={[styles.offlineSmsTitle, { color: textPrimary }]} numberOfLines={1}>
+                    Offline Cellular SMS Distress
+                  </Text>
+                  <View style={styles.offlineSmsTag}>
+                    <Text style={styles.offlineSmsTagText}>NO INTERNET</Text>
+                  </View>
+                </View>
+                <Text style={[styles.offlineSmsSub, { color: textSecondary }]}>
+                  Dispatches live GPS link, accuracy radius & battery level to circle members via cellular SMS even with zero internet or WiFi.
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.offlineSmsBtn, { backgroundColor: isDark ? '#3B82F6' : '#0F172A' }]}
+              onPress={handleTriggerOfflineSms}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="paper-plane" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.offlineSmsBtnText}>COMPOSE EMERGENCY SMS NOW</Text>
             </TouchableOpacity>
           </View>
 
@@ -906,7 +1047,7 @@ export default function BillionDollarSOSView() {
                 styles.activeRespondersBadge,
                 {
                   backgroundColor: brandGreenSoft,
-                  borderColor: isDark ? 'rgba(58, 223, 171, 0.3)' : 'rgba(46, 125, 91, 0.2)',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0',
                 },
               ]}
             >
@@ -1066,28 +1207,94 @@ export default function BillionDollarSOSView() {
           </View>
 
           <View style={styles.dossierDeck}>
-            {/* Emergency Contacts */}
-            <TouchableOpacity
-              style={[
-                styles.dossierCard,
-                { backgroundColor: cardBg, borderColor: cardBorder },
-              ]}
-              onPress={() => setEmergencyContactsVisible(true)}
-              activeOpacity={0.75}
-            >
-              <View style={[styles.dossierIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
-                <Ionicons name="heart" size={20} color="#EF4444" />
+            {/* 1-Tap Quick-Call Emergency Responder Card */}
+            {primaryContact ? (
+              <View
+                style={[
+                  styles.quickCallCard,
+                  {
+                    backgroundColor: cardBg,
+                    borderColor: isDark ? 'rgba(239, 68, 68, 0.35)' : 'rgba(239, 68, 68, 0.25)',
+                  },
+                ]}
+              >
+                <View style={styles.quickCallTopRow}>
+                  <View style={styles.quickCallInfoLeft}>
+                    <View style={[styles.dossierIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.14)' }]}>
+                      <Ionicons name="call" size={20} color="#EF4444" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.quickCallHeaderBadgeRow}>
+                        <Text style={[styles.dossierCardTitle, { color: textPrimary }]} numberOfLines={1}>
+                          {primaryContact.name}
+                        </Text>
+                        <View style={styles.primaryBadge}>
+                          <Text style={styles.primaryBadgeText}>
+                            {(primaryContact.relationship || 'PRIMARY').toUpperCase()}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={[styles.dossierCardSub, { color: textSecondary }]}>
+                        {primaryContact.phone}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.quickCallActionRow}>
+                  <TouchableOpacity
+                    style={styles.quickCallPrimaryBtn}
+                    onPress={() => handleCallEmergencyContact(primaryContact.phone)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="call" size={15} color="#FFFFFF" />
+                    <Text style={styles.quickCallPrimaryBtnText}>Call Responder Now</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.quickCallManageBtn, { borderColor: cardBorder }]}
+                    onPress={() => navigation.navigate('Profile')}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.quickCallManageBtnText, { color: textSecondary }]}>
+                      Manage in Profile ›
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.dossierCardTitle, { color: textPrimary }]}>
-                  Emergency Contacts
-                </Text>
-                <Text style={[styles.dossierCardSub, { color: textSecondary }]}>
-                  Custom phone numbers notified in crisis
-                </Text>
+            ) : (
+              <View
+                style={[
+                  styles.quickCallCard,
+                  { backgroundColor: cardBg, borderColor: cardBorder },
+                ]}
+              >
+                <View style={styles.quickCallTopRow}>
+                  <View style={styles.quickCallInfoLeft}>
+                    <View style={[styles.dossierIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                      <Ionicons name="shield-outline" size={20} color="#EF4444" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.dossierCardTitle, { color: textPrimary }]}>
+                        Emergency Responder
+                      </Text>
+                      <Text style={[styles.dossierCardSub, { color: textSecondary }]}>
+                        No primary contact assigned yet
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.quickCallEmptyBtn}
+                  onPress={() => navigation.navigate('Profile')}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="person-add-outline" size={15} color="#FFFFFF" />
+                  <Text style={styles.quickCallEmptyBtnText}>Set Up in Profile</Text>
+                </TouchableOpacity>
               </View>
-              <Ionicons name="chevron-forward" size={18} color={textTertiary} />
-            </TouchableOpacity>
+            )}
 
             {/* Medical ID & Health Card */}
             <TouchableOpacity
@@ -1160,11 +1367,6 @@ export default function BillionDollarSOSView() {
         onClose={() => setFakeCallVisible(false)}
       />
 
-      <EmergencyContactsModal
-        visible={emergencyContactsVisible}
-        onClose={() => setEmergencyContactsVisible(false)}
-      />
-
       <MedicalInfoModal
         visible={medicalInfoVisible}
         onClose={() => setMedicalInfoVisible(false)}
@@ -1225,7 +1427,7 @@ export default function BillionDollarSOSView() {
         title="False Alarm & Tremor Protection"
         subtitle="Zero accidental emergency dispatches"
         iconName="shield-checkmark"
-        iconColor="#2E7D5B"
+        iconColor={isDark ? '#FFFFFF' : '#0F172A'}
         overview="Accidental emergency triggers cause unnecessary panic and tie up critical first responder resources. CircleGuard protects against unintended activations with a two-stage verification barrier."
         bullets={[
           {
@@ -1348,22 +1550,43 @@ export default function BillionDollarSOSView() {
                 style={[styles.menuItem, { borderBottomColor: cardBorder }]}
                 onPress={() => {
                   setEmergencyMenuVisible(false);
-                  setEmergencyContactsVisible(true);
+                  if (primaryContact?.phone) {
+                    handleCallEmergencyContact(primaryContact.phone);
+                  } else {
+                    navigation.navigate('Profile');
+                  }
                 }}
                 activeOpacity={0.7}
               >
-                <View style={[styles.menuItemIcon, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
-                  <Ionicons name="people" size={20} color="#EF4444" />
+                <View
+                  style={[
+                    styles.menuItemIcon,
+                    {
+                      backgroundColor: primaryContact ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={primaryContact ? 'call' : 'people'}
+                    size={20}
+                    color={primaryContact ? '#10B981' : '#EF4444'}
+                  />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.menuItemTitle, { color: textPrimary }]}>
-                    Manage Emergency Contacts
+                    {primaryContact ? `Call ${primaryContact.name}` : 'Emergency Contacts'}
                   </Text>
                   <Text style={[styles.menuItemDesc, { color: textSecondary }]}>
-                    Assign custom contacts for rapid notification
+                    {primaryContact
+                      ? `Instant call to ${primaryContact.phone}`
+                      : 'Configure trusted contacts in Profile'}
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={textTertiary} />
+                <Ionicons
+                  name={primaryContact ? 'call-outline' : 'chevron-forward'}
+                  size={18}
+                  color={primaryContact ? '#10B981' : textTertiary}
+                />
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -1412,7 +1635,7 @@ export default function BillionDollarSOSView() {
                       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                       accessibilityLabel="Learn what covert disguise mode does"
                     >
-                      <Ionicons name="information-circle-outline" size={15} color="#2E7D5B" />
+                      <Ionicons name="information-circle-outline" size={15} color={isDark ? '#94A3B8' : '#64748B'} />
                     </TouchableOpacity>
                   </View>
                   <Text style={[styles.menuItemDesc, { color: textSecondary }]}>
@@ -1555,7 +1778,7 @@ export default function BillionDollarSOSView() {
               <TouchableOpacity
                 style={[
                   styles.countdownCancelBtn,
-                  { backgroundColor: isDark ? '#1C2621' : '#E2E8F0', borderColor: brandGreen },
+                  { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9', borderColor: isDark ? 'rgba(255, 255, 255, 0.2)' : '#CBD5E1' },
                   isSeniorSimpleMode && { minHeight: 62, paddingVertical: 14, borderWidth: 2.5 },
                 ]}
                 onPress={handleCancelCountdown}
@@ -1740,9 +1963,11 @@ const styles = StyleSheet.create({
   heroSection: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 20,
+    marginTop: 14,
+    marginBottom: 6,
     position: 'relative',
-    height: 230,
+    height: 210,
+    width: '100%',
   },
   radarRing: {
     position: 'absolute',
@@ -1784,6 +2009,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: 1.5,
     marginTop: 2,
+    textAlign: 'center',
   },
   sosButtonSubLabel: {
     fontFamily: FONT_SANS,
@@ -1792,18 +2018,23 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.95)',
     letterSpacing: 1.2,
     marginTop: 2,
+    textAlign: 'center',
   },
   heroHintRow: {
-    position: 'absolute',
-    bottom: 0,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    width: '100%',
   },
   cancelActiveSosBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
     paddingHorizontal: 16,
-    paddingVertical: 7,
+    paddingVertical: 8,
     borderRadius: 20,
     shadowOpacity: 0.3,
     shadowRadius: 6,
@@ -1813,22 +2044,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#FFFFFF',
+    textAlign: 'center',
   },
   protectionHintRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
+    flexWrap: 'wrap',
   },
   protectionHintText: {
     fontFamily: FONT_SANS,
     fontSize: 11,
     fontWeight: '500',
+    textAlign: 'center',
+    flexShrink: 1,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
+    width: '100%',
   },
   sectionHeadingTitle: {
     fontFamily: FONT_SANS,
@@ -1845,21 +2082,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   badgePillText: {
     fontFamily: FONT_SANS,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.4,
+    textAlign: 'center',
   },
   actionGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 12,
-    justifyContent: 'space-between',
+    width: '100%',
+  },
+  actionGridRow: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
   },
   gridCard: {
-    width: '48%',
+    flex: 1,
     borderRadius: 20,
     padding: 14,
     borderWidth: 1,
@@ -1868,6 +2111,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 2,
+    minHeight: 142,
+    justifyContent: 'flex-start',
   },
   gridCardTop: {
     flexDirection: 'row',
@@ -1876,9 +2121,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   gridIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 38,
+    height: 38,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1886,18 +2131,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   gridTagText: {
     fontFamily: FONT_SANS,
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.4,
+    textAlign: 'center',
+  },
+  gridCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    minHeight: 20,
+    marginBottom: 4,
   },
   gridCardTitle: {
     fontFamily: FONT_SANS,
     fontSize: 14,
     fontWeight: '800',
-    marginBottom: 4,
+    flexShrink: 1,
   },
   gridCardSub: {
     fontFamily: FONT_SANS,
@@ -1966,7 +2221,7 @@ const styles = StyleSheet.create({
     fontFamily: FONT_SANS,
     fontSize: 13,
     fontWeight: '800',
-    maxWidth: 130,
+    flexShrink: 1,
   },
   roleBadge: {
     paddingHorizontal: 6,
@@ -2001,16 +2256,19 @@ const styles = StyleSheet.create({
   directCallBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 5,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 16,
+    minWidth: 64,
   },
   directCallBtnText: {
     fontFamily: FONT_SANS,
     fontSize: 11,
     fontWeight: '700',
     color: '#FFFFFF',
+    textAlign: 'center',
   },
   emptyRespondersCard: {
     alignItems: 'center',
@@ -2205,7 +2463,8 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 16,
     borderWidth: 1,
-    marginTop: 14,
+    marginTop: 12,
+    marginBottom: 20,
     width: '100%',
   },
   discreetToggleLeft: {
@@ -2216,21 +2475,28 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   discreetIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  discreetTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   discreetToggleTitle: {
     fontFamily: FONT_SANS,
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '700',
+    flexShrink: 1,
   },
   discreetToggleSub: {
     fontFamily: FONT_SANS,
     fontSize: 11,
-    marginTop: 1,
+    marginTop: 2,
+    lineHeight: 15,
   },
   discreetSwitchTrack: {
     width: 44,
@@ -2275,12 +2541,15 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 20,
     marginBottom: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   countdownBadgeText: {
     fontFamily: FONT_SANS,
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.5,
+    textAlign: 'center',
   },
   countdownHeading: {
     fontFamily: FONT_SANS,
@@ -2288,6 +2557,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginBottom: 16,
     textTransform: 'uppercase',
+    textAlign: 'center',
   },
   countdownCircle: {
     width: 100,
@@ -2303,12 +2573,14 @@ const styles = StyleSheet.create({
     fontSize: 44,
     fontWeight: '900',
     lineHeight: 48,
+    textAlign: 'center',
   },
   countdownUnitText: {
     fontFamily: FONT_SANS,
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 1,
+    textAlign: 'center',
   },
   countdownExplainer: {
     fontFamily: FONT_SANS,
@@ -2320,6 +2592,7 @@ const styles = StyleSheet.create({
   countdownActions: {
     width: '100%',
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
   },
   countdownCancelBtn: {
@@ -2336,6 +2609,7 @@ const styles = StyleSheet.create({
     fontFamily: FONT_SANS,
     fontSize: 12,
     fontWeight: '800',
+    textAlign: 'center',
   },
   countdownSendNowBtn: {
     flexDirection: 'row',
@@ -2345,11 +2619,172 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
   countdownSendNowText: {
     fontFamily: FONT_SANS,
     fontSize: 12,
     fontWeight: '800',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  offlineSmsBanner: {
+    marginTop: 14,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    padding: 14,
+    width: '100%',
+  },
+  offlineSmsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  offlineSmsIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offlineSmsTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  offlineSmsTitle: {
+    fontFamily: FONT_SANS,
+    fontSize: 13.5,
+    fontWeight: '800',
+    flexShrink: 1,
+  },
+  offlineSmsTag: {
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offlineSmsTagText: {
+    fontFamily: FONT_SANS,
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#3B82F6',
+    letterSpacing: 0.5,
+    textAlign: 'center',
+  },
+  offlineSmsSub: {
+    fontFamily: FONT_SANS,
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 3,
+  },
+  offlineSmsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  offlineSmsBtnText: {
+    fontFamily: FONT_SANS,
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textAlign: 'center',
+  },
+  quickCallCard: {
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    gap: 12,
+  },
+  quickCallTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  quickCallInfoLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+  },
+  quickCallHeaderBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  primaryBadge: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  primaryBadgeText: {
+    fontFamily: FONT_SANS,
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#EF4444',
+    letterSpacing: 0.5,
+  },
+  quickCallActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  quickCallPrimaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#EF4444',
+    paddingVertical: 10,
+    borderRadius: 12,
+    elevation: 2,
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  quickCallPrimaryBtnText: {
+    fontFamily: FONT_SANS,
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  quickCallManageBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickCallManageBtnText: {
+    fontFamily: FONT_SANS,
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  quickCallEmptyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#10B981',
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  quickCallEmptyBtnText: {
+    fontFamily: FONT_SANS,
+    fontSize: 12.5,
+    fontWeight: '700',
     color: '#FFFFFF',
   },
 });

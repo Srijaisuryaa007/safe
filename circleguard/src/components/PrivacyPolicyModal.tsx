@@ -40,7 +40,7 @@ export default function PrivacyPolicyModal({ visible, onClose }: PrivacyPolicyMo
             Last updated: <Text style={{ color: colors.accentGold, fontWeight: '700' }}>August 20, 2026</Text>
           </Text>
 
-          <View style={[styles.callout, { backgroundColor: isDark ? 'rgba(212, 175, 55, 0.08)' : '#FEF9C3', borderColor: colors.accentGold }]}>
+          <View style={[styles.callout, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9', borderColor: colors.border }]}>
             <Text style={[styles.calloutText, { color: colors.foreground }]}>
               CircleGuard is dedicated to family safety, real-time geofence alerting, and emergency coordination. We hold your location data and privacy with bank-grade confidentiality and strict member-controlled permissions.
             </Text>

@@ -43,8 +43,8 @@ export const ConcentricActivityRings: React.FC<ConcentricActivityRingsProps> = (
         value: 18.5,
         target: 24,
         unit: 'hrs',
-        color: '#4ADE80',
-        gradientTo: '#22C55E',
+        color: isDark ? '#FFFFFF' : '#0F172A',
+        gradientTo: isDark ? '#E2E8F0' : '#334155',
       },
       {
         key: 'mobility',
@@ -100,7 +100,7 @@ export const ConcentricActivityRings: React.FC<ConcentricActivityRingsProps> = (
       {/* Title */}
       <View style={styles.headerRow}>
         <View style={styles.titleWrapper}>
-          <View style={[styles.headerDot, { backgroundColor: '#4ADE80' }]} />
+          <View style={[styles.headerDot, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]} />
           <Text
             style={[styles.titleText, { color: isDark ? '#A0AEC0' : '#4A5568' }]}
             numberOfLines={1}
@@ -169,7 +169,7 @@ export const ConcentricActivityRings: React.FC<ConcentricActivityRingsProps> = (
 
           {/* Center Activity Icon */}
           <View style={[styles.centerAura, { width: 44, height: 44, borderRadius: 22 }]}>
-            <Ionicons name="shield-checkmark" size={20} color="#00E599" />
+            <Ionicons name="shield-checkmark" size={20} color={isDark ? '#FFFFFF' : '#0F172A'} />
           </View>
         </View>
 
@@ -248,18 +248,18 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   summaryBadge: {
-    backgroundColor: 'rgba(74, 222, 128, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(74, 222, 128, 0.28)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
     flexShrink: 0,
   },
   summaryBadgeText: {
     fontSize: 9,
     fontWeight: '900',
-    color: '#4ADE80',
+    color: '#FFFFFF',
     letterSpacing: 0.8,
   },
   contentRow: {

@@ -77,6 +77,7 @@ export interface EnterpriseStationaryStop {
   longitude: number;
   arrivalTime: string;
   departureTime: string;
+  arrivalTimeMs?: number;
   durationMinutes: number;
   pointsCount: number;
 }
@@ -103,9 +104,22 @@ export interface EnterpriseTripLeg {
   isOutbound?: boolean;
 }
 
+export interface EnterpriseTrackingGap {
+  id: string;
+  startTime: string;
+  endTime: string;
+  startTimeMs: number;
+  endTimeMs: number;
+  durationMinutes: number;
+  distanceKm: number;
+  startCoords: [number, number];
+  endCoords: [number, number];
+  reason: string;
+}
+
 export interface EnterpriseTimelineEvent {
   id: string;
-  type: 'stay' | 'trip' | 'waypoint';
+  type: 'stay' | 'trip' | 'waypoint' | 'gap';
   title: string;
   subtitle: string;
   timeRange: string;
@@ -124,6 +138,7 @@ export interface EnterpriseProcessedHistory {
   points: EnterpriseHistoryPoint[];
   stationaryStops: EnterpriseStationaryStop[];
   tripLegs: EnterpriseTripLeg[];
+  trackingGaps?: EnterpriseTrackingGap[];
   timelineEvents: EnterpriseTimelineEvent[];
   allRoadCoords: [number, number][];
   allRoadBearings: number[];
@@ -440,6 +455,7 @@ export async function processEnterpriseLocationHistory(
           longitude: centroidLng,
           arrivalTime: currentDwell[0].timestamp,
           departureTime: currentDwell[currentDwell.length - 1].timestamp,
+          arrivalTimeMs: currentDwell[0].rawTimeMs,
           durationMinutes: dwellMins,
           pointsCount: currentDwell.length,
         };
@@ -495,6 +511,7 @@ export async function processEnterpriseLocationHistory(
         longitude: centroidLng,
         arrivalTime: currentDwell[0].timestamp,
         departureTime: currentDwell[currentDwell.length - 1].timestamp,
+        arrivalTimeMs: currentDwell[0].rawTimeMs,
         durationMinutes: dwellMins,
         pointsCount: currentDwell.length,
       };
@@ -532,6 +549,7 @@ export async function processEnterpriseLocationHistory(
   // at the next stationary dwell stop (>= 3 mins within 40m, or recognized Safe Place).
   // Red lights, stop signs, and traffic jams are NOT trip breaks!
   const tripLegs: EnterpriseTripLeg[] = [];
+  const trackingGaps: EnterpriseTrackingGap[] = [];
   let currentLegPoints: EnterpriseHistoryPoint[] = [];
 
   for (let i = 0; i < smoothedPoints.length; i++) {
@@ -539,15 +557,45 @@ export async function processEnterpriseLocationHistory(
     const isStopAnchor = !!pt.isStationary;
     const prevPt = i > 0 ? smoothedPoints[i - 1] : null;
     const timeGapMs = prevPt ? (pt.rawTimeMs - prevPt.rawTimeMs) : 0;
+    const timeGapSec = timeGapMs / 1000;
     const jumpDistMeters = prevPt ? calculateHaversineDistanceMeters(prevPt.latitude, prevPt.longitude, pt.latitude, pt.longitude) : 0;
+    const impliedSpeedKmh = timeGapSec > 0 ? (jumpDistMeters / 1000) / (timeGapSec / 3600) : 0;
+
+    // Resilient Gap Detection:
+    // Plausible transit speeds (3 km/h to 135 km/h) over 1 to 15 minutes MUST NEVER break a trip!
+    // A trip is only split if:
+    // 1. Time gap > 20 minutes WITH actual distance displacement (>= 120m) — stationary stays at home/desk are NOT gaps!
+    // 2. Huge jump > 5 km without any intermediate fixes
+    // 3. Implied speed > 150 km/h (impossible teleport jump)
     const isExtendedGap = prevPt != null && (
-      timeGapMs > 5 * 60 * 1000 || // 5 mins gap
-      (jumpDistMeters > 350 && timeGapMs > 2 * 60 * 1000) ||
-      jumpDistMeters > 1200 // any jump > 1.2km without fixes is a disconnected gap!
+      (timeGapMs > 20 * 60 * 1000 && jumpDistMeters >= 120) ||
+      jumpDistMeters > 5000 ||
+      (impliedSpeedKmh > 150 && jumpDistMeters > 500)
     );
 
+    if (isExtendedGap && prevPt) {
+      const gapMins = Math.max(1, Math.round(timeGapMs / 60000));
+      const gapDistKm = parseFloat((jumpDistMeters / 1000).toFixed(1));
+      const reason = timeGapMs > 45 * 60 * 1000
+        ? 'Tracking paused (device stationary, battery saver, or deep sleep mode)'
+        : 'GPS signal pause or phone battery optimization';
+
+      trackingGaps.push({
+        id: `gap_${i}_${pt.id}`,
+        startTime: prevPt.timestamp,
+        endTime: pt.timestamp,
+        startTimeMs: prevPt.rawTimeMs,
+        endTimeMs: pt.rawTimeMs,
+        durationMinutes: gapMins,
+        distanceKm: gapDistKm,
+        startCoords: [prevPt.latitude, prevPt.longitude],
+        endCoords: [pt.latitude, pt.longitude],
+        reason,
+      });
+    }
+
     if (!isStopAnchor && !isExtendedGap) {
-      // In transit: moving, crawling in traffic, or waiting at red lights
+      // In transit: moving, crawling in traffic, waiting at red lights, or highway driving
       if (currentLegPoints.length === 0 && i > 0) {
         currentLegPoints.push(smoothedPoints[i - 1]); // Anchor departure point
       }
@@ -860,60 +908,87 @@ export async function processEnterpriseLocationHistory(
   // Step 9: Assemble Professional Timeline Events
   const timelineEvents: EnterpriseTimelineEvent[] = [];
 
-  // Group events chronologically (both stays and trip legs)
-  let legPtr = 0;
-  let stopPtr = 0;
-
-  while (legPtr < tripLegs.length || stopPtr < stationaryStops.length) {
-    const nextLeg = tripLegs[legPtr];
-    const nextStop = stationaryStops[stopPtr];
-
-    if (nextStop && (!nextLeg || nextStop.arrivalTime <= nextLeg.startTime)) {
-      timelineEvents.push({
-        id: nextStop.id,
-        type: 'stay',
-        title: nextStop.name,
-        subtitle: nextStop.isSafePlace ? `Safe Zone • ${nextStop.durationMinutes} mins dwell` : `Stationary Stay • ${nextStop.durationMinutes} mins`,
-        timeRange: `${nextStop.arrivalTime} – ${nextStop.departureTime}`,
-        durationText: `${nextStop.durationMinutes} mins`,
-        categoryIcon: nextStop.isSafePlace ? 'shield-checkmark' : 'location',
-        categoryColor: nextStop.isSafePlace ? '#4ADE80' : '#E07A5F',
-        pointIndex: 0,
-        latitude: nextStop.latitude,
-        longitude: nextStop.longitude,
-        data: nextStop,
-      });
-      stopPtr++;
-    } else if (nextLeg) {
-      const isFast = nextLeg.averageSpeedKmh > 40;
-      timelineEvents.push({
-        id: nextLeg.id,
-        type: 'trip',
-        title: nextLeg.startStopName && nextLeg.endStopName
-          ? `Trip from ${nextLeg.startStopName} to ${nextLeg.endStopName}`
-          : `Drive heading ${nextLeg.cardinalDirection}`,
-        subtitle: `${nextLeg.distanceKm.toFixed(1)} km • ${nextLeg.durationMinutes} mins • Avg ${nextLeg.averageSpeedKmh} km/h`,
-        timeRange: `${nextLeg.startTime} – ${nextLeg.endTime}`,
-        distanceText: `${nextLeg.distanceKm.toFixed(1)} km`,
-        durationText: `${nextLeg.durationMinutes} mins`,
-        speedText: `${nextLeg.topSpeedKmh} km/h max`,
-        categoryIcon: isFast ? 'car-sport' : 'navigate',
-        categoryColor: '#4ADE80',
-        pointIndex: 0,
-        latitude: nextLeg.roadCoords[0]?.[0] || 0,
-        longitude: nextLeg.roadCoords[0]?.[1] || 0,
-        data: nextLeg,
-      });
-      legPtr++;
-    } else {
-      break;
-    }
+  interface RawEventItem {
+    timeMs: number;
+    event: EnterpriseTimelineEvent;
   }
+
+  const allItems: RawEventItem[] = [];
+
+  for (const stop of stationaryStops) {
+    allItems.push({
+      timeMs: stop.arrivalTimeMs || 0,
+      event: {
+        id: stop.id,
+        type: 'stay',
+        title: stop.name,
+        subtitle: stop.isSafePlace ? `Safe Zone • ${stop.durationMinutes} mins dwell` : `Stationary Stay • ${stop.durationMinutes} mins`,
+        timeRange: `${stop.arrivalTime} – ${stop.departureTime}`,
+        durationText: `${stop.durationMinutes} mins`,
+        categoryIcon: stop.isSafePlace ? 'shield-checkmark' : 'location',
+        categoryColor: stop.isSafePlace ? '#0F172A' : '#64748B',
+        pointIndex: 0,
+        latitude: stop.latitude,
+        longitude: stop.longitude,
+        data: stop,
+      },
+    });
+  }
+
+  for (const leg of tripLegs) {
+    const isFast = leg.averageSpeedKmh > 40;
+    allItems.push({
+      timeMs: leg.startTimeMs || 0,
+      event: {
+        id: leg.id,
+        type: 'trip',
+        title: leg.startStopName && leg.endStopName
+          ? `Trip from ${leg.startStopName} to ${leg.endStopName}`
+          : `Drive heading ${leg.cardinalDirection}`,
+        subtitle: `${leg.distanceKm.toFixed(1)} km • ${leg.durationMinutes} mins • Avg ${leg.averageSpeedKmh} km/h`,
+        timeRange: `${leg.startTime} – ${leg.endTime}`,
+        distanceText: `${leg.distanceKm.toFixed(1)} km`,
+        durationText: `${leg.durationMinutes} mins`,
+        speedText: `${leg.topSpeedKmh} km/h max`,
+        categoryIcon: isFast ? 'car-sport' : 'navigate',
+        categoryColor: '#0F172A',
+        pointIndex: 0,
+        latitude: leg.roadCoords[0]?.[0] || 0,
+        longitude: leg.roadCoords[0]?.[1] || 0,
+        data: leg,
+      },
+    });
+  }
+
+  for (const gap of trackingGaps) {
+    allItems.push({
+      timeMs: gap.startTimeMs || 0,
+      event: {
+        id: gap.id,
+        type: 'gap',
+        title: 'Tracking Interruption',
+        subtitle: `${gap.durationMinutes} mins gap • ${gap.reason}`,
+        timeRange: `${gap.startTime} – ${gap.endTime}`,
+        durationText: `${gap.durationMinutes} mins`,
+        distanceText: `${gap.distanceKm} km`,
+        categoryIcon: 'cloud-offline-outline',
+        categoryColor: '#F59E0B',
+        pointIndex: 0,
+        latitude: gap.startCoords[0],
+        longitude: gap.startCoords[1],
+        data: gap,
+      },
+    });
+  }
+
+  allItems.sort((a, b) => a.timeMs - b.timeMs);
+  timelineEvents.push(...allItems.map(i => i.event));
 
   return {
     points: smoothedPoints,
     stationaryStops,
     tripLegs,
+    trackingGaps,
     timelineEvents,
     allRoadCoords,
     allRoadBearings,

@@ -41,9 +41,10 @@ import CircleQRCodeModal from '../components/CircleQRCodeModal';
 import BillionDollarHomeView from '../components/BillionDollarHomeView';
 import * as Location from 'expo-location';
 import { getHaversineDistanceInMeters } from '../services/GeofenceEngine';
-import { resolveAuthenticPlaceEventTime } from '../services/ActivityService';
+import { resolveAuthenticPlaceEventTime } from '../utils/activityTimeUtils';
 
 export default function HomeScreen() {
+  console.log('[HomeScreen] render');
   const { colors, isDark, themeMode } = useThemeStore();
   const navigation = useNavigation<any>();
   const { profile } = useAuthStore();
@@ -252,17 +253,20 @@ export default function HomeScreen() {
       } catch (e) {}
     })();
 
-    if (profile?.id && !activeCircle) {
-      setRecentActivities([]);
-      setCirclePlaces([]);
-      useCircleStore.getState().fetchActiveCircle(profile.id);
-    } else if (activeCircle?.id) {
-      setRecentActivities([]);
-      setCirclePlaces([]);
-      fetchCircleActivity(activeCircle.id);
-      fetchHomePlaces(activeCircle.id);
-      useCircleStore.getState().fetchPlaces(activeCircle.id);
-      useCircleStore.getState().fetchMembers(activeCircle.id);
+    if (profile?.id) {
+      useCircleStore.getState().fetchUserCircles(profile.id).catch(() => {});
+      if (!activeCircle) {
+        setRecentActivities([]);
+        setCirclePlaces([]);
+        useCircleStore.getState().fetchActiveCircle(profile.id);
+      } else {
+        setRecentActivities([]);
+        setCirclePlaces([]);
+        fetchCircleActivity(activeCircle.id);
+        fetchHomePlaces(activeCircle.id);
+        useCircleStore.getState().fetchPlaces(activeCircle.id);
+        useCircleStore.getState().fetchMembers(activeCircle.id);
+      }
     } else {
       setRecentActivities([]);
       setCirclePlaces([]);
@@ -360,7 +364,7 @@ export default function HomeScreen() {
         let badgeText = 'PRIVACY LOG';
 
         if (item.content.includes('GRANTED') || item.content.includes('AUTHORIZED')) {
-          color = '#10B981';
+          color = isDark ? '#FFFFFF' : '#0F172A';
           icon = 'checkmark-circle-outline';
           badgeText = 'REQUEST APPROVED';
         } else if (item.content.includes('DENIED') || item.content.includes('DECLINED')) {
@@ -405,7 +409,7 @@ export default function HomeScreen() {
           badgeText: isArrival ? `ZONE ARRIVAL • ${timing.preciseTime}` : `ZONE DEPARTURE • ${timing.preciseTime}`,
           icon: isArrival ? 'location' : 'exit-outline',
           time: timing.preciseTime,
-          color: isArrival ? '#10B981' : '#F5A623',
+          color: isArrival ? (isDark ? '#FFFFFF' : '#0F172A') : '#F5A623',
           timestamp: timing.effectiveTimestamp,
         };
       });

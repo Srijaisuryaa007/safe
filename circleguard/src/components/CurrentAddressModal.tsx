@@ -243,15 +243,15 @@ export default function CurrentAddressModal({
           {/* Header Row: Swiggy style location status */}
           <View style={styles.headerRow}>
             <View style={styles.headerLeft}>
-              <View style={[styles.liveGpsPulseBox, isDark && { backgroundColor: '#1B2C23' }]}>
+              <View style={[styles.liveGpsPulseBox, isDark && { backgroundColor: 'rgba(255, 255, 255, 0.08)' }]}>
                 <View style={styles.liveGpsDot} />
-                <Text style={[styles.liveGpsText, isDark && { color: '#3ADFAB' }]}>CURRENT LIVE LOCATION</Text>
+                <Text style={[styles.liveGpsText, isDark && { color: '#FFFFFF' }]}>CURRENT LIVE LOCATION</Text>
               </View>
 
               {isSafeZone && safeZoneName ? (
-                <View style={[styles.safeZoneBadgePill, isDark && { backgroundColor: '#1C2621', borderColor: '#2E7D5B' }]}>
-                  <Ionicons name="shield-checkmark" size={11} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-                  <Text style={[styles.safeZoneBadgeText, isDark && { color: '#3ADFAB' }]}>
+                <View style={[styles.safeZoneBadgePill, isDark && { backgroundColor: 'rgba(255, 255, 255, 0.08)', borderColor: 'rgba(255, 255, 255, 0.14)' }]}>
+                  <Ionicons name="shield-checkmark" size={11} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                  <Text style={[styles.safeZoneBadgeText, isDark && { color: '#FFFFFF' }]}>
                     INSIDE {safeZoneName.toUpperCase()}
                   </Text>
                 </View>
@@ -264,28 +264,28 @@ export default function CurrentAddressModal({
             style={[
               styles.addressCard,
               isDark
-                ? { backgroundColor: '#1C2621', borderColor: '#2B3D33' }
-                : { backgroundColor: '#F6FAF7', borderColor: '#DCEDE3' },
+                ? { backgroundColor: 'rgba(255, 255, 255, 0.04)', borderColor: 'rgba(255, 255, 255, 0.1)' }
+                : { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' },
             ]}
           >
             <View style={styles.addressCardIconCol}>
-              <View style={[styles.pinCircle, isDark && { backgroundColor: '#23382D' }]}>
-                <Ionicons name="location" size={22} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <View style={[styles.pinCircle, isDark && { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}>
+                <Ionicons name="location" size={22} color={isDark ? '#FFFFFF' : '#0F172A'} />
               </View>
             </View>
 
             <View style={styles.addressCardTextCol}>
               {loading ? (
                 <View style={{ paddingVertical: 8 }}>
-                  <ActivityIndicator size="small" color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-                  <Text style={[styles.loadingHint, isDark && { color: '#9EACA3' }]}>Finding current street address...</Text>
+                  <ActivityIndicator size="small" color={isDark ? '#FFFFFF' : '#0F172A'} />
+                  <Text style={[styles.loadingHint, isDark && { color: '#94A3B8' }]}>Finding current street address...</Text>
                 </View>
               ) : (
                 <>
                   <Text style={[styles.streetHeadline, isDark && { color: '#FFFFFF' }]} numberOfLines={2}>
                     {streetName}
                   </Text>
-                  <Text style={[styles.areaSubtitle, isDark && { color: '#A5B5AC' }]} numberOfLines={2}>
+                  <Text style={[styles.areaSubtitle, isDark && { color: '#94A3B8' }]} numberOfLines={2}>
                     {areaDetails}
                   </Text>
                 </>
@@ -298,12 +298,12 @@ export default function CurrentAddressModal({
             <View
               style={[
                 styles.telemetryTile,
-                isDark && { backgroundColor: '#1C2621', borderColor: '#2B3D33' },
+                isDark && { backgroundColor: 'rgba(255, 255, 255, 0.04)', borderColor: 'rgba(255, 255, 255, 0.1)' },
               ]}
             >
-              <Ionicons name="navigate-outline" size={15} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Ionicons name="navigate-outline" size={15} color={isDark ? '#FFFFFF' : '#0F172A'} />
               <View style={{ flex: 1 }}>
-                <Text style={[styles.telemetryLabel, isDark && { color: '#8E9E94' }]}>COORDINATES</Text>
+                <Text style={[styles.telemetryLabel, isDark && { color: '#94A3B8' }]}>COORDINATES</Text>
                 <Text style={[styles.telemetryValue, isDark && { color: '#FFFFFF' }]}>
                   {activeCoords ? `${activeCoords.latitude.toFixed(5)}, ${activeCoords.longitude.toFixed(5)}` : '--'}
                 </Text>
@@ -313,12 +313,12 @@ export default function CurrentAddressModal({
             <View
               style={[
                 styles.telemetryTile,
-                isDark && { backgroundColor: '#1C2621', borderColor: '#2B3D33' },
+                isDark && { backgroundColor: 'rgba(255, 255, 255, 0.04)', borderColor: 'rgba(255, 255, 255, 0.1)' },
               ]}
             >
               <Ionicons name="shield-checkmark-outline" size={15} color="#E07A5F" />
               <View style={{ flex: 1 }}>
-                <Text style={[styles.telemetryLabel, isDark && { color: '#8E9E94' }]}>GPS ACCURACY</Text>
+                <Text style={[styles.telemetryLabel, isDark && { color: '#94A3B8' }]}>GPS ACCURACY</Text>
                 <Text style={[styles.telemetryValue, isDark && { color: '#FFFFFF' }]}>
                   {typeof accuracy === 'number' && accuracy > 0
                     ? `± ${Math.round(accuracy)}m ${accuracy <= 15 ? 'Satellite Lock' : 'Precision'}`
@@ -333,7 +333,7 @@ export default function CurrentAddressModal({
             <TouchableOpacity
               style={[
                 styles.actionBtnSecondary,
-                isDark && { backgroundColor: '#1C2621', borderColor: '#2B3D33' },
+                isDark && { backgroundColor: 'rgba(255, 255, 255, 0.06)', borderColor: 'rgba(255, 255, 255, 0.12)' },
               ]}
               onPress={handleCopy}
               activeOpacity={0.7}
@@ -341,13 +341,13 @@ export default function CurrentAddressModal({
               <Ionicons
                 name={copied ? 'checkmark-circle' : 'copy-outline'}
                 size={16}
-                color={copied ? '#10B981' : (isDark ? '#FFFFFF' : '#1F2A24')}
+                color={copied ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#FFFFFF' : '#1F2A24')}
               />
               <Text
                 style={[
                   styles.actionBtnSecondaryText,
                   isDark && { color: '#FFFFFF' },
-                  copied && { color: '#10B981' },
+                  copied && { color: isDark ? '#FFFFFF' : '#0F172A' },
                 ]}
               >
                 {copied ? 'Copied!' : 'Copy Address'}
@@ -357,7 +357,7 @@ export default function CurrentAddressModal({
             <TouchableOpacity
               style={[
                 styles.actionBtnSecondary,
-                isDark && { backgroundColor: '#1C2621', borderColor: '#2B3D33' },
+                isDark && { backgroundColor: 'rgba(255, 255, 255, 0.06)', borderColor: 'rgba(255, 255, 255, 0.12)' },
               ]}
               onPress={handleShare}
               activeOpacity={0.7}
@@ -371,17 +371,17 @@ export default function CurrentAddressModal({
             <TouchableOpacity
               style={[
                 styles.actionBtnPrimary,
-                isDark && { backgroundColor: '#3ADFAB' },
+                isDark && { backgroundColor: '#FFFFFF' },
               ]}
               onPress={handleRefresh}
               activeOpacity={0.8}
             >
               {refreshing ? (
-                <ActivityIndicator size="small" color={isDark ? '#0F1411' : '#FFFFFF'} />
+                <ActivityIndicator size="small" color={isDark ? '#000000' : '#FFFFFF'} />
               ) : (
                 <>
-                  <Ionicons name="refresh" size={16} color={isDark ? '#0F1411' : '#FFFFFF'} />
-                  <Text style={[styles.actionBtnPrimaryText, isDark && { color: '#0F1411' }]}>
+                  <Ionicons name="refresh" size={16} color={isDark ? '#000000' : '#FFFFFF'} />
+                  <Text style={[styles.actionBtnPrimaryText, isDark && { color: '#000000' }]}>
                     Refresh
                   </Text>
                 </>
@@ -452,7 +452,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
@@ -461,21 +461,21 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#10B981',
+    backgroundColor: '#0F172A',
   },
   liveGpsText: {
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.6,
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   safeZoneBadgePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     borderWidth: 1,
-    borderColor: '#A3D9BE',
+    borderColor: '#E2E8F0',
     paddingHorizontal: 8,
     paddingVertical: 3.5,
     borderRadius: 999,
@@ -484,7 +484,7 @@ const styles = StyleSheet.create({
   safeZoneBadgeText: {
     fontSize: 9.5,
     fontWeight: '800',
-    color: '#2E7D5B',
+    color: '#0F172A',
     letterSpacing: 0.4,
   },
   closeIconBtn: {
@@ -595,7 +595,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 12,
     borderRadius: 14,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
   },
   actionBtnPrimaryText: {
     fontSize: 12,

@@ -92,7 +92,7 @@ export default function SafeZonePermissionBanner() {
           <View style={[styles.modalCard, isDark ? styles.cardDark : styles.cardLight]}>
             <View style={styles.modalHeader}>
               <View style={styles.modalIconWrap}>
-                <Ionicons name="hardware-chip-outline" size={24} color="#3ADFAB" />
+                <Ionicons name="hardware-chip-outline" size={24} color={isDark ? '#FFFFFF' : '#0F172A'} />
               </View>
               <Text style={[styles.modalTitle, isDark ? styles.textLight : styles.textDark]}>
                 Android Background Reliability
@@ -240,10 +240,10 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#3ADFAB',
+    borderColor: '#64748B',
   },
   secondaryButtonText: {
-    color: '#3ADFAB',
+    color: '#64748B',
     fontSize: 12,
     fontWeight: '600',
   },
@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 10,
-    backgroundColor: 'rgba(58, 223, 171, 0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -319,8 +319,8 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#3ADFAB',
-    color: '#000000',
+    backgroundColor: '#0F172A',
+    color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '800',
     textAlign: 'center',
@@ -339,14 +339,14 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   openSettingsBtn: {
-    backgroundColor: '#3ADFAB',
+    backgroundColor: '#0F172A',
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   openSettingsBtnText: {
-    color: '#000000',
+    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
   },

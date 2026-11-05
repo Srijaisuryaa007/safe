@@ -90,15 +90,15 @@ export default function ZomatoLiveJourneyCard({
           styles.cardContainer,
           {
             backgroundColor: isDark ? colors.surface : '#FFFFFF',
-            borderColor: isDark ? 'rgba(16, 185, 129, 0.3)' : '#E2E8F0',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
           },
         ]}
       >
         <View style={styles.topStatusRow}>
           <View style={styles.statusLeft}>
-            <View style={[styles.secureIconPill, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#DCFCE7' }]}>
-              <View style={styles.greenPulseDot} />
-              <Text style={[styles.securePillText, { color: isDark ? '#34D399' : '#059669' }]}>
+            <View style={[styles.secureIconPill, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+              <View style={[styles.greenPulseDot, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]} />
+              <Text style={[styles.securePillText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                 ALL MEMBERS SAFE
               </Text>
             </View>
@@ -107,7 +107,7 @@ export default function ZomatoLiveJourneyCard({
             </Text>
           </View>
 
-          <View style={[styles.shieldBadge, { backgroundColor: isDark ? 'rgba(212, 175, 55, 0.15)' : '#FEF3C7' }]}>
+          <View style={[styles.shieldBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#F1F5F9' }]}>
             <Ionicons name="shield-checkmark" size={20} color={colors.accentGold} />
           </View>
         </View>
@@ -211,7 +211,7 @@ export default function ZomatoLiveJourneyCard({
         styles.cardContainer,
         {
           backgroundColor: isDark ? colors.surface : '#FFFFFF',
-          borderColor: isDark ? 'rgba(212, 175, 55, 0.35)' : '#E2E8F0',
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.20)' : '#E2E8F0',
         },
       ]}
     >
@@ -243,14 +243,14 @@ export default function ZomatoLiveJourneyCard({
                     ? 'rgba(245, 158, 11, 0.15)'
                     : isDriving
                     ? 'rgba(59, 130, 246, 0.15)'
-                    : 'rgba(16, 185, 129, 0.15)',
+                    : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'),
                 },
               ]}
             >
               <Text
                 style={[
                   styles.speedTagText,
-                  { color: isOutsideAlert ? '#F59E0B' : isDriving ? '#3B82F6' : '#10B981' },
+                  { color: isOutsideAlert ? '#F59E0B' : isDriving ? '#3B82F6' : (isDark ? '#FFFFFF' : '#0F172A') },
                 ]}
               >
                 {isOutsideAlert
@@ -280,7 +280,7 @@ export default function ZomatoLiveJourneyCard({
           style={[
             styles.progressFill,
             {
-              backgroundColor: isOutsideAlert ? '#F59E0B' : (colors.accentGold || '#10B981'),
+              backgroundColor: isOutsideAlert ? '#F59E0B' : (colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A')),
               width: isOutsideAlert ? '85%' : '65%',
             },
           ]}
@@ -308,7 +308,7 @@ export default function ZomatoLiveJourneyCard({
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.actionBtn, { backgroundColor: colors.accentGold || '#10B981', borderColor: 'transparent' }]}
+          style={[styles.actionBtn, { backgroundColor: colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A'), borderColor: 'transparent' }]}
           onPress={handleFocus}
           activeOpacity={0.8}
         >
@@ -356,7 +356,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#10B981',
+    backgroundColor: '#0F172A',
   },
   securePillText: {
     fontSize: 9.5,
@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#10B981',
+    backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,

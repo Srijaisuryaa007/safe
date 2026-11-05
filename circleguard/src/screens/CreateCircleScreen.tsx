@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSafeTopInset } from '../utils/safeArea';
@@ -11,13 +11,16 @@ import { useThemeStore } from '../store/useThemeStore';
 import { generateInviteCode } from '../lib/utils';
 import { ValidationSchema } from '../lib/validationSchema';
 import { handleServiceError } from '../lib/errorHandler';
+import BatteryOptimizationGuideModal from '../components/BatteryOptimizationGuideModal';
+import { oemBatteryOptimizationService } from '../services/OemBatteryOptimizationService';
 
 export default function CreateCircleScreen() {
   const insets = useSafeAreaInsets();
   const topInset = getSafeTopInset(insets.top);
-  const { colors } = useThemeStore();
+  const { colors, isDark } = useThemeStore();
   const [name, setName] = useState('');
   const [trackingMode, setTrackingMode] = useState<'continuous' | 'privacy'>('continuous');
+  const [showBatteryModal, setShowBatteryModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const navigation = useNavigation<any>();
@@ -76,11 +79,33 @@ export default function CreateCircleScreen() {
 
       // 3. Save circle to store with persistence & fetch members
       await useCircleStore.getState().addCreatedCircle(circleData as any, userId);
-      Alert.alert(
-        'Circle Created',
-        `Your circle "${circleData.name}" is ready with ${trackingMode === 'continuous' ? 'Continuous 24/7 Safety Tracking' : 'Privacy-First Disconnect'} mode!`,
-        [{ text: 'CONTINUE', onPress: () => navigation.goBack() }]
-      );
+
+      if (trackingMode === 'continuous' && Platform.OS === 'android') {
+        Alert.alert(
+          'Circle Created — Action Required',
+          `Your circle "${circleData.name}" is set to Continuous 24/7 Safety Mode (Option B).\n\nTo ensure Android never pauses tracking while driving or moving, set CircleGuard's battery usage to "Unrestricted":\n\nSettings ➔ Apps ➔ CircleGuard ➔ Battery ➔ Unrestricted (Don't optimize).`,
+          [
+            {
+              text: 'SET TO "UNRESTRICTED" NOW',
+              onPress: async () => {
+                await oemBatteryOptimizationService.openSettings();
+                navigation.goBack();
+              },
+            },
+            {
+              text: 'DONE',
+              onPress: () => navigation.goBack(),
+              style: 'cancel',
+            },
+          ]
+        );
+      } else {
+        Alert.alert(
+          'Circle Created',
+          `Your circle "${circleData.name}" is ready with ${trackingMode === 'continuous' ? 'Continuous 24/7 Safety Tracking' : 'Privacy-First Disconnect'} mode!`,
+          [{ text: 'CONTINUE', onPress: () => navigation.goBack() }]
+        );
+      }
     } catch (err: any) {
       setErrorMsg(handleServiceError('CreateCircle:handleCreate', err, 'Failed to create circle. Please try again.'));
     } finally {
@@ -90,8 +115,18 @@ export default function CreateCircleScreen() {
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={[styles.content, { paddingTop: topInset + 14 }]}>
-      <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-        <Ionicons name="arrow-back" size={24} color={colors.foreground} />
+      <TouchableOpacity
+        style={[
+          styles.backBtn,
+          {
+            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
+          },
+        ]}
+        onPress={() => navigation.goBack()}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="arrow-back" size={20} color={colors.foreground} />
       </TouchableOpacity>
 
       <Text style={[styles.title, { color: colors.foreground }]}>Create a New Circle</Text>
@@ -102,7 +137,14 @@ export default function CreateCircleScreen() {
         
         <Text style={[styles.inputLabel, { color: colors.textMuted }]}>CIRCLE NAME</Text>
         <TextInput
-          style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.foreground }]}
+          style={[
+            styles.input,
+            {
+              backgroundColor: colors.surface,
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.16)' : '#CBD5E1',
+              color: colors.foreground,
+            },
+          ]}
           placeholder="e.g. My Family Circle"
           placeholderTextColor={colors.textMuted}
           value={name}
@@ -114,25 +156,76 @@ export default function CreateCircleScreen() {
         <TouchableOpacity
           style={[
             styles.modeCard,
-            { backgroundColor: colors.surface, borderColor: trackingMode === 'continuous' ? colors.accentGold : colors.border }
+            {
+              backgroundColor: trackingMode === 'continuous'
+                ? (isDark ? 'rgba(255, 255, 255, 0.06)' : '#F8FAFC')
+                : colors.surface,
+              borderColor: trackingMode === 'continuous'
+                ? (isDark ? '#FFFFFF' : '#0F172A')
+                : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0'),
+            },
           ]}
-          onPress={() => setTrackingMode('continuous')}
+          onPress={() => {
+            setTrackingMode('continuous');
+            if (Platform.OS === 'android') {
+              setShowBatteryModal(true);
+            }
+          }}
           activeOpacity={0.8}
         >
           <View style={styles.modeCardHeader}>
-            <Ionicons name="pulse" size={20} color={colors.accentGold} />
+            <Ionicons name="pulse" size={20} color={isDark ? '#38BDF8' : '#0284C7'} />
             <Text style={[styles.modeTitle, { color: colors.foreground }]}>OPTION B: CONTINUOUS 24/7 TRACKING</Text>
-            {trackingMode === 'continuous' ? <Ionicons name="checkmark-circle" size={18} color={colors.accentGold} /> : null}
+            {trackingMode === 'continuous' ? (
+              <Ionicons name="checkmark-circle" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
+            ) : null}
           </View>
           <Text style={[styles.modeSubtext, { color: colors.textMuted }]}>
             Location sharing & geofence alerts continue running in the background even when members close or swipe away the app. Best for family & child safety tracking.
           </Text>
+
+          {/* Android Battery Optimization Prompt Callout */}
+          {Platform.OS === 'android' && trackingMode === 'continuous' && (
+            <View style={[styles.batteryCallout, isDark && styles.batteryCalloutDark]}>
+              <View style={styles.batteryCalloutHeader}>
+                <Ionicons name="battery-charging" size={16} color={isDark ? '#34D399' : '#059669'} />
+                <Text style={[styles.batteryCalloutTitle, isDark && { color: '#34D399' }]}>
+                  RECOMMENDED FOR 24/7 MOTION TRACKING
+                </Text>
+              </View>
+              <Text style={[styles.batteryCalloutDesc, isDark && { color: '#94A3B8' }]}>
+                To ensure Android never pauses tracking while driving or moving:
+                {'\n'}
+                <Text style={[styles.batteryPathHighlight, isDark && { color: '#FFFFFF' }]}>
+                  Settings ➔ Apps ➔ CircleGuard ➔ Battery ➔ Unrestricted (Don't optimize)
+                </Text>
+              </Text>
+              <TouchableOpacity
+                style={[styles.batterySettingsBtn, isDark && styles.batterySettingsBtnDark]}
+                onPress={() => setShowBatteryModal(true)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="settings-outline" size={14} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                <Text style={[styles.batterySettingsBtnText, isDark && { color: '#FFFFFF' }]}>
+                  Set Battery to "Unrestricted"
+                </Text>
+                <Ionicons name="chevron-forward" size={14} color={isDark ? '#FFFFFF' : '#0F172A'} />
+              </TouchableOpacity>
+            </View>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[
             styles.modeCard,
-            { backgroundColor: colors.surface, borderColor: trackingMode === 'privacy' ? colors.accentGold : colors.border }
+            {
+              backgroundColor: trackingMode === 'privacy'
+                ? (isDark ? 'rgba(255, 255, 255, 0.06)' : '#F8FAFC')
+                : colors.surface,
+              borderColor: trackingMode === 'privacy'
+                ? (isDark ? '#FFFFFF' : '#0F172A')
+                : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0'),
+            },
           ]}
           onPress={() => setTrackingMode('privacy')}
           activeOpacity={0.8}
@@ -140,7 +233,9 @@ export default function CreateCircleScreen() {
           <View style={styles.modeCardHeader}>
             <Ionicons name="power-outline" size={20} color="#F59E0B" />
             <Text style={[styles.modeTitle, { color: colors.foreground }]}>OPTION A: PRIVACY-FIRST DISCONNECT</Text>
-            {trackingMode === 'privacy' ? <Ionicons name="checkmark-circle" size={18} color={colors.accentGold} /> : null}
+            {trackingMode === 'privacy' ? (
+              <Ionicons name="checkmark-circle" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
+            ) : null}
           </View>
           <Text style={[styles.modeSubtext, { color: colors.textMuted }]}>
             Location tracking automatically disconnects and stops sharing when members close or swipe away the app. Shows member status as Offline when app is closed.
@@ -148,17 +243,43 @@ export default function CreateCircleScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={[styles.button, { backgroundColor: colors.accentGold }]} 
+          style={[
+            styles.button,
+            {
+              backgroundColor: isDark ? '#FFFFFF' : '#0F172A',
+              shadowColor: '#000000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: isDark ? 0.3 : 0.18,
+              shadowRadius: 10,
+              elevation: 4,
+            },
+          ]} 
           onPress={handleCreate} 
           disabled={loading}
+          activeOpacity={0.85}
         >
           {loading ? (
-            <ActivityIndicator color="#1A1A1A" />
+            <ActivityIndicator color={isDark ? '#000000' : '#FFFFFF'} />
           ) : (
-            <Text style={styles.buttonText}>CREATE CIRCLE</Text>
+            <View style={styles.buttonContent}>
+              <Text style={[styles.buttonText, { color: isDark ? '#000000' : '#FFFFFF' }]}>
+                CREATE CIRCLE
+              </Text>
+              <Ionicons
+                name="arrow-forward"
+                size={16}
+                color={isDark ? '#000000' : '#FFFFFF'}
+                style={{ marginLeft: 6 }}
+              />
+            </View>
           )}
         </TouchableOpacity>
       </View>
+
+      <BatteryOptimizationGuideModal
+        visible={showBatteryModal}
+        onClose={() => setShowBatteryModal(false)}
+      />
     </ScrollView>
   );
 }
@@ -169,29 +290,36 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 24,
-    paddingTop: 60,
     paddingBottom: 40,
   },
   backBtn: {
-    marginBottom: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
   },
   title: {
-    fontSize: 26,
-    fontWeight: 'bold',
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.5,
     marginBottom: 6,
   },
   subtitle: {
     fontSize: 14,
-    marginBottom: 28,
+    marginBottom: 24,
+    fontWeight: '500',
   },
   form: {
     gap: 16,
   },
   inputLabel: {
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 10.5,
+    fontWeight: '800',
     letterSpacing: 1.2,
-    marginTop: 8,
+    marginTop: 6,
   },
   errorText: {
     color: '#EF4444',
@@ -199,16 +327,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     backgroundColor: 'rgba(239, 68, 68, 0.1)',
     padding: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#EF4444',
   },
   input: {
     padding: 16,
-    borderWidth: 1,
+    borderRadius: 14,
+    borderWidth: 1.2,
     fontSize: 16,
+    fontWeight: '600',
   },
   modeCard: {
-    borderWidth: 1,
+    borderRadius: 14,
+    borderWidth: 1.5,
     padding: 16,
     gap: 8,
   },
@@ -218,24 +350,86 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   modeTitle: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    letterSpacing: 0.8,
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
     flex: 1,
   },
   modeSubtext: {
     fontSize: 12,
     lineHeight: 18,
+    fontWeight: '400',
   },
   button: {
-    padding: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 14,
     alignItems: 'center',
-    marginTop: 16,
+    justifyContent: 'center',
+    marginTop: 20,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonText: {
-    color: '#1A1A1A',
-    fontSize: 13,
-    fontWeight: 'bold',
-    letterSpacing: 1.5,
+    fontSize: 13.5,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  batteryCallout: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 8,
+    gap: 6,
+  },
+  batteryCalloutDark: {
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+    borderColor: 'rgba(16, 185, 129, 0.25)',
+  },
+  batteryCalloutHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  batteryCalloutTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#059669',
+    letterSpacing: 0.6,
+  },
+  batteryCalloutDesc: {
+    fontSize: 11.5,
+    color: '#4B5563',
+    lineHeight: 16,
+  },
+  batteryPathHighlight: {
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  batterySettingsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginTop: 4,
+  },
+  batterySettingsBtnDark: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  batterySettingsBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#0F172A',
   },
 });

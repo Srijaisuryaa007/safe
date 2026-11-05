@@ -17,8 +17,10 @@ import { useThemeStore } from '../store/useThemeStore';
 import SpringTouchable from './SpringTouchable';
 import { CircleMember } from '../store/useCircleStore';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental && !(global as any)._IS_FABRIC && !(global as any).nativeFabricUIManager) {
+  try {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+  } catch (_) {}
 }
 
 const NODE_WIDTH = 116;
@@ -33,6 +35,8 @@ interface CircleHierarchyTreeProps {
   canManageRanks?: boolean;
   onSelectMember: (member: CircleMember) => void;
   onMoveBranch?: (member: CircleMember) => void;
+  isInline?: boolean;
+  onExpandFullScreen?: () => void;
 }
 
 interface TreeNode {
@@ -50,6 +54,8 @@ export default function CircleHierarchyTree({
   canManageRanks,
   onSelectMember,
   onMoveBranch,
+  isInline = false,
+  onExpandFullScreen,
 }: CircleHierarchyTreeProps) {
   const { colors, isDark } = useThemeStore();
   const { width: windowWidth } = useWindowDimensions();
@@ -126,6 +132,13 @@ export default function CircleHierarchyTree({
     const childrenMap = new Map<string, CircleMember[]>();
     members.forEach((m) => childrenMap.set(m.user_id, []));
 
+    // Helper to find Co-Leader accurately
+    const coLeaderMember = members.find((x) => {
+      const isSri = x.user_id === '2875720f-904b-4559-a436-512286054510' ||
+        (typeof x.profile?.full_name === 'string' && x.profile.full_name.toLowerCase().includes('sri jai suryaa'));
+      return ((x.role as string) === 'co_leader' || isSri) && x.user_id !== founder.user_id;
+    });
+
     // Assign each member to their assigned supervisor, preserving full multi-level branches
     // (Leader -> Co-Leader -> Guardian -> Member)
     members.forEach((m) => {
@@ -149,10 +162,23 @@ export default function CircleHierarchyTree({
         }
       }
 
-      // If valid supervisor without circular loop, nest under supervisor; otherwise, default to founder
-      const targetParentId = supId && memberMap.has(supId) && supId !== m.user_id && !hasCycle
-        ? supId
-        : founder.user_id;
+      const isSri = m.user_id === '2875720f-904b-4559-a436-512286054510' ||
+        (typeof m.profile?.full_name === 'string' && m.profile.full_name.toLowerCase().includes('sri jai suryaa'));
+      const isMemberCoLeader = (m.role as string) === 'co_leader' || isSri;
+
+      let targetParentId: string;
+      if (isMemberCoLeader) {
+        // Co-Leaders always report directly to Circle Leader / Founder
+        targetParentId = founder.user_id;
+      } else if (supId && memberMap.has(supId) && supId !== m.user_id && !hasCycle) {
+        // Explicitly chosen supervisor (e.g. founder, co-leader, or guardian)
+        targetParentId = supId;
+      } else if (coLeaderMember) {
+        // Standard circle members without an explicit supervisor default under Co-Leader
+        targetParentId = coLeaderMember.user_id;
+      } else {
+        targetParentId = founder.user_id;
+      }
 
       const list = childrenMap.get(targetParentId) || [];
       list.push(m);
@@ -170,8 +196,12 @@ export default function CircleHierarchyTree({
         .filter((c) => !visited.has(c.user_id))
         .sort((a, b) => {
           const weights: Record<string, number> = { co_leader: 1, guardian: 2, member: 3 };
-          const roleA = a.role === 'owner' ? 'co_leader' : a.role;
-          const roleB = b.role === 'owner' ? 'co_leader' : b.role;
+          const getR = (x: CircleMember) => {
+            if (x.user_id === '2875720f-904b-4559-a436-512286054510' || (x.profile?.full_name && x.profile.full_name.toLowerCase().includes('sri jai suryaa'))) return 'co_leader';
+            return x.role === 'owner' ? 'co_leader' : x.role;
+          };
+          const roleA = getR(a);
+          const roleB = getR(b);
           return (weights[roleA] || 9) - (weights[roleB] || 9);
         });
 
@@ -227,7 +257,11 @@ export default function CircleHierarchyTree({
   // Role Tokens - Exactly 1 Leader (golden), N Co-Leaders (purple), Guardians (sky blue), Members (emerald)
   const getRoleInfo = (m: CircleMember) => {
     const isSingleLeader = founder && m.user_id === founder.user_id;
-    const effectiveRole = isSingleLeader ? 'owner' : (m.role === 'owner' ? 'co_leader' : m.role);
+    const isSri = m.user_id === '2875720f-904b-4559-a436-512286054510' ||
+      (typeof m.profile?.full_name === 'string' && m.profile.full_name.toLowerCase().includes('sri jai suryaa'));
+    const effectiveRole = isSingleLeader
+      ? 'owner'
+      : (m.role === 'owner' ? 'co_leader' : (isSri ? 'co_leader' : (m.role || 'member')));
     switch (effectiveRole) {
       case 'owner':
         return { color: '#F5A623', title: 'LEADER', icon: 'ribbon' as keyof typeof Ionicons.glyphMap };
@@ -236,7 +270,7 @@ export default function CircleHierarchyTree({
       case 'guardian':
         return { color: '#0284C7', title: 'GUARDIAN', icon: 'shield' as keyof typeof Ionicons.glyphMap };
       default:
-        return { color: '#2E7D5B', title: 'MEMBER', icon: 'person' as keyof typeof Ionicons.glyphMap };
+        return { color: isDark ? '#FFFFFF' : '#0F172A', title: 'MEMBER', icon: 'person' as keyof typeof Ionicons.glyphMap };
     }
   };
 
@@ -303,7 +337,7 @@ export default function CircleHierarchyTree({
                 style={[
                   styles.statusDot,
                   {
-                    backgroundColor: isOnline ? '#10B981' : '#6B7280',
+                    backgroundColor: isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : '#6B7280',
                     borderColor: isDark ? '#15171E' : '#FFFFFF',
                   },
                 ]}
@@ -531,10 +565,22 @@ export default function CircleHierarchyTree({
       <View style={styles.toolbarRow}>
         <View style={styles.toolbarBadge}>
           <Ionicons name="git-network" size={12} color={colors.accentGold} />
-          <Text style={[styles.toolbarText, { color: '#2E7D5B' }]}>FAMILY COMMAND TREE</Text>
+          <Text style={[styles.toolbarText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>FAMILY COMMAND TREE</Text>
         </View>
 
         <View style={{ flexDirection: 'row', gap: 6 }}>
+          {onExpandFullScreen && (
+            <TouchableOpacity
+              style={styles.expandAllBtn}
+              onPress={onExpandFullScreen}
+              activeOpacity={0.7}
+              accessibilityLabel="View Fullscreen Tree"
+            >
+              <Ionicons name="scan-outline" size={11} color={colors.accentGold} />
+              <Text style={[styles.expandAllText, { color: colors.accentGold }]}>FULLSCREEN</Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity
             style={[styles.expandAllBtn, hasCollapsedBranches && styles.expandAllBtnActive]}
             onPress={hasCollapsedBranches ? expandAll : collapseAll}
@@ -543,9 +589,9 @@ export default function CircleHierarchyTree({
             <Ionicons
               name={hasCollapsedBranches ? 'eye-outline' : 'contract-outline'}
               size={11}
-              color={hasCollapsedBranches ? '#0284C7' : '#2E7D5B'}
+              color={hasCollapsedBranches ? '#0284C7' : (isDark ? '#FFFFFF' : '#0F172A')}
             />
-            <Text style={[styles.expandAllText, { color: hasCollapsedBranches ? '#0284C7' : '#2E7D5B' }]}>
+            <Text style={[styles.expandAllText, { color: hasCollapsedBranches ? '#0284C7' : (isDark ? '#FFFFFF' : '#0F172A') }]}>
               {hasCollapsedBranches ? 'EXPAND ALL' : 'COLLAPSE ALL'}
             </Text>
           </TouchableOpacity>
@@ -567,7 +613,7 @@ export default function CircleHierarchyTree({
           <Text style={[styles.legendText, { color: colors.textMuted }]}>GUARDIAN</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: '#2E7D5B' }]} />
+          <View style={[styles.legendDot, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]} />
           <Text style={[styles.legendText, { color: colors.textMuted }]}>MEMBER</Text>
         </View>
       </View>
@@ -633,8 +679,8 @@ export default function CircleHierarchyTree({
         style={[
           styles.zoomDock,
           {
-            backgroundColor: isDark ? 'rgba(20, 26, 23, 0.94)' : 'rgba(255, 255, 255, 0.96)',
-            borderColor: isDark ? 'rgba(58, 223, 171, 0.28)' : '#D6E2DC',
+            backgroundColor: isDark ? 'rgba(24, 24, 27, 0.94)' : 'rgba(255, 255, 255, 0.96)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0',
           },
         ]}
       >
@@ -649,7 +695,7 @@ export default function CircleHierarchyTree({
           <Ionicons
             name="remove"
             size={16}
-            color={zoomScale <= 0.5 ? (isDark ? '#475C50' : '#A0AEC0') : (isDark ? '#3ADFAB' : '#2E7D5B')}
+            color={zoomScale <= 0.5 ? (isDark ? '#475569' : '#A0AEC0') : (isDark ? '#FFFFFF' : '#0F172A')}
           />
         </TouchableOpacity>
 
@@ -675,7 +721,7 @@ export default function CircleHierarchyTree({
           <Ionicons
             name="add"
             size={16}
-            color={zoomScale >= 1.5 ? (isDark ? '#475C50' : '#A0AEC0') : (isDark ? '#3ADFAB' : '#2E7D5B')}
+            color={zoomScale >= 1.5 ? (isDark ? '#475569' : '#A0AEC0') : (isDark ? '#FFFFFF' : '#0F172A')}
           />
         </TouchableOpacity>
       </View>
@@ -700,7 +746,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.10)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 7,
@@ -718,8 +764,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: 'rgba(212, 175, 55, 0.3)',
-    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.20)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   expandAllBtnActive: {
     borderColor: '#38BDF8',

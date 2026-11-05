@@ -33,7 +33,7 @@ export default function HomeMiniMapCard({
     if (!webViewRef.current) return;
 
     const memberPins = members
-      .map((m) => {
+      .map((m, idx) => {
         let lat = m.latitude || 0;
         let lng = m.longitude || 0;
 
@@ -42,7 +42,7 @@ export default function HomeMiniMapCard({
           return null;
         }
 
-        const roleColor = m.role === 'owner' ? '#F5A623' : (m.role === 'co_leader' ? '#3ADFAB' : (m.role === 'guardian' ? '#2E7D5B' : '#64748B'));
+        const roleColor = m.role === 'owner' ? '#FFFFFF' : (m.role === 'co_leader' ? '#A855F7' : (m.role === 'guardian' ? '#3B82F6' : '#64748B'));
         const name = m.profile?.full_name || 'Member';
 
         return {
@@ -169,7 +169,7 @@ export default function HomeMiniMapCard({
 
         // Initial trigger
         setTimeout(function() {
-          window.updateHomeMiniMap(${JSON.stringify({ isDark, center: [centerLat, centerLng], members: members.map((m) => {
+          window.updateHomeMiniMap(${JSON.stringify({ isDark, center: [centerLat, centerLng], members: members.map((m, idx) => {
             let lat = m.latitude || 0;
             let lng = m.longitude || 0;
             if (!lat || !lng || lat === 0 || lng === 0 || isNaN(lat) || isNaN(lng)) {
@@ -182,7 +182,7 @@ export default function HomeMiniMapCard({
               name: m.profile?.full_name || 'Member',
               initial: (m.profile?.full_name || 'M').charAt(0).toUpperCase(),
               avatarUrl: m.profile?.avatar_url || null,
-              roleColor: m.role === 'owner' ? '#D4AF37' : (m.role === 'co_leader' ? '#A855F7' : (m.role === 'guardian' ? '#3B82F6' : '#10B981')),
+              roleColor: m.role === 'owner' ? '#FFFFFF' : (m.role === 'co_leader' ? '#A855F7' : (m.role === 'guardian' ? '#3B82F6' : '#64748B')),
               isOnline: m.isOnline ?? true,
             };
           }).filter(Boolean) })});
@@ -197,7 +197,7 @@ export default function HomeMiniMapCard({
       {/* Header */}
       <View style={styles.headerRow}>
         <View style={styles.headerLeft}>
-          <View style={[styles.livePulseDot, { backgroundColor: '#10B981' }]} />
+          <View style={[styles.livePulseDot, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]} />
           <Text style={[styles.headerTitle, { color: colors.foreground }]}>LIVE RADAR MINI MAP</Text>
         </View>
         <TouchableOpacity

@@ -54,7 +54,7 @@ export const HeatlineAreaChart: React.FC<HeatlineAreaChartProps> = ({
   showMarkers = true,
   speedLimitKmh = 60,
   onScrub,
-  accentColor = '#00E599',
+  accentColor = '#FFFFFF',
   isDark = true,
   title = 'SPEED PROFILE & HEATLINE',
   unit = 'km/h',
@@ -163,7 +163,7 @@ export const HeatlineAreaChart: React.FC<HeatlineAreaChartProps> = ({
         y: yScale(chartData[peakIdx].speed),
         type: 'peak',
         label: `${Math.round(maxVal)} ${unit}`,
-        color: maxVal >= speedLimitKmh ? '#FF3B30' : '#00E599',
+        color: maxVal >= speedLimitKmh ? '#FF3B30' : (isDark ? '#FFFFFF' : '#0F172A'),
       });
     }
 
@@ -256,8 +256,8 @@ export const HeatlineAreaChart: React.FC<HeatlineAreaChartProps> = ({
     if (!activePoint) return accentColor;
     if (activePoint.speed >= speedLimitKmh) return '#FF3B30';
     if (activePoint.speed >= speedLimitKmh * 0.75) return '#FFB800';
-    return '#00E599';
-  }, [activePoint, speedLimitKmh, accentColor]);
+    return isDark ? '#FFFFFF' : '#0F172A';
+  }, [activePoint, speedLimitKmh, accentColor, isDark]);
 
   const onLayout = (e: LayoutChangeEvent) => {
     const w = e.nativeEvent.layout.width;
@@ -321,7 +321,7 @@ export const HeatlineAreaChart: React.FC<HeatlineAreaChartProps> = ({
 
           {/* Stroke Line Heat Gradient */}
           <LinearGradient id="speedStrokeGrad" x1="0" y1="0" x2="1" y2="0">
-            <Stop offset="0%" stopColor="#00E599" />
+            <Stop offset="0%" stopColor={isDark ? '#FFFFFF' : '#0F172A'} />
             <Stop offset="50%" stopColor="#38E8FF" />
             <Stop offset="80%" stopColor="#FFB800" />
             <Stop offset="100%" stopColor="#FF3B30" />

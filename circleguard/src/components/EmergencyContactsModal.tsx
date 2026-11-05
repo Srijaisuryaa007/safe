@@ -13,21 +13,29 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Contacts from 'expo-contacts/legacy';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
-import { useCountryStore } from '../store/useCountryStore';
+import { useCountryStore, SUPPORTED_COUNTRIES } from '../store/useCountryStore';
 import { useThemeStore } from '../store/useThemeStore';
 import {
   validateAndNormalizePhone,
+  detectCountryFromPhone,
+  extractNationalDigits,
   COUNTRY_PHONE_RULES,
   DEFAULT_PHONE_RULE,
 } from '../lib/phoneValidation';
 import { useLuxuryAlert } from './LuxuryAlertModal';
 import { getSafeTopInset } from '../utils/safeArea';
-import { EmergencyMedicalService, getPrimaryContactStorageKey } from '../services/EmergencyMedicalService';
+import {
+  EmergencyMedicalService,
+  getContactsStorageKey,
+  getPrimaryContactStorageKey,
+  generateContactUUID,
+} from '../services/EmergencyMedicalService';
+import { pickAndResolveContact } from '../utils/contactPickerHelper';
+import CountrySelectorModal from './CountrySelectorModal';
 
 export interface EmergencyContact {
   id: string;
@@ -41,18 +49,36 @@ interface EmergencyContactsModalProps {
   visible: boolean;
   onClose: () => void;
   onContactsUpdated?: () => void;
+  initialPrimaryContact?: { name: string; phone: string } | null;
 }
 
-export default function EmergencyContactsModal({ visible, onClose, onContactsUpdated }: EmergencyContactsModalProps) {
+export default function EmergencyContactsModal({
+  visible,
+  onClose,
+  onContactsUpdated,
+  initialPrimaryContact,
+}: EmergencyContactsModalProps) {
   const insets = useSafeAreaInsets();
   const topInset = getSafeTopInset(insets.top);
 
-  const { profile } = useAuthStore();
+  const { profile, user, session } = useAuthStore();
+  const currentUserId = profile?.id || user?.id || session?.user?.id || useAuthStore.getState().user?.id;
   const { country } = useCountryStore();
   const { colors, isDark } = useThemeStore();
   const { showAlert, showConfirm } = useLuxuryAlert();
-  const [contacts, setContacts] = useState<EmergencyContact[]>([]);
-  const [primaryPhone, setPrimaryPhone] = useState<string | null>(null);
+  const [contacts, setContacts] = useState<EmergencyContact[]>(() => {
+    if (initialPrimaryContact && initialPrimaryContact.phone) {
+      return [{
+        id: 'primary-init',
+        name: initialPrimaryContact.name || 'Emergency Contact',
+        phone: initialPrimaryContact.phone,
+        relationship: 'Primary Contact',
+        sort_order: 0,
+      }];
+    }
+    return [];
+  });
+  const [primaryPhone, setPrimaryPhone] = useState<string | null>(initialPrimaryContact?.phone || null);
   const [isAdding, setIsAdding] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPendingSync, setIsPendingSync] = useState(false);
@@ -61,12 +87,21 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
   const [name, setName] = useState('');
   const [relationship, setRelationship] = useState('Father');
   const [phone, setPhone] = useState('');
+  const [phoneCountryCode, setPhoneCountryCode] = useState(country?.code || 'IN');
+  const [countryModalVisible, setCountryModalVisible] = useState(false);
 
   const relationships = ['Father', 'Mother', 'Brother', 'Sister', 'Spouse', 'Guardian', 'Doctor', 'Other'];
 
-  const phoneRule = COUNTRY_PHONE_RULES[country.code] || {
+  useEffect(() => {
+    if (country?.code) {
+      setPhoneCountryCode(country.code);
+    }
+  }, [country?.code]);
+
+  const selectedCountry = SUPPORTED_COUNTRIES[phoneCountryCode] || country;
+  const phoneRule = COUNTRY_PHONE_RULES[phoneCountryCode] || {
     ...DEFAULT_PHONE_RULE,
-    dialCode: country.dialCode || '+1',
+    dialCode: selectedCountry?.dialCode || country?.dialCode || '+1',
   };
   const cleanDigits = phone.replace(/\D/g, '');
   const isLengthMatched = phoneRule.minLen === phoneRule.maxLen
@@ -75,32 +110,113 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
   const isOverflow = cleanDigits.length > phoneRule.maxLen;
 
   useEffect(() => {
-    if (visible && profile?.id) {
+    if (visible) {
+      if (initialPrimaryContact && initialPrimaryContact.phone && contacts.length === 0) {
+        setContacts([{
+          id: 'primary-init',
+          name: initialPrimaryContact.name || 'Emergency Contact',
+          phone: initialPrimaryContact.phone,
+          relationship: 'Primary Contact',
+          sort_order: 0,
+        }]);
+        setPrimaryPhone(initialPrimaryContact.phone);
+      }
       loadContacts();
     }
-  }, [visible, profile?.id]);
+  }, [visible, currentUserId, initialPrimaryContact]);
 
   const loadContacts = async () => {
-    if (!profile?.id) return;
+    const effectiveUserId = currentUserId || useAuthStore.getState().profile?.id || useAuthStore.getState().user?.id;
+    if (!effectiveUserId) return;
     try {
-      const res = await EmergencyMedicalService.fetchEmergencyContacts(profile.id);
-      const loaded: EmergencyContact[] = res.data || [];
-      setContacts(loaded);
+      const res = await EmergencyMedicalService.fetchEmergencyContacts(effectiveUserId);
+      let loaded: EmergencyContact[] = (res.data || []).map((c: any, idx: number) => ({
+        id: c.id || generateContactUUID(),
+        name: c.name || 'Emergency Contact',
+        phone: c.phone || '',
+        relationship: c.relationship || 'Emergency Contact',
+        sort_order: c.sort_order ?? idx,
+      }));
+
+      // Check primary contact storage keys to guarantee the contact visible on ProfileScreen is NEVER missing
+      if (loaded.length === 0) {
+        const primaryKeys = [
+          getPrimaryContactStorageKey(effectiveUserId),
+          `@circleguard_primary_emergency_contact_${effectiveUserId}`,
+          '@circleguard_primary_emergency_contact',
+          `@circleguard_primary_contact_${effectiveUserId}`,
+        ];
+        let primaryParsed: { name: string; phone: string } | null = initialPrimaryContact || null;
+        for (const pk of primaryKeys) {
+          if (primaryParsed) break;
+          try {
+            const raw = await AsyncStorage.getItem(pk);
+            if (raw) {
+              const p = JSON.parse(raw);
+              if (p && p.phone) {
+                primaryParsed = p;
+                break;
+              }
+            }
+          } catch (_) {}
+        }
+
+        // If contacts list is empty, but we have a primary contact (which shows outside on ProfileScreen)
+        if (primaryParsed && primaryParsed.phone) {
+          const fallbackContact: EmergencyContact = {
+            id: generateContactUUID(),
+            name: primaryParsed.name || 'Emergency Contact',
+            phone: primaryParsed.phone,
+            relationship: 'Primary Contact',
+            sort_order: 0,
+          };
+          loaded = [fallbackContact];
+          // Persist to contacts storage so it remains permanently synced
+          await AsyncStorage.setItem(getContactsStorageKey(effectiveUserId), JSON.stringify(loaded)).catch(() => {});
+          await AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(loaded)).catch(() => {});
+          useAuthStore.getState().updateProfileFields({ emergency_contacts: loaded });
+        }
+      }
+
+      // CRITICAL: If loaded is STILL empty, but contacts state already has items (e.g. just added), DO NOT WIPE THEM OUT!
+      setContacts((prev) => {
+        if (loaded.length === 0 && prev.length > 0) {
+          AsyncStorage.setItem(getContactsStorageKey(effectiveUserId), JSON.stringify(prev)).catch(() => {});
+          AsyncStorage.setItem('@circleguard_emergency_contacts', JSON.stringify(prev)).catch(() => {});
+          useAuthStore.getState().updateProfileFields({ emergency_contacts: prev });
+          return prev;
+        }
+        return loaded;
+      });
+
       setIsPendingSync(Boolean(res.pendingSync));
 
-      // Load primary contact phone from user-scoped storage or top contact
-      const primarySaved = await AsyncStorage.getItem(getPrimaryContactStorageKey(profile.id));
-      if (primarySaved) {
-        try {
-          const parsed = JSON.parse(primarySaved);
-          setPrimaryPhone(parsed.phone);
-        } catch (e) {}
-      } else if (loaded.length > 0) {
-        setPrimaryPhone(loaded[0].phone);
+      if (loaded.length > 0) {
+        setPrimaryPhone(prev => prev || loaded[0].phone);
       }
     } catch (e) {
       console.error('[EmergencyContactsModal] Error loading emergency contacts:', e);
     }
+  };
+
+  const handlePhoneInputChange = (text: string) => {
+    // If user pasted or typed full international number with + or spaces
+    if (text.startsWith('+') || text.includes(' ')) {
+      const detected = detectCountryFromPhone(text, phoneCountryCode);
+      if (detected !== phoneCountryCode) {
+        setPhoneCountryCode(detected);
+      }
+      const national = extractNationalDigits(text, detected);
+      setPhone(national);
+      return;
+    }
+
+    const currentRule = COUNTRY_PHONE_RULES[phoneCountryCode] || DEFAULT_PHONE_RULE;
+    let digits = text.replace(/[^\d]/g, '');
+    if (currentRule.stripTrunkZero && digits.startsWith('0') && digits.length > currentRule.minLen) {
+      digits = digits.replace(/^0+/, '');
+    }
+    setPhone(digits);
   };
 
   const handleSaveContact = async () => {
@@ -122,20 +238,23 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
       return;
     }
 
-    const validation = validateAndNormalizePhone(phone, country.code);
+    const validation = validateAndNormalizePhone(phone, phoneCountryCode);
     if (!validation.isValid) {
       showAlert({
         title: 'Invalid Contact Number',
-        message: validation.error || `Please enter a valid phone number for ${country.name}.`,
+        message: validation.error || `Please enter a valid phone number for ${selectedCountry.name}.`,
         type: 'warning',
       });
       return;
     }
 
     // Deduplication check
+    const nationalDigits = validation.nationalDigits;
+    const e164Digits = validation.e164.replace(/\D/g, '');
     const alreadyExists = contacts.some(
       (c) =>
-        c.phone.replace(/\D/g, '') === validation.nationalDigits ||
+        c.phone.replace(/\D/g, '') === nationalDigits ||
+        c.phone.replace(/\D/g, '') === e164Digits ||
         c.phone === validation.e164 ||
         c.phone === validation.formattedDisplay
     );
@@ -148,7 +267,7 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
       return;
     }
 
-    if (!profile?.id) {
+    if (!currentUserId) {
       showAlert({
         title: 'Sign In Required',
         message: 'Please sign in to add emergency contacts.',
@@ -158,15 +277,25 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
     }
 
     setIsSaving(true);
-    try {
-      const res = await EmergencyMedicalService.addEmergencyContact(profile.id, {
-        name: name.trim(),
-        phone: validation.formattedDisplay,
-        relationship,
-        sort_order: contacts.length,
-      });
+    const newContactItem: EmergencyContact = {
+      id: generateContactUUID(),
+      name: name.trim(),
+      phone: validation.formattedDisplay,
+      relationship,
+      sort_order: contacts.length,
+    };
 
-      if (res.success || res.pendingSync) {
+    // Optimistically update list so user sees it instantly
+    setContacts((prev) => {
+      const cleanDigits = newContactItem.phone.replace(/\D/g, '');
+      const filtered = prev.filter(c => c.phone.replace(/\D/g, '') !== cleanDigits);
+      return [newContactItem, ...filtered];
+    });
+
+    try {
+      const res = await EmergencyMedicalService.addEmergencyContact(currentUserId, newContactItem);
+
+      if (res.success || res.pendingSync || (res.data && !res.error)) {
         setName('');
         setPhone('');
         setRelationship('Father');
@@ -177,7 +306,7 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
         showAlert({
           title: res.success ? 'Contact Saved' : 'Saved Offline',
           message: res.success
-            ? `${name.trim()} has been saved to your emergency directory.`
+            ? `${name.trim()} (${validation.formattedDisplay}) has been saved to your emergency directory.`
             : `${name.trim()} saved offline and will sync once network is restored.`,
           type: 'success',
         });
@@ -202,8 +331,8 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
 
   const handleSetPrimary = async (c: EmergencyContact) => {
     setPrimaryPhone(c.phone);
-    if (profile?.id) {
-      await AsyncStorage.setItem(getPrimaryContactStorageKey(profile.id), JSON.stringify({ name: c.name, phone: c.phone }));
+    if (currentUserId) {
+      await AsyncStorage.setItem(getPrimaryContactStorageKey(currentUserId), JSON.stringify({ name: c.name, phone: c.phone }));
     }
     onContactsUpdated?.();
     showAlert({
@@ -222,13 +351,13 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
       cancelText: 'CANCEL',
       isDestructive: true,
       onConfirm: async () => {
-        if (!profile?.id) return;
-        const res = await EmergencyMedicalService.deleteEmergencyContact(profile.id, id);
+        if (!currentUserId) return;
+        const res = await EmergencyMedicalService.deleteEmergencyContact(currentUserId, id);
         if (res.success || res.pendingSync) {
           // If removed contact was primary, clean up primary key
           if (contactToDelete && primaryPhone === contactToDelete.phone) {
             setPrimaryPhone(null);
-            await AsyncStorage.removeItem(getPrimaryContactStorageKey(profile.id));
+            await AsyncStorage.removeItem(getPrimaryContactStorageKey(currentUserId));
           }
           await loadContacts();
           onContactsUpdated?.();
@@ -244,7 +373,10 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
   };
 
   const handleCall = (phoneNumber: string) => {
-    Linking.openURL(`tel:${phoneNumber}`);
+    const dialDigits = phoneNumber.replace(/[^\d+*#]/g, '');
+    Linking.openURL(`tel:${dialDigits}`).catch((err) => {
+      console.warn('[EmergencyContactsModal] Call error:', err);
+    });
   };
 
   const handlePickPhoneContact = async () => {
@@ -259,52 +391,83 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
         return;
       }
 
-      const contact = await Contacts.presentContactPickerAsync();
-      if (contact) {
-        const contactName =
-          contact.name ||
-          [contact.firstName, contact.lastName].filter(Boolean).join(' ') ||
-          'Emergency Contact';
-        let phoneNumber = '';
-        if (contact.phoneNumbers && contact.phoneNumbers.length > 0) {
-          phoneNumber = contact.phoneNumbers[0].number || '';
-        }
+      const res = await pickAndResolveContact(phoneCountryCode || country.code || 'IN');
+      if (res.cancelled) return;
 
-        if (!phoneNumber) {
-          showAlert({
-            title: 'Phone Number Needed',
-            message: `${contactName} does not have a phone number saved. Please select a contact with a valid phone number.`,
-            type: 'info',
-          });
-          return;
-        }
+      const picked = res.contact;
+      if (!picked) return;
 
-        if (!profile?.id) return;
-
-        const res = await EmergencyMedicalService.addEmergencyContact(profile.id, {
-          name: contactName,
-          phone: phoneNumber,
-          relationship: 'Emergency Contact',
-          sort_order: contacts.length,
+      // If contact has no phone numbers found in address book
+      if (!picked.hasPhone || picked.phoneNumbers.length === 0) {
+        setName(picked.name);
+        setPhone('');
+        setIsAdding(true);
+        showAlert({
+          title: 'Phone Number Needed',
+          message: `${picked.name} was selected, but no phone number was found in your device contacts. Please type their mobile number below to save.`,
+          type: 'info',
         });
+        return;
+      }
 
-        if (res.success || res.pendingSync) {
-          await loadContacts();
-          onContactsUpdated?.();
-          showAlert({
-            title: res.success ? 'Contact Added' : 'Saved Offline',
-            message: res.success
-              ? `${contactName} has been added from your phone contacts.`
-              : `${contactName} saved offline.`,
-            type: 'success',
-          });
-        } else {
-          showAlert({
-            title: 'Unable to Save Contact',
-            message: res.error || 'Failed to save contact.',
-            type: 'error',
-          });
-        }
+      const finalPhone = picked.formattedPhone || picked.rawPhoneNumber || '';
+      const detectedCode = picked.detectedCountry || phoneCountryCode;
+
+      // Deduplication check
+      const rawDigits = finalPhone.replace(/\D/g, '');
+      const alreadyExists = contacts.some(
+        (c) => c.phone.replace(/\D/g, '') === rawDigits
+      );
+      if (alreadyExists) {
+        showAlert({
+          title: 'Contact Already Added',
+          message: `${picked.name} (${finalPhone}) is already saved in your emergency contacts list.`,
+          type: 'info',
+        });
+        return;
+      }
+
+      if (!currentUserId) {
+        showAlert({
+          title: 'Sign In Required',
+          message: 'Please sign in to add emergency contacts.',
+          type: 'warning',
+        });
+        return;
+      }
+
+      // Optimistic update: show contact in the list IMMEDIATELY!
+      const tempId = generateContactUUID();
+      const newContactItem: EmergencyContact = {
+        id: tempId,
+        name: picked.name,
+        phone: finalPhone,
+        relationship: 'Emergency Contact',
+        sort_order: contacts.length,
+      };
+
+      setContacts((prev) => {
+        const cleanDigits = finalPhone.replace(/\D/g, '');
+        const filtered = prev.filter(c => c.phone.replace(/\D/g, '') !== cleanDigits);
+        return [newContactItem, ...filtered];
+      });
+
+      const saveRes = await EmergencyMedicalService.addEmergencyContact(currentUserId, newContactItem);
+      await loadContacts();
+      onContactsUpdated?.();
+
+      if (saveRes.success || saveRes.pendingSync || (saveRes.data && !saveRes.error)) {
+        showAlert({
+          title: 'Emergency Contact Added',
+          message: `${picked.name} (${finalPhone}) has been added to your emergency directory.`,
+          type: 'success',
+        });
+      } else {
+        showAlert({
+          title: 'Saved Locally',
+          message: saveRes.error || 'Contact saved locally and will sync once network is available.',
+          type: 'info',
+        });
       }
     } catch (e: any) {
       console.error('Error picking phone contact:', e);
@@ -339,8 +502,8 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
 
         {/* Clean Header Bar */}
         <View style={[styles.header, { paddingTop: topInset + 6, backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
-          <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: isDark ? '#262930' : '#F1F5F9' }]} activeOpacity={0.7}>
-            <Ionicons name="close" size={20} color={colors.foreground} />
+          <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: isDark ? '#1C1F26' : '#F1F5F9' }]} activeOpacity={0.7}>
+            <Text style={{ fontSize: 16, fontWeight: '600', color: colors.foreground }}>✕</Text>
           </TouchableOpacity>
           <View style={styles.headerTitleBox}>
             <View style={styles.headerBadge}>
@@ -356,19 +519,15 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
-          {/* Subtle Sage Dispatch Info Card */}
-          <View style={[styles.infoBanner, { backgroundColor: isDark ? 'rgba(46,125,91,0.15)' : '#E8F5EE', borderColor: isDark ? 'rgba(46,125,91,0.3)' : '#C6E7D6' }]}>
-            <View style={[styles.infoIconBox, { backgroundColor: colors.surface }]}>
-              <Ionicons name="shield-checkmark" size={19} color="#2E7D5B" />
-            </View>
-            <Text style={[styles.infoBannerText, { color: isDark ? '#A7F3D0' : '#1B4D3E' }]}>
+          {/* Subtle Dispatch Info Card */}
+          <View style={[styles.infoBanner, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F1F5F9', borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#E2E8F0' }]}>
+            <Text style={[styles.infoBannerText, { color: isDark ? '#E2E8F0' : '#334155' }]}>
               These trusted contacts are immediately dispatched with your live GPS location during any SOS alert.
             </Text>
           </View>
 
           {isPendingSync && (
             <View style={[styles.pendingSyncBanner, { backgroundColor: isDark ? '#2E2211' : '#FEF3C7', borderColor: isDark ? '#78350F' : '#FDE68A' }]}>
-              <Ionicons name="cloud-offline-outline" size={16} color={isDark ? '#F59E0B' : '#B45309'} />
               <Text style={[styles.pendingSyncBannerText, { color: isDark ? '#F59E0B' : '#B45309' }]}>
                 Offline contacts saved — changes will sync once connection is restored
               </Text>
@@ -383,13 +542,11 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
                 onPress={handlePickPhoneContact}
                 activeOpacity={0.85}
               >
-                <View style={styles.primaryIconCircle}>
-                  <Ionicons name="person-add" size={16} color="#2E7D5B" />
-                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.primaryCardTitle} numberOfLines={1}>Import Contact</Text>
-                  <Text style={styles.primaryCardSub} numberOfLines={1}>From address book</Text>
+                  <Text style={styles.primaryCardSub} numberOfLines={1}>From phone address book</Text>
                 </View>
+                <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>›</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -397,28 +554,23 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
                 onPress={() => setIsAdding(true)}
                 activeOpacity={0.8}
               >
-                <View style={[styles.secondaryIconCircle, { backgroundColor: isDark ? '#262930' : '#F1F5F9' }]}>
-                  <Ionicons name="create-outline" size={16} color="#2E7D5B" />
-                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.secondaryCardTitle, { color: colors.foreground }]} numberOfLines={1}>Add Manually</Text>
-                  <Text style={styles.secondaryCardSub} numberOfLines={1}>Enter details</Text>
+                  <Text style={styles.secondaryCardSub} numberOfLines={1}>Enter name & phone</Text>
                 </View>
+                <Text style={{ color: colors.textMuted, fontSize: 16, fontWeight: '700' }}>›</Text>
               </TouchableOpacity>
             </View>
           ) : (
             /* Modern Manual Add Form Card */
             <View style={[styles.formCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.formHeader}>
-                <View style={styles.formIconBox}>
-                  <Ionicons name="person-add" size={18} color="#2E7D5B" />
-                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.formTitle, { color: colors.foreground }]}>New Emergency Contact</Text>
                   <Text style={styles.formSubtitle}>Enter name, relationship & phone</Text>
                 </View>
                 <TouchableOpacity onPress={() => setIsAdding(false)} style={styles.formCloseBtn}>
-                  <Ionicons name="close" size={18} color={colors.textMuted} />
+                  <Text style={{ fontSize: 16, color: colors.textMuted }}>✕</Text>
                 </TouchableOpacity>
               </View>
 
@@ -467,42 +619,48 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
                   isOverflow && styles.phoneInputError,
                 ]}
               >
-                <View style={[styles.countryCodeBadge, { borderRightColor: isDark ? '#333742' : '#E2E8F0' }]}>
-                  <Text style={{ fontSize: 16 }}>{country.flag}</Text>
-                  <Text style={[styles.countryCodeText, { color: colors.foreground }]}>{phoneRule.dialCode}</Text>
-                </View>
+                <TouchableOpacity
+                  style={[styles.countryCodeBadge, { borderRightColor: isDark ? '#333742' : '#E2E8F0' }]}
+                  onPress={() => setCountryModalVisible(true)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.countryCodeText, { color: colors.foreground }]}>
+                    {selectedCountry.code} {phoneRule.dialCode}
+                  </Text>
+                  <Text style={{ fontSize: 10, color: colors.textMuted, marginLeft: 2 }}>▾</Text>
+                </TouchableOpacity>
                 <TextInput
                   style={[styles.phoneInputField, { color: colors.foreground }]}
                   placeholder={phoneRule.placeholder}
                   placeholderTextColor={colors.textMuted}
                   value={phone}
-                  onChangeText={setPhone}
+                  onChangeText={handlePhoneInputChange}
                   keyboardType="phone-pad"
                 />
                 {isLengthMatched ? (
-                  <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: isDark ? '#34D399' : '#059669', marginRight: 4 }}>✓</Text>
                 ) : isOverflow ? (
-                  <Ionicons name="alert-circle" size={18} color="#EF4444" />
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#EF4444', marginRight: 4 }}>!</Text>
                 ) : null}
               </View>
 
               {/* Digit Counter & Requirement Hint */}
               <View style={styles.phoneHintRow}>
                 <Text style={styles.phoneRuleHint}>
-                  {country.flag} {country.name}: {phoneRule.hint}
+                  {selectedCountry.name}: {phoneRule.hint}
                 </Text>
                 <View
                   style={[
                     styles.lengthBadge,
                     { backgroundColor: isDark ? '#1C1F26' : '#F8FAFC', borderColor: isDark ? '#333742' : '#E2E8F0' },
-                    isLengthMatched && { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
+                    isLengthMatched && { backgroundColor: isDark ? 'rgba(52, 211, 153, 0.15)' : '#ECFDF5', borderColor: isDark ? '#059669' : '#A7F3D0' },
                     isOverflow && { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
                   ]}
                 >
                   <Text
                     style={[
                       styles.lengthBadgeText,
-                      isLengthMatched && { color: '#059669' },
+                      isLengthMatched && { color: isDark ? '#34D399' : '#059669' },
                       isOverflow && { color: '#DC2626' },
                     ]}
                   >
@@ -530,10 +688,7 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
                   {isSaving ? (
                     <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
-                    <>
-                      <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
-                      <Text style={styles.saveBtnText}>Save Contact</Text>
-                    </>
+                    <Text style={styles.saveBtnText}>Save Contact</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -549,15 +704,12 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
               </View>
             </View>
             {contacts.length > 1 && (
-              <Text style={styles.primaryHintText}>Tap star to set primary</Text>
+              <Text style={styles.primaryHintText}>Tap Make Primary to prioritize</Text>
             )}
           </View>
 
           {contacts.length === 0 && !isAdding ? (
             <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <View style={styles.emptyIconBox}>
-                <Ionicons name="people-outline" size={28} color="#2E7D5B" />
-              </View>
               <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No Emergency Contacts Added</Text>
               <Text style={styles.emptySub}>
                 Add trusted family members or guardians so they can be alerted immediately with your location when SOS is activated.
@@ -571,7 +723,7 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
 
                 return (
                   <View
-                    key={c.id}
+                    key={c.id || `contact-${c.phone}-${c.name}`}
                     style={[
                       styles.contactCard,
                       { backgroundColor: colors.surface, borderColor: colors.border },
@@ -585,16 +737,15 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
                       </Text>
                     </View>
 
-                    {/* Middle: Clean Hierarchy Info (No Overlap) */}
+                    {/* Middle: Clean Hierarchy Info */}
                     <View style={styles.cardInfoContainer}>
-                      {/* Name & Primary Star Tag */}
+                      {/* Name & Primary Tag */}
                       <View style={styles.cardNameRow}>
                         <Text style={[styles.cardName, { color: colors.foreground }]} numberOfLines={1} ellipsizeMode="tail">
-                          {c.name}
+                          {c.name || 'Emergency Contact'}
                         </Text>
                         {isPrimary && (
                           <View style={styles.primaryBadge}>
-                            <Ionicons name="star" size={9} color="#B45309" />
                             <Text style={styles.primaryBadgeText}>PRIMARY</Text>
                           </View>
                         )}
@@ -604,15 +755,15 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
                       <View style={styles.relBadgeRow}>
                         <View style={[styles.relBadge, { backgroundColor: isDark ? '#262930' : '#F1F5F9' }]}>
                           <Text style={styles.relBadgeText}>
-                            {c.relationship.toUpperCase()}
+                            {(c.relationship || 'Emergency Contact').toUpperCase()}
                           </Text>
                         </View>
                       </View>
 
-                      {/* Phone Number on its own clean row */}
+                      {/* Phone Number */}
                       <View style={styles.phoneDisplayRow}>
-                        <Ionicons name="call-outline" size={11} color="#5C665F" style={{ marginRight: 4 }} />
-                        <Text style={styles.cardPhone} numberOfLines={1} ellipsizeMode="tail">
+                        <Text style={{ fontSize: 11, marginRight: 4, color: isDark ? '#38BDF8' : '#0284C7' }}>📞</Text>
+                        <Text style={[styles.cardPhone, { color: isDark ? '#E2E8F0' : '#1E293B' }]} numberOfLines={1} ellipsizeMode="tail">
                           {c.phone}
                         </Text>
                       </View>
@@ -622,29 +773,28 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
                     <View style={styles.cardActions}>
                       {!isPrimary && (
                         <TouchableOpacity
-                          style={[styles.starActionBtn, { backgroundColor: isDark ? '#262930' : '#F8FAFC', borderColor: isDark ? '#333742' : '#E2E8F0' }]}
+                          style={[styles.actionTextBtn, { backgroundColor: isDark ? '#262930' : '#F1F5F9' }]}
                           onPress={() => handleSetPrimary(c)}
                           activeOpacity={0.7}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
-                          <Ionicons name="star-outline" size={16} color="#94A3B8" />
+                          <Text style={[styles.actionBtnLabel, { color: colors.textMuted }]}>Primary</Text>
                         </TouchableOpacity>
                       )}
 
                       <TouchableOpacity
-                        style={styles.callActionBtn}
+                        style={[styles.actionTextBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}
                         onPress={() => handleCall(c.phone)}
                         activeOpacity={0.8}
                       >
-                        <Ionicons name="call" size={15} color="#2E7D5B" />
+                        <Text style={[styles.actionBtnLabel, { color: colors.foreground, fontWeight: '700' }]}>Call</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
-                        style={styles.deleteActionBtn}
+                        style={[styles.actionTextBtn, { backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FEE2E2' }]}
                         onPress={() => handleDeleteContact(c.id)}
                         activeOpacity={0.7}
                       >
-                        <Ionicons name="trash-outline" size={15} color="#DC2626" />
+                        <Text style={[styles.actionBtnLabel, { color: '#EF4444' }]}>Delete</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -656,9 +806,6 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
           {/* Official National Emergency Numbers Section */}
           <View style={styles.hotlinesContainer}>
             <View style={styles.hotlinesHeader}>
-              <View style={[styles.hotlineFlagBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Text style={{ fontSize: 14 }}>{country.flag}</Text>
-              </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.hotlinesTitle, { color: colors.foreground }]}>
                   {country.name.toUpperCase()} EMERGENCY HOTLINES
@@ -675,9 +822,6 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
                   onPress={() => handleCall(srv.number)}
                   activeOpacity={0.75}
                 >
-                  <View style={styles.hotlineIconBox}>
-                    <Ionicons name={(srv.icon || 'call') as any} size={17} color="#2E7D5B" />
-                  </View>
                   <View style={{ flex: 1, marginRight: 8 }}>
                     <Text style={[styles.hotlineName, { color: colors.foreground }]} numberOfLines={1}>{srv.name}</Text>
                     <Text style={styles.hotlineDesc} numberOfLines={1}>
@@ -687,13 +831,22 @@ export default function EmergencyContactsModal({ visible, onClose, onContactsUpd
 
                   <View style={styles.hotlineDialBtn}>
                     <Text style={styles.hotlineNumberText}>{srv.number}</Text>
-                    <Ionicons name="call" size={12} color="#2E7D5B" />
                   </View>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
         </ScrollView>
+
+        {/* Modal Country Selector for emergency contact manual phone input */}
+        <CountrySelectorModal
+          visible={countryModalVisible}
+          onClose={() => setCountryModalVisible(false)}
+          onSelectCountry={(c) => {
+            setPhoneCountryCode(c.code);
+            setCountryModalVisible(false);
+          }}
+        />
       </View>
     </Modal>
   );
@@ -730,12 +883,12 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
   },
   overline: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#2E7D5B',
+    color: '#0F172A',
     letterSpacing: 1,
   },
   title: {
@@ -788,12 +941,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 9,
     height: 52,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
     borderRadius: 14,
     paddingHorizontal: 12,
-    shadowColor: '#2E7D5B',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.12,
     shadowRadius: 5,
     elevation: 3,
   },
@@ -862,7 +1015,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -905,8 +1058,8 @@ const styles = StyleSheet.create({
     borderRadius: 9,
   },
   relChipActive: {
-    borderColor: '#2E7D5B',
-    backgroundColor: '#2E7D5B',
+    borderColor: '#0F172A',
+    backgroundColor: '#0F172A',
   },
   relChipText: {
     fontSize: 11.5,
@@ -927,8 +1080,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   phoneInputSuccess: {
-    borderColor: '#10B981',
-    backgroundColor: '#F0FDF4',
+    borderColor: '#0F172A',
+    backgroundColor: '#F8FAFC',
   },
   phoneInputError: {
     borderColor: '#EF4444',
@@ -996,7 +1149,7 @@ const styles = StyleSheet.create({
   saveBtn: {
     flex: 1.4,
     height: 42,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
     borderRadius: 11,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -1020,7 +1173,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   contactsCountBadge: {
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 7,
     paddingVertical: 1.5,
     borderRadius: 10,
@@ -1028,7 +1181,7 @@ const styles = StyleSheet.create({
   contactsCountText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   primaryHintText: {
     fontSize: 11,
@@ -1047,7 +1200,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
@@ -1080,26 +1233,26 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   contactCardPrimary: {
-    borderColor: '#C6E7D5',
-    backgroundColor: '#F7FCF9',
+    borderColor: '#CBD5E1',
+    backgroundColor: '#F8FAFC',
     borderLeftWidth: 4,
-    borderLeftColor: '#2E7D5B',
+    borderLeftColor: '#0F172A',
   },
   avatarCircle: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarCirclePrimary: {
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
   },
   avatarInitial: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   avatarInitialPrimary: {
     color: '#FFFFFF',
@@ -1163,35 +1316,18 @@ const styles = StyleSheet.create({
   cardActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
+    gap: 6,
   },
-  starActionBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  callActionBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#E8F5EE',
-    borderWidth: 1,
-    borderColor: '#C6E7D5',
+  actionTextBtn: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  deleteActionBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    justifyContent: 'center',
-    alignItems: 'center',
+  actionBtnLabel: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   hotlinesContainer: {
     marginTop: 4,
@@ -1235,7 +1371,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1252,9 +1388,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     borderWidth: 1,
-    borderColor: '#C6E7D6',
+    borderColor: '#E2E8F0',
     paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: 9,
@@ -1262,7 +1398,7 @@ const styles = StyleSheet.create({
   hotlineNumberText: {
     fontSize: 11.5,
     fontWeight: '800',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   pendingSyncBanner: {
     flexDirection: 'row',

@@ -1,9 +1,10 @@
 import React from 'react';
-import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { Vibration } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuthStore } from '../store/useAuthStore';
-
-export const navigationRef = createNavigationContainerRef<RootStackParamList>();
+import { navigationRef, RootStackParamList } from './navigationRef';
+export { navigationRef, RootStackParamList };
 
 // Screens
 import LoginScreen from '../screens/LoginScreen';
@@ -23,36 +24,12 @@ import ProfileScreen from '../screens/ProfileScreen';
 import GlobalSOSModal from '../components/GlobalSOSModal';
 import GlobalLocationShareModal from '../components/GlobalLocationShareModal';
 import GlobalCircleSwitchLoader from '../components/GlobalCircleSwitchLoader';
+import WalkawayLeaveCircleModal from '../components/WalkawayLeaveCircleModal';
 import NetworkStatusBanner from '../components/NetworkStatusBanner';
 import PasswordResetModal from '../components/PasswordResetModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { scheduleLocalNotification, sendPushNotificationToUser } from '../services/PushNotificationService';
 import { addInAppGeofenceBreachListener } from '../services/GeofenceEngine';
-
-export type RootStackParamList = {
-  Login: undefined;
-  SignUp: undefined;
-  ProfileSetup: undefined;
-  MainTabs: undefined;
-  CreateCircle: undefined;
-  JoinCircle: undefined;
-  SOSAlert: undefined;
-  SafePlaces: undefined;
-  Activity: undefined;
-  LocationHistory: { member?: any; memberId?: string; circleId?: string } | undefined;
-  DrivingReports: { member?: any; memberId?: string; circleId?: string } | undefined;
-  Chat: {
-    member?: any;
-    memberId?: string;
-    memberName?: string;
-    taggedMember?: any;
-    initialText?: string;
-    filterMemberId?: string;
-    onlyFilter?: boolean;
-    circle_id?: string;
-  } | undefined;
-  Profile: undefined;
-};
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -299,6 +276,25 @@ function PrivacyPermissionListener() {
               { type: 'privacy_approved' }
             );
           }
+
+          // Check if Leader updated GPS telemetry frequency
+          if (newRec?.gps_frequency && newRec.gps_frequency !== oldRec?.gps_frequency) {
+            const rawRate = newRec.gps_frequency;
+            const normalizedRate = rawRate === 'realtime' ? 'high' : (rawRate === 'battery_saver' ? 'saver' : rawRate);
+            await AsyncStorage.setItem('@circleguard_gps_sync_rate', normalizedRate);
+            useAuthStore.getState().updateProfileFields({ gps_frequency: normalizedRate });
+            try {
+              const { startBatteryOptimizedBackgroundLocation } = require('../services/LocationBackgroundService');
+              await startBatteryOptimizedBackgroundLocation();
+            } catch (_) {}
+
+            const rateName = normalizedRate === 'high' ? 'Ultra Fast (5s)' : normalizedRate === 'saver' ? 'Eco Mode (60s)' : 'Balanced (15s)';
+            scheduleLocalNotification(
+              'GPS Tracking Rate Updated',
+              `Your Circle Leader updated your live GPS sync rate to ${rateName}.`,
+              { type: 'gps_rate_changed' }
+            );
+          }
         }
       )
       .subscribe();
@@ -509,7 +505,7 @@ function GlobalChatNotificationListener() {
               time: shortTimeStr,
               preciseTime: preciseTimeStr,
               icon: isExit ? 'walk-outline' : 'location',
-              color: isExit ? '#F59E0B' : '#2E7D5B',
+              color: isExit ? '#F59E0B' : '#0F172A',
               memberName,
               avatarUrl: member?.profile?.avatar_url,
               phone: member?.profile?.phone,
@@ -536,11 +532,123 @@ function GlobalChatNotificationListener() {
   return null;
 }
 
-import { View, ActivityIndicator } from 'react-native';
+function GlobalLocationWatchNotificationListener() {
+  const { showToast, showInAppMessage } = useLuxuryAlert();
+  const { profile } = useAuthStore();
+  const sessionStartTime = React.useRef(Date.now()).current;
+
+  // 1. In-app trigger listener (dispatched directly when evaluated on-device)
+  React.useEffect(() => {
+    const { addLocationWatchTriggerListener } = require('../store/useLocationWatchStore');
+    const unsubscribe = addLocationWatchTriggerListener((event: any) => {
+      Vibration.vibrate([0, 150, 80, 150]);
+
+      showToast(event.title, 'info');
+
+      showInAppMessage({
+        title: event.title,
+        message: event.body,
+        type: 'info',
+        actionText: 'VIEW MAP',
+        duration: 6000,
+        onAction: () => {
+          if (navigationRef.isReady()) {
+            (navigationRef as any).navigate('Map', {
+              focusUserId: event.targetUserId,
+              focusUserName: event.targetName,
+            });
+          }
+        },
+      });
+    });
+
+    return unsubscribe;
+  }, [showToast, showInAppMessage]);
+
+  // 2. Realtime listener for location_watches triggered on server or other devices
+  React.useEffect(() => {
+    if (!profile?.id) return;
+
+    const channelUid = Math.random().toString(36).substring(2, 8);
+    const channel = supabase
+      .channel(`global_watch_rt_${profile.id}_${channelUid}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'location_watches', filter: `creator_id=eq.${profile.id}` },
+        async (payload: any) => {
+          const newW = payload?.new;
+          const oldW = payload?.old;
+          if (newW?.status === 'triggered' && oldW?.status !== 'triggered') {
+            Vibration.vibrate([0, 200, 100, 200]);
+
+            let title = '📍 Location Watch Alert';
+            let body = 'A watched circle member triggered an alert.';
+            const targetName = newW.target_name || 'Member';
+
+            if (newW.watch_type === 'leaves_current') {
+              title = `📍 Departure: ${targetName} left location`;
+              body = `${targetName} has started moving and left their spot.`;
+            } else if (newW.watch_type === 'arrives_place') {
+              title = `🏠 Arrival: ${targetName} arrived`;
+              body = `${targetName} has arrived at ${newW.place_name || 'Safe Place'}.`;
+            } else if (newW.watch_type === 'leaves_place') {
+              title = `🚪 Departure: ${targetName} left place`;
+              body = `${targetName} has left ${newW.place_name || 'Safe Place'}.`;
+            }
+
+            showToast(title, 'info');
+
+            showInAppMessage({
+              title,
+              message: body,
+              type: 'info',
+              actionText: 'VIEW ON MAP',
+              duration: 7000,
+              onAction: () => {
+                if (navigationRef.isReady()) {
+                  (navigationRef as any).navigate('Map', {
+                    focusUserId: newW.target_user_id,
+                    focusUserName: targetName,
+                  });
+                }
+              },
+            });
+
+            scheduleLocalNotification(title, body, {
+              screen: 'Map',
+              targetUserId: newW.target_user_id,
+              watchId: newW.id,
+              type: 'LOCATION_WATCH',
+            });
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'locations' },
+        (payload: any) => {
+          const newLoc = payload?.new;
+          if (newLoc?.user_id && newLoc?.latitude && newLoc?.longitude) {
+            const { useLocationWatchStore } = require('../store/useLocationWatchStore');
+            useLocationWatchStore.getState().evaluateLocationChange(newLoc.user_id, newLoc.latitude, newLoc.longitude);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profile?.id, showToast, showInAppMessage]);
+
+  return null;
+}
 
 export default function AppNavigator() {
   const { session, profile, isPasswordRecovery, setPasswordRecovery } = useAuthStore();
   const [showSplash, setShowSplash] = React.useState(true);
+
+  console.log('[AppNavigator] render: session =', !!session, 'profile =', !!profile);
 
   React.useEffect(() => {
     if (profile?.id) {
@@ -588,6 +696,7 @@ export default function AppNavigator() {
       <NavigationContainer
         ref={navigationRef}
         onReady={() => {
+          console.log('[NavigationContainer] onReady fired!');
           if (typeof window !== 'undefined') {
             (window as any).__navigationRef = navigationRef.isReady() ? navigationRef : null;
           }
@@ -595,6 +704,7 @@ export default function AppNavigator() {
       >
         <NetworkStatusBanner />
         <GlobalCircleSwitchLoader />
+        <WalkawayLeaveCircleModal />
         <PasswordResetModal
           visible={isPasswordRecovery}
           isRecoverySessionActive={true}
@@ -609,6 +719,7 @@ export default function AppNavigator() {
             <PrivacyPermissionListener />
             <GlobalChatNotificationListener />
             <GlobalGeofenceNotificationListener />
+            <GlobalLocationWatchNotificationListener />
           </>
         ) : null}
         <Stack.Navigator screenOptions={{ headerShown: false }}>

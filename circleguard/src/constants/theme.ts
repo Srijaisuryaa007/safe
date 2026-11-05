@@ -15,48 +15,48 @@ export interface ThemeColors {
 export const BRAND_GREEN_THEME = {
   colors: {
     background: '#FFFFFF', // Pure Clean White
-    foreground: '#111111', // Deep Crisp Black
+    foreground: '#0F172A', // Deep Crisp Slate Black
     surface: '#FFFFFF',
-    surfaceMuted: '#F5F5F5', // Soft Container Grey
-    textMuted: '#666666', // Subtle Charcoal Muted
-    accentGold: '#4ADE80', // Soft Pastel Light Apple Green
-    accentGoldLight: '#F0FDF4', // Light Apple Green Tint
+    surfaceMuted: '#F1F5F9', // Soft Container Grey
+    textMuted: '#64748B', // Subtle Slate Muted
+    accentGold: '#0F172A', // Refined Slate Black Accent
+    accentGoldLight: '#F1F5F9', // Clean Neutral Tint
     sosRed: '#E53E3E', // Crisp Red
-    border: '#E0E0E0', // 1.5px Clean Border
-    borderDark: '#111111',
-    borderGold: '#F5A623', // Warm Amber Accent
+    border: '#E2E8F0', // Clean 1px Border
+    borderDark: '#0F172A',
+    borderGold: '#0F172A',
   } as ThemeColors,
 };
 
 export const LIGHT_THEME = {
   colors: {
-    background: '#F9F8F6', // Warm Alabaster
-    foreground: '#1A1A1A', // Rich Charcoal
+    background: '#F8FAFC', // Warm Alabaster Canvas
+    foreground: '#0F172A', // Rich Slate
     surface: '#FFFFFF',
-    surfaceMuted: '#EBE5DE', // Pale Taupe
-    textMuted: '#6C6863', // Warm Grey
-    accentGold: '#D4AF37', // Metallic Gold
-    accentGoldLight: '#FEF3C7',
+    surfaceMuted: '#F1F5F9', // Neutral Container
+    textMuted: '#64748B', // Slate Grey
+    accentGold: '#0F172A', // Clean Minimal Accent
+    accentGoldLight: '#F1F5F9',
     sosRed: '#DC2626', // Deep Luxury Crimson
-    border: 'rgba(26, 26, 26, 0.12)',
-    borderDark: '#1A1A1A',
-    borderGold: '#D4AF37',
+    border: '#E2E8F0',
+    borderDark: '#0F172A',
+    borderGold: '#0F172A',
   } as ThemeColors,
 };
 
 export const BILLION_DOLLAR_THEME = {
   colors: {
-    background: '#FAF9F6', // Minimal Creamy Paper Canvas
-    foreground: '#1F2A24', // Deep Crisp Charcoal Ink
+    background: '#F8FAFC', // Crisp Clean Canvas
+    foreground: '#0F172A', // Deep Slate Ink
     surface: '#FFFFFF', // Crisp White Cards
-    surfaceMuted: '#F0FDF4', // Subtle Light Apple Green Container
-    textMuted: '#5C665F', // Muted Sage Grey
-    accentGold: '#4ADE80', // Soft Pastel Light Apple Green
-    accentGoldLight: '#F0FDF4', // Soft Apple Green Tint
+    surfaceMuted: '#F1F5F9', // Neutral Container Grey
+    textMuted: '#64748B', // Clean Muted Slate
+    accentGold: '#0F172A', // Modern Minimalist Accent
+    accentGoldLight: '#F1F5F9', // Neutral Tint
     sosRed: '#DC2626', // Vibrant Emergency Red
-    border: '#EDEBE6', // Light Warm Neutral Rim
-    borderDark: '#1F2A24',
-    borderGold: '#E07A5F', // Warm Terracotta Peach Accent
+    border: '#E2E8F0', // Light Neutral Rim
+    borderDark: '#0F172A',
+    borderGold: '#0F172A',
   } as ThemeColors,
 };
 
@@ -76,16 +76,16 @@ export const CIRCLE_GUARD_DESIGN_SYSTEM = {
     inverseOnSurface: '#2f3034',
     outline: '#879487',
     outlineVariant: '#3e4a3f',
-    surfaceTint: '#66dd8b',
-    primary: '#6ee591',
-    onPrimary: '#003919',
-    primaryContainer: '#50c878',
-    onPrimaryContainer: '#005025',
-    inversePrimary: '#006d36',
-    secondary: '#e9c349',
-    onSecondary: '#3c2f00',
-    secondaryContainer: '#af8d11',
-    onSecondaryContainer: '#342800',
+    surfaceTint: '#FFFFFF',
+    primary: '#FFFFFF',
+    onPrimary: '#000000',
+    primaryContainer: '#F1F5F9',
+    onPrimaryContainer: '#0F172A',
+    inversePrimary: '#0F172A',
+    secondary: '#FFFFFF',
+    onSecondary: '#000000',
+    secondaryContainer: '#1E293B',
+    onSecondaryContainer: '#F1F5F9',
     tertiary: '#ffbeb1',
     onTertiary: '#650b00',
     tertiaryContainer: '#ff9580',
@@ -118,12 +118,12 @@ export const DARK_THEME = {
     surface: '#1E2023', // surface-container
     surfaceMuted: '#282A2D', // surface-container-high
     textMuted: '#BDCABC', // on-surface-variant
-    accentGold: '#E9C349', // secondary soft gold
-    accentGoldLight: 'rgba(233, 195, 73, 0.15)',
+    accentGold: '#FFFFFF', // Clean White / Platinum Monochrome Accent (no gold)
+    accentGoldLight: 'rgba(255, 255, 255, 0.12)',
     sosRed: '#FF4B2B', // Reserved Alert Red
     border: 'rgba(255, 255, 255, 0.08)', // Subtle 1px rim divider
     borderDark: '#333538',
-    borderGold: '#E9C349',
+    borderGold: 'rgba(255, 255, 255, 0.20)',
   } as ThemeColors,
 };
 
@@ -134,12 +134,12 @@ export const INSPO_FLAGSHIP_THEME = {
     surface: '#131720', // Studio Slate Elevated Surface
     surfaceMuted: '#1A202C', // Elevated Secondary Container
     textMuted: '#94A3B8', // Cool Slate Muted Body Text
-    accentGold: '#00F29D', // Inspo Cyber Emerald (Live Telemetry & Safe Ring)
-    accentGoldLight: 'rgba(0, 242, 157, 0.12)', // Subtle Emerald Glow Wash
+    accentGold: '#FFFFFF', // Clean White / Platinum Monochrome Accent
+    accentGoldLight: 'rgba(255, 255, 255, 0.12)',
     sosRed: '#FF334B', // High-Luminance SOS Scarlet
     border: 'rgba(255, 255, 255, 0.08)', // Precision Titanium Hairline
     borderDark: '#1E2533',
-    borderGold: '#00F29D', // Focused Emerald Glow Border
+    borderGold: 'rgba(255, 255, 255, 0.20)', // Focused Glow Border
   } as ThemeColors,
 };
 
@@ -196,27 +196,27 @@ export const getThemeCardStyles = (themeMode?: string) => {
   if (themeMode === 'billion_dollar') {
     return {
       borderWidth: 1,
-      borderRadius: 20,
-      borderColor: '#EDEBE6',
+      borderRadius: 16,
+      borderColor: '#E2E8F0',
       backgroundColor: '#FFFFFF',
-      shadowColor: '#4ADE80',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.08,
-      shadowRadius: 12,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.05,
+      shadowRadius: 8,
       elevation: 2,
     };
   }
   if (themeMode === 'brand_green') {
     return {
-      borderWidth: 1.5,
+      borderWidth: 1,
       borderRadius: 16,
-      borderColor: '#E0E0E0',
+      borderColor: '#E2E8F0',
       backgroundColor: '#FFFFFF',
-      shadowColor: '#4ADE80',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.08,
-      shadowRadius: 12,
-      elevation: 3,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.05,
+      shadowRadius: 8,
+      elevation: 2,
     };
   }
   if (themeMode === 'light') {
@@ -247,51 +247,51 @@ export const getThemeCardStyles = (themeMode?: string) => {
 
 export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 'secondary' | 'danger' = 'primary') => {
   if (themeMode === 'inspo_flagship') {
-    const bg = variant === 'danger' ? '#FF334B' : variant === 'secondary' ? '#1A202C' : '#00F29D';
-    const text = variant === 'primary' ? '#071610' : '#FFFFFF';
+    const bg = variant === 'danger' ? '#FF334B' : variant === 'secondary' ? '#1A202C' : '#FFFFFF';
+    const text = variant === 'primary' ? '#0B0D11' : '#FFFFFF';
     return {
       borderWidth: variant === 'secondary' ? 1 : 0,
       borderRadius: 16,
       borderColor: variant === 'secondary' ? 'rgba(255, 255, 255, 0.12)' : 'transparent',
       backgroundColor: bg,
       textColor: text,
-      shadowColor: variant === 'primary' ? '#00F29D' : '#000000',
+      shadowColor: '#000000',
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: variant === 'primary' ? 0.35 : 0.2,
+      shadowOpacity: variant === 'primary' ? 0.2 : 0.1,
       shadowRadius: 10,
       elevation: 4,
     };
   }
   if (themeMode === 'billion_dollar') {
-    const bg = variant === 'danger' ? '#DC2626' : variant === 'secondary' ? '#FFF3EB' : '#4ADE80';
-    const text = variant === 'secondary' ? '#E07A5F' : (variant === 'danger' ? '#FFFFFF' : '#0F291E');
+    const bg = variant === 'danger' ? '#DC2626' : variant === 'secondary' ? '#F1F5F9' : '#0F172A';
+    const text = variant === 'secondary' ? '#0F172A' : '#FFFFFF';
     return {
-      borderWidth: 0,
-      borderRadius: 9999,
-      borderColor: 'transparent',
+      borderWidth: variant === 'secondary' ? 1 : 0,
+      borderRadius: 12,
+      borderColor: variant === 'secondary' ? '#E2E8F0' : 'transparent',
       backgroundColor: bg,
       textColor: text,
-      shadowColor: '#4ADE80',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: variant === 'primary' ? 0.25 : 0,
-      shadowRadius: 8,
-      elevation: 3,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: variant === 'primary' ? 0.12 : 0,
+      shadowRadius: 6,
+      elevation: 2,
     };
   }
   if (themeMode === 'brand_green') {
-    const bg = variant === 'danger' ? '#E53E3E' : variant === 'secondary' ? '#F5F5F5' : '#4ADE80';
-    const text = variant === 'secondary' ? '#111111' : (variant === 'danger' ? '#FFFFFF' : '#0F291E');
+    const bg = variant === 'danger' ? '#E53E3E' : variant === 'secondary' ? '#F1F5F9' : '#0F172A';
+    const text = variant === 'secondary' ? '#0F172A' : '#FFFFFF';
     return {
-      borderWidth: 0,
+      borderWidth: variant === 'secondary' ? 1 : 0,
       borderRadius: 12,
-      borderColor: 'transparent',
+      borderColor: variant === 'secondary' ? '#E2E8F0' : 'transparent',
       backgroundColor: bg,
       textColor: text,
-      shadowColor: '#4ADE80',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: variant === 'primary' ? 0.25 : 0,
-      shadowRadius: 8,
-      elevation: 3,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: variant === 'primary' ? 0.12 : 0,
+      shadowRadius: 6,
+      elevation: 2,
     };
   }
   if (themeMode === 'light') {
@@ -314,9 +314,9 @@ export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 's
     borderWidth: 1,
     borderRadius: 14,
     borderColor: 'transparent',
-    backgroundColor: variant === 'danger' ? '#EF4444' : variant === 'secondary' ? '#282A36' : '#D4AF37',
+    backgroundColor: variant === 'danger' ? '#EF4444' : variant === 'secondary' ? '#282A36' : '#FFFFFF',
     textColor: variant === 'primary' ? '#0D0E12' : '#FFFFFF',
-    shadowColor: variant === 'primary' ? '#D4AF37' : '#000000',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 10,
@@ -326,9 +326,9 @@ export const getThemeButtonStyles = (themeMode?: string, variant: 'primary' | 's
 
 export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert' | 'info' = 'live') => {
   if (themeMode === 'inspo_flagship') {
-    const bg = variant === 'alert' ? 'rgba(255, 51, 75, 0.15)' : variant === 'info' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(0, 242, 157, 0.14)';
-    const border = variant === 'alert' ? 'rgba(255, 51, 75, 0.4)' : variant === 'info' ? 'rgba(245, 158, 11, 0.4)' : 'rgba(0, 242, 157, 0.35)';
-    const text = variant === 'alert' ? '#FF5C6F' : variant === 'info' ? '#FBBF24' : '#00F29D';
+    const bg = variant === 'alert' ? 'rgba(255, 51, 75, 0.15)' : variant === 'info' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.10)';
+    const border = variant === 'alert' ? 'rgba(255, 51, 75, 0.4)' : variant === 'info' ? 'rgba(245, 158, 11, 0.4)' : 'rgba(255, 255, 255, 0.20)';
+    const text = variant === 'alert' ? '#FF5C6F' : variant === 'info' ? '#FBBF24' : '#FFFFFF';
     return {
       backgroundColor: bg,
       borderWidth: 1,
@@ -338,9 +338,9 @@ export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert
     };
   }
   if (themeMode === 'billion_dollar') {
-    const bg = variant === 'alert' ? '#FEE2E2' : variant === 'info' ? '#FFF3EB' : '#F0FDF4';
-    const border = variant === 'alert' ? '#FECACA' : variant === 'info' ? '#FFD7C7' : '#BBF7D0';
-    const text = variant === 'alert' ? '#DC2626' : variant === 'info' ? '#E07A5F' : '#15803D';
+    const bg = variant === 'alert' ? '#FEE2E2' : variant === 'info' ? '#F1F5F9' : '#F1F5F9';
+    const border = variant === 'alert' ? '#FECACA' : variant === 'info' ? '#E2E8F0' : '#E2E8F0';
+    const text = variant === 'alert' ? '#DC2626' : variant === 'info' ? '#64748B' : '#0F172A';
     return {
       backgroundColor: bg,
       borderWidth: 1,
@@ -350,9 +350,9 @@ export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert
     };
   }
   if (themeMode === 'brand_green') {
-    const bg = variant === 'alert' ? '#FEF2F2' : variant === 'info' ? '#FFFBEB' : '#F0FDF4';
-    const border = variant === 'alert' ? '#E53E3E' : variant === 'info' ? '#F5A623' : '#86EFAC';
-    const text = variant === 'alert' ? '#E53E3E' : variant === 'info' ? '#D97706' : '#15803D';
+    const bg = variant === 'alert' ? '#FEF2F2' : variant === 'info' ? '#F1F5F9' : '#F1F5F9';
+    const border = variant === 'alert' ? '#E53E3E' : variant === 'info' ? '#E2E8F0' : '#E2E8F0';
+    const text = variant === 'alert' ? '#E53E3E' : variant === 'info' ? '#64748B' : '#0F172A';
     return {
       backgroundColor: bg,
       borderWidth: 1,
@@ -374,11 +374,11 @@ export const getThemeBadgeStyles = (themeMode?: string, variant: 'live' | 'alert
     };
   }
   return {
-    backgroundColor: variant === 'alert' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(212, 175, 55, 0.15)',
+    backgroundColor: variant === 'alert' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(255, 255, 255, 0.10)',
     borderWidth: 1,
-    borderColor: variant === 'alert' ? '#EF4444' : '#D4AF37',
+    borderColor: variant === 'alert' ? '#EF4444' : 'rgba(255, 255, 255, 0.20)',
     borderRadius: 12,
-    textColor: variant === 'alert' ? '#EF4444' : '#D4AF37',
+    textColor: variant === 'alert' ? '#EF4444' : '#FFFFFF',
   };
 };
 
@@ -401,28 +401,28 @@ export const getThemeSheetStyles = (themeMode?: string) => {
     return {
       backgroundColor: '#FFFFFF',
       borderTopWidth: 1,
-      borderTopColor: '#DCE2F3',
+      borderTopColor: '#E2E8F0',
       borderTopLeftRadius: 28,
       borderTopRightRadius: 28,
-      shadowColor: '#151C27',
-      shadowOffset: { width: 0, height: -10 },
-      shadowOpacity: 0.06,
-      shadowRadius: 40,
-      elevation: 16,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: -6 },
+      shadowOpacity: 0.05,
+      shadowRadius: 20,
+      elevation: 12,
     };
   }
   if (themeMode === 'brand_green') {
     return {
       backgroundColor: '#FFFFFF',
-      borderTopWidth: 2,
-      borderTopColor: '#4ADE80',
+      borderTopWidth: 1,
+      borderTopColor: '#E2E8F0',
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
-      shadowColor: '#4ADE80',
+      shadowColor: '#000000',
       shadowOffset: { width: 0, height: -4 },
-      shadowOpacity: 0.15,
+      shadowOpacity: 0.05,
       shadowRadius: 14,
-      elevation: 16,
+      elevation: 12,
     };
   }
   if (themeMode === 'light') {
@@ -469,28 +469,28 @@ export const getThemeFloatingControlStyles = (themeMode?: string) => {
   }
   if (themeMode === 'billion_dollar') {
     return {
-      backgroundColor: 'rgba(255, 255, 255, 0.92)',
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
       borderWidth: 1,
-      borderColor: '#DCE2F3',
+      borderColor: '#E2E8F0',
       borderRadius: 9999,
-      shadowColor: '#151C27',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.08,
-      shadowRadius: 10,
-      elevation: 4,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.06,
+      shadowRadius: 6,
+      elevation: 3,
     };
   }
   if (themeMode === 'brand_green') {
     return {
       backgroundColor: '#FFFFFF',
-      borderWidth: 1.5,
-      borderColor: '#E0E0E0',
+      borderWidth: 1,
+      borderColor: '#E2E8F0',
       borderRadius: 14,
-      shadowColor: '#4ADE80',
-      shadowOffset: { width: 0, height: 3 },
-      shadowOpacity: 0.15,
-      shadowRadius: 8,
-      elevation: 5,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.06,
+      shadowRadius: 6,
+      elevation: 3,
     };
   }
   if (themeMode === 'light') {
@@ -522,10 +522,10 @@ export const getThemeFloatingControlStyles = (themeMode?: string) => {
 export const getThemeChatBubbleStyles = (themeMode?: string, isSelf: boolean = false) => {
   if (themeMode === 'inspo_flagship') {
     return {
-      backgroundColor: isSelf ? '#00F29D' : '#1A202C',
-      textColor: isSelf ? '#051A11' : '#F4F6F8',
+      backgroundColor: isSelf ? '#FFFFFF' : '#1A202C',
+      textColor: isSelf ? '#0B0D11' : '#F4F6F8',
       borderWidth: 1,
-      borderColor: isSelf ? '#00F29D' : 'rgba(255, 255, 255, 0.08)',
+      borderColor: isSelf ? '#FFFFFF' : 'rgba(255, 255, 255, 0.08)',
       borderRadius: 18,
       borderBottomRightRadius: isSelf ? 3 : 18,
       borderBottomLeftRadius: isSelf ? 18 : 3,
@@ -533,10 +533,10 @@ export const getThemeChatBubbleStyles = (themeMode?: string, isSelf: boolean = f
   }
   if (themeMode === 'billion_dollar') {
     return {
-      backgroundColor: isSelf ? '#183CE6' : '#F0F3FF',
-      textColor: isSelf ? '#FFFFFF' : '#151C27',
+      backgroundColor: isSelf ? '#0F172A' : '#F1F5F9',
+      textColor: isSelf ? '#FFFFFF' : '#0F172A',
       borderWidth: 1,
-      borderColor: isSelf ? '#183CE6' : '#DCE2F3',
+      borderColor: isSelf ? '#0F172A' : '#E2E8F0',
       borderRadius: 18,
       borderBottomRightRadius: isSelf ? 2 : 18,
       borderBottomLeftRadius: isSelf ? 18 : 2,
@@ -544,10 +544,10 @@ export const getThemeChatBubbleStyles = (themeMode?: string, isSelf: boolean = f
   }
   if (themeMode === 'brand_green') {
     return {
-      backgroundColor: isSelf ? '#4ADE80' : '#F5F5F5',
-      textColor: isSelf ? '#0F291E' : '#111111',
+      backgroundColor: isSelf ? '#0F172A' : '#F1F5F9',
+      textColor: isSelf ? '#FFFFFF' : '#0F172A',
       borderWidth: 1,
-      borderColor: isSelf ? '#4ADE80' : '#E0E0E0',
+      borderColor: isSelf ? '#0F172A' : '#E2E8F0',
       borderRadius: 16,
       borderBottomRightRadius: isSelf ? 2 : 16,
       borderBottomLeftRadius: isSelf ? 16 : 2,
@@ -565,10 +565,10 @@ export const getThemeChatBubbleStyles = (themeMode?: string, isSelf: boolean = f
     };
   }
   return {
-    backgroundColor: isSelf ? '#D4AF37' : '#282A36',
+    backgroundColor: isSelf ? '#FFFFFF' : '#282A36',
     textColor: isSelf ? '#0D0E12' : '#F9F8F6',
     borderWidth: 1,
-    borderColor: isSelf ? '#D4AF37' : 'rgba(255,255,255,0.08)',
+    borderColor: isSelf ? '#FFFFFF' : 'rgba(255,255,255,0.08)',
     borderRadius: 16,
     borderBottomRightRadius: isSelf ? 4 : 16,
     borderBottomLeftRadius: isSelf ? 16 : 4,
@@ -689,7 +689,7 @@ export const LUXURY_THEME = {
       elevation: 3,
     },
     goldLift: {
-      shadowColor: '#D4AF37',
+      shadowColor: '#000000',
       shadowOffset: { width: 0, height: 6 },
       shadowOpacity: 0.25,
       shadowRadius: 14,

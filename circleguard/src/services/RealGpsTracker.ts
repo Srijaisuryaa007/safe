@@ -94,7 +94,7 @@ class RealGpsTrackerManager {
     this.options = {
       maxAccuracyMeters: options.maxAccuracyMeters || 50,
       minDistanceMeters: options.minDistanceMeters || 3,
-      lineColor: options.lineColor || '#10B981',
+      lineColor: options.lineColor || '#0F172A',
       lineWidth: options.lineWidth || 5,
       autoPan: options.autoPan !== undefined ? options.autoPan : true,
       ...options,
@@ -296,7 +296,7 @@ class RealGpsTrackerManager {
     if (latLngs.length > 0) {
       L.circleMarker(latLngs[0], {
         radius: 8,
-        fillColor: '#10B981',
+        fillColor: '#0F172A',
         color: '#FFFFFF',
         weight: 2,
         fillOpacity: 1,

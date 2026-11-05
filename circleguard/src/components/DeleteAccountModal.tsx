@@ -201,10 +201,8 @@ export default function DeleteAccountModal({
       } catch (e) {}
 
       // 10. Disconnect Google Sign-in if configured
-      try {
-        const { GoogleSignin } = require('@react-native-google-signin/google-signin');
-        await GoogleSignin.signOut();
-      } catch (e) {}
+      const { safeGoogleSignOut } = require('../lib/googleAuthHelper');
+      await safeGoogleSignOut();
 
       // 11. Revoke and sign out of Supabase Auth Session
       try {

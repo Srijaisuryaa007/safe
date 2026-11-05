@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  RefreshControl,
   TouchableOpacity,
   Image,
   Dimensions,
@@ -26,7 +27,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore, formatZoneArrival } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { supabase } from '../lib/supabase';
-import { navigationRef } from '../navigation/AppNavigator';
+import { navigationRef } from '../navigation/navigationRef';
 import CircleQRCodeModal from './CircleQRCodeModal';
 import CircleSwitcherModal from './CircleSwitcherModal';
 import OrbitalGoldenLogoBadge from './OrbitalGoldenLogoBadge';
@@ -38,6 +39,8 @@ import { sendExpoPushNotification } from '../services/PushNotificationService';
 import { getSafeTopInset } from '../utils/safeArea';
 import { useLuxuryAlert } from './LuxuryAlertModal';
 import RadarPulseBeacon from './ui/RadarPulseBeacon';
+import ParallaxMemberCard from './ui/ParallaxMemberCard';
+import ReactBitsParallaxCards from './ui/ReactBitsParallaxCards';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -109,7 +112,7 @@ export default function BillionDollarCircleView() {
   });
 
   const { profile } = useAuthStore();
-  const { activeCircle, members, places, fetchMembers, fetchPlaces, fetchActiveCircle } = useCircleStore();
+  const { activeCircle, members, places, fetchMembers, fetchPlaces, fetchActiveCircle, fetchUserCircles } = useCircleStore();
   const { isDark } = useThemeStore();
   const { showConfirm, showAlert } = useLuxuryAlert();
 
@@ -241,6 +244,29 @@ export default function BillionDollarCircleView() {
     }
   }, [activeCircle?.id, profile?.id]);
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const handlePullToRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const uid = profile?.id || useAuthStore.getState().user?.id;
+      if (uid) {
+        await fetchUserCircles(uid);
+      }
+      const curCircle = useCircleStore.getState().activeCircle;
+      if (curCircle?.id) {
+        await Promise.all([
+          fetchMembers(curCircle.id),
+          fetchPlaces(curCircle.id),
+        ]);
+      } else if (uid) {
+        await fetchActiveCircle(uid);
+      }
+    } catch (_) {
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
@@ -328,6 +354,7 @@ export default function BillionDollarCircleView() {
     })();
   };
 
+  const [membersViewMode, setMembersViewMode] = useState<'tree' | 'list' | 'cards'>('tree');
   const [memberFilter, setMemberFilter] = useState<'all' | 'moving' | 'safe' | 'battery'>('all');
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
 
@@ -373,7 +400,10 @@ export default function BillionDollarCircleView() {
     }
     const name = member.profile?.full_name?.split(' ')[0] || 'Member';
     showToast(`Focusing ${name} on live map...`);
-    navigateToScreen('Home');
+    const lat = member.latitude ?? member.location?.latitude ?? member.profile?.latitude;
+    const lng = member.longitude ?? member.location?.longitude ?? member.profile?.longitude;
+    const memberUserId = member.user_id || (member as any).id;
+    navigateToScreen('Map', { focusUserId: memberUserId, focusLat: lat, focusLng: lng });
   };
 
   const handleCallMember = (member: any) => {
@@ -432,18 +462,11 @@ export default function BillionDollarCircleView() {
           {
             text: 'Delete Circle',
             style: 'destructive',
-            onPress: async () => {
-              showToast('Deleting circle...');
-              const res = await useCircleStore.getState().deleteCircle(activeCircle.id);
-              if (res.success) {
-                showToast('Circle deleted successfully');
-                const remaining = useCircleStore.getState().circles;
-                if (remaining.length === 0) {
-                  navigation.navigate('Home');
-                }
-              } else {
-                Alert.alert('Error', res.error || 'Failed to delete circle');
-              }
+            onPress: () => {
+              useCircleStore.getState().startDeleteCircleWithAnimation(
+                activeCircle.id,
+                activeCircle.name || 'this circle'
+              );
             },
           },
         ]
@@ -457,19 +480,13 @@ export default function BillionDollarCircleView() {
           {
             text: 'Leave Circle',
             style: 'destructive',
-            onPress: async () => {
-              if (!profile?.id) return;
-              showToast('Leaving circle...');
-              const res = await useCircleStore.getState().leaveCircle(activeCircle.id, profile.id);
-              if (res.success) {
-                showToast('You left the circle');
-                const remaining = useCircleStore.getState().circles;
-                if (remaining.length === 0) {
-                  navigation.navigate('Home');
-                }
-              } else {
-                Alert.alert('Error', res.error || 'Failed to leave circle');
-              }
+            onPress: () => {
+              if (!profile?.id || !activeCircle?.id) return;
+              useCircleStore.getState().startLeaveCircleWithAnimation(
+                activeCircle.id,
+                activeCircle.name || 'this circle',
+                profile.id
+              );
             },
           },
         ]
@@ -538,11 +555,11 @@ export default function BillionDollarCircleView() {
             activeOpacity={0.7}
             accessibilityLabel="Open Circle Chat"
           >
-            <Ionicons name="chatbubbles-outline" size={19} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+            <Ionicons name="chatbubbles-outline" size={19} color={isDark ? '#FFFFFF' : '#0F172A'} />
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.profileAvatarBtn, isDark && { borderColor: '#3ADFAB' }]}
+            style={[styles.profileAvatarBtn, isDark && { borderColor: 'rgba(255, 255, 255, 0.2)' }]}
             onPress={() => {
               if (Platform.OS !== 'web') {
                 try { Vibration.vibrate(10); } catch (_) {}
@@ -555,8 +572,8 @@ export default function BillionDollarCircleView() {
             {profile?.avatar_url ? (
               <Image source={{ uri: profile.avatar_url }} style={styles.profileAvatarImg} />
             ) : (
-              <View style={[styles.profileAvatarImg, styles.avatarFallback, isDark && { backgroundColor: '#1C2621' }]}>
-                <Text style={[styles.avatarFallbackText, isDark && { color: '#3ADFAB' }]}>
+              <View style={[styles.profileAvatarImg, styles.avatarFallback, isDark && { backgroundColor: '#1A1C22' }]}>
+                <Text style={[styles.avatarFallbackText, isDark && { color: '#FFFFFF' }]}>
                   {(profile?.full_name || 'U').charAt(0).toUpperCase()}
                 </Text>
               </View>
@@ -570,7 +587,7 @@ export default function BillionDollarCircleView() {
             styles.scrollProgressBar,
             {
               width: scrollProgressWidth,
-              backgroundColor: isDark ? '#3ADFAB' : '#2E7D5B',
+              backgroundColor: isDark ? '#FFFFFF' : '#0F172A',
             },
           ]}
         />
@@ -582,6 +599,14 @@ export default function BillionDollarCircleView() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handlePullToRefresh}
+            tintColor={isDark ? '#F59E0B' : '#D97706'}
+            colors={['#F59E0B', '#D97706']}
+          />
+        }
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
           { useNativeDriver: false }
@@ -607,7 +632,7 @@ export default function BillionDollarCircleView() {
               <Text style={[styles.headlineText, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
                 {circleName}
               </Text>
-              <Ionicons name="chevron-down" size={18} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Ionicons name="chevron-down" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
             </TouchableOpacity>
           </View>
 
@@ -616,22 +641,22 @@ export default function BillionDollarCircleView() {
             <TouchableOpacity
               style={[
                 styles.quickSwitchBanner,
-                isDark && { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: 'rgba(212, 175, 55, 0.3)' }
+                isDark && { backgroundColor: 'rgba(255, 255, 255, 0.08)', borderColor: 'rgba(255, 255, 255, 0.15)' }
               ]}
               onPress={() => setCircleSwitcherVisible(true)}
               activeOpacity={0.8}
             >
-              <Ionicons name="swap-horizontal" size={16} color={isDark ? '#D4AF37' : '#926C15'} />
+              <Ionicons name="swap-horizontal" size={16} color={isDark ? '#FFFFFF' : '#0F172A'} />
               <Text style={[styles.quickSwitchBannerText, isDark && { color: '#E8EDE9' }]}>
                 Switch circle or select family group
               </Text>
-              <Ionicons name="chevron-forward" size={14} color={isDark ? '#D4AF37' : '#926C15'} />
+              <Ionicons name="chevron-forward" size={14} color={isDark ? '#FFFFFF' : '#0F172A'} />
             </TouchableOpacity>
           )}
 
           {/* Active Circle Status Banner */}
           <View style={[styles.activeBanner, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
-            <View style={[styles.greenPulseDot, isDark && { backgroundColor: '#30D158' }]} />
+            <View style={[styles.greenPulseDot, isDark && { backgroundColor: '#FFFFFF' }]} />
             <Text style={[styles.bannerText, isDark && { color: '#94A3B8' }]}>
               <Text style={{ fontWeight: '700', color: isDark ? '#FFFFFF' : '#151C27' }}>
                 {displayMembers.length} Connected
@@ -639,7 +664,7 @@ export default function BillionDollarCircleView() {
               {'  ·  '}
               <Text>{circlePlaces.length} Zones Protected</Text>
               {'  ·  '}
-              <Text style={{ color: isDark ? '#30D158' : '#006C4F', fontWeight: '600' }}>
+              <Text style={{ color: isDark ? '#94A3B8' : '#64748B', fontWeight: '600' }}>
                 {normalBatteryCount} Good Battery
               </Text>
             </Text>
@@ -653,13 +678,13 @@ export default function BillionDollarCircleView() {
           activeOpacity={0.85}
         >
           <View style={[styles.commonChatIconBox, isDark && { backgroundColor: '#1A1C22' }]}>
-            <Ionicons name="chatbubbles" size={22} color={isDark ? '#30D158' : '#FFFFFF'} />
+            <Ionicons name="chatbubbles" size={22} color="#FFFFFF" />
           </View>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={[styles.commonChatTitle, isDark && { color: '#FFFFFF' }]}>Circle Messages</Text>
-              <View style={[styles.liveChatBadge, isDark && { backgroundColor: 'rgba(48, 209, 88, 0.15)' }]}>
-                <Text style={[styles.liveChatBadgeText, isDark && { color: '#30D158' }]}>Live</Text>
+              <View style={[styles.liveChatBadge, isDark && { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}>
+                <Text style={[styles.liveChatBadgeText, isDark && { color: '#FFFFFF' }]}>Live</Text>
               </View>
             </View>
             <Text style={[styles.commonChatSub, isDark && { color: '#94A3B8' }]}>
@@ -667,39 +692,134 @@ export default function BillionDollarCircleView() {
             </Text>
           </View>
           <View style={[styles.commonChatAction, isDark && { backgroundColor: '#1A1C22' }]}>
-            <Text style={[styles.commonChatActionText, isDark && { color: '#30D158' }]}>Open</Text>
-            <Ionicons name="chevron-forward" size={16} color={isDark ? '#30D158' : '#2E7D5B'} />
+            <Text style={[styles.commonChatActionText, isDark && { color: '#FFFFFF' }]}>Open</Text>
+            <Ionicons name="chevron-forward" size={16} color={isDark ? '#FFFFFF' : '#0F172A'} />
           </View>
         </TouchableOpacity>
 
         {/* Family Members Section Header */}
         <View style={styles.sectionHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, flexShrink: 1 }}>
             <Text style={[styles.sectionTitle, isDark && { color: '#FFFFFF' }]}>Circle Members</Text>
             <View style={[styles.countBadge, isDark && { backgroundColor: '#1A1C22' }]}>
               <Text style={[styles.countText, isDark && { color: '#30D158' }]}>{displayMembers.length}</Text>
             </View>
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {displayMembers.length > 0 && (
+              <View style={[
+                styles.segmentContainer,
+                isDark ? { backgroundColor: '#15181D', borderColor: 'rgba(255, 255, 255, 0.12)' } : { backgroundColor: '#F1F5F9', borderColor: '#E2E8F0' }
+              ]}>
+                <TouchableOpacity
+                  style={[
+                    styles.segmentBtn,
+                    membersViewMode === 'tree' && (isDark ? styles.segmentBtnActiveDark : styles.segmentBtnActiveLight)
+                  ]}
+                  onPress={() => setMembersViewMode('tree')}
+                  activeOpacity={0.7}
+                  accessibilityLabel="View Command Tree"
+                >
+                  <Ionicons
+                    name="git-network-outline"
+                    size={12}
+                    color={membersViewMode === 'tree' ? (isDark ? '#F5A623' : '#B45309') : (isDark ? '#94A3B8' : '#64748B')}
+                  />
+                  <Text style={[
+                    styles.segmentBtnText,
+                    membersViewMode === 'tree' && (isDark ? { color: '#F5A623', fontWeight: '800' } : { color: '#B45309', fontWeight: '800' }),
+                    membersViewMode !== 'tree' && (isDark ? { color: '#94A3B8' } : { color: '#64748B' }),
+                  ]}>
+                    Tree
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.segmentBtn,
+                    membersViewMode === 'list' && (isDark ? styles.segmentBtnActiveDark : styles.segmentBtnActiveLight)
+                  ]}
+                  onPress={() => setMembersViewMode('list')}
+                  activeOpacity={0.7}
+                  accessibilityLabel="View Member List"
+                >
+                  <Ionicons
+                    name="list-outline"
+                    size={12}
+                    color={membersViewMode === 'list' ? (isDark ? '#30D158' : '#059669') : (isDark ? '#94A3B8' : '#64748B')}
+                  />
+                  <Text style={[
+                    styles.segmentBtnText,
+                    membersViewMode === 'list' && (isDark ? { color: '#30D158', fontWeight: '800' } : { color: '#059669', fontWeight: '800' }),
+                    membersViewMode !== 'list' && (isDark ? { color: '#94A3B8' } : { color: '#64748B' }),
+                  ]}>
+                    List
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.segmentBtn,
+                    membersViewMode === 'cards' && (isDark ? styles.segmentBtnActiveDark : styles.segmentBtnActiveLight)
+                  ]}
+                  onPress={() => setMembersViewMode('cards')}
+                  activeOpacity={0.7}
+                  accessibilityLabel="View 3D Cards"
+                >
+                  <Ionicons
+                    name="sparkles-outline"
+                    size={12}
+                    color={membersViewMode === 'cards' ? (isDark ? '#A855F7' : '#7E22CE') : (isDark ? '#94A3B8' : '#64748B')}
+                  />
+                  <Text style={[
+                    styles.segmentBtnText,
+                    membersViewMode === 'cards' && (isDark ? { color: '#A855F7', fontWeight: '800' } : { color: '#7E22CE', fontWeight: '800' }),
+                    membersViewMode !== 'cards' && (isDark ? { color: '#94A3B8' } : { color: '#64748B' }),
+                  ]}>
+                    3D
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             <TouchableOpacity
-              style={[
-                styles.hierarchyTreeBtn,
-                isDark && { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: 'rgba(212, 175, 55, 0.3)' },
-              ]}
-              onPress={() => setHierarchyModalVisible(true)}
+              onPress={() => navigateToScreen('Home')}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
               activeOpacity={0.7}
+              accessibilityLabel="View members on live map"
             >
-              <Ionicons name="git-network-outline" size={13} color={isDark ? '#D4AF37' : '#926C15'} />
-              <Text style={[styles.hierarchyTreeBtnText, isDark && { color: '#D4AF37' }]}>Hierarchy</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => navigateToScreen('Home')}>
-              <Text style={[styles.sectionLink, isDark && { color: '#30D158' }]}>Live Map View ›</Text>
+              <Text style={[styles.sectionLink, isDark && { color: '#30D158' }]}>Map</Text>
+              <Ionicons name="chevron-forward" size={14} color={isDark ? '#30D158' : '#0F172A'} />
             </TouchableOpacity>
           </View>
         </View>
 
+        {/* Interactive Tree View Inline */}
+        {membersViewMode === 'tree' && displayMembers.length > 0 && (
+          <View style={[
+            styles.inlineTreeCard,
+            isDark ? { backgroundColor: '#101412', borderColor: 'rgba(255, 255, 255, 0.08)' } : { backgroundColor: '#FFFFFF', borderColor: '#E2E8F0' }
+          ]}>
+            <CircleHierarchyTree
+              members={displayMembers}
+              currentUserId={profile?.id}
+              circleOwnerId={trueLeaderId}
+              isOwner={isOwner}
+              canManageRanks={canManageRanks}
+              isInline={true}
+              onExpandFullScreen={() => setHierarchyModalVisible(true)}
+              onSelectMember={(m) => {
+                setRoleModalMember(m);
+              }}
+              onMoveBranch={(m) => {
+                setBranchModalMember(m);
+              }}
+            />
+          </View>
+        )}
+
         {/* Member Status Quick-Filter Chips */}
-        {displayMembers.length > 1 && (
+        {membersViewMode === 'list' && displayMembers.length > 1 && (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -781,7 +901,7 @@ export default function BillionDollarCircleView() {
         )}
 
         {/* Search Bar when 3 or more members exist */}
-        {displayMembers.length >= 3 && (
+        {membersViewMode === 'list' && displayMembers.length >= 3 && (
           <View style={[styles.memberSearchBox, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
             <Ionicons name="search" size={16} color={isDark ? '#64748B' : '#9CA3AF'} />
             <TextInput
@@ -800,245 +920,275 @@ export default function BillionDollarCircleView() {
           </View>
         )}
 
-        {/* Circle Members List */}
-        {filteredMembers.length > 0 ? (
-          <View style={{ width: '100%' }}>
-            {filteredMembers.map((member, index) => {
-              const name = member.profile?.full_name || 'Family Member';
-              const memberUserId = member.user_id || (member as any).id;
-              const isSelf = memberUserId === profile?.id;
-              const isTargetOwner = Boolean(memberUserId && trueLeaderId && memberUserId === trueLeaderId);
-              const effectiveRole = isTargetOwner ? 'owner' : (member.role === 'owner' ? 'co_leader' : (member.role || 'member'));
-              const role = effectiveRole;
-              const battery = member.batteryPct != null ? `${member.batteryPct}%` : '100%';
-              const isLowBattery = (member.batteryPct != null && member.batteryPct <= 20);
-              const batteryPctVal = member.batteryPct ?? 100;
-              const isDriving = Boolean(member.isDriving);
-              const isOnline = member.isOnline !== false;
-              const isGhostMode = Boolean(member.profile?.is_ghost_mode);
-              const hasPhone = Boolean(member.profile?.phone);
+        {/* 3D Parallax View if toggled */}
+        {membersViewMode === 'cards' && displayMembers.length > 0 && (
+          <ReactBitsParallaxCards
+            members={displayMembers}
+            activeCircle={activeCircle}
+            isDark={isDark}
+            circlePlaces={circlePlaces}
+            trueLeaderId={trueLeaderId}
+            currentUserId={profile?.id}
+            onLocateMember={handleLocateMember}
+            onChatMember={handleChatMember}
+            onCallMember={handleCallMember}
+            onMemberActions={(m) => setSelectedActionsMember(m)}
+          />
+        )}
 
-              // Match safe place
-              const matchedPlace = circlePlaces.find((p) => p.id === member.latestPlaceEvent?.place_id);
-              const isInSafePlace = member.latestPlaceEvent?.event_type === 'arrival';
-              const placeName = matchedPlace?.name ? matchedPlace.name.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim() : 'Safe Place';
+        {/* Classic Clean Circle Members List */}
+        {membersViewMode === 'list' && (
+          filteredMembers.length > 0 ? (
+            <View style={{ width: '100%' }}>
+              {filteredMembers.map((member, index) => {
+                const name = member.profile?.full_name || 'Family Member';
+                const memberUserId = member.user_id || (member as any).id;
+                const isSelf = memberUserId === profile?.id;
+                const isTargetOwner = Boolean(memberUserId && trueLeaderId && memberUserId === trueLeaderId);
+                const isSriJaiSuryaa = memberUserId === '2875720f-904b-4559-a436-512286054510' ||
+                  (typeof member.profile?.full_name === 'string' && member.profile.full_name.toLowerCase().includes('sri jai suryaa'));
+                const effectiveRole = isTargetOwner
+                  ? 'owner'
+                  : (member.role === 'owner' ? 'co_leader' : (isSriJaiSuryaa ? 'co_leader' : (member.role || 'member')));
+                const role = effectiveRole;
+                const battery = member.batteryPct != null ? `${member.batteryPct}%` : '100%';
+                const isLowBattery = (member.batteryPct != null && member.batteryPct <= 20);
+                const batteryPctVal = member.batteryPct ?? 100;
+                const isDriving = Boolean(member.isDriving);
+                const isOnline = member.isOnline !== false;
+                const isGhostMode = Boolean(member.profile?.is_ghost_mode);
+                const hasPhone = Boolean(member.profile?.phone);
 
-              const roleLabel =
-                effectiveRole === 'owner'
-                  ? 'Leader'
-                  : effectiveRole === 'co_leader'
-                  ? 'Co-Leader'
-                  : effectiveRole === 'guardian'
-                  ? 'Guardian'
-                  : 'Member';
+                // Match safe place
+                const matchedPlace = circlePlaces.find((p) => p.id === member.latestPlaceEvent?.place_id);
+                const isInSafePlace = member.latestPlaceEvent?.event_type === 'arrival';
+                const placeName = matchedPlace?.name ? matchedPlace.name.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim() : 'Safe Place';
 
-              const roleColor =
-                effectiveRole === 'owner'
-                  ? (isDark ? '#F5A623' : '#D97706')
-                  : effectiveRole === 'co_leader'
-                  ? (isDark ? '#3ADFAB' : '#059669')
-                  : effectiveRole === 'guardian'
-                  ? (isDark ? '#4AE3B5' : '#047857')
-                  : (isDark ? '#CAD8D0' : '#475C50');
+                const roleLabel =
+                  effectiveRole === 'owner'
+                    ? 'Leader'
+                    : effectiveRole === 'co_leader'
+                    ? 'Co-Leader'
+                    : effectiveRole === 'guardian'
+                    ? 'Guardian'
+                    : 'Member';
 
-              const roleBg =
-                effectiveRole === 'owner'
-                  ? (isDark ? 'rgba(245, 166, 35, 0.14)' : '#FEF3C7')
-                  : effectiveRole === 'co_leader'
-                  ? (isDark ? 'rgba(58, 223, 171, 0.14)' : '#ECFDF5')
-                  : effectiveRole === 'guardian'
-                  ? (isDark ? 'rgba(46, 125, 91, 0.20)' : '#E6F4ED')
-                  : (isDark ? 'rgba(202, 216, 208, 0.10)' : '#F0F4F2');
+                const roleColor =
+                  effectiveRole === 'owner'
+                    ? (isDark ? '#F5A623' : '#D97706')
+                    : effectiveRole === 'co_leader'
+                    ? (isDark ? '#3ADFAB' : '#059669')
+                    : effectiveRole === 'guardian'
+                    ? (isDark ? '#4AE3B5' : '#047857')
+                    : (isDark ? '#CAD8D0' : '#475C50');
 
-              const roleBorder =
-                effectiveRole === 'owner'
-                  ? (isDark ? 'rgba(245, 166, 35, 0.38)' : 'rgba(217, 119, 6, 0.35)')
-                  : effectiveRole === 'co_leader'
-                  ? (isDark ? 'rgba(58, 223, 171, 0.38)' : 'rgba(5, 150, 105, 0.35)')
-                  : effectiveRole === 'guardian'
-                  ? (isDark ? 'rgba(46, 125, 91, 0.40)' : 'rgba(4, 120, 87, 0.30)')
-                  : (isDark ? 'rgba(202, 216, 208, 0.22)' : 'rgba(71, 92, 80, 0.20)');
+                const roleBg =
+                  effectiveRole === 'owner'
+                    ? (isDark ? 'rgba(245, 166, 35, 0.14)' : '#FEF3C7')
+                    : effectiveRole === 'co_leader'
+                    ? (isDark ? 'rgba(58, 223, 171, 0.14)' : '#ECFDF5')
+                    : effectiveRole === 'guardian'
+                    ? (isDark ? 'rgba(46, 125, 91, 0.20)' : '#E6F4ED')
+                    : (isDark ? 'rgba(202, 216, 208, 0.10)' : '#F0F4F2');
 
-              const memberKey = member.user_id 
-                ? `member_${member.user_id}` 
-                : ((member as any).id ? `member_${(member as any).id}` : `member_idx_${index}`);
+                const roleBorder =
+                  effectiveRole === 'owner'
+                    ? (isDark ? 'rgba(245, 166, 35, 0.38)' : 'rgba(217, 119, 6, 0.35)')
+                    : effectiveRole === 'co_leader'
+                    ? (isDark ? 'rgba(58, 223, 171, 0.38)' : 'rgba(5, 150, 105, 0.35)')
+                    : effectiveRole === 'guardian'
+                    ? (isDark ? 'rgba(46, 125, 91, 0.40)' : 'rgba(4, 120, 87, 0.30)')
+                    : (isDark ? 'rgba(202, 216, 208, 0.22)' : 'rgba(71, 92, 80, 0.20)');
 
-              return (
-                <View key={memberKey} style={{ width: '100%' }}>
-                  <TouchableOpacity
-                    style={[
-                      styles.memberCard,
-                      isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' },
-                      isTargetOwner && { borderColor: isDark ? 'rgba(245, 166, 35, 0.35)' : 'rgba(217, 119, 6, 0.3)' },
-                    ]}
-                    onPress={() => {
-                      if (subActionHandledRef.current) return;
-                      if (Platform.OS !== 'web') {
-                        try { Vibration.vibrate(10); } catch (_) {}
-                      }
-                      setSelectedActionsMember(member);
-                    }}
-                    activeOpacity={0.75}
-                  >
-                    <View style={styles.memberCardContent}>
-                      {/* Avatar with Radar Pulse Beacon */}
-                      <RadarPulseBeacon
-                        size={46}
-                        color={isDriving ? '#F5A623' : '#30D158'}
-                        isPulsing={isOnline && !isGhostMode}
-                      >
-                        <View style={styles.memberAvatarWrapper}>
-                          {member.profile?.avatar_url ? (
-                            <Image source={{ uri: member.profile.avatar_url }} style={styles.avatarImg} />
-                          ) : (
-                            <View style={[styles.avatarImg, styles.avatarFallback, isDark && { backgroundColor: '#1A1C22' }]}>
-                              <Text style={[styles.avatarFallbackText, { color: roleColor }]}>
-                                {name.charAt(0).toUpperCase()}
+                const memberKey = member.user_id 
+                  ? `member_${member.user_id}` 
+                  : ((member as any).id ? `member_${(member as any).id}` : `member_idx_${index}`);
+
+                return (
+                  <View key={memberKey} style={{ width: '100%' }}>
+                    <TouchableOpacity
+                      style={[
+                        styles.memberCard,
+                        isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' },
+                        isTargetOwner && { borderColor: isDark ? 'rgba(245, 166, 35, 0.35)' : 'rgba(217, 119, 6, 0.3)' },
+                      ]}
+                      onPress={() => {
+                        if (subActionHandledRef.current) return;
+                        if (Platform.OS !== 'web') {
+                          try { Vibration.vibrate(10); } catch (_) {}
+                        }
+                        setSelectedActionsMember(member);
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <View style={styles.memberCardContent}>
+                        {/* Avatar with Radar Pulse Beacon */}
+                        <RadarPulseBeacon
+                          size={46}
+                          color={isDriving ? '#F5A623' : '#30D158'}
+                          isPulsing={isOnline && !isGhostMode}
+                        >
+                          <View style={styles.memberAvatarWrapper}>
+                            {member.profile?.avatar_url ? (
+                              <Image source={{ uri: member.profile.avatar_url }} style={styles.avatarImg} />
+                            ) : (
+                              <View style={[styles.avatarImg, styles.avatarFallback, isDark && { backgroundColor: '#1A1C22' }]}>
+                                <Text style={[styles.avatarFallbackText, { color: roleColor }]}>
+                                  {name.charAt(0).toUpperCase()}
+                                </Text>
+                              </View>
+                            )}
+                            <View
+                              style={[
+                                styles.avatarStatusBadge,
+                                isDark && { backgroundColor: '#101114', borderColor: '#101114' },
+                                isDriving && { backgroundColor: isDark ? 'rgba(245, 166, 35, 0.20)' : '#FEF3C7', borderColor: isDark ? '#F5A623' : '#D97706' },
+                              ]}
+                            >
+                              {isDriving ? (
+                                <Ionicons name="car" size={10} color={isDark ? '#F5A623' : '#D97706'} />
+                              ) : (
+                                <View
+                                  style={[
+                                    styles.avatarStatusDot,
+                                    { backgroundColor: isOnline ? '#30D158' : '#64748B' },
+                                  ]}
+                                />
+                              )}
+                            </View>
+                          </View>
+                        </RadarPulseBeacon>
+
+                        {/* Member Info */}
+                        <View style={styles.memberInfoCol}>
+                          {/* Name + Role Pill */}
+                          <View style={styles.memberNameRow}>
+                            <Text style={[styles.memberName, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
+                              {isSelf ? `${name} (You)` : name}
+                            </Text>
+
+                            <View
+                              style={[
+                                styles.roleTag,
+                                { backgroundColor: roleBg, borderColor: roleBorder },
+                              ]}
+                            >
+                              <Ionicons
+                                name={
+                                  role === 'owner'
+                                    ? 'shield-checkmark'
+                                    : role === 'co_leader'
+                                    ? 'shield'
+                                    : role === 'guardian'
+                                    ? 'eye'
+                                    : 'person'
+                                }
+                                size={10}
+                                color={roleColor}
+                              />
+                              <Text style={[styles.roleTagText, { color: roleColor }]}>
+                                {roleLabel}
                               </Text>
                             </View>
-                          )}
-                          <View
-                            style={[
-                              styles.avatarStatusBadge,
-                              isDark && { backgroundColor: '#101114', borderColor: '#101114' },
-                              isDriving && { backgroundColor: isDark ? 'rgba(245, 166, 35, 0.20)' : '#FEF3C7', borderColor: isDark ? '#F5A623' : '#D97706' },
-                            ]}
-                          >
-                            {isDriving ? (
-                              <Ionicons name="car" size={10} color={isDark ? '#F5A623' : '#D97706'} />
-                            ) : (
-                              <View
-                                style={[
-                                  styles.avatarStatusDot,
-                                  { backgroundColor: isOnline ? '#30D158' : '#64748B' },
-                                ]}
-                              />
+                          </View>
+
+                          {/* Live Location / Zone Status with Icon */}
+                          <View style={styles.memberStatusRow}>
+                            <Ionicons
+                              name={
+                                isDriving
+                                  ? 'car-outline'
+                                  : isInSafePlace
+                                  ? 'home-outline'
+                                  : isOnline
+                                  ? 'radio-outline'
+                                  : 'time-outline'
+                              }
+                              size={12}
+                              color={
+                                isDriving
+                                  ? '#F5A623'
+                                  : isInSafePlace
+                                  ? '#30D158'
+                                  : isOnline
+                                  ? (isDark ? '#30D158' : '#2E7D5B')
+                                  : (isDark ? '#64748B' : '#9CA3AF')
+                              }
+                            />
+                            <Text style={[styles.memberStatusText, isDark && { color: '#94A3B8' }]} numberOfLines={1}>
+                              {isDriving
+                                ? 'In transit • Driving'
+                                : isInSafePlace && member.latestPlaceEvent?.occurred_at
+                                ? `In ${placeName} • ${formatZoneArrival(member.latestPlaceEvent.occurred_at).sinceText}`
+                                : isOnline
+                                ? 'Active now • Live GPS'
+                                : (member.lastActiveText || member.lastSeenText || 'Active recently')}
+                            </Text>
+
+                            {isGhostMode && (
+                              <View style={[styles.ghostPill, isDark && { backgroundColor: '#1E293B', borderColor: '#334155' }]}>
+                                <Ionicons name="eye-off" size={9} color={isDark ? '#94A3B8' : '#64748B'} />
+                                <Text style={[styles.ghostPillText, isDark && { color: '#94A3B8' }]}>Ghost</Text>
+                              </View>
                             )}
                           </View>
                         </View>
-                      </RadarPulseBeacon>
 
-                      {/* Member Info */}
-                      <View style={styles.memberInfoCol}>
-                        {/* Name + Role Pill */}
-                        <View style={styles.memberNameRow}>
-                          <Text style={[styles.memberName, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
-                            {isSelf ? `${name} (You)` : name}
-                          </Text>
-
+                        {/* Right Edge: Battery Pill & Sleek Chevron */}
+                        <View style={styles.cardHeaderRightIcons}>
                           <View
                             style={[
-                              styles.roleTag,
-                              { backgroundColor: roleBg, borderColor: roleBorder },
+                              styles.cardBatteryPill,
+                              isDark && { backgroundColor: '#1A1C22' },
+                              isLowBattery && { backgroundColor: isDark ? '#4A1D1D' : '#FFDAD7' },
                             ]}
                           >
                             <Ionicons
-                              name={
-                                role === 'owner'
-                                  ? 'shield-checkmark'
-                                  : role === 'co_leader'
-                                  ? 'shield'
-                                  : role === 'guardian'
-                                  ? 'eye'
-                                  : 'person'
-                              }
-                              size={10}
-                              color={roleColor}
+                              name={isLowBattery ? 'battery-dead' : 'battery-full'}
+                              size={11}
+                              color={isLowBattery ? '#EF4444' : batteryPctVal > 50 ? (isDark ? '#30D158' : '#16A34A') : '#F59E0B'}
                             />
-                            <Text style={[styles.roleTagText, { color: roleColor }]}>
-                              {roleLabel}
+                            <Text
+                              style={[
+                                styles.cardBatteryText,
+                                isDark && { color: '#F1F5F9' },
+                                isLowBattery && { color: '#EF4444', fontWeight: '800' },
+                              ]}
+                            >
+                              {battery}
                             </Text>
                           </View>
-                        </View>
-
-                        {/* Live Location / Zone Status with Icon */}
-                        <View style={styles.memberStatusRow}>
-                          <Ionicons
-                            name={
-                              isDriving
-                                ? 'car-outline'
-                                : isInSafePlace
-                                ? 'home-outline'
-                                : isOnline
-                                ? 'radio-outline'
-                                : 'time-outline'
-                            }
-                            size={12}
-                            color={
-                              isDriving
-                                ? '#F5A623'
-                                : isInSafePlace
-                                ? '#30D158'
-                                : isOnline
-                                ? (isDark ? '#30D158' : '#2E7D5B')
-                                : (isDark ? '#64748B' : '#9CA3AF')
-                            }
-                          />
-                          <Text style={[styles.memberStatusText, isDark && { color: '#94A3B8' }]} numberOfLines={1}>
-                            {isDriving
-                              ? 'In transit • Driving'
-                              : isInSafePlace && member.latestPlaceEvent?.occurred_at
-                              ? `In ${placeName} • ${formatZoneArrival(member.latestPlaceEvent.occurred_at).sinceText}`
-                              : isOnline
-                              ? 'Active now • Live GPS'
-                              : (member.lastActiveText || member.lastSeenText || 'Active recently')}
-                          </Text>
-
-                          {isGhostMode && (
-                            <View style={[styles.ghostPill, isDark && { backgroundColor: '#1E293B', borderColor: '#334155' }]}>
-                              <Ionicons name="eye-off" size={9} color={isDark ? '#94A3B8' : '#64748B'} />
-                              <Text style={[styles.ghostPillText, isDark && { color: '#94A3B8' }]}>Ghost</Text>
-                            </View>
-                          )}
+                          <Ionicons name="chevron-forward" size={16} color={isDark ? '#475569' : '#B5C4BB'} />
                         </View>
                       </View>
-
-                      {/* Right Edge: Battery Pill & Sleek Chevron */}
-                      <View style={styles.cardHeaderRightIcons}>
-                        <View
-                          style={[
-                            styles.cardBatteryPill,
-                            isDark && { backgroundColor: '#1A1C22' },
-                            isLowBattery && { backgroundColor: isDark ? '#4A1D1D' : '#FFDAD7' },
-                          ]}
-                        >
-                          <Ionicons
-                            name={isLowBattery ? 'battery-dead' : 'battery-full'}
-                            size={11}
-                            color={isLowBattery ? '#EF4444' : batteryPctVal > 50 ? (isDark ? '#30D158' : '#16A34A') : '#F59E0B'}
-                          />
-                          <Text
-                            style={[
-                              styles.cardBatteryText,
-                              isDark && { color: '#F1F5F9' },
-                              isLowBattery && { color: '#EF4444', fontWeight: '800' },
-                            ]}
-                          >
-                            {battery}
-                          </Text>
-                        </View>
-                        <Ionicons name="chevron-forward" size={16} color={isDark ? '#475569' : '#B5C4BB'} />
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                </View>
-              );
-            })}
-          </View>
-        ) : (
-          <View style={[styles.emptyCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
-            <Ionicons name="search-outline" size={32} color={isDark ? '#30D158' : '#2E7D5B'} />
-            <Text style={[styles.emptyCardTitle, isDark && { color: '#FFFFFF' }]}>No Members Match Filter</Text>
-            <Text style={[styles.emptyCardSub, isDark && { color: '#9EACA3' }]}>
-              Try clearing your search query or selecting "All" to view all circle members.
-            </Text>
-            <TouchableOpacity
-              style={[styles.clearFilterBtn, isDark && { backgroundColor: '#1A1C22' }]}
-              onPress={() => { setMemberFilter('all'); setMemberSearchQuery(''); }}
-            >
-              <Text style={[styles.clearFilterBtnText, isDark && { color: '#30D158' }]}>Reset Filter</Text>
-            </TouchableOpacity>
-          </View>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+          ) : displayMembers.length > 0 ? (
+            <View style={[styles.emptyCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
+              <Ionicons name="search-outline" size={32} color={isDark ? '#30D158' : '#2E7D5B'} />
+              <Text style={[styles.emptyCardTitle, isDark && { color: '#FFFFFF' }]}>No Members Match Filter</Text>
+              <Text style={[styles.emptyCardSub, isDark && { color: '#9EACA3' }]}>
+                Try clearing your search query or selecting "All" to view all circle members.
+              </Text>
+              <TouchableOpacity
+                style={[styles.clearFilterBtn, isDark && { backgroundColor: '#1A1C22' }]}
+                onPress={() => { setMemberFilter('all'); setMemberSearchQuery(''); }}
+              >
+                <Text style={[styles.clearFilterBtnText, isDark && { color: '#30D158' }]}>Reset Filter</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={[styles.emptyCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
+              <Ionicons name="people-outline" size={32} color={isDark ? '#FFFFFF' : '#0F172A'} />
+              <Text style={[styles.emptyCardTitle, isDark && { color: '#FFFFFF' }]}>No Circle Members</Text>
+              <Text style={[styles.emptyCardSub, isDark && { color: '#9EACA3' }]}>
+                Invite family members using your private invite code below.
+              </Text>
+            </View>
+          )
         )}
 
         {/* Monitored Safe Places */}
@@ -1046,39 +1196,122 @@ export default function BillionDollarCircleView() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={[styles.sectionTitle, isDark && { color: '#FFFFFF' }]}>Monitored Places</Text>
             <View style={[styles.countBadge, isDark && { backgroundColor: '#1A1C22' }]}>
-              <Text style={[styles.countText, isDark && { color: '#30D158' }]}>{circlePlaces.length}</Text>
+              <Text style={[styles.countText, isDark && { color: '#FFFFFF' }]}>{circlePlaces.length}</Text>
             </View>
           </View>
           <TouchableOpacity onPress={() => navigateToScreen('SafePlaces')}>
-            <Text style={[styles.sectionLink, isDark && { color: '#30D158' }]}>Manage All</Text>
+            <Text style={[styles.sectionLink, isDark && { color: '#FFFFFF' }]}>Manage All</Text>
           </TouchableOpacity>
         </View>
 
         {circlePlaces && circlePlaces.length > 0 ? (
-          circlePlaces.map((place) => (
-            <View key={place.id} style={[styles.placeCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
-              <View style={[styles.placeIconBox, { backgroundColor: isDark ? 'rgba(48, 209, 88, 0.15)' : '#E8F5EE' }]}>
-                <Ionicons name="location" size={20} color={isDark ? '#30D158' : '#2E7D5B'} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.placeName, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
-                    {place.name}
-                  </Text>
-                  <View style={[styles.avatarStatusDot, { width: 6, height: 6, backgroundColor: '#30D158' }]} />
-                </View>
-                <Text style={[styles.placeMeta, isDark && { color: '#94A3B8' }]}>
-                  Radius {place.radius_m || 150}m · Entry & Exit notifications
-                </Text>
-              </View>
+          circlePlaces.map((place) => {
+            const rawNameLower = (place.name || '').toLowerCase();
+            const placeCategory = place.category || (rawNameLower.includes('home') ? 'home' : rawNameLower.includes('school') ? 'school' : rawNameLower.includes('work') ? 'work' : rawNameLower.includes('gym') ? 'fitness' : 'general');
+            const catIcon = placeCategory === 'home' ? 'home' : placeCategory === 'work' ? 'briefcase' : placeCategory === 'school' ? 'school' : placeCategory === 'fitness' ? 'fitness' : 'shield-checkmark';
+
+            const occupants = filteredMembers.filter(
+              (m) => m.latestPlaceEvent?.place_id === place.id && m.latestPlaceEvent?.event_type === 'arrival'
+            );
+
+            return (
               <TouchableOpacity
-                style={[styles.placeEditBtn, isDark && { backgroundColor: '#1A1C22' }]}
+                key={place.id}
+                style={[
+                  styles.placeCard,
+                  isDark && { backgroundColor: '#101114', borderColor: occupants.length > 0 ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255, 255, 255, 0.08)' },
+                ]}
                 onPress={() => navigateToScreen('SafePlaces')}
+                activeOpacity={0.8}
               >
-                <Ionicons name="options-outline" size={18} color={isDark ? '#94A3B8' : '#444656'} />
+                <View
+                  style={[
+                    styles.placeIconBox,
+                    {
+                      backgroundColor: occupants.length > 0
+                        ? (isDark ? 'rgba(16, 185, 129, 0.15)' : '#DCFCE7')
+                        : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'),
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={occupants.length > 0 ? 'shield-checkmark' : (catIcon as any)}
+                    size={18}
+                    color={occupants.length > 0 ? '#10B981' : (isDark ? '#FFFFFF' : '#0F172A')}
+                  />
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                    <Text style={[styles.placeName, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
+                      {place.name}
+                    </Text>
+
+                    {occupants.length > 0 ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#DCFCE7', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: '#10B981' }}>
+                        <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#10B981' }} />
+                        <Text style={{ fontSize: 9, fontWeight: '800', color: isDark ? '#34D399' : '#047857' }}>
+                          {occupants.length} INSIDE
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F8FAFC', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0' }}>
+                        <Text style={{ fontSize: 8.5, fontWeight: '700', color: isDark ? '#94A3B8' : '#64748B' }}>
+                          ARMED
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <Text style={[styles.placeMeta, isDark && { color: '#94A3B8' }]}>
+                    Radius {place.radius_m || 150}m · Instant Arrival & Exit Radar
+                  </Text>
+
+                  {/* Occupant member pills if any inside */}
+                  {occupants.length > 0 && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>
+                      {occupants.map((occ) => {
+                        const occName = occ.profile?.full_name?.split(' ')[0] || 'Member';
+                        return (
+                          <View
+                            key={occ.user_id || (occ as any).id}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 4,
+                              backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+                              paddingHorizontal: 6,
+                              paddingVertical: 2,
+                              borderRadius: 10,
+                              borderWidth: 1,
+                              borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
+                            }}
+                          >
+                            <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: isDark ? '#FFFFFF' : '#0F172A', alignItems: 'center', justifyContent: 'center' }}>
+                              <Text style={{ fontSize: 7, fontWeight: '900', color: isDark ? '#000000' : '#FFFFFF' }}>
+                                {occName.charAt(0)}
+                              </Text>
+                            </View>
+                            <Text style={{ fontSize: 9.5, fontWeight: '700', color: isDark ? '#FFFFFF' : '#0F172A' }}>
+                              {occName}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.placeEditBtn, isDark && { backgroundColor: '#1A1C22' }]}
+                  onPress={() => navigateToScreen('SafePlaces')}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="chevron-forward" size={16} color={isDark ? '#94A3B8' : '#64748B'} />
+                </TouchableOpacity>
               </TouchableOpacity>
-            </View>
-          ))
+            );
+          })
         ) : (
           <View style={[styles.emptyPlaceCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
             <Text style={[styles.emptyPlaceText, isDark && { color: '#94A3B8' }]}>
@@ -1093,23 +1326,23 @@ export default function BillionDollarCircleView() {
           onPress={() => navigateToScreen('SafePlaces')}
           activeOpacity={0.8}
         >
-          <Ionicons name="add-circle-outline" size={18} color={isDark ? '#30D158' : '#2E7D5B'} />
-          <Text style={[styles.addPlaceText, isDark && { color: '#30D158' }]}>Add New Safe Place</Text>
+          <Ionicons name="add-circle-outline" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
+          <Text style={[styles.addPlaceText, isDark && { color: '#FFFFFF' }]}>Configure New Safe Zone</Text>
         </TouchableOpacity>
 
         {/* Family Invite Code Section */}
         <View style={[styles.inviteCard, isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' }]}>
           <View style={styles.inviteCardTop}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="key" size={18} color={isDark ? '#30D158' : '#2E7D5B'} />
+              <Ionicons name="key" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
               <Text style={[styles.inviteCardTitle, isDark && { color: '#FFFFFF' }]}>Family Invite Key & QR</Text>
             </View>
             <TouchableOpacity
               style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
               onPress={handleCopyCode}
             >
-              <Ionicons name="copy-outline" size={14} color={isDark ? '#30D158' : '#2E7D5B'} />
-              <Text style={[styles.copyLinkText, isDark && { color: '#30D158' }]}>{copyStatus}</Text>
+              <Ionicons name="copy-outline" size={14} color={isDark ? '#FFFFFF' : '#0F172A'} />
+              <Text style={[styles.copyLinkText, isDark && { color: '#FFFFFF' }]}>{copyStatus}</Text>
             </TouchableOpacity>
           </View>
 
@@ -1144,7 +1377,7 @@ export default function BillionDollarCircleView() {
               onPress={handleCopyCode}
               activeOpacity={0.7}
             >
-              <Ionicons name="copy-outline" size={13} color={isDark ? '#30D158' : '#2E7D5B'} />
+              <Ionicons name="copy-outline" size={13} color={isDark ? '#FFFFFF' : '#0F172A'} />
               <Text style={[styles.codeActionText, isDark && { color: '#FFFFFF' }]}>Copy Code</Text>
             </TouchableOpacity>
 
@@ -1153,12 +1386,12 @@ export default function BillionDollarCircleView() {
               onPress={handleShareSMS}
               activeOpacity={0.7}
             >
-              <Ionicons name="share-social-outline" size={13} color={isDark ? '#30D158' : '#2E7D5B'} />
+              <Ionicons name="share-social-outline" size={13} color={isDark ? '#FFFFFF' : '#0F172A'} />
               <Text style={[styles.codeActionText, isDark && { color: '#FFFFFF' }]}>Share Link</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.codeActionBtnActive, isDark && { backgroundColor: '#30D158' }]}
+              style={[styles.codeActionBtnActive, isDark && { backgroundColor: '#FFFFFF' }]}
               onPress={() => setQrModalVisible(true)}
               activeOpacity={0.8}
             >
@@ -1310,9 +1543,9 @@ export default function BillionDollarCircleView() {
             </TouchableOpacity>
           </View>
           <CircleHierarchyTree
-            members={members}
+            members={displayMembers}
             currentUserId={profile?.id}
-            circleOwnerId={activeCircle?.owner_id || (activeCircle as any)?.created_by}
+            circleOwnerId={trueLeaderId || activeCircle?.owner_id || (activeCircle as any)?.created_by}
             isOwner={isOwner}
             canManageRanks={canManageRanks}
             onSelectMember={(m) => {
@@ -1501,15 +1734,15 @@ export default function BillionDollarCircleView() {
         <TouchableOpacity
           style={[
             styles.floatingBackToTopBtn,
-            isDark && { backgroundColor: '#16221C', borderColor: '#2E4A3B' },
+            isDark && { backgroundColor: '#1A1C22', borderColor: 'rgba(255, 255, 255, 0.12)' },
           ]}
           onPress={() => scrollViewRef.current?.scrollTo({ y: 0, animated: true })}
           activeOpacity={0.84}
         >
-          <View style={[styles.floatingBackToTopIconWrap, isDark && { backgroundColor: 'rgba(58, 223, 171, 0.16)' }]}>
-            <Ionicons name="arrow-up" size={13} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+          <View style={[styles.floatingBackToTopIconWrap, isDark && { backgroundColor: 'rgba(255, 255, 255, 0.08)' }]}>
+            <Ionicons name="arrow-up" size={13} color={isDark ? '#FFFFFF' : '#0F172A'} />
           </View>
-          <Text style={[styles.floatingBackToTopText, isDark && { color: '#E8F5EE' }]}>
+          <Text style={[styles.floatingBackToTopText, isDark && { color: '#FFFFFF' }]}>
             {circleName} • Top
           </Text>
         </TouchableOpacity>
@@ -1536,7 +1769,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#3ADFAB',
+    backgroundColor: '#0F172A',
     marginRight: 2,
   },
   floatingBackToTopWrap: {
@@ -1554,7 +1787,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#D8E2DC',
+    borderColor: '#E2E8F0',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.14,
@@ -1565,7 +1798,7 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1573,15 +1806,15 @@ const styles = StyleSheet.create({
     fontFamily: SANS_FONT,
     fontSize: 12,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
   },
   quickSwitchBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(212, 175, 55, 0.25)',
+    borderColor: 'rgba(255, 255, 255, 0.16)',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -1597,7 +1830,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#FAF9F6',
+    backgroundColor: '#F8FAFC',
   },
   header: {
     height: 56,
@@ -1605,9 +1838,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    backgroundColor: 'rgba(250, 249, 246, 0.96)',
+    backgroundColor: 'rgba(248, 250, 252, 0.96)',
     borderBottomWidth: 1,
-    borderBottomColor: '#ECEAE4',
+    borderBottomColor: '#E2E8F0',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -1619,7 +1852,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 8,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1627,7 +1860,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 999,
@@ -1637,7 +1870,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 14,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
   },
   headerRight: {
     flexDirection: 'row',
@@ -1671,13 +1904,13 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F0EFEA',
+    backgroundColor: '#F1F5F9',
   },
   profileAvatarBtn: {
     padding: 1,
     borderRadius: 999,
     borderWidth: 1.5,
-    borderColor: '#2E7D5B',
+    borderColor: '#0F172A',
   },
   profileAvatarImg: {
     width: 30,
@@ -1685,7 +1918,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   avatarFallback: {
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1715,14 +1948,14 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 22,
     fontWeight: '800',
-    color: '#1F2A24',
+    color: '#0F172A',
     letterSpacing: -0.3,
   },
   addMemberBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
@@ -1737,7 +1970,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
@@ -1746,12 +1979,12 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
   },
   bannerText: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 12,
-    color: '#5C665F',
+    color: '#64748B',
   },
   commonChatCard: {
     flexDirection: 'row',
@@ -1760,10 +1993,10 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#EDEBE6',
+    borderColor: '#E2E8F0',
     marginBottom: 16,
     gap: 12,
-    shadowColor: '#1F2A24',
+    shadowColor: '#000000',
     shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 10,
@@ -1773,7 +2006,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1781,10 +2014,10 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 15,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
   },
   liveChatBadge: {
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 999,
@@ -1793,19 +2026,19 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 10,
     fontWeight: '700',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   commonChatSub: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 12,
-    color: '#5C665F',
+    color: '#64748B',
     marginTop: 2,
   },
   commonChatAction: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
@@ -1814,7 +2047,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 12,
     fontWeight: '700',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -1827,10 +2060,10 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 15,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
   },
   countBadge: {
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 999,
@@ -1839,13 +2072,13 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 11,
     fontWeight: '700',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   sectionLink: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 12,
     fontWeight: '600',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   memberFilterScroll: {
     flexDirection: 'row',
@@ -1860,19 +2093,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 20,
-    backgroundColor: '#F0F5F2',
+    backgroundColor: '#F1F5F9',
     borderWidth: 1,
-    borderColor: '#D8E5DE',
+    borderColor: '#E2E8F0',
   },
   memberFilterChipActive: {
-    backgroundColor: '#2E7D5B',
-    borderColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
   },
   memberFilterChipText: {
     fontFamily: SANS_FONT,
     fontSize: 12,
     fontWeight: '600',
-    color: '#475C50',
+    color: '#64748B',
   },
   memberFilterChipTextActive: {
     color: '#FFFFFF',
@@ -1947,7 +2180,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#006C4F',
+    backgroundColor: '#0F172A',
   },
   memberInfoCol: {
     flex: 1,
@@ -1995,12 +2228,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   roleTag: {
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 7,
     paddingVertical: 2.5,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#D4E8DC',
+    borderColor: '#E2E8F0',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
@@ -2168,14 +2401,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: 10,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     marginTop: 6,
   },
   clearFilterBtnText: {
     fontFamily: SANS_FONT,
     fontSize: 12,
     fontWeight: '700',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   placeCard: {
     backgroundColor: '#FFFFFF',
@@ -2186,8 +2419,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     borderWidth: 1,
-    borderColor: '#E2ECE6',
-    shadowColor: '#151C27',
+    borderColor: '#E2E8F0',
+    shadowColor: '#000000',
     shadowOpacity: 0.04,
     shadowRadius: 6,
   },
@@ -2216,15 +2449,15 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EFF6F2',
+    backgroundColor: '#F1F5F9',
   },
   emptyPlaceCard: {
-    backgroundColor: '#F4F9F6',
+    backgroundColor: '#F8FAFC',
     borderRadius: 14,
     padding: 14,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#E2ECE6',
+    borderColor: '#E2E8F0',
   },
   emptyPlaceText: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
@@ -2233,10 +2466,10 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   addPlaceCard: {
-    backgroundColor: '#F2FAF6',
+    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     borderWidth: 1.2,
-    borderColor: '#D4E8DC',
+    borderColor: '#CBD5E1',
     borderStyle: 'dashed',
     paddingVertical: 12,
     flexDirection: 'row',
@@ -2250,16 +2483,16 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 13,
     fontWeight: '700',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   inviteCard: {
-    backgroundColor: '#F2FAF6',
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 16,
     gap: 10,
     borderWidth: 1.2,
-    borderColor: '#D4E8DC',
-    shadowColor: '#151C27',
+    borderColor: '#E2E8F0',
+    shadowColor: '#000000',
     shadowOpacity: 0.03,
     shadowRadius: 8,
   },
@@ -2278,7 +2511,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 12,
     fontWeight: '700',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   inviteCodeRow: {
     flexDirection: 'row',
@@ -2289,7 +2522,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: '#DFEAE3',
+    borderColor: '#E2E8F0',
   },
   inviteCodeText: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
@@ -2301,7 +2534,7 @@ const styles = StyleSheet.create({
   inviteCodeSub: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 11,
-    color: '#5C665F',
+    color: '#64748B',
     fontWeight: '500',
     marginTop: 2,
   },
@@ -2330,7 +2563,7 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2348,7 +2581,7 @@ const styles = StyleSheet.create({
     gap: 4,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#D4E8DC',
+    borderColor: '#E2E8F0',
     paddingHorizontal: 8,
     paddingVertical: 8,
     borderRadius: 10,
@@ -2357,7 +2590,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 11,
     fontWeight: '700',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   codeActionBtnActive: {
     flex: 1,
@@ -2368,7 +2601,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 8,
     borderRadius: 10,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
   },
   codeActionTextActive: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
@@ -2510,6 +2743,51 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#926C15',
   },
+  segmentContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 2.5,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 2,
+  },
+  segmentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 7,
+    paddingVertical: 3.5,
+    borderRadius: 7,
+    gap: 3,
+  },
+  segmentBtnActiveLight: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  segmentBtnActiveDark: {
+    backgroundColor: '#20252C',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  segmentBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  inlineTreeCard: {
+    width: '100%',
+    height: 480,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginTop: 4,
+    marginBottom: 16,
+  },
   escalationStrip: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -2568,19 +2846,35 @@ const styles = StyleSheet.create({
   hierarchyModalTitle: {
     fontSize: 17,
     fontWeight: '800',
-    color: '#1F2A24',
+    color: '#0F172A',
   },
   hierarchyModalSub: {
     fontSize: 12,
-    color: '#6E7E74',
+    color: '#64748B',
     marginTop: 2,
   },
   hierarchyCloseBtn: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  reactBitsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+  },
+  reactBitsBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 });

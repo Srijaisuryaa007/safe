@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, Vibration, Linking, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, Vibration, Linking, Animated, Easing, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
@@ -148,9 +148,26 @@ export default function GlobalSOSModal({ onNavigateToMap }: GlobalSOSModalProps)
   };
 
   const handleCallSender = () => {
-    const phone = activeSOS?.profiles?.phone;
+    const phone = activeSOS?.profiles?.phone || senderMember?.profile?.phone;
     if (phone) {
       Linking.openURL(`tel:${phone}`);
+    }
+  };
+
+  const handleSmsSender = () => {
+    const phone = activeSOS?.profiles?.phone || senderMember?.profile?.phone;
+    if (phone) {
+      const cleanPhone = phone.replace(/[^\d+]/g, '');
+      const separator = Platform.OS === 'ios' ? '&' : '?';
+      const smsUri = `sms:${cleanPhone}${separator}body=${encodeURIComponent(`I received your CircleGuard SOS alert! Help is on the way!`)}`;
+      Linking.openURL(smsUri).catch(() => {});
+    }
+  };
+
+  const handleViewOnMap = () => {
+    if (activeSOS?.user_id && onNavigateToMap) {
+      onNavigateToMap(activeSOS.user_id);
+      setActiveSOS(null);
     }
   };
 
@@ -179,12 +196,28 @@ export default function GlobalSOSModal({ onNavigateToMap }: GlobalSOSModalProps)
           </Text>
 
           <View style={styles.actionButtons}>
-            {senderPhone ? (
-              <TouchableOpacity style={styles.callButton} onPress={handleCallSender}>
-                <Ionicons name="call" size={20} color="#FFFFFF" />
-                <Text style={styles.callButtonText}>CALL {senderName.split(' ')[0].toUpperCase()}</Text>
+            {onNavigateToMap && (
+              <TouchableOpacity style={styles.mapButton} onPress={handleViewOnMap}>
+                <Ionicons name="navigate" size={18} color="#FFFFFF" />
+                <Text style={styles.mapButtonText}>VIEW ON LIVE MAP</Text>
               </TouchableOpacity>
-            ) : null}
+            )}
+
+            <View style={styles.contactRow}>
+              {senderPhone ? (
+                <TouchableOpacity style={styles.callButton} onPress={handleCallSender}>
+                  <Ionicons name="call" size={18} color="#000000" />
+                  <Text style={styles.callButtonText}>CALL</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              {senderPhone ? (
+                <TouchableOpacity style={styles.smsButton} onPress={handleSmsSender}>
+                  <Ionicons name="chatbubble-ellipses" size={18} color="#FFFFFF" />
+                  <Text style={styles.smsButtonText}>SMS</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
 
             <TouchableOpacity style={styles.dismissButton} onPress={handleDismiss}>
               <Text style={styles.dismissText}>DISMISS ALARM</Text>
@@ -270,15 +303,55 @@ const styles = StyleSheet.create({
     width: '100%',
     gap: 12,
   },
-  callButton: {
+  mapButton: {
     flexDirection: 'row',
     height: 52,
-    backgroundColor: '#10B981',
+    backgroundColor: '#3B82F6',
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 8,
+    borderRadius: 8,
+  },
+  mapButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+  },
+  contactRow: {
+    flexDirection: 'row',
     gap: 10,
+    width: '100%',
+  },
+  callButton: {
+    flex: 1,
+    flexDirection: 'row',
+    height: 52,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 8,
   },
   callButtonText: {
+    color: '#000000',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+  },
+  smsButton: {
+    flex: 1,
+    flexDirection: 'row',
+    height: 52,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 8,
+  },
+  smsButtonText: {
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
@@ -290,6 +363,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',
+    borderRadius: 8,
   },
   dismissText: {
     color: '#FFFFFF',

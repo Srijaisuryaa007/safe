@@ -80,12 +80,45 @@ export class StorageRecoveryService {
         '@circleguard_route_preview_',
         '@circleguard_tree_hierarchy_',
         '@circleguard_transit_corridor_',
+        '@circleguard_transit_',
         '@circleguard_last_crit_sync_',
+        '@circleguard_historical_telematics_',
+        '@circleguard_driving_report_',
+        '@circleguard_activity_events_',
+        '@circleguard_offline_locations_queue_',
+        '@circleguard_geofence_state_',
+        '@circleguard_zone_events_',
+        '@circleguard_location_history_',
+        '@circleguard_custom_area',
+        '@circleguard_custom_road',
+        '@circleguard_last_user_location',
+        'offline_locations_queue',
+        'dismissed_sos_ids',
+        'location_history_',
       ];
 
-      const keysToRemove = allKeys.filter((key) =>
+      let keysToRemove = allKeys.filter((key) =>
         transientPrefixes.some((prefix) => key.startsWith(prefix))
       );
+
+      // Tier 2 Emergency Pruning: If transient prefixes yielded nothing, identify any non-critical key
+      if (keysToRemove.length === 0) {
+        const criticalPrefixes = [
+          '@circleguard_auth_session',
+          '@circleguard_cached_profile',
+          '@circleguard_active_circle_id',
+          '@circleguard_cached_active_circle',
+          '@circleguard_cached_circles',
+          '@circleguard_cached_members',
+          '@circleguard_cached_geofence_places',
+          '@circleguard_is_premium',
+          '@circleguard_emergency',
+          '@circleguard_primary_contact',
+        ];
+        keysToRemove = allKeys.filter(
+          (k) => !criticalPrefixes.some((crit) => k.startsWith(crit))
+        );
+      }
 
       if (keysToRemove.length > 0) {
         console.log(`[StorageRecovery] Evicting ${keysToRemove.length} transient cache keys from SQLite storage.`);

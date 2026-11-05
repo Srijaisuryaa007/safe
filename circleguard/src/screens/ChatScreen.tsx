@@ -19,6 +19,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSafeTopInset } from '../utils/safeArea';
 import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore } from '../store/useCircleStore';
@@ -32,13 +33,57 @@ import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import { RateLimiter } from '../services/RateLimiter';
 import { ValidationSchema } from '../lib/validationSchema';
 import { handleServiceError } from '../lib/errorHandler';
+import {
+  Chat5Header,
+  Chat5MessageItem,
+  Chat5Composer,
+  Chat5AttachmentSheet,
+  Chat5MembersModal,
+  Chat5Attachment,
+  parseMessageAttachment,
+} from '../components/chat/ReactBitsChat5';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as WebBrowser from 'expo-web-browser';
+import { decode } from 'base64-arraybuffer';
+import {
+  validateAttachmentUpload,
+  validateImageUpload,
+  MAX_ATTACHMENT_SIZE_BYTES,
+} from '../lib/fileUploadSecurity';
+import ChatImageViewerModal from '../components/chat/ChatImageViewerModal';
+
+async function readAttachmentAsBase64Async(uri: string): Promise<string> {
+  try {
+    return await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+  } catch (fsErr) {
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const res = reader.result as string;
+          const commaIdx = res.indexOf(',');
+          resolve(commaIdx !== -1 ? res.substring(commaIdx + 1) : res);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      throw fsErr;
+    }
+  }
+}
 
 export interface ChatMessage {
   id: string;
   circle_id: string;
   sender_id: string;
   content: string;
-  message_type: 'text' | 'location' | 'safety_pill';
+  message_type: 'text' | 'location' | 'safety_pill' | 'image' | 'file';
   media_url?: string;
   created_at: string;
   expires_at?: string | null;
@@ -49,6 +94,8 @@ export interface ChatMessage {
   sender_avatar?: string;
   is_viewed_by_me?: boolean;
   reactions?: Record<string, string[]>;
+  attachment?: Chat5Attachment;
+  replies_count?: number;
 }
 
 export interface TaggedMemberInfo {
@@ -88,7 +135,12 @@ export default function ChatScreen() {
   const [sending, setSending] = useState(false);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [selectedReactionMsgId, setSelectedReactionMsgId] = useState<string | null>(null);
+  const [reactionTargetMsgId, setReactionTargetMsgId] = useState<string | null>(null);
   const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
+  const [attachmentSheetVisible, setAttachmentSheetVisible] = useState(false);
+  const [membersModalVisible, setMembersModalVisible] = useState(false);
+  const [selectedViewerAttachment, setSelectedViewerAttachment] = useState<Chat5Attachment | null>(null);
+  const [selectedViewerMsgId, setSelectedViewerMsgId] = useState<string | null>(null);
 
   // Active Tagged Member State
   const [taggedMember, setTaggedMember] = useState<TaggedMemberInfo | null>(null);
@@ -97,6 +149,184 @@ export default function ChatScreen() {
   const inputRef = useRef<any>(null);
   const channelRef = useRef<any>(null);
   const typingTimeoutRef = useRef<any>(null);
+
+  const uploadChatAttachmentFile = async (
+    userId: string,
+    fileName: string,
+    base64Data: string,
+    contentType: string
+  ): Promise<string> => {
+    const cleanBase64 = base64Data.replace(/^data:[a-zA-Z0-9/+-]+;base64,/, '').trim();
+    const fileBytes = decode(cleanBase64);
+    const cleanExt = fileName.split('.').pop() || 'bin';
+    const cleanBaseName = fileName.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
+    const storagePath = `${userId}/chat_${Date.now()}_${cleanBaseName}.${cleanExt}`;
+
+    const bucket = 'chat-attachments';
+    let uploadRes = await supabase.storage
+      .from(bucket)
+      .upload(storagePath, fileBytes, { contentType, upsert: true });
+
+    if (uploadRes.error) {
+      console.warn('Initial chat-attachments upload note, retrying standard upload:', uploadRes.error);
+      uploadRes = await supabase.storage
+        .from(bucket)
+        .upload(storagePath, fileBytes, { contentType, upsert: false });
+    }
+
+    if (uploadRes.error) {
+      console.error('Chat attachment storage upload failed:', uploadRes.error);
+      throw uploadRes.error;
+    }
+
+    const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storagePath);
+    return urlData.publicUrl;
+  };
+
+  const handlePickPhotoAttachment = async () => {
+    if (!profile?.id) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Camera roll permission is required to attach photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+      const asset = result.assets[0];
+      setSending(true);
+
+      const base64 = asset.base64 || (await readAttachmentAsBase64Async(asset.uri));
+
+      const validation = validateImageUpload({
+        base64Content: base64,
+        fileSizeBytes: asset.fileSize,
+        userId: profile.id,
+        maxSizeBytes: MAX_ATTACHMENT_SIZE_BYTES,
+        prefix: 'chat_photo',
+      });
+
+      if (!validation.valid) {
+        Alert.alert('Photo Upload', validation.error || 'Please select a valid image under 25MB.');
+        setSending(false);
+        return;
+      }
+
+      const rawFileName = asset.fileName || `photo-${Date.now().toString().slice(-4)}.${validation.extension || 'jpg'}`;
+      const format = validation.extension?.toUpperCase() || 'JPEG';
+      const dimensions = asset.width && asset.height ? `${asset.width}×${asset.height}` : '1920×1080';
+      const fileSize = asset.fileSize
+        ? (asset.fileSize > 1024 * 1024 ? `${(asset.fileSize / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(asset.fileSize / 1024)} KB`)
+        : '1.2 MB';
+
+      // Upload to Supabase Storage so every circle member can view it across any device
+      const publicUrl = await uploadChatAttachmentFile(
+        profile.id,
+        rawFileName,
+        base64,
+        validation.detectedMimeType || 'image/jpeg'
+      );
+
+      const attachmentPayload = `[ATTACHMENT:IMAGE:${JSON.stringify({
+        name: rawFileName,
+        format,
+        size: fileSize,
+        dimensions,
+        url: publicUrl,
+      })}]`;
+
+      await handleSendText(attachmentPayload, 'text');
+    } catch (err: any) {
+      console.error('Error attaching photo:', err);
+      const userMessage = err?.message || 'Could not upload photo. Please check your internet connection and try again.';
+      Alert.alert('Photo Upload Notice', userMessage);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleAttachDocument = async () => {
+    if (!profile?.id) return;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'text/*', 'application/msword', 'application/vnd.openxmlformats-officedocument.*'],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+      const asset = result.assets[0];
+      const maxLimit = MAX_ATTACHMENT_SIZE_BYTES; // 25MB limit
+
+      if (asset.size && asset.size > maxLimit) {
+        const sizeMb = (asset.size / (1024 * 1024)).toFixed(1);
+        Alert.alert(
+          'File Too Large',
+          `The selected document (${sizeMb}MB) exceeds the maximum allowed limit of 25MB. Please choose a smaller document.`
+        );
+        return;
+      }
+
+      setSending(true);
+
+      const base64 = await readAttachmentAsBase64Async(asset.uri);
+
+      const validation = validateAttachmentUpload({
+        fileName: asset.name,
+        fileSizeBytes: asset.size,
+        userId: profile.id,
+        base64Content: base64,
+        maxSizeBytes: maxLimit,
+      });
+
+      if (!validation.valid) {
+        Alert.alert('Document Upload', validation.error || 'Please select a valid document under 25MB.');
+        setSending(false);
+        return;
+      }
+
+      const fileName = asset.name || `doc-${Date.now().toString().slice(-4)}.pdf`;
+      const format = validation.extension || 'PDF';
+      const sizeStr = asset.size
+        ? (asset.size > 1024 * 1024 ? `${(asset.size / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(asset.size / 1024)} KB`)
+        : '640 KB';
+
+      // Upload to Supabase Storage so every circle member can access and open it
+      const publicUrl = await uploadChatAttachmentFile(
+        profile.id,
+        fileName,
+        base64,
+        validation.mimeType || 'application/pdf'
+      );
+
+      const attachmentPayload = `[ATTACHMENT:FILE:${JSON.stringify({
+        name: fileName,
+        format,
+        size: sizeStr,
+        url: publicUrl,
+      })}] Attaching ${fileName}`;
+
+      await handleSendText(attachmentPayload, 'text');
+    } catch (err: any) {
+      console.error('Error attaching document:', err);
+      Alert.alert('Document Upload Error', 'Could not upload document. Please ensure the file is under 25MB and try again.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleOpenAttachment = (attachment: Chat5Attachment, messageId?: string) => {
+    setSelectedViewerAttachment(attachment);
+    if (messageId) setSelectedViewerMsgId(messageId);
+  };
 
   // Auto-tag user when navigating to Chat from a user's profile, member card, or action modal
   useEffect(() => {
@@ -441,6 +671,12 @@ export default function ChatScreen() {
           })
         );
       })
+      .on('broadcast', { event: 'message_deleted' }, (payload) => {
+        const { message_id } = payload.payload || {};
+        if (message_id) {
+          setMessages((prev) => prev.filter((m) => m.id !== message_id));
+        }
+      })
       .subscribe();
 
     channelRef.current = channel;
@@ -497,8 +733,19 @@ export default function ChatScreen() {
   }).current;
 
   const handleDeleteMessage = (message: ChatMessage) => {
-    if (message.sender_id !== profile?.id) {
-      Alert.alert('Cannot Delete', 'You can only delete messages sent by you.');
+    // 1. If it's a demo message, remove from UI immediately
+    if (message.id.startsWith('demo-')) {
+      setMessages((prev) => prev.filter((m) => m.id !== message.id));
+      return;
+    }
+
+    // 2. Permission check: Sender can delete their message; Circle owners/co-leaders can delete any message
+    const myMember = members.find((m) => m.user_id === profile?.id);
+    const isLeader = myMember?.role === 'owner' || myMember?.role === 'co_leader' || activeCircle?.owner_id === profile?.id;
+    const isMe = message.sender_id === profile?.id;
+
+    if (!isMe && !isLeader) {
+      Alert.alert('Cannot Delete', 'You can only delete messages sent by you, or be a circle leader to moderate.');
       return;
     }
 
@@ -512,15 +759,35 @@ export default function ChatScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Optimistically remove from state
               setMessages((prev) => prev.filter((m) => m.id !== message.id));
 
-              const { error } = await supabase
+              // Broadcast delete event over channel so all connected circle devices update instantly
+              if (channelRef.current) {
+                channelRef.current.send({
+                  type: 'broadcast',
+                  event: 'message_deleted',
+                  payload: { message_id: message.id },
+                });
+              }
+
+              // First try updating deleted_at (soft delete)
+              const updateRes = await supabase
                 .from('circle_messages')
                 .update({ deleted_at: new Date().toISOString() })
                 .eq('id', message.id)
-                .eq('sender_id', profile.id);
+                .select('id');
 
-              if (error) throw error;
+              // If update returned 0 rows (e.g. RLS blocked update) or error, execute direct DELETE
+              // which is guaranteed by the RLS delete policy:
+              if (updateRes.error || !updateRes.data || updateRes.data.length === 0) {
+                const { error: delError } = await supabase
+                  .from('circle_messages')
+                  .delete()
+                  .eq('id', message.id);
+
+                if (delError) throw delError;
+              }
             } catch (err: any) {
               const cleanMsg = handleServiceError('Chat:deleteMessage', err, 'Failed to delete message. Please try again.');
               Alert.alert('Error', cleanMsg);
@@ -532,18 +799,20 @@ export default function ChatScreen() {
     );
   };
 
-  const EMOJI_OPTIONS = ['❤️', '🛡️', '👍', '🔥', '🚨', '🛑'];
+  const EMOJI_OPTIONS = ['❤️', '👍', '🔥', '😂', '😮', '🙏', '🛡️'];
 
-  const handleToggleReaction = (messageId: string, emoji: string) => {
+  const handleToggleReaction = async (messageId: string, emoji: string) => {
     if (!profile?.id) return;
     const currentUserId = profile.id;
+
+    let updatedReactionsMap: Record<string, string[]> = {};
 
     setMessages((prev) =>
       prev.map((msg) => {
         if (msg.id !== messageId) return msg;
 
-        const currentReactions = msg.reactions || {};
-        const userList = currentReactions[emoji] || [];
+        const currentReactions = { ...(msg.reactions || {}) };
+        const userList = [...(currentReactions[emoji] || [])];
         const hasReacted = userList.includes(currentUserId);
 
         const updatedList = hasReacted
@@ -560,11 +829,36 @@ export default function ChatScreen() {
           });
         }
 
-        return { ...msg, reactions: { ...currentReactions, [emoji]: updatedList } };
+        if (updatedList.length === 0) {
+          delete currentReactions[emoji];
+        } else {
+          currentReactions[emoji] = updatedList;
+        }
+
+        updatedReactionsMap = currentReactions;
+        return { ...msg, reactions: currentReactions };
       })
     );
 
-    setSelectedReactionMsgId(null);
+    if (!reactionTargetMsgId) {
+      setSelectedReactionMsgId(null);
+    }
+
+    try {
+      const { error } = await supabase.rpc('toggle_message_reaction', {
+        p_message_id: messageId,
+        p_emoji: emoji,
+      });
+
+      if (error) {
+        await supabase
+          .from('circle_messages')
+          .update({ reactions: updatedReactionsMap })
+          .eq('id', messageId);
+      }
+    } catch (err) {
+      console.warn('Reaction database update note:', err);
+    }
   };
 
   const handleSendText = async (customContent?: string, messageType: 'text' | 'location' | 'safety_pill' = 'text') => {
@@ -784,12 +1078,12 @@ export default function ChatScreen() {
                 style={[
                   styles.mentionInBubble,
                   {
-                    color: isMeBubble ? '#FFFFFF' : (isDark ? '#3ADFAB' : '#2E7D5B'),
+                    color: isMeBubble ? '#FFFFFF' : (isDark ? '#FFFFFF' : '#0F172A'),
                     backgroundColor: isMeBubble
                       ? 'rgba(255, 255, 255, 0.22)'
                       : isDark
-                      ? 'rgba(58, 223, 171, 0.16)'
-                      : 'rgba(46, 125, 91, 0.12)',
+                      ? 'rgba(255, 255, 255, 0.14)'
+                      : 'rgba(15, 23, 42, 0.08)',
                   },
                 ]}
                 onPress={() => {
@@ -814,210 +1108,43 @@ export default function ChatScreen() {
 
   const renderMessageItem = ({ item }: { item: ChatMessage }) => {
     const isMe = item.sender_id === profile?.id;
-    const initial = String(item.sender_name || 'M').charAt(0).toUpperCase();
-
-    const isLocationMsg = item.message_type === 'location' || item.content.includes('Shared Live Location');
-    const isGifMsg = item.content.startsWith('http') && (item.content.includes('.gif') || item.content.includes('giphy.com'));
     const isReactionOpen = selectedReactionMsgId === item.id;
-    const bubbleThemeStyle = getThemeChatBubbleStyles(themeMode, isMe);
-
-    const reactionEntries = Object.entries(item.reactions || {}).filter(([_, users]) => users && users.length > 0);
 
     return (
-      <View style={[styles.messageRow, isMe ? styles.myMessageRow : styles.theirMessageRow]}>
-        {!isMe ? (
-          <TouchableOpacity
-            style={[styles.avatarBox, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 16 }]}
-            onPress={() => {
-              if (item.sender_name) {
-                handleTagMember({
-                  id: item.sender_id,
-                  name: item.sender_name,
-                  avatar: item.sender_avatar,
-                });
-              }
-            }}
-            activeOpacity={0.7}
-            accessibilityLabel={`Tag ${item.sender_name || 'member'}`}
-            accessibilityRole="button"
-          >
-            {item.sender_avatar ? (
-              <Image source={{ uri: item.sender_avatar }} style={styles.avatarImg} />
-            ) : (
-              <Text style={[styles.avatarInitial, { color: colors.foreground }]}>{initial}</Text>
-            )}
-          </TouchableOpacity>
-        ) : null}
-
-        <View style={{ maxWidth: '80%', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
-          {!isMe ? (
-            <TouchableOpacity
-              onPress={() => {
-                if (item.sender_name) {
-                  handleTagMember({
-                    id: item.sender_id,
-                    name: item.sender_name,
-                    avatar: item.sender_avatar,
-                  });
-                }
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.senderName, { color: colors.foreground, fontSize: 11, fontWeight: '700', marginBottom: 2 }]}>
-                {item.sender_name} <Text style={{ fontSize: 9.5, color: isDark ? '#3ADFAB' : '#2E7D5B', fontWeight: '600' }}>· Tag</Text>
-              </Text>
-            </TouchableOpacity>
-          ) : null}
-
-          {/* Floating Quick Emoji Reaction Bar */}
-          {isReactionOpen ? (
-            <View style={[styles.floatingEmojiBar, { backgroundColor: colors.surface, borderColor: colors.accentGold, borderRadius: 100 }]}>
-              {EMOJI_OPTIONS.map((emoji) => {
-                const userList = (item.reactions && item.reactions[emoji]) || [];
-                const isReacted = profile?.id ? userList.includes(profile.id) : false;
-                return (
-                  <TouchableOpacity
-                    key={emoji}
-                    style={[styles.emojiPickerBtn, isReacted && { backgroundColor: 'rgba(212, 175, 55, 0.25)' }]}
-                    onPress={() => handleToggleReaction(item.id, emoji)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={{ fontSize: 18 }}>{emoji}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          ) : null}
-
-          {/* Theme Architectural Chat Bubble */}
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => setSelectedReactionMsgId(prev => prev === item.id ? null : item.id)}
-            onLongPress={() => handleDeleteMessage(item)}
-            delayLongPress={300}
-            style={[
-              styles.bubble3D,
-              bubbleThemeStyle,
-            ]}
-          >
-            {isLocationMsg ? (
-              <View style={{ gap: 6, paddingVertical: 2 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="location" size={18} color={bubbleThemeStyle.textColor} />
-                  <Text style={{ color: bubbleThemeStyle.textColor, fontSize: 12, fontWeight: '800' }}>
-                    Shared Live Location
-                  </Text>
-                </View>
-                <Text style={{ color: bubbleThemeStyle.textColor, fontSize: 11, opacity: 0.9 }}>
-                  {item.content.replace('Shared Live Location:', '').replace('📍', '').trim() || 'Tap to view live location on map'}
-                </Text>
-                <TouchableOpacity
-                  style={{
-                    backgroundColor: isMe ? 'rgba(0,0,0,0.15)' : 'rgba(212, 175, 55, 0.15)',
-                    borderRadius: 8,
-                    paddingVertical: 5,
-                    paddingHorizontal: 10,
-                    alignSelf: 'flex-start',
-                    marginTop: 4,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 4,
-                  }}
-                  onPress={() => {
-                    let targetLat: number | undefined;
-                    let targetLng: number | undefined;
-
-                    const pointMatch = item.content.match(/POINT\s*\(\s*(-?\d+\.\d+)\s+(-?\d+\.\d+)\s*\)/i);
-                    if (pointMatch) {
-                      targetLng = parseFloat(pointMatch[1]);
-                      targetLat = parseFloat(pointMatch[2]);
-                    } else {
-                      const coordsMatch = item.content.match(/(-?\d+\.\d+)[,\s]+(-?\d+\.\d+)/);
-                      if (coordsMatch) {
-                        targetLat = parseFloat(coordsMatch[1]);
-                        targetLng = parseFloat(coordsMatch[2]);
-                      }
-                    }
-
-                    (navigation.navigate as any)('MainTabs', {
-                      screen: 'Map',
-                      params: {
-                        focusUserId: item.sender_id,
-                        focusLat: targetLat,
-                        focusLng: targetLng,
-                        focusUserName: isMe ? 'You' : (item.sender_name || 'Circle Member'),
-                      },
-                    });
-                  }}
-                >
-                  <Ionicons name="map-outline" size={12} color={bubbleThemeStyle.textColor} />
-                  <Text style={{ fontSize: 10, fontWeight: '800', color: bubbleThemeStyle.textColor }}>VIEW ON MAP</Text>
-                </TouchableOpacity>
-              </View>
-            ) : isGifMsg ? (
-              <View style={{ borderRadius: 12, overflow: 'hidden', marginVertical: 4 }}>
-                <Image
-                  source={{ uri: item.content }}
-                  style={{ width: 220, height: 150, borderRadius: 12 }}
-                  resizeMode="cover"
-                />
-              </View>
-            ) : item.message_type === 'safety_pill' ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="shield-checkmark" size={16} color={bubbleThemeStyle.textColor} />
-                <Text style={[styles.bubbleText, { color: bubbleThemeStyle.textColor, fontWeight: '700' }]}>
-                  {item.content}
-                </Text>
-              </View>
-            ) : (
-              renderFormattedMessageContent(item.content, bubbleThemeStyle.textColor, isMe)
-            )}
-
-            {/* Time Readout & iMessage Read Receipts */}
-            <View style={styles.bubbleFooter}>
-              {getTimeRemainingText(item) ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Ionicons name="time-outline" size={11} color={isMe ? 'rgba(255,255,255,0.7)' : colors.accentGold} />
-                  <Text style={[styles.disappearingTagText, { color: isMe ? 'rgba(255,255,255,0.8)' : colors.accentGold }]}>
-                    {getTimeRemainingText(item)}
-                  </Text>
-                </View>
-              ) : null}
-
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                <Text style={[styles.timeText, { color: isMe ? 'rgba(255,255,255,0.75)' : colors.textMuted }]}>
-                  {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </Text>
-                {isMe ? (
-                  <ReadReceiptCheckmarks
-                    isSent={true}
-                    isDelivered={true}
-                    isReadByAll={item.is_all_viewed}
-                    color="rgba(255, 255, 255, 0.85)"
-                  />
-                ) : null}
-              </View>
-            </View>
-          </TouchableOpacity>
-
-          {/* Floating Emoji Reaction Badges */}
-          {reactionEntries.length > 0 ? (
-            <View style={[styles.reactionBadgesRow, { alignSelf: isMe ? 'flex-end' : 'flex-start' }]}>
-              {reactionEntries.map(([emoji, userList]) => (
-                <TouchableOpacity
-                  key={emoji}
-                  style={[styles.reactionBadgePill, { backgroundColor: colors.surface, borderColor: colors.border }]}
-                  onPress={() => handleToggleReaction(item.id, emoji)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={{ fontSize: 11 }}>{emoji}</Text>
-                  <Text style={[styles.reactionCountText, { color: colors.foreground }]}>{userList.length}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : null}
-        </View>
-      </View>
+      <Chat5MessageItem
+        item={item as any}
+        isMe={isMe}
+        currentUserId={profile?.id}
+        onTagMember={handleTagMember}
+        onToggleReaction={handleToggleReaction}
+        onOpenReactions={(id) => setSelectedReactionMsgId((prev) => (prev === id ? null : id))}
+        onOpenFullEmojiPicker={(id) => {
+          setSelectedReactionMsgId(null);
+          setReactionTargetMsgId(id);
+          setEmojiPickerVisible(true);
+        }}
+        isReactionOpen={isReactionOpen}
+        onDelete={handleDeleteMessage}
+        onOpenAttachment={(att) => handleOpenAttachment(att, item.id)}
+        onViewLocation={(lat, lng) => {
+          (navigation.navigate as any)('MainTabs', {
+            screen: 'Map',
+            params: {
+              focusUserId: item.sender_id,
+              focusLat: lat,
+              focusLng: lng,
+              focusUserName: isMe ? 'You' : (item.sender_name || 'Circle Member'),
+            },
+          });
+        }}
+        onReplyThread={(msg) => {
+          const replyTag = `@${msg.sender_name || 'Member'} `;
+          setInputText((prev) => (prev ? `${prev} ${replyTag}` : replyTag));
+          inputRef.current?.focus?.();
+        }}
+        timeRemainingText={getTimeRemainingText(item)}
+        emojiOptions={EMOJI_OPTIONS}
+      />
     );
   };
 
@@ -1027,54 +1154,35 @@ export default function ChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border, paddingTop: topInset + 12, paddingBottom: 12 }]}>
-        <TouchableOpacity 
-          onPress={() => {
-            if (navigation.canGoBack()) {
-              navigation.goBack();
-            } else {
-              (navigation as any).navigate('MainTabs', { screen: 'Circle' });
-            }
-          }} 
-          style={styles.backBtn}
-        >
-          <Ionicons name="arrow-back" size={22} color={colors.foreground} />
-        </TouchableOpacity>
-
-        <View style={{ flex: 1, marginLeft: 10, marginRight: 6 }}>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
-            {activeCircle?.name || 'Circle Chat'}
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 }}>
-            <Ionicons name="time-outline" size={11} color={colors.accentGold} />
-            <Text 
-              style={[styles.headerSub, { color: colors.accentGold }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.75}
-            >
-              DISAPPEARING CHAT (MIN 1D / MAX 2D)
-            </Text>
-          </View>
-        </View>
-
-        <TouchableOpacity onPress={handleShareLocationInChat} style={[styles.headerActionBtn, { borderColor: colors.accentGold }]}>
-          <Ionicons name="location-outline" size={18} color={colors.accentGold} />
-        </TouchableOpacity>
-      </View>
+      {/* React Bits Pro Chat 5 Header */}
+      <Chat5Header
+        channelName={activeCircle?.name || 'Circle Chat'}
+        memberCount={members.length}
+        onlineCount={Math.max(1, members.filter((m: any) => m.is_active || m.is_online).length || Math.min(3, members.length))}
+        members={members}
+        onBack={() => {
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            (navigation as any).navigate('MainTabs', { screen: 'Circle' });
+          }
+        }}
+        onOpenMembers={() => setMembersModalVisible(true)}
+        onShareLocation={handleShareLocationInChat}
+        topInset={topInset}
+      />
 
       {/* Active Member Filter Banner */}
       {activeFilterMemberId && (
-        <View style={[styles.filterBanner, { backgroundColor: isDark ? '#16231D' : '#EAF5EE', borderBottomColor: isDark ? '#23372B' : '#C7E8D6' }]}>
+        <View style={[styles.filterBanner, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9', borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0' }]}>
           <View style={styles.filterBannerLeft}>
-            <View style={[styles.filterBannerDot, { backgroundColor: '#10B981' }]} />
-            <Text style={[styles.filterBannerText, { color: isDark ? '#E2FBEF' : '#065F46' }]} numberOfLines={1}>
+            <View style={[styles.filterBannerDot, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]} />
+            <Text style={[styles.filterBannerText, { color: colors.foreground }]} numberOfLines={1}>
               Filtered: {targetMemberName || 'Member'}'s Messages
             </Text>
           </View>
           <TouchableOpacity
-            style={[styles.filterBannerClearBtn, { backgroundColor: isDark ? '#2E7D5B' : '#047857' }]}
+            style={[styles.filterBannerClearBtn, { backgroundColor: isDark ? '#27272A' : '#0F172A' }]}
             onPress={() => setActiveFilterMemberId(null)}
             activeOpacity={0.7}
           >
@@ -1084,78 +1192,7 @@ export default function ChatScreen() {
         </View>
       )}
 
-      {/* Circle Members Quick Tag Strip */}
-      {members && members.length > 1 && (
-        <View style={[styles.membersTagStrip, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
-          <View style={styles.tagStripLabelBox}>
-            <Ionicons name="at" size={13} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-            <Text style={[styles.tagStripLabel, { color: isDark ? '#3ADFAB' : '#2E7D5B' }]}>TAG</Text>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.membersTagScroll}>
-            {members
-              .filter((m) => m.user_id !== profile?.id)
-              .map((m) => {
-                const memName = m.profile?.full_name || 'Member';
-                const initial = memName.charAt(0).toUpperCase();
-                const isCurrentTagged = taggedMember?.id === m.user_id || inputText.includes(`@${memName}`);
 
-                return (
-                  <TouchableOpacity
-                    key={m.user_id}
-                    style={[
-                      styles.memberTagChip,
-                      {
-                        backgroundColor: isCurrentTagged
-                          ? (isDark ? 'rgba(58, 223, 171, 0.22)' : '#D1FAE5')
-                          : (isDark ? '#1C2621' : '#F1F5F3'),
-                        borderColor: isCurrentTagged
-                          ? (isDark ? '#3ADFAB' : '#10B981')
-                          : (isDark ? '#2B3931' : '#E2E8E4'),
-                      },
-                    ]}
-                    onPress={() => {
-                      if (isCurrentTagged) {
-                        handleClearTag();
-                      } else {
-                        handleTagMember({
-                          id: m.user_id,
-                          name: memName,
-                          avatar: m.profile?.avatar_url,
-                        });
-                      }
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.memberTagAvatar, { backgroundColor: isDark ? '#2E3D34' : '#CBD5E1' }]}>
-                      {m.profile?.avatar_url ? (
-                        <Image source={{ uri: m.profile.avatar_url }} style={styles.memberTagAvatarImg} />
-                      ) : (
-                        <Text style={[styles.memberTagAvatarInitial, { color: colors.foreground }]}>{initial}</Text>
-                      )}
-                    </View>
-                    <Text
-                      style={[
-                        styles.memberTagChipText,
-                        {
-                          color: isCurrentTagged
-                            ? (isDark ? '#3ADFAB' : '#047857')
-                            : colors.foreground,
-                          fontWeight: isCurrentTagged ? '800' : '600',
-                        },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {memName.split(' ')[0]}
-                    </Text>
-                    {isCurrentTagged && (
-                      <Ionicons name="checkmark-circle" size={12} color={isDark ? '#3ADFAB' : '#10B981'} style={{ marginLeft: 2 }} />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-          </ScrollView>
-        </View>
-      )}
 
       {/* Quick Action Safety Pills */}
       <View style={[styles.pillsBar, { borderBottomColor: colors.border }]}>
@@ -1195,14 +1232,14 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={{
               marginTop: 18,
-              backgroundColor: themeMode === 'brand_green' ? '#3DBE6C' : colors.accentGold,
+              backgroundColor: colors.accentGold || (isDark ? '#FFFFFF' : '#0F172A'),
               paddingHorizontal: 20,
               paddingVertical: 10,
               borderRadius: 12,
             }}
             onPress={() => (navigation as any).navigate('MainTabs', { screen: 'Circle' })}
           >
-            <Text style={{ color: themeMode === 'brand_green' ? '#FFFFFF' : '#1A1A1A', fontWeight: 'bold', fontSize: 12 }}>
+            <Text style={{ color: '#1A1A1A', fontWeight: 'bold', fontSize: 12 }}>
               GO TO CIRCLE TAB
             </Text>
           </TouchableOpacity>
@@ -1222,15 +1259,15 @@ export default function ChatScreen() {
               ? `No messages exchanged with this member yet. Tap below or type a message to start.`
               : 'Start a secure conversation with your circle. Chat messages automatically purge between 1 to 2 days maximum.'}
           </Text>
-          {activeFilterMemberId && (
+          {activeFilterMemberId ? (
             <TouchableOpacity
-              style={{ marginTop: 16, backgroundColor: '#2E7D5B', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 }}
+              style={{ marginTop: 16, backgroundColor: isDark ? '#27272A' : '#0F172A', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 }}
               onPress={() => setActiveFilterMemberId(null)}
               activeOpacity={0.8}
             >
               <Text style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 }}>SHOW ALL CIRCLE MESSAGES</Text>
             </TouchableOpacity>
-          )}
+          ) : null}
         </View>
       ) : (
         <FlatList
@@ -1253,8 +1290,8 @@ export default function ChatScreen() {
         <View style={[
           styles.mentionSuggestBox, 
           { 
-            backgroundColor: isDark ? '#1C2621' : '#FFFFFF', 
-            borderColor: isDark ? '#2B3931' : '#E2E8F0',
+            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : '#FFFFFF', 
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
           }
         ]}>
           <View style={styles.mentionSuggestHeader}>
@@ -1272,14 +1309,14 @@ export default function ChatScreen() {
                   style={[
                     styles.mentionSuggestItem, 
                     { 
-                      backgroundColor: isDark ? '#26342D' : '#F1F5F9',
-                      borderColor: isDark ? 'rgba(58, 223, 171, 0.3)' : '#CBD5E1',
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#CBD5E1',
                     }
                   ]}
                   onPress={() => handleSelectMentionSuggestion(m)}
                   activeOpacity={0.7}
                 >
-                  <View style={[styles.suggestAvatarWrap, { backgroundColor: isDark ? '#1C2621' : '#E2E8F0' }]}>
+                  <View style={[styles.suggestAvatarWrap, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0' }]}>
                     {m.profile?.avatar_url ? (
                       <Image source={{ uri: m.profile.avatar_url }} style={styles.suggestAvatarImg} />
                     ) : (
@@ -1299,24 +1336,24 @@ export default function ChatScreen() {
         <View style={[
           styles.taggedMemberBanner, 
           { 
-            backgroundColor: isDark ? 'rgba(46, 125, 91, 0.22)' : '#E8F5E9',
-            borderColor: isDark ? 'rgba(58, 223, 171, 0.4)' : '#A5D6A7',
+            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0',
           }
         ]}>
           <View style={styles.taggedMemberLeft}>
-            <View style={[styles.taggedAvatarCircle, { backgroundColor: isDark ? '#2E7D5B' : '#C8E6C9' }]}>
+            <View style={[styles.taggedAvatarCircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#CBD5E1' }]}>
               {taggedMember.avatar ? (
                 <Image source={{ uri: taggedMember.avatar }} style={styles.taggedAvatarImg} />
               ) : (
-                <Text style={[styles.taggedAvatarInitial, { color: isDark ? '#FFFFFF' : '#1B5E20' }]}>
+                <Text style={[styles.taggedAvatarInitial, { color: colors.foreground }]}>
                   {taggedMember.name.charAt(0).toUpperCase()}
                 </Text>
               )}
             </View>
             <View style={{ flex: 1, marginLeft: 8 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Ionicons name="at" size={13} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-                <Text style={[styles.taggedTitleText, { color: isDark ? '#3ADFAB' : '#2E7D5B' }]} numberOfLines={1}>
+                <Ionicons name="at" size={13} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                <Text style={[styles.taggedTitleText, { color: isDark ? '#FFFFFF' : '#0F172A' }]} numberOfLines={1}>
                   Mentioning {taggedMember.name}
                 </Text>
               </View>
@@ -1337,67 +1374,88 @@ export default function ChatScreen() {
         </View>
       )}
 
-      {/* Input Bar */}
-      <View style={[styles.inputBar, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
-        <TouchableOpacity
-          style={[
-            styles.attachBtn, 
-            { 
-              borderColor: colors.border,
-              borderRadius: 10,
-              borderWidth: 1,
-              backgroundColor: emojiPickerVisible ? (themeMode === 'brand_green' ? '#E8F8EE' : 'rgba(212, 175, 55, 0.15)') : 'transparent',
-            }
-          ]}
-          onPress={() => setEmojiPickerVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="happy-outline" size={20} color={colors.accentGold} />
-        </TouchableOpacity>
+      {/* React Bits Pro Chat 5 Composer */}
+      <Chat5Composer
+        value={inputText}
+        onChangeText={handleInputChange}
+        onSend={() => handleSendText()}
+        onOpenAttachment={() => setAttachmentSheetVisible(true)}
+        onOpenEmoji={() => {
+          setReactionTargetMsgId(null);
+          setEmojiPickerVisible(true);
+        }}
+        channelName={activeCircle?.name || 'circle'}
+        sending={sending}
+        inputRef={inputRef}
+      />
 
-        <TextInput
-          ref={inputRef}
-          style={[
-            styles.textInput, 
-            { 
-              backgroundColor: colors.background, 
-              color: colors.foreground, 
-              borderColor: colors.border,
-              borderRadius: 14,
-              borderWidth: 1,
-            }
-          ]}
-          placeholder={taggedMember ? `Message @${taggedMember.name.split(' ')[0]}...` : "Write a message..."}
-          placeholderTextColor={colors.textMuted}
-          value={inputText}
-          onChangeText={handleInputChange}
-          multiline
-        />
+      {/* React Bits Pro Chat 5 Attachment Sheet */}
+      <Chat5AttachmentSheet
+        visible={attachmentSheetVisible}
+        onClose={() => setAttachmentSheetVisible(false)}
+        onPickPhoto={handlePickPhotoAttachment}
+        onAttachDocument={handleAttachDocument}
+        onShareLocation={handleShareLocationInChat}
+        onSelectSafetyPill={(pill) => handleSendText(pill, 'safety_pill')}
+      />
 
-        <TouchableOpacity
-          style={[
-            styles.sendBtn, 
-            { 
-              backgroundColor: sending ? colors.surfaceMuted : colors.accentGold,
-              borderRadius: 10,
-            }
-          ]}
-          onPress={() => handleSendText()}
-          disabled={sending || !inputText.trim()}
-        >
-          {sending ? (
-            <ActivityIndicator size="small" color="#1A1A1A" />
-          ) : (
-            <Ionicons name="send" size={16} color="#1A1A1A" />
-          )}
-        </TouchableOpacity>
-      </View>
+      {/* React Bits Pro Chat 5 Members Modal */}
+      <Chat5MembersModal
+        visible={membersModalVisible}
+        onClose={() => setMembersModalVisible(false)}
+        members={members}
+        channelName={activeCircle?.name || 'Circle Members'}
+        onTagMember={handleTagMember}
+      />
 
       <EmojiGifPickerModal
         visible={emojiPickerVisible}
-        onClose={() => setEmojiPickerVisible(false)}
-        onSelectEmoji={(emoji) => handleInputChange(inputText + emoji)}
+        onClose={() => {
+          setEmojiPickerVisible(false);
+          setReactionTargetMsgId(null);
+        }}
+        mode={reactionTargetMsgId ? 'reaction' : 'composer'}
+        myActiveReactions={
+          reactionTargetMsgId
+            ? Object.entries(messages.find((m) => m.id === reactionTargetMsgId)?.reactions || {})
+                .filter(([_, list]) => Array.isArray(list) && list.includes(profile?.id || ''))
+                .map(([e]) => e)
+            : []
+        }
+        onSelectEmoji={(emoji) => {
+          if (reactionTargetMsgId) {
+            handleToggleReaction(reactionTargetMsgId, emoji);
+          } else {
+            handleInputChange(inputText + emoji);
+          }
+        }}
         onSelectGif={(gifUrl) => handleSendText(gifUrl, 'safety_pill')}
+      />
+
+      {/* React Bits Pro Chat 5 Full-Screen Image & Document Lightbox Viewer */}
+      <ChatImageViewerModal
+        visible={!!selectedViewerAttachment}
+        attachment={selectedViewerAttachment}
+        onClose={() => {
+          setSelectedViewerAttachment(null);
+          setSelectedViewerMsgId(null);
+        }}
+        onDelete={() => {
+          if (selectedViewerMsgId) {
+            const msg = messages.find((m) => m.id === selectedViewerMsgId);
+            if (msg) handleDeleteMessage(msg);
+          }
+          setSelectedViewerAttachment(null);
+          setSelectedViewerMsgId(null);
+        }}
+        canDelete={
+          selectedViewerMsgId
+            ? (messages.find((m) => m.id === selectedViewerMsgId)?.sender_id === profile?.id ||
+               members.find((m) => m.user_id === profile?.id)?.role === 'owner' ||
+               members.find((m) => m.user_id === profile?.id)?.role === 'co_leader' ||
+               activeCircle?.owner_id === profile?.id)
+            : false
+        }
       />
     </KeyboardAvoidingView>
   );

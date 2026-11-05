@@ -330,15 +330,15 @@ export default function PasswordResetModal({
                   styles.iconBox,
                   {
                     backgroundColor: isSuccess
-                      ? (isDark ? 'rgba(16, 185, 129, 0.2)' : '#E8F5EE')
-                      : (isDark ? '#1E2B23' : '#E8F5EE'),
+                      ? (isDark ? 'rgba(255, 255, 255, 0.15)' : '#F1F5F9')
+                      : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'),
                   },
                 ]}
               >
                 <Ionicons
                   name={isSuccess ? 'checkmark-circle' : (step === 'verify_and_set' ? 'shield-checkmark-outline' : 'key-outline')}
                   size={20}
-                  color={isSuccess ? '#10B981' : (isDark ? '#3ADFAB' : '#006C4F')}
+                  color={isDark ? '#FFFFFF' : '#0F172A'}
                 />
               </View>
               <View>
@@ -347,7 +347,7 @@ export default function PasswordResetModal({
                     ? 'VERIFY OTP & RESET'
                     : 'RESET PASSWORD'}
                 </Text>
-                <Text style={[styles.modalBadgeText, { color: isDark ? '#3ADFAB' : '#006C4F' }]}>
+                <Text style={[styles.modalBadgeText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                   1-TIME PASSWORD (OTP) RECOVERY
                 </Text>
               </View>
@@ -372,22 +372,22 @@ export default function PasswordResetModal({
                 style={[
                   styles.statusBox,
                   {
-                    borderColor: isError ? '#EF4444' : '#10B981',
+                    borderColor: isError ? '#EF4444' : (isDark ? '#FFFFFF' : '#0F172A'),
                     backgroundColor: isError
                       ? (isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.08)')
-                      : (isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.08)'),
+                      : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'),
                   },
                 ]}
               >
                 <Ionicons
                   name={isError ? 'alert-circle-outline' : 'checkmark-circle-outline'}
                   size={16}
-                  color={isError ? '#EF4444' : '#10B981'}
+                  color={isError ? '#EF4444' : (isDark ? '#FFFFFF' : '#0F172A')}
                 />
                 <Text
                   style={[
                     styles.statusText,
-                    { color: isError ? '#EF4444' : (isDark ? '#3ADFAB' : '#059669') },
+                    { color: isError ? '#EF4444' : (isDark ? '#FFFFFF' : '#0F172A') },
                   ]}
                 >
                   {statusMsg}
@@ -420,15 +420,15 @@ export default function PasswordResetModal({
                   autoComplete="off"
                   textContentType="none"
                   importantForAutofill="no"
-                  cursorColor={isDark ? '#3ADFAB' : '#006C4F'}
-                  selectionColor={isDark ? 'rgba(58, 223, 171, 0.3)' : 'rgba(0, 108, 79, 0.3)'}
+                  cursorColor={isDark ? '#FFFFFF' : '#0F172A'}
+                  selectionColor={isDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(15, 23, 42, 0.2)'}
                 />
 
                 <TouchableOpacity
                   style={[
                     styles.primaryBtn,
                     {
-                      backgroundColor: loading ? '#6B7280' : (isDark ? '#3ADFAB' : '#006C4F'),
+                      backgroundColor: loading ? '#6B7280' : (isDark ? '#FFFFFF' : '#0F172A'),
                     },
                   ]}
                   onPress={handleRequestReset}
@@ -436,12 +436,12 @@ export default function PasswordResetModal({
                   activeOpacity={0.8}
                 >
                   {loading ? (
-                    <ActivityIndicator color={isDark ? '#002116' : '#FFFFFF'} />
+                    <ActivityIndicator color={isDark ? '#000000' : '#FFFFFF'} />
                   ) : (
                     <Text
                       style={[
                         styles.primaryBtnText,
-                        { color: isDark ? '#002116' : '#FFFFFF' },
+                        { color: isDark ? '#000000' : '#FFFFFF' },
                       ]}
                     >
                       SEND 1-TIME OTP CODE
@@ -454,7 +454,7 @@ export default function PasswordResetModal({
                   style={styles.switchStepBtn}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.switchStepText, { color: isDark ? '#3ADFAB' : '#006C4F' }]}>
+                  <Text style={[styles.switchStepText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                     Already have a 6-digit OTP code? Enter it here ›
                   </Text>
                 </TouchableOpacity>
@@ -472,11 +472,11 @@ export default function PasswordResetModal({
                       </Text>
                       <TouchableOpacity
                         onPress={handlePasteClipboard}
-                        style={[styles.pasteBtn, isDark && { backgroundColor: '#1A2F25', borderColor: '#26543D' }]}
+                        style={[styles.pasteBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9', borderColor: isDark ? 'rgba(255,255,255,0.15)' : '#E2E8F0' }]}
                         activeOpacity={0.7}
                       >
-                        <Ionicons name="clipboard-outline" size={13} color={isDark ? '#3ADFAB' : '#006C4F'} />
-                        <Text style={[styles.pasteBtnText, isDark && { color: '#3ADFAB' }]}>Paste OTP</Text>
+                        <Ionicons name="clipboard-outline" size={13} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                        <Text style={[styles.pasteBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Paste OTP</Text>
                       </TouchableOpacity>
                     </View>
 
@@ -497,12 +497,12 @@ export default function PasswordResetModal({
                             style={[
                               styles.otpBox,
                               {
-                                backgroundColor: isDark ? '#1C2621' : '#F6F8F7',
+                                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F8FAFC',
                                 borderColor: digit
-                                  ? (isDark ? '#3ADFAB' : '#006C4F')
+                                  ? (isDark ? '#FFFFFF' : '#0F172A')
                                   : isCurrentActive
-                                  ? (isDark ? '#3ADFAB' : '#006C4F')
-                                  : (isDark ? '#2E3D35' : '#DCE3DF'),
+                                  ? (isDark ? '#FFFFFF' : '#0F172A')
+                                  : (isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0'),
                                 borderWidth: isCurrentActive || digit ? 1.8 : 1,
                               },
                             ]}
@@ -538,12 +538,12 @@ export default function PasswordResetModal({
                         Didn't receive the OTP code?
                       </Text>
                       {resendCooldown > 0 ? (
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: isDark ? '#3ADFAB' : '#006C4F' }}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: isDark ? '#FFFFFF' : '#0F172A' }}>
                           Resend in {resendCooldown}s
                         </Text>
                       ) : (
                         <TouchableOpacity onPress={handleRequestReset} disabled={loading} activeOpacity={0.7}>
-                          <Text style={{ fontSize: 12, fontWeight: '700', color: isDark ? '#3ADFAB' : '#006C4F' }}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: isDark ? '#FFFFFF' : '#0F172A' }}>
                             Resend OTP Code
                           </Text>
                         </TouchableOpacity>
@@ -579,8 +579,8 @@ export default function PasswordResetModal({
                     autoComplete="off"
                     textContentType="none"
                     importantForAutofill="no"
-                    cursorColor={isDark ? '#3ADFAB' : '#006C4F'}
-                    selectionColor={isDark ? 'rgba(58, 223, 171, 0.3)' : 'rgba(0, 108, 79, 0.3)'}
+                    cursorColor={isDark ? '#FFFFFF' : '#0F172A'}
+                    selectionColor={isDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(15, 23, 42, 0.2)'}
                   />
                   <TouchableOpacity
                     onPress={() => setShowPassword(!showPassword)}
@@ -622,8 +622,8 @@ export default function PasswordResetModal({
                     autoComplete="off"
                     textContentType="none"
                     importantForAutofill="no"
-                    cursorColor={isDark ? '#3ADFAB' : '#006C4F'}
-                    selectionColor={isDark ? 'rgba(58, 223, 171, 0.3)' : 'rgba(0, 108, 79, 0.3)'}
+                    cursorColor={isDark ? '#FFFFFF' : '#0F172A'}
+                    selectionColor={isDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(15, 23, 42, 0.2)'}
                   />
                   <TouchableOpacity
                     onPress={() => setShowConfirmPassword(!showConfirmPassword)}
@@ -643,7 +643,7 @@ export default function PasswordResetModal({
                   style={[
                     styles.primaryBtn,
                     {
-                      backgroundColor: loading || isSuccess ? '#6B7280' : (isDark ? '#3ADFAB' : '#006C4F'),
+                      backgroundColor: loading || isSuccess ? '#6B7280' : (isDark ? '#FFFFFF' : '#0F172A'),
                       marginTop: 18,
                     },
                   ]}
@@ -652,12 +652,12 @@ export default function PasswordResetModal({
                   activeOpacity={0.8}
                 >
                   {loading ? (
-                    <ActivityIndicator color={isDark ? '#002116' : '#FFFFFF'} />
+                    <ActivityIndicator color={isDark ? '#000000' : '#FFFFFF'} />
                   ) : (
                     <Text
                       style={[
                         styles.primaryBtnText,
-                        { color: isDark ? '#002116' : '#FFFFFF' },
+                        { color: isDark ? '#000000' : '#FFFFFF' },
                       ]}
                     >
                       VERIFY OTP & SAVE NEW PASSWORD
@@ -848,7 +848,7 @@ const styles = StyleSheet.create({
     gap: 4,
     backgroundColor: '#E8F5EE',
     borderWidth: 1,
-    borderColor: '#C3E7D3',
+    borderColor: '#E2E8F0',
     paddingVertical: 3,
     paddingHorizontal: 8,
     borderRadius: 6,
@@ -856,6 +856,6 @@ const styles = StyleSheet.create({
   pasteBtnText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#006C4F',
+    color: '#0F172A',
   },
 });

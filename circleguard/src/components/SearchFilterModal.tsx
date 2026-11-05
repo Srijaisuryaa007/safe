@@ -75,6 +75,9 @@ export default function SearchFilterModal({
     };
     if (visible) {
       setActiveCats(selectedCategories);
+      if (poiList && poiList.length > 0) {
+        setLocalPois(poiList);
+      }
       loadUnit();
 
       // Pre-fetch POIs for currently active categories if needed
@@ -171,9 +174,9 @@ export default function SearchFilterModal({
   const getCategoryColor = (catId: string) => {
     switch (catId) {
       case 'hospital': return '#EF4444';
-      case 'police': return '#D4AF37';
+      case 'police': return '#2563EB';
       case 'school': return '#3B82F6';
-      case 'fuel': return '#10B981';
+      case 'fuel': return '#64748B';
       case 'restaurant': return '#F59E0B';
       case 'member': return '#8B5CF6';
       case 'place': return '#EC4899';
@@ -324,9 +327,9 @@ export default function SearchFilterModal({
 
   const filterOptions = [
     { id: 'hospital', title: 'Hospitals / Emergency Clinics', icon: 'medical', color: '#EF4444' },
-    { id: 'police', title: 'Police Stations & Helplines', icon: 'shield-checkmark', color: '#D4AF37' },
+    { id: 'police', title: 'Police Stations & Helplines', icon: 'shield-checkmark', color: '#2563EB' },
     { id: 'school', title: 'Schools & Universities', icon: 'school', color: '#3B82F6' },
-    { id: 'fuel', title: 'Fuel & EV Fast Chargers', icon: 'car', color: '#10B981' },
+    { id: 'fuel', title: 'Fuel & EV Fast Chargers', icon: 'car', color: '#64748B' },
     { id: 'restaurant', title: 'Dining, Food & Cafes', icon: 'restaurant', color: '#F59E0B' },
     { id: 'member', title: 'Circle Member Pins', icon: 'people', color: '#8B5CF6' },
     { id: 'place', title: 'Safe Places & Geofences', icon: 'bookmark', color: '#EC4899' },
@@ -438,7 +441,7 @@ export default function SearchFilterModal({
                       styles.quickFilterPill,
                       {
                         backgroundColor: isSelected
-                          ? (isDark ? 'rgba(212, 175, 55, 0.22)' : '#FEF9C3')
+                          ? (isDark ? 'rgba(255, 255, 255, 0.16)' : '#F1F5F9')
                           : (isDark ? colors.surfaceMuted : '#F4F4F5'),
                         borderColor: isSelected ? colors.accentGold : colors.border,
                       }
@@ -447,11 +450,7 @@ export default function SearchFilterModal({
                     activeOpacity={0.7}
                   >
                     <View style={[styles.pillIconBox, { backgroundColor: item.color }]}>
-                      {isLoadingThis ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" style={{ transform: [{ scale: 0.65 }] }} />
-                      ) : (
-                        <Ionicons name={item.icon as any} size={12} color="#FFFFFF" />
-                      )}
+                      <Ionicons name={item.icon as any} size={11} color="#FFFFFF" />
                     </View>
                     <Text style={[
                       styles.pillText,
@@ -459,9 +458,11 @@ export default function SearchFilterModal({
                     ]}>
                       {item.title.split('/')[0].split('&')[0].trim()}
                     </Text>
-                    {isSelected && (
+                    {isLoadingThis ? (
+                      <ActivityIndicator size="small" color={item.color} style={{ transform: [{ scale: 0.6 }] }} />
+                    ) : isSelected ? (
                       <Ionicons name="checkmark-circle" size={13} color={colors.accentGold} />
-                    )}
+                    ) : null}
                   </TouchableOpacity>
                 );
               })}
@@ -552,7 +553,7 @@ export default function SearchFilterModal({
                   <View style={[
                     styles.distancePill,
                     {
-                      backgroundColor: isDark ? 'rgba(212, 175, 55, 0.16)' : '#FEF9C3',
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#F1F5F9',
                       borderColor: colors.accentGold,
                     }
                   ]}>
@@ -581,8 +582,8 @@ export default function SearchFilterModal({
                       {
                         backgroundColor: isSelected
                           ? isDark
-                            ? 'rgba(212, 175, 55, 0.12)'
-                            : '#FEF9C3'
+                            ? 'rgba(255, 255, 255, 0.12)'
+                            : '#F1F5F9'
                           : isDark
                           ? colors.surfaceMuted
                           : '#F4F4F5',
@@ -594,25 +595,32 @@ export default function SearchFilterModal({
                   >
                     <View style={styles.rowLeft}>
                       <View style={[styles.iconBox, { backgroundColor: item.color }]}>
-                        {isLoadingThis ? (
-                          <ActivityIndicator size="small" color="#FFFFFF" />
-                        ) : (
-                          <Ionicons name={item.icon as any} size={18} color="#FFFFFF" />
-                        )}
+                        <Ionicons name={item.icon as any} size={18} color="#FFFFFF" />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.rowTitle, { color: colors.foreground }]}>{item.title}</Text>
-                        <Text style={[styles.rowSubtitle, { color: isSelected ? colors.foreground : colors.textMuted }]}>
-                          {summaryText}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                          {isLoadingThis && (
+                            <ActivityIndicator size="small" color={item.color} style={{ transform: [{ scale: 0.65 }] }} />
+                          )}
+                          <Text style={[styles.rowSubtitle, { color: isSelected ? colors.foreground : colors.textMuted }]} numberOfLines={1}>
+                            {summaryText}
+                          </Text>
+                        </View>
                       </View>
                     </View>
 
-                    <Ionicons
-                      name={isSelected ? 'checkbox' : 'square-outline'}
-                      size={22}
-                      color={isSelected ? colors.accentGold : colors.textMuted}
-                    />
+                    <View style={[
+                      styles.customCheckbox,
+                      {
+                        borderColor: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? 'rgba(255,255,255,0.25)' : '#CBD5E1'),
+                        backgroundColor: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : 'transparent',
+                      }
+                    ]}>
+                      {isSelected && (
+                        <Ionicons name="checkmark" size={13} color={isDark ? '#0F172A' : '#FFFFFF'} />
+                      )}
+                    </View>
                   </TouchableOpacity>
                 );
               })}
@@ -624,15 +632,15 @@ export default function SearchFilterModal({
             style={[
               styles.applyBtn,
               {
-                backgroundColor: activeCats.length > 0 ? colors.accentGold : colors.surface,
+                backgroundColor: activeCats.length > 0 ? (isDark ? '#FFFFFF' : '#0F172A') : colors.surface,
                 borderWidth: 1.5,
-                borderColor: colors.accentGold,
+                borderColor: isDark ? '#FFFFFF' : '#0F172A',
               }
             ]}
             onPress={handleApply}
             activeOpacity={0.8}
           >
-            <Text style={[styles.applyBtnText, { color: activeCats.length > 0 ? '#1A1A1A' : colors.accentGold }]}>
+            <Text style={[styles.applyBtnText, { color: activeCats.length > 0 ? (isDark ? '#000000' : '#FFFFFF') : (isDark ? '#FFFFFF' : '#0F172A') }]}>
               {activeCats.length > 0
                 ? `APPLY MAP FILTERS (${activeCats.length} ACTIVE • ${nearbyPlaces.length} NEARBY)`
                 : 'CLEAR ALL FILTERS (CLEAN MAP)'}
@@ -808,7 +816,7 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 14,
     borderRadius: 12,
-    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     marginBottom: 8,
   },
   scanningText: {
@@ -834,7 +842,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
-    backgroundColor: 'rgba(212, 175, 55, 0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     marginRight: 8,
     alignItems: 'center',
     justifyContent: 'center',
@@ -842,7 +850,7 @@ const styles = StyleSheet.create({
   rankBadgeText: {
     fontSize: 9.5,
     fontWeight: '800',
-    color: '#D4AF37',
+    color: '#FFFFFF',
   },
   categorySettingsSection: {
     marginTop: 18,
@@ -892,7 +900,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#D4AF37',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -903,5 +911,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
     letterSpacing: 1,
+  },
+  customCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

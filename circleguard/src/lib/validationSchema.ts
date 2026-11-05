@@ -225,8 +225,9 @@ export const ValidationSchema = {
       return { valid: false, error: 'Message cannot be empty.' };
     }
 
-    if (trimmed.length > 2000) {
-      return { valid: false, error: 'Message exceeds maximum length of 2000 characters.' };
+    const maxAllowed = trimmed.startsWith('[ATTACHMENT:') ? 10000 : 2000;
+    if (trimmed.length > maxAllowed) {
+      return { valid: false, error: `Message exceeds maximum length of ${maxAllowed} characters.` };
     }
 
     if (CONTROL_CHARS_REGEX.test(trimmed)) {

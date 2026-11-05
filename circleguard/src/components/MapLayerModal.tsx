@@ -87,7 +87,7 @@ export default function MapLayerModal({
       icon: 'earth-outline',
       badge: 'ORBITAL',
       previewBg: '#0F172A',
-      borderColor: '#10B981',
+      borderColor: '#94A3B8',
     },
     {
       id: 'terrain',
@@ -96,7 +96,7 @@ export default function MapLayerModal({
       icon: 'trail-sign-outline',
       badge: 'TOPOGRAPHY',
       previewBg: '#1B262C',
-      borderColor: '#2E7D5B',
+      borderColor: '#64748B',
     },
     {
       id: 'dark',

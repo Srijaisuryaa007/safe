@@ -168,16 +168,16 @@ export default function MemberShortProfileModal({
   const isAppLock = localLock !== null ? localLock : Boolean(profile.app_lock_enabled);
 
   const gpsFreqLabel =
-    gpsFrequency === 'realtime'
+    gpsFrequency === 'realtime' || gpsFrequency === 'high'
       ? 'Ultra Fast • 5s live breadcrumbs'
-      : gpsFrequency === 'battery_saver'
+      : gpsFrequency === 'battery_saver' || gpsFrequency === 'saver'
       ? 'Eco Mode • 60s battery saver'
       : 'Balanced • 15s adaptive sync';
 
   const gpsFreqTag =
-    gpsFrequency === 'realtime'
+    gpsFrequency === 'realtime' || gpsFrequency === 'high'
       ? '5s FAST'
-      : gpsFrequency === 'battery_saver'
+      : gpsFrequency === 'battery_saver' || gpsFrequency === 'saver'
       ? '60s ECO'
       : '15s BAL';
 
@@ -240,8 +240,9 @@ export default function MemberShortProfileModal({
       try { Vibration.vibrate(12); } catch (_) {}
     }
 
-    const order = ['realtime', 'balanced', 'battery_saver'];
-    const currentIndex = order.indexOf(gpsFrequency);
+    const order = ['high', 'balanced', 'saver'];
+    const normalized = (gpsFrequency === 'realtime') ? 'high' : (gpsFrequency === 'battery_saver' ? 'saver' : gpsFrequency);
+    const currentIndex = order.indexOf(normalized);
     const nextFreq = order[(currentIndex + 1) % order.length];
 
     setLocalGps(nextFreq);
@@ -263,16 +264,24 @@ export default function MemberShortProfileModal({
     }));
 
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ gps_frequency: nextFreq })
-        .eq('id', targetUserId);
+      const { error: rpcErr } = await supabase.rpc('update_member_gps_frequency', {
+        p_target_user_id: targetUserId,
+        p_frequency: nextFreq,
+      });
 
-      if (error) throw error;
+      if (rpcErr) {
+        // Fallback to direct profiles table update
+        const { error } = await supabase
+          .from('profiles')
+          .update({ gps_frequency: nextFreq })
+          .eq('id', targetUserId);
+
+        if (error) throw error;
+      }
     } catch (err: any) {
       console.error('[MemberShortProfileModal] Failed to update gps_frequency:', err);
       setLocalGps(profile.gps_frequency || 'balanced');
-      Alert.alert('Update Failed', 'Could not update GPS frequency.');
+      Alert.alert('Update Failed', err?.message || 'Could not update GPS frequency.');
     }
   };
 
@@ -417,28 +426,28 @@ export default function MemberShortProfileModal({
     role === 'owner'
       ? (isDark ? '#F5A623' : '#D97706')
       : role === 'co_leader'
-      ? (isDark ? '#3ADFAB' : '#059669')
+      ? (isDark ? '#F8FAFC' : '#0F172A')
       : role === 'guardian'
-      ? (isDark ? '#4AE3B5' : '#047857')
+      ? (isDark ? '#94A3B8' : '#334155')
       : (isDark ? '#CAD8D0' : '#475C50');
 
   const roleBg =
     role === 'owner'
       ? (isDark ? 'rgba(245, 166, 35, 0.14)' : '#FEF3C7')
       : role === 'co_leader'
-      ? (isDark ? 'rgba(58, 223, 171, 0.14)' : '#ECFDF5')
+      ? (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9')
       : role === 'guardian'
-      ? (isDark ? 'rgba(46, 125, 91, 0.20)' : '#E6F4ED')
-      : (isDark ? 'rgba(202, 216, 208, 0.10)' : '#F0F4F2');
+      ? (isDark ? 'rgba(2, 132, 199, 0.16)' : '#EFF8FF')
+      : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9');
 
   const roleBorder =
     role === 'owner'
       ? (isDark ? 'rgba(245, 166, 35, 0.38)' : 'rgba(217, 119, 6, 0.35)')
       : role === 'co_leader'
-      ? (isDark ? 'rgba(58, 223, 171, 0.38)' : 'rgba(5, 150, 105, 0.35)')
+      ? (isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0')
       : role === 'guardian'
-      ? (isDark ? 'rgba(46, 125, 91, 0.40)' : 'rgba(4, 120, 87, 0.30)')
-      : (isDark ? 'rgba(202, 216, 208, 0.22)' : 'rgba(71, 92, 80, 0.20)');
+      ? (isDark ? 'rgba(2, 132, 199, 0.35)' : '#BAE6FD')
+      : (isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0');
 
   return (
     <Modal
@@ -494,7 +503,7 @@ export default function MemberShortProfileModal({
                 {avatarUrl ? (
                   <Image source={{ uri: avatarUrl }} style={[styles.avatarLarge, { borderColor: roleBorder }]} />
                 ) : (
-                  <View style={[styles.avatarLarge, styles.avatarFallback, { borderColor: roleBorder, backgroundColor: isDark ? '#1E2B24' : '#E8F5EE' }]}>
+                  <View style={[styles.avatarLarge, styles.avatarFallback, { borderColor: roleBorder, backgroundColor: isDark ? '#1E293B' : '#F1F5F9' }]}>
                     <Text style={[styles.avatarFallbackText, { color: roleColor }]}>
                       {name.charAt(0).toUpperCase()}
                     </Text>
@@ -505,15 +514,15 @@ export default function MemberShortProfileModal({
                   style={[
                     styles.statusRingDot,
                     {
-                      backgroundColor: isDriving ? '#F5A623' : isOnline ? '#10B981' : '#718579',
-                      borderColor: isDark ? '#121714' : '#FFFFFF',
+                      backgroundColor: isDriving ? '#F5A623' : isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : '#718579',
+                      borderColor: isDark ? '#111318' : '#FFFFFF',
                     },
                   ]}
                 >
                   <Ionicons
                     name={isDriving ? 'car' : isOnline ? 'checkmark' : 'time'}
                     size={10}
-                    color="#FFFFFF"
+                    color={isOnline && !isDriving ? (isDark ? '#0F172A' : '#FFFFFF') : '#FFFFFF'}
                   />
                 </View>
               </View>
@@ -552,16 +561,16 @@ export default function MemberShortProfileModal({
                 style={[
                   styles.shortcutBtn,
                   isDark
-                    ? { backgroundColor: 'rgba(58, 223, 171, 0.12)', borderColor: 'rgba(58, 223, 171, 0.28)' }
-                    : { backgroundColor: '#E8FAF2', borderColor: 'rgba(58, 223, 171, 0.40)' },
+                    ? { backgroundColor: 'rgba(255, 255, 255, 0.06)', borderColor: 'rgba(255, 255, 255, 0.12)' }
+                    : { backgroundColor: '#F1F5F9', borderColor: '#E2E8F0' },
                 ]}
                 onPress={handleCall}
                 activeOpacity={0.7}
                 accessibilityRole="button"
                 accessibilityLabel="Call member"
               >
-                <Ionicons name="call" size={18} color={isDark ? '#3ADFAB' : '#059669'} />
-                <Text style={[styles.shortcutBtnText, { color: isDark ? '#3ADFAB' : '#059669' }]}>Call</Text>
+                <Ionicons name="call" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                <Text style={[styles.shortcutBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Call</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -604,8 +613,8 @@ export default function MemberShortProfileModal({
                 style={[
                   styles.shortcutBtn,
                   isDark
-                    ? { backgroundColor: 'rgba(46, 125, 91, 0.18)', borderColor: 'rgba(46, 125, 91, 0.32)' }
-                    : { backgroundColor: '#ECFDF5', borderColor: 'rgba(46, 125, 91, 0.35)' },
+                    ? { backgroundColor: 'rgba(255, 255, 255, 0.08)', borderColor: 'rgba(255, 255, 255, 0.15)' }
+                    : { backgroundColor: '#F1F5F9', borderColor: '#E2E8F0' },
                 ]}
                 onPress={() => {
                   handleDismiss(() => {
@@ -616,8 +625,8 @@ export default function MemberShortProfileModal({
                 accessibilityRole="button"
                 accessibilityLabel="Chat with member"
               >
-                <Ionicons name="chatbubbles" size={18} color={isDark ? '#4AE3B5' : '#047857'} />
-                <Text style={[styles.shortcutBtnText, { color: isDark ? '#4AE3B5' : '#047857' }]}>Chat</Text>
+                <Ionicons name="chatbubbles" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                <Text style={[styles.shortcutBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Chat</Text>
               </TouchableOpacity>
             </View>
 
@@ -632,15 +641,15 @@ export default function MemberShortProfileModal({
                 style={[
                   styles.telemetryCard,
                   isDark
-                    ? { backgroundColor: '#16201B', borderColor: 'rgba(58, 223, 171, 0.20)' }
-                    : { backgroundColor: '#F8FAF9', borderColor: '#E2ECE6' },
+                    ? { backgroundColor: '#18181B', borderColor: 'rgba(255, 255, 255, 0.08)' }
+                    : { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' },
                 ]}
               >
                 <View style={styles.telemetryCardTop}>
                   <Ionicons
                     name={isLowBattery ? 'battery-dead' : 'battery-charging'}
                     size={16}
-                    color={isLowBattery ? '#EF4444' : (isDark ? '#3ADFAB' : '#059669')}
+                    color={isLowBattery ? '#EF4444' : (isDark ? '#F8FAFC' : '#0F172A')}
                   />
                   <Text style={[styles.telemetryLabel, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>BATTERY</Text>
                 </View>
@@ -663,17 +672,17 @@ export default function MemberShortProfileModal({
                 style={[
                   styles.telemetryCard,
                   isDark
-                    ? { backgroundColor: '#16201B', borderColor: 'rgba(58, 223, 171, 0.20)' }
-                    : { backgroundColor: '#F8FAF9', borderColor: '#E2ECE6' },
+                    ? { backgroundColor: '#18181B', borderColor: 'rgba(255, 255, 255, 0.08)' }
+                    : { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' },
                 ]}
               >
                 <View style={styles.telemetryCardTop}>
                   <Ionicons
                     name={isDriving ? 'car-sport' : isOnline ? 'radio' : 'time-outline'}
                     size={16}
-                    color={isDriving ? '#F5A623' : isOnline ? '#10B981' : (isDark ? '#7E9387' : '#6A7D71')}
+                    color={isDriving ? '#F5A623' : isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#94A3B8' : '#64748B')}
                   />
-                  <Text style={[styles.telemetryLabel, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>MOVEMENT</Text>
+                  <Text style={[styles.telemetryLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>MOVEMENT</Text>
                 </View>
                 <Text style={[styles.telemetryValue, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
                   {isDriving ? 'In Transit' : isOnline ? 'Active' : 'Offline'}
@@ -719,8 +728,8 @@ export default function MemberShortProfileModal({
                   styles.navActionRow,
                   { flex: 1 },
                   isDark
-                    ? { backgroundColor: '#16201B', borderColor: 'rgba(16, 185, 129, 0.22)' }
-                    : { backgroundColor: '#FFFFFF', borderColor: '#E2ECE6' },
+                    ? { backgroundColor: 'rgba(255, 255, 255, 0.08)', borderColor: 'rgba(255, 255, 255, 0.15)' }
+                    : { backgroundColor: '#FFFFFF', borderColor: '#E2E8F0' },
                 ]}
                 onPress={() => {
                   handleDismiss(() => {
@@ -731,8 +740,8 @@ export default function MemberShortProfileModal({
                 accessibilityRole="button"
                 accessibilityLabel="Driving Summary"
               >
-                <View style={[styles.navActionIconBox, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5' }]}>
-                  <Ionicons name="car-sport" size={18} color={isDark ? '#10B981' : '#059669'} />
+                <View style={[styles.navActionIconBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                  <Ionicons name="car-sport" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.navActionTitle, isDark && { color: '#FFFFFF' }]}>Drive Safety</Text>
@@ -758,8 +767,8 @@ export default function MemberShortProfileModal({
                   style={[
                     styles.auditCard,
                     isDark
-                      ? { backgroundColor: '#16201B', borderColor: 'rgba(58, 223, 171, 0.20)' }
-                      : { backgroundColor: '#F8FAF9', borderColor: '#E2ECE6' },
+                      ? { backgroundColor: '#18181B', borderColor: 'rgba(255, 255, 255, 0.08)' }
+                      : { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' },
                   ]}
                 >
                   {/* Ghost Mode */}
@@ -770,14 +779,14 @@ export default function MemberShortProfileModal({
                         {
                           backgroundColor: isGhostActive
                             ? (isDark ? 'rgba(245, 166, 35, 0.18)' : '#FEF3C7')
-                            : (isDark ? '#1D2E25' : '#E3F5EC'),
+                            : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'),
                         },
                       ]}
                     >
                       <Ionicons
                         name={isGhostActive ? 'eye-off' : 'eye'}
                         size={16}
-                        color={isGhostActive ? '#F5A623' : (isDark ? '#3ADFAB' : '#006C4F')}
+                        color={isGhostActive ? '#F5A623' : (isDark ? '#F8FAFC' : '#0F172A')}
                       />
                     </View>
                     <View style={styles.auditTextCol}>
@@ -802,14 +811,14 @@ export default function MemberShortProfileModal({
                           {
                             backgroundColor: isGhostActive
                               ? (isDark ? 'rgba(245, 166, 35, 0.20)' : '#FEF3C7')
-                              : (isDark ? 'rgba(58, 223, 171, 0.15)' : '#E3F5EC'),
+                              : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'),
                           },
                         ]}
                       >
                         <Text
                           style={[
                             styles.auditStatusText,
-                            { color: isGhostActive ? '#F5A623' : (isDark ? '#3ADFAB' : '#006C4F') },
+                            { color: isGhostActive ? '#F5A623' : (isDark ? '#F8FAFC' : '#0F172A') },
                           ]}
                         >
                           {isGhostActive ? 'FUZZED' : 'EXACT'}
@@ -879,14 +888,14 @@ export default function MemberShortProfileModal({
                         {
                           backgroundColor: isHideOnline
                             ? (isDark ? 'rgba(239, 68, 68, 0.16)' : '#FEE2E2')
-                            : (isDark ? '#1D2E25' : '#E3F5EC'),
+                            : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'),
                         },
                       ]}
                     >
                       <Ionicons
                         name={isHideOnline ? 'cloud-offline' : 'wifi'}
                         size={16}
-                        color={isHideOnline ? '#EF4444' : (isDark ? '#3ADFAB' : '#006C4F')}
+                        color={isHideOnline ? '#EF4444' : (isDark ? '#F8FAFC' : '#0F172A')}
                       />
                     </View>
                     <View style={styles.auditTextCol}>
@@ -901,7 +910,7 @@ export default function MemberShortProfileModal({
                       <Switch
                         value={!isHideOnline}
                         onValueChange={(val) => handleLeaderToggleSetting('hide_online_presence', !val)}
-                        trackColor={{ false: isDark ? '#26372E' : '#D1D5DB', true: isDark ? '#3ADFAB' : '#006C4F' }}
+                        trackColor={{ false: isDark ? '#26372E' : '#D1D5DB', true: isDark ? '#FFFFFF' : '#0F172A' }}
                         thumbColor="#FFFFFF"
                       />
                     ) : (
@@ -911,14 +920,14 @@ export default function MemberShortProfileModal({
                           {
                             backgroundColor: isHideOnline
                               ? (isDark ? 'rgba(239, 68, 68, 0.18)' : '#FEE2E2')
-                              : (isDark ? 'rgba(58, 223, 171, 0.15)' : '#E3F5EC'),
+                              : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'),
                           },
                         ]}
                       >
                         <Text
                           style={[
                             styles.auditStatusText,
-                            { color: isHideOnline ? '#EF4444' : (isDark ? '#3ADFAB' : '#006C4F') },
+                            { color: isHideOnline ? '#EF4444' : (isDark ? '#F8FAFC' : '#0F172A') },
                           ]}
                         >
                           {isHideOnline ? 'HIDDEN' : 'BROADCAST'}
@@ -1004,7 +1013,7 @@ export default function MemberShortProfileModal({
                         styles.auditIconBox,
                         {
                           backgroundColor: isAppLock
-                            ? (isDark ? 'rgba(58, 223, 171, 0.18)' : '#E3F5EC')
+                            ? (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9')
                             : (isDark ? 'rgba(100, 116, 139, 0.15)' : '#F1F5F9'),
                         },
                       ]}
@@ -1012,7 +1021,7 @@ export default function MemberShortProfileModal({
                       <Ionicons
                         name={isAppLock ? 'finger-print' : 'lock-open-outline'}
                         size={16}
-                        color={isAppLock ? (isDark ? '#3ADFAB' : '#006C4F') : (isDark ? '#94A3B8' : '#64748B')}
+                        color={isAppLock ? (isDark ? '#F8FAFC' : '#0F172A') : (isDark ? '#94A3B8' : '#64748B')}
                       />
                     </View>
                     <View style={styles.auditTextCol}>
@@ -1027,7 +1036,7 @@ export default function MemberShortProfileModal({
                       <Switch
                         value={isAppLock}
                         onValueChange={(val) => handleLeaderToggleSetting('app_lock_enabled', val)}
-                        trackColor={{ false: isDark ? '#26372E' : '#D1D5DB', true: isDark ? '#3ADFAB' : '#006C4F' }}
+                        trackColor={{ false: isDark ? '#26372E' : '#D1D5DB', true: isDark ? '#FFFFFF' : '#0F172A' }}
                         thumbColor="#FFFFFF"
                       />
                     ) : (
@@ -1036,7 +1045,7 @@ export default function MemberShortProfileModal({
                           styles.auditStatusPill,
                           {
                             backgroundColor: isAppLock
-                              ? (isDark ? 'rgba(58, 223, 171, 0.15)' : '#E3F5EC')
+                              ? (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9')
                               : (isDark ? 'rgba(100, 116, 139, 0.15)' : '#F1F5F9'),
                           },
                         ]}
@@ -1044,7 +1053,7 @@ export default function MemberShortProfileModal({
                         <Text
                           style={[
                             styles.auditStatusText,
-                            { color: isAppLock ? (isDark ? '#3ADFAB' : '#006C4F') : (isDark ? '#94A3B8' : '#64748B') },
+                            { color: isAppLock ? (isDark ? '#F8FAFC' : '#0F172A') : (isDark ? '#94A3B8' : '#64748B') },
                           ]}
                         >
                           {isAppLock ? 'ENFORCED' : 'OFF'}
@@ -1140,8 +1149,8 @@ export default function MemberShortProfileModal({
                   },
                 ]}
               >
-                <View style={[styles.shareLocationIconBox, { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E3F5EC' }]}>
-                  <Ionicons name="location" size={20} color={isDark ? '#3ADFAB' : '#006C4F'} />
+                <View style={[styles.shareLocationIconBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                  <Ionicons name="location" size={20} color={isDark ? '#F8FAFC' : '#0F172A'} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={[styles.shareLocationTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]} numberOfLines={1}>
@@ -1196,8 +1205,8 @@ export default function MemberShortProfileModal({
                 activeOpacity={0.75}
                 onPress={handlePostLocationToChat}
               >
-                <View style={[styles.shareActionIconBox, { backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E3F5EC' }]}>
-                  <Ionicons name="chatbubbles" size={19} color={isDark ? '#3ADFAB' : '#006C4F'} />
+                <View style={[styles.shareActionIconBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                  <Ionicons name="chatbubbles" size={19} color={isDark ? '#FFFFFF' : '#0F172A'} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.shareActionTitle, { color: isDark ? '#FFFFFF' : '#141E18' }]}>

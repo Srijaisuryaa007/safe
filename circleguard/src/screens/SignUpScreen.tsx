@@ -13,6 +13,7 @@ import { handleServiceError } from '../lib/errorHandler';
 import AnimatedCircleGuardLogo from '../components/AnimatedCircleGuardLogo';
 import { useCountryStore } from '../store/useCountryStore';
 import CountrySelectorModal from '../components/CountrySelectorModal';
+import { safeNativeGoogleSignIn } from '../lib/googleAuthHelper';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -102,75 +103,54 @@ export default function SignUpScreen() {
     try {
       setLoading(true);
 
-      const isNativeGoogleAvailable = Platform.OS !== 'web' && Boolean(NativeModules && (NativeModules as any).RNGoogleSignin);
+      const nativeToken = await safeNativeGoogleSignIn(ENV.GOOGLE_WEB_CLIENT_ID);
+      if (nativeToken === 'CANCELLED') {
+        return;
+      }
 
-      if (isNativeGoogleAvailable) {
-        try {
-          const { GoogleSignin } = require('@react-native-google-signin/google-signin');
-          GoogleSignin.configure({
-            webClientId: ENV.GOOGLE_WEB_CLIENT_ID,
-            offlineAccess: true,
-          });
-          await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-          try {
-            await GoogleSignin.signOut();
-          } catch (e) { }
-          const response = await GoogleSignin.signIn();
+      if (nativeToken) {
+        const { data: sessionData, error: sessionErr } = await supabase.auth.signInWithIdToken({
+          provider: 'google',
+          token: nativeToken,
+        });
 
-          const idToken = response?.data?.idToken || response?.idToken || (response as any)?.data?.idToken || (response as any)?.idToken;
+        if (sessionErr) throw sessionErr;
 
-          if (idToken) {
-            const { data: sessionData, error: sessionErr } = await supabase.auth.signInWithIdToken({
-              provider: 'google',
-              token: idToken,
-            });
+        if (sessionData?.session) {
+          const { useAuthStore } = require('../store/useAuthStore');
+          useAuthStore.getState().setSession(sessionData.session);
 
-            if (sessionErr) throw sessionErr;
+          const user = sessionData.session.user;
+          let { data: prof } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .maybeSingle();
 
-            if (sessionData?.session) {
-              const { useAuthStore } = require('../store/useAuthStore');
-              useAuthStore.getState().setSession(sessionData.session);
+          if (!prof) {
+            const fullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Circle Member';
+            const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
 
-              const user = sessionData.session.user;
-              let { data: prof } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', user.id)
-                .maybeSingle();
+            const { data: newProf } = await supabase
+              .from('profiles')
+              .upsert([
+                {
+                  id: user.id,
+                  full_name: fullName,
+                  avatar_url: avatarUrl,
+                  phone: user.phone || null,
+                }
+              ])
+              .select()
+              .single();
 
-              if (!prof) {
-                const fullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Circle Member';
-                const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
-
-                const { data: newProf } = await supabase
-                  .from('profiles')
-                  .upsert([
-                    {
-                      id: user.id,
-                      full_name: fullName,
-                      avatar_url: avatarUrl,
-                      phone: user.phone || null,
-                    }
-                  ])
-                  .select()
-                  .single();
-
-                if (newProf) prof = newProf;
-              }
-
-              if (prof) {
-                useAuthStore.getState().setProfile(prof);
-              }
-              return;
-            }
+            if (newProf) prof = newProf;
           }
-        } catch (nativeErr: any) {
-          console.log('Native Google sign in skipped/fallback:', nativeErr?.message);
-          const isCancelled = nativeErr?.code === '13' || nativeErr?.code === 'SIGN_IN_CANCELLED' || nativeErr?.message?.toLowerCase()?.includes('cancel');
-          if (isCancelled) {
-            return;
+
+          if (prof) {
+            useAuthStore.getState().setProfile(prof);
           }
-          // If native module had an error, fall through gracefully to browser OAuth
+          return;
         }
       }
 
@@ -293,8 +273,8 @@ export default function SignUpScreen() {
             <Text style={[styles.countryNameText, { color: colors.foreground }]} numberOfLines={1}>
               {country.name}
             </Text>
-            <View style={[styles.dialCodeBadge, { backgroundColor: isDark ? 'rgba(0, 229, 153, 0.12)' : 'rgba(46, 125, 91, 0.08)' }]}>
-              <Text style={[styles.dialCodeBadgeText, { color: isDark ? '#00E599' : '#2E7D5B' }]}>
+            <View style={[styles.dialCodeBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.06)' }]}>
+              <Text style={[styles.dialCodeBadgeText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                 {country.dialCode}
               </Text>
             </View>
@@ -308,7 +288,7 @@ export default function SignUpScreen() {
             styles.inputContainer,
             {
               backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
-              borderColor: focusedField === 'email' ? '#00E599' : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0'),
+              borderColor: focusedField === 'email' ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0'),
             },
             focusedField === 'email' && styles.inputContainerFocused,
           ]}
@@ -317,7 +297,7 @@ export default function SignUpScreen() {
           <Ionicons 
             name="mail-outline" 
             size={18} 
-            color={focusedField === 'email' ? '#00E599' : colors.textMuted} 
+            color={focusedField === 'email' ? (isDark ? '#FFFFFF' : '#0F172A') : colors.textMuted} 
             style={styles.inputLeadingIcon}
           />
           <TextInput
@@ -340,8 +320,8 @@ export default function SignUpScreen() {
             importantForAutofill="noExcludeDescendants"
             placeholderTextColor={colors.textMuted}
             underlineColorAndroid="transparent"
-            cursorColor={isDark ? '#00E599' : '#2E7D5B'}
-            selectionColor={isDark ? 'rgba(0, 229, 153, 0.3)' : 'rgba(46, 125, 91, 0.3)'}
+            cursorColor={isDark ? '#FFFFFF' : '#0F172A'}
+            selectionColor={isDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(15, 23, 42, 0.2)'}
             onFocus={() => setFocusedField('email')}
             onBlur={() => setFocusedField(null)}
           />
@@ -363,7 +343,7 @@ export default function SignUpScreen() {
             styles.inputContainer,
             {
               backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
-              borderColor: focusedField === 'password' ? '#00E599' : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0'),
+              borderColor: focusedField === 'password' ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0'),
             },
             focusedField === 'password' && styles.inputContainerFocused,
           ]}
@@ -372,7 +352,7 @@ export default function SignUpScreen() {
           <Ionicons 
             name="lock-closed-outline" 
             size={18} 
-            color={focusedField === 'password' ? '#00E599' : colors.textMuted} 
+            color={focusedField === 'password' ? (isDark ? '#FFFFFF' : '#0F172A') : colors.textMuted} 
             style={styles.inputLeadingIcon}
           />
           <TextInput
@@ -395,8 +375,8 @@ export default function SignUpScreen() {
             importantForAutofill="noExcludeDescendants"
             placeholderTextColor={colors.textMuted}
             underlineColorAndroid="transparent"
-            cursorColor={isDark ? '#00E599' : '#2E7D5B'}
-            selectionColor={isDark ? 'rgba(0, 229, 153, 0.3)' : 'rgba(46, 125, 91, 0.3)'}
+            cursorColor={isDark ? '#FFFFFF' : '#0F172A'}
+            selectionColor={isDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(15, 23, 42, 0.2)'}
             onFocus={() => setFocusedField('password')}
             onBlur={() => setFocusedField(null)}
           />
@@ -407,7 +387,7 @@ export default function SignUpScreen() {
             onPress={() => setShowPassword(!showPassword)}
             activeOpacity={0.7}
           >
-            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={19} color={focusedField === 'password' ? '#00E599' : colors.textMuted} />
+            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={19} color={focusedField === 'password' ? (isDark ? '#FFFFFF' : '#0F172A') : colors.textMuted} />
           </TouchableOpacity>
         </Pressable>
 
@@ -435,11 +415,11 @@ export default function SignUpScreen() {
           disabled={loading || signUpLimiter.isBlocked}
         >
           {loading ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color={isDark ? '#000000' : '#FFFFFF'} />
           ) : signUpLimiter.isBlocked ? (
-            <Text style={styles.buttonText}>PLEASE WAIT ({signUpLimiter.secondsRemaining}S)</Text>
+            <Text style={[styles.buttonText, { color: isDark ? '#000000' : '#FFFFFF' }]}>PLEASE WAIT ({signUpLimiter.secondsRemaining}S)</Text>
           ) : (
-            <Text style={styles.buttonText}>CREATE ACCOUNT</Text>
+            <Text style={[styles.buttonText, { color: isDark ? '#000000' : '#FFFFFF' }]}>CREATE ACCOUNT</Text>
           )}
         </TouchableOpacity>
 
@@ -554,7 +534,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     borderWidth: 1,
     padding: 12,
-    backgroundColor: 'rgba(212, 175, 55, 0.05)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   backoffBadge: {
     flexDirection: 'row',
@@ -586,7 +566,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   inputContainerFocused: {
-    shadowColor: '#00E599',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.25,
     shadowRadius: 6,

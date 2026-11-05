@@ -61,8 +61,8 @@ export default function CountrySelectorModal({
           {/* Header */}
           <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <View style={[styles.headerIconBox, { backgroundColor: isDark ? 'rgba(0, 229, 153, 0.12)' : 'rgba(46, 125, 91, 0.08)' }]}>
-                <Ionicons name="globe-outline" size={18} color={isDark ? '#00E599' : '#2E7D5B'} />
+              <View style={[styles.headerIconBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.06)' }]}>
+                <Ionicons name="globe-outline" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
               </View>
               <View>
                 <Text style={[styles.modalTitle, { color: colors.foreground }]}>SELECT COUNTRY</Text>
@@ -89,8 +89,8 @@ export default function CountrySelectorModal({
                 autoComplete="off"
                 textContentType="none"
                 importantForAutofill="no"
-                cursorColor={isDark ? '#00E599' : '#2E7D5B'}
-                selectionColor={isDark ? 'rgba(0, 229, 153, 0.3)' : 'rgba(46, 125, 91, 0.3)'}
+                cursorColor={isDark ? '#FFFFFF' : '#0F172A'}
+                selectionColor={isDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(15, 23, 42, 0.2)'}
               />
               {search ? (
                 <TouchableOpacity onPress={() => setSearch('')}>
@@ -118,9 +118,9 @@ export default function CountrySelectorModal({
                     styles.countryItem,
                     {
                       backgroundColor: isSelected
-                        ? (isDark ? 'rgba(0, 229, 153, 0.1)' : 'rgba(46, 125, 91, 0.06)')
+                        ? (isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.06)')
                         : 'transparent',
-                      borderColor: isSelected ? (isDark ? '#00E599' : '#2E7D5B') : colors.border,
+                      borderColor: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : colors.border,
                     },
                   ]}
                   onPress={() => handleSelect(c)}
@@ -137,13 +137,13 @@ export default function CountrySelectorModal({
                     <Text
                       style={[
                         styles.dialCode,
-                        { color: isSelected ? (isDark ? '#00E599' : '#2E7D5B') : colors.textMuted },
+                        { color: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : colors.textMuted },
                       ]}
                     >
                       {c.dialCode}
                     </Text>
                     {isSelected && (
-                      <Ionicons name="checkmark-circle" size={18} color={isDark ? '#00E599' : '#2E7D5B'} />
+                      <Ionicons name="checkmark-circle" size={18} color={isDark ? '#FFFFFF' : '#0F172A'} />
                     )}
                   </View>
                 </TouchableOpacity>

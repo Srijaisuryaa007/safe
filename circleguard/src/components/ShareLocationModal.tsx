@@ -15,7 +15,7 @@ interface ShareLocationModalProps {
 }
 
 export default function ShareLocationModal({ visible, onClose, onSuccess }: ShareLocationModalProps) {
-  const { colors } = useThemeStore();
+  const { colors, isDark } = useThemeStore();
   const { profile } = useAuthStore();
   const { members, activeCircle } = useCircleStore();
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null); // null = ALL MEMBERS
@@ -78,7 +78,7 @@ export default function ShareLocationModal({ visible, onClose, onSuccess }: Shar
               onPress={() => setSelectedTargetId(null)}
               activeOpacity={0.8}
             >
-              <View style={[styles.iconCircle, { backgroundColor: 'rgba(212, 175, 55, 0.15)' }]}>
+              <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.08)' }]}>
                 <Ionicons name="people" size={20} color={colors.accentGold} />
               </View>
               <View style={{ flex: 1 }}>
@@ -129,16 +129,16 @@ export default function ShareLocationModal({ visible, onClose, onSuccess }: Shar
           </ScrollView>
 
           <TouchableOpacity
-            style={[styles.shareBtn, { backgroundColor: colors.accentGold }]}
+            style={[styles.shareBtn, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}
             onPress={handleExecuteShare}
             disabled={sharing}
           >
             {sharing ? (
-              <ActivityIndicator color="#1A1A1A" />
+              <ActivityIndicator color={isDark ? '#000000' : '#FFFFFF'} />
             ) : (
               <>
-                <Ionicons name="paper-plane-outline" size={18} color="#1A1A1A" />
-                <Text style={styles.shareBtnText}>SHARE LIVE POSITION DETAILS</Text>
+                <Ionicons name="paper-plane-outline" size={18} color={isDark ? '#000000' : '#FFFFFF'} />
+                <Text style={[styles.shareBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>SHARE LIVE POSITION DETAILS</Text>
               </>
             )}
           </TouchableOpacity>

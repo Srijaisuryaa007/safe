@@ -146,8 +146,8 @@ export default function CircleMembersSphere({
       border-radius: 50%;
       overflow: hidden;
       box-shadow: 0 4px 14px rgba(0,0,0,0.45);
-      border: 2px solid ${isDark ? '#3ADFAB' : '#059669'};
-      background: ${isDark ? '#16201B' : '#E5E7EB'};
+      border: 2px solid ${isDark ? '#FFFFFF' : '#0F172A'};
+      background: ${isDark ? '#18181B' : '#E5E7EB'};
     }
     .node-avatar img {
       width: 100%;
@@ -161,11 +161,11 @@ export default function CircleMembersSphere({
       font-size: 11px;
       font-weight: 700;
       color: ${isDark ? '#FFFFFF' : '#111827'};
-      background: ${isDark ? 'rgba(20, 29, 24, 0.9)' : 'rgba(255, 255, 255, 0.92)'};
+      background: ${isDark ? 'rgba(24, 24, 27, 0.9)' : 'rgba(255, 255, 255, 0.92)'};
       padding: 2px 7px;
       border-radius: 99px;
       white-space: nowrap;
-      border: 1px solid ${isDark ? 'rgba(58, 223, 171, 0.35)' : 'rgba(0,0,0,0.1)'};
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0,0,0,0.1)'};
       box-shadow: 0 2px 6px rgba(0,0,0,0.25);
     }
     #modal {
@@ -182,8 +182,8 @@ export default function CircleMembersSphere({
     }
     #modal.active { display: flex; animation: fadeIn 0.22s ease-out; }
     #modal-card {
-      background: ${isDark ? '#1C2621' : '#FFFFFF'};
-      border: 1px solid ${isDark ? '#2B3D34' : '#E5E7EB'};
+      background: ${isDark ? '#18181B' : '#FFFFFF'};
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.12)' : '#E5E7EB'};
       border-radius: 22px;
       max-width: 270px;
       width: 100%;
@@ -198,16 +198,16 @@ export default function CircleMembersSphere({
       aspect-ratio: 1;
       object-fit: cover;
       display: block;
-      background: ${isDark ? '#131B17' : '#F3F4F6'};
+      background: ${isDark ? '#18181B' : '#F3F4F6'};
     }
     #modal-info { padding: 16px; }
     #modal-title { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
-    #modal-desc { font-size: 13px; color: ${isDark ? '#3ADFAB' : '#059669'}; font-weight: 600; }
+    #modal-desc { font-size: 13px; color: ${isDark ? '#FFFFFF' : '#0F172A'}; font-weight: 600; }
     #modal-close {
       margin-top: 14px;
       padding: 9px 24px;
-      background: ${isDark ? '#2E7D5B' : '#006C4F'};
-      color: #FFFFFF;
+      background: ${isDark ? '#FFFFFF' : '#0F172A'};
+      color: ${isDark ? '#000000' : '#FFFFFF'};
       font-size: 13px;
       font-weight: 600;
       border: none;

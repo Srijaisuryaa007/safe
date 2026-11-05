@@ -355,7 +355,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
           </View>
 
           {/* Section 5: Battery Reliability */}
-          <Text style={[styles.sectionHeader, { color: textSecondary }]}>BATTERY & BACKGROUND</Text>
+          <Text style={[styles.sectionHeader, { color: textSecondary }]}>BATTERY & BACKGROUND (OPTION B)</Text>
           <View style={[styles.groupedTable, { backgroundColor: bgCard, borderColor }]}>
             <TouchableOpacity
               style={styles.actionRow}
@@ -363,9 +363,14 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
               activeOpacity={0.65}
             >
               <View style={styles.actionTextWrap}>
-                <Text style={[styles.rowTitle, { color: textPrimary }]}>Background Battery Optimization</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.rowTitle, { color: textPrimary }]}>Background Battery Optimization</Text>
+                  <View style={{ backgroundColor: 'rgba(16, 185, 129, 0.12)', paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 4 }}>
+                    <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#10B981' }}>UNRESTRICTED</Text>
+                  </View>
+                </View>
                 <Text style={[styles.rowSubtitle, { color: textSecondary }]}>
-                  Ensure persistent background location permissions
+                  Settings ➔ Apps ➔ CircleGuard ➔ Battery ➔ Unrestricted (Don't optimize)
                 </Text>
               </View>
               <Text style={[styles.chevronArrow, { color: isDark ? '#475569' : '#9CA3AF' }]}>›</Text>

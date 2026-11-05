@@ -44,9 +44,9 @@ export default function VectorMapDesignStack({ onBack, userLocation }: VectorMap
           var coralIcon = L.divIcon({ className: 'pin', html: coralPinSvg, iconSize: [36, 46], iconAnchor: [18, 46] });
           L.marker([${lat}, ${lng}], { icon: coralIcon }).addTo(map);
 
-          var bluePinSvg = '<div style="filter: drop-shadow(0 6px 10px rgba(212, 175, 55,0.6));">' +
+          var bluePinSvg = '<div style="filter: drop-shadow(0 6px 10px rgba(59, 130, 246, 0.6));">' +
             '<svg width="32" height="42" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-              '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#D4AF37"/>' +
+              '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#3B82F6"/>' +
               '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
             '</svg>' +
           '</div>';
@@ -259,7 +259,7 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(212, 175, 55,0.1)',
+    borderBottomColor: '#E2E8F0',
   },
   switcherPill: {
     paddingHorizontal: 14,
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EEF0F9',
   },
   switcherPillActive: {
-    backgroundColor: '#D4AF37',
+    backgroundColor: '#0F172A',
   },
   switcherPillText: {
     fontSize: 10,
@@ -413,7 +413,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   blueFindBtn: {
-    backgroundColor: '#D4AF37',
+    backgroundColor: '#0F172A',
     width: 140,
     height: 44,
     borderRadius: 22,
@@ -456,7 +456,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   blueDetailsBtn: {
-    backgroundColor: '#D4AF37',
+    backgroundColor: '#0F172A',
     width: 160,
     height: 46,
     borderRadius: 23,

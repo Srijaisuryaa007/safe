@@ -27,6 +27,52 @@ let lastProcessedLng = 0;
 let lastProcessedTimestamp = 0;
 let lastBgHistorySavedPoint: { [userId: string]: { lat: number; lng: number; timeMs: number } } = {};
 
+// Active subscribed broadcast channels to guarantee 0ms live socket delivery
+const activeBroadcastChannels: Record<string, any> = {};
+const pendingChannelPayloads: Record<string, any> = {};
+const channelIsSubscribed: Record<string, boolean> = {};
+
+export function broadcastCircleLocationUpdate(circleId: string, payload: any) {
+  if (!circleId) return;
+  const channelName = `circle_realtime_${circleId}`;
+  let channel = activeBroadcastChannels[channelName];
+  if (!channel) {
+    pendingChannelPayloads[channelName] = payload;
+    channel = supabase.channel(channelName);
+    activeBroadcastChannels[channelName] = channel;
+    channel.subscribe((status: string) => {
+      if (status === 'SUBSCRIBED') {
+        channelIsSubscribed[channelName] = true;
+        const pending = pendingChannelPayloads[channelName];
+        if (pending) {
+          channel.send({
+            type: 'broadcast',
+            event: 'LOCATION_UPDATE',
+            payload: pending,
+          }).catch(() => {});
+          delete pendingChannelPayloads[channelName];
+        }
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        channelIsSubscribed[channelName] = false;
+        delete activeBroadcastChannels[channelName];
+        delete pendingChannelPayloads[channelName];
+      }
+    });
+    return;
+  }
+
+  if (!channelIsSubscribed[channelName]) {
+    pendingChannelPayloads[channelName] = payload;
+    return;
+  }
+
+  channel.send({
+    type: 'broadcast',
+    event: 'LOCATION_UPDATE',
+    payload,
+  }).catch(() => {});
+}
+
 /**
  * Persist or update current session details for background tasks so they never fail
  * when entering underground tunnels, subways, or areas with poor cellular signal.
@@ -116,8 +162,8 @@ try {
         latest.timestamp
       );
 
-      // Resilient GPS Accuracy Gate: allow genuine indoor-to-outdoor departure fixes (up to 55m stationary/walking, 65m driving)
-      const maxAllowedAcc = (speed || 0) > 10 ? 65 : 55;
+      // Resilient GPS Accuracy Gate: allow genuine indoor-to-outdoor departure & in-vehicle pocket fixes (up to 135m)
+      const maxAllowedAcc = (speed || 0) > 10 ? 150 : 135;
       if (typeof accuracy === 'number' && accuracy > maxAllowedAcc) {
         return;
       }
@@ -190,28 +236,14 @@ try {
               shouldSaveBgHistory = true;
             }
           } else {
-            // Stationary / Parked / Indoor dwell (rawSpeed < 1.0 m/s):
-            // CRITICAL ANTI-DRIFT FIX: Never save periodic jitter breadcrumbs while stationary!
-            // Only record when user has genuinely departed from the stationary anchor (> 35m).
-            if (distMeters >= 35 && timeDiffSec >= 20) {
+            // Stationary / Parked / Slow Crawl (rawSpeed < 1.0 m/s):
+            // Anti-Drift: Reject indoor Wi-Fi/cellular triangulation jitter (> 50m accuracy)
+            const isAccurateFix = !accuracy || accuracy <= 50;
+            // Record genuine departures (> 30m with confirmed fix) or periodic stay anchor heartbeat (> 5 mins)
+            if (isAccurateFix && ((distMeters >= 30 && timeDiffSec >= 20) || (timeDiffSec >= 300 && distMeters < 15))) {
               shouldSaveBgHistory = true;
             }
           }
-        }
-
-        if (shouldSaveBgHistory) {
-          const authenticPoint = `POINT(${cleanLng} ${cleanLat})`;
-          // Non-blocking offline queue sync - won't throw or cancel on bad network
-          queueAndSyncLocationHistory({
-            user_id: userId,
-            geom: authenticPoint,
-            speed_mps: rawSpeed,
-            recorded_at: new Date(now).toISOString(),
-            accuracy: accuracy ?? undefined,
-            latitude: cleanLat,
-            longitude: cleanLng,
-          }).catch(() => {});
-          lastBgHistorySavedPoint[userId] = { lat: cleanLat, lng: cleanLng, timeMs: now };
         }
 
         // Step 4: Ghost mode & live location sync (executed asynchronously)
@@ -224,6 +256,25 @@ try {
           const fuzzAngle = ((charCode * 43) % 360) * (Math.PI / 180);
           finalLat = parseFloat((cleanLat + 0.012 * Math.sin(fuzzAngle)).toFixed(5));
           finalLng = parseFloat((cleanLng + 0.012 * Math.cos(fuzzAngle)).toFixed(5));
+        }
+
+        if (shouldSaveBgHistory) {
+          // Authentic History Preservation:
+          // Always record genuine sensor coordinates in personal location history.
+          // Ghost Mode obfuscation (finalLat/finalLng) is strictly applied to live circle broadcasts,
+          // preventing fake 1.3km teleportation jumps and random routes in personal history logs.
+          const historyPoint = `POINT(${cleanLng} ${cleanLat})`;
+          // Non-blocking offline queue sync - won't throw or cancel on bad network
+          queueAndSyncLocationHistory({
+            user_id: userId,
+            geom: historyPoint,
+            speed_mps: rawSpeed,
+            recorded_at: new Date(now).toISOString(),
+            accuracy: accuracy ?? undefined,
+            latitude: cleanLat,
+            longitude: cleanLng,
+          }).catch(() => {});
+          lastBgHistorySavedPoint[userId] = { lat: cleanLat, lng: cleanLng, timeMs: now };
         }
 
         let batteryPct = 100;
@@ -308,12 +359,41 @@ try {
           const payload = { ...locPayload };
           if (cId) payload.circle_id = cId;
 
+          // 1. Peer broadcast is ALWAYS sent unconditionally to all circle peers
+          if (cId) {
+            try {
+              broadcastCircleLocationUpdate(cId, {
+                user_id: userId,
+                latitude: finalLat,
+                longitude: finalLng,
+                speed_mps: rawSpeed,
+                heading: latest?.coords?.heading || 0,
+                battery_pct: batteryPct,
+                is_driving: isDriving,
+                activity_state: payload.activity_state,
+                updated_at: payload.updated_at,
+                circle_id: cId,
+              });
+            } catch (_) {}
+          }
+
+          // 2. Persistent Supabase DB write with RLS recovery
           try {
             const { error: upsertErr } = await supabase.from('locations').upsert(payload, {
               onConflict: 'user_id'
             });
             if (upsertErr) {
               console.error('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] Upsert error for circle', cId, ':', upsertErr.message);
+              if (upsertErr.message?.includes('row-level security') || upsertErr.message?.includes('JWT') || upsertErr.message?.includes('expired')) {
+                try {
+                  const { data: refData } = await supabase.auth.refreshSession();
+                  const freshUid = refData?.session?.user?.id;
+                  if (freshUid) {
+                    payload.user_id = freshUid;
+                    await supabase.from('locations').upsert(payload, { onConflict: 'user_id' });
+                  }
+                } catch (_) {}
+              }
             } else {
               console.log('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] DB updated successfully for user:', userId, 'circle_id:', cId);
             }
@@ -397,6 +477,14 @@ try {
             }
           } catch {
             // Geofence check skipped if evaluation error
+          }
+
+          // 3. Location Watches Evaluation ("Notify Me When...")
+          try {
+            const { evaluateMemberLocationWatches } = require('../store/useLocationWatchStore');
+            await evaluateMemberLocationWatches(userId, finalLat, finalLng, cached?.fullName);
+          } catch (watchErr) {
+            console.warn('[LocationWatch] Background watch evaluation note:', watchErr);
           }
         }
       } catch (err) {
@@ -683,7 +771,7 @@ export const startBatteryOptimizedBackgroundLocation = async (): Promise<boolean
       foregroundService: {
         notificationTitle: "CircleGuard Location Active",
         notificationBody: "Sharing live circle location with family.",
-        notificationColor: "#10B981",
+        notificationColor: "#0F172A",
       },
       activityType: Location.ActivityType.AutomotiveNavigation,
     });
@@ -705,10 +793,10 @@ export const sendInstantLocationPing = async () => {
     const activeCircleId = useCircleStore.getState().activeCircle?.id;
 
     let loc = await Location.getLastKnownPositionAsync();
-    if (!loc?.coords || (loc.coords.accuracy && loc.coords.accuracy > 45)) {
+    if (!loc?.coords || (loc.coords.accuracy && loc.coords.accuracy > 90)) {
       loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
     }
-    if (!loc?.coords || (loc.coords.accuracy && loc.coords.accuracy > 50)) return;
+    if (!loc?.coords || (loc.coords.accuracy && loc.coords.accuracy > 120)) return;
 
     const { latitude, longitude, speed } = loc.coords;
 
@@ -803,12 +891,41 @@ export const sendInstantLocationPing = async () => {
       const payload = { ...locPayload };
       if (cId) payload.circle_id = cId;
 
+      // 1. Peer broadcast is ALWAYS sent unconditionally
+      if (cId) {
+        try {
+          broadcastCircleLocationUpdate(cId, {
+            user_id: userId,
+            latitude: finalLat,
+            longitude: finalLng,
+            speed_mps: effectiveSpeed,
+            heading: loc?.coords?.heading || 0,
+            battery_pct: batteryPct,
+            is_driving: isDriving,
+            activity_state: locPayload.activity_state,
+            updated_at: locPayload.updated_at,
+            circle_id: cId,
+          });
+        } catch (_) {}
+      }
+
+      // 2. Persistent Supabase DB write with RLS recovery
       try {
         const { error: upsertErr } = await supabase.from('locations').upsert(payload, {
           onConflict: 'user_id'
         });
         if (upsertErr) {
           console.error('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] Instant ping upsert error for circle', cId, ':', upsertErr.message);
+          if (upsertErr.message?.includes('row-level security') || upsertErr.message?.includes('JWT') || upsertErr.message?.includes('expired')) {
+            try {
+              const { data: refData } = await supabase.auth.refreshSession();
+              const freshUid = refData?.session?.user?.id;
+              if (freshUid) {
+                payload.user_id = freshUid;
+                await supabase.from('locations').upsert(payload, { onConflict: 'user_id' });
+              }
+            } catch (_) {}
+          }
         } else {
           console.log('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] Instant ping wrote location to DB for user:', userId, 'circle_id:', cId);
         }
@@ -816,6 +933,12 @@ export const sendInstantLocationPing = async () => {
         console.error('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] Instant ping exception writing location:', err?.message);
       }
     }
+
+    // Evaluate location watches for this user
+    try {
+      const { evaluateMemberLocationWatches } = require('../store/useLocationWatchStore');
+      await evaluateMemberLocationWatches(userId, finalLat, finalLng);
+    } catch (_) {}
   } catch (e) {
     console.warn('Instant location ping error:', e);
   }

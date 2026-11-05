@@ -17,19 +17,38 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
-import { COMPLETE_EMOJI_DATA, EmojiItem, EmojiCategory } from '../constants/emojiData';
+import { COMPLETE_EMOJI_DATA, EmojiItem } from '../constants/emojiData';
 
 interface EmojiGifPickerModalProps {
   visible: boolean;
   onClose: () => void;
   onSelectEmoji: (emoji: string) => void;
   onSelectGif: (gifUrl: string, title?: string) => void;
+  mode?: 'composer' | 'reaction';
+  myActiveReactions?: string[];
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const TRAY_HEIGHT = Math.min(Math.round(SCREEN_HEIGHT * 0.65), 550);
 
+// Discord-style quick-filter GIF categories
+const DISCORD_GIF_CATEGORIES = [
+  { id: 'trending', label: '🔥 Trending', query: '' },
+  { id: 'omw', label: '🚗 On My Way', query: 'driving on my way' },
+  { id: 'safe', label: '🛡️ Safe & Sound', query: 'safe all good' },
+  { id: 'memes', label: '🤣 Memes & Lol', query: 'funny memes lol' },
+  { id: 'reactions', label: '👀 Reactions', query: 'reactions' },
+  { id: 'pets', label: '🐱 Cute Pets', query: 'cute dogs cats' },
+  { id: 'food', label: '🍕 Food & Coffee', query: 'delicious food coffee' },
+  { id: 'party', label: '💃 Dance & Party', query: 'party dance celebrate' },
+  { id: 'love', label: '💖 Love & Hugs', query: 'love hug kiss' },
+  { id: 'gaming', label: '🎮 Gaming', query: 'gaming victory gamer' },
+  { id: 'sleep', label: '😴 Sleep & Late', query: 'sleeping tired late' },
+  { id: 'drama', label: '🍿 Popcorn Drama', query: 'popcorn waiting' },
+];
+
+// Offline & Emergency Curated GIFs
 const ALL_CURATED_GIFS = [
-  // Driving & On My Way
   {
     id: 'omw_1',
     category: 'on_my_way',
@@ -55,8 +74,8 @@ const ALL_CURATED_GIFS = [
     id: 'omw_4',
     category: 'on_my_way',
     title: 'Scooter Speeding 🛵',
-    url: 'https://media.giphy.com/media/3o7ZetIsjgoqVebN5K/giphy.gif',
-    preview: 'https://media.giphy.com/media/3o7ZetIsjgoqVebN5K/200w.gif',
+    url: 'https://media.giphy.com/media/3o7TKtnuHOH6yxnM1q/giphy.gif',
+    preview: 'https://media.giphy.com/media/3o7TKtnuHOH6yxnM1q/200w.gif',
   },
   {
     id: 'omw_5',
@@ -65,8 +84,6 @@ const ALL_CURATED_GIFS = [
     url: 'https://media.giphy.com/media/3ohnEqJ1XOfvWaSk7e/giphy.gif',
     preview: 'https://media.giphy.com/media/3ohnEqJ1XOfvWaSk7e/200w.gif',
   },
-
-  // Safe & Reassurance
   {
     id: 'safe_1',
     category: 'safe',
@@ -102,8 +119,6 @@ const ALL_CURATED_GIFS = [
     url: 'https://media.giphy.com/media/GCLlQnV7dXZ2E/giphy.gif',
     preview: 'https://media.giphy.com/media/GCLlQnV7dXZ2E/200w.gif',
   },
-
-  // Funny & Curiosity & Where Are You
   {
     id: 'where_1',
     category: 'reactions',
@@ -126,22 +141,6 @@ const ALL_CURATED_GIFS = [
     preview: 'https://media.giphy.com/media/hVTouq08miyGT52UKL/200w.gif',
   },
   {
-    id: 'where_4',
-    category: 'reactions',
-    title: 'Confused Math Lady 🧐',
-    url: 'https://media.giphy.com/media/4JVTF9fR99WYo/giphy.gif',
-    preview: 'https://media.giphy.com/media/4JVTF9fR99WYo/200w.gif',
-  },
-  {
-    id: 'where_5',
-    category: 'reactions',
-    title: 'Cat Dancing Party 🐱',
-    url: 'https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif',
-    preview: 'https://media.giphy.com/media/JIX9t2j0ZTN9S/200w.gif',
-  },
-
-  // Food & Family
-  {
     id: 'food_1',
     category: 'food',
     title: 'Pizza Slicing Delicious 🍕',
@@ -155,29 +154,31 @@ const ALL_CURATED_GIFS = [
     url: 'https://media.giphy.com/media/3oriO04qxVReM5rJEA/giphy.gif',
     preview: 'https://media.giphy.com/media/3oriO04qxVReM5rJEA/200w.gif',
   },
-  {
-    id: 'food_3',
-    category: 'food',
-    title: 'Burger Eating Nom 🍔',
-    url: 'https://media.giphy.com/media/eSQKNSmg07dHq/giphy.gif',
-    preview: 'https://media.giphy.com/media/eSQKNSmg07dHq/200w.gif',
-  },
 ];
+
+// Active GIPHY key with live trending & global search access
+const GIPHY_API_KEY = 'sXpGFDGZs0Dv1mmNFvYaGUvYwKX0PWIh';
 
 export default function EmojiGifPickerModal({
   visible,
   onClose,
   onSelectEmoji,
   onSelectGif,
+  mode = 'composer',
+  myActiveReactions = [],
 }: EmojiGifPickerModalProps) {
-  const { colors, isDark, themeMode } = useThemeStore();
+  const { colors, isDark } = useThemeStore();
   const [activeTab, setActiveTab] = useState<'emoji' | 'gif'>('emoji');
   const [selectedEmojiCategory, setSelectedEmojiCategory] = useState<string>('all');
+  const [selectedGifCategory, setSelectedGifCategory] = useState<string>('trending');
   const [searchQuery, setSearchQuery] = useState('');
   const [liveGifs, setLiveGifs] = useState<any[]>(ALL_CURATED_GIFS);
   const [isSearchingGifs, setIsSearchingGifs] = useState(false);
 
-  // Flatten all emojis for fast Discord-style global search
+  // In-memory GIF cache to avoid unnecessary network calls
+  const gifCacheRef = useRef<Record<string, any[]>>({});
+
+  // Flatten all emojis for fast Discord-style search
   const allFlatEmojis = useMemo(() => {
     const list: EmojiItem[] = [];
     COMPLETE_EMOJI_DATA.forEach((cat) => {
@@ -206,75 +207,64 @@ export default function EmojiGifPickerModal({
     return cat ? cat.emojis : allFlatEmojis;
   }, [searchQuery, selectedEmojiCategory, allFlatEmojis]);
 
-  // Dynamic Live GIPHY & Tenor Search (Discord style)
+  // Live GIPHY & Web GIF Search (Discord style)
   useEffect(() => {
     if (!visible || activeTab !== 'gif') return;
 
     let isMounted = true;
     const fetchGifs = async () => {
-      const q = searchQuery.trim();
+      // Determine query: user typed query takes precedence, otherwise use category query
+      const typedQuery = searchQuery.trim();
+      const activeCat = DISCORD_GIF_CATEGORIES.find((c) => c.id === selectedGifCategory);
+      const effectiveQuery = typedQuery || (activeCat && activeCat.id !== 'trending' ? activeCat.query : '');
+
+      const cacheKey = effectiveQuery.toLowerCase() || '__trending__';
+      if (gifCacheRef.current[cacheKey]) {
+        setLiveGifs(gifCacheRef.current[cacheKey]);
+        setIsSearchingGifs(false);
+        return;
+      }
+
       setIsSearchingGifs(true);
 
       try {
-        const endpoint = q
-          ? `https://api.giphy.com/v1/gifs/search?api_key=dc6zaTOxFJmzC&q=${encodeURIComponent(q)}&limit=36&rating=g`
-          : `https://api.giphy.com/v1/gifs/trending?api_key=dc6zaTOxFJmzC&limit=36&rating=g`;
+        const endpoint = effectiveQuery
+          ? `https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(effectiveQuery)}&limit=40&rating=pg`
+          : `https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_API_KEY}&limit=40&rating=pg`;
 
         const res = await fetch(endpoint);
         const json = await res.json();
 
         if (json && json.data && json.data.length > 0) {
-          const formatted = json.data.map((g: any) => ({
-            id: g.id,
-            title: g.title || 'GIF',
-            url: g.images?.original?.url || g.images?.downsized_medium?.url || g.images?.fixed_height?.url,
-            preview: g.images?.fixed_width_small?.url || g.images?.fixed_height_small?.url || g.images?.downsized?.url,
-          })).filter((g: any) => Boolean(g.url));
+          const formatted = json.data
+            .map((g: any) => ({
+              id: g.id,
+              title: g.title || 'GIF',
+              url: g.images?.original?.url || g.images?.downsized?.url || g.images?.fixed_height?.url,
+              preview: g.images?.fixed_height?.url || g.images?.fixed_width?.url || g.images?.downsized?.url,
+            }))
+            .filter((g: any) => Boolean(g.url));
 
           if (isMounted) {
+            gifCacheRef.current[cacheKey] = formatted;
             setLiveGifs(formatted);
             setIsSearchingGifs(false);
             return;
           }
         }
       } catch (e) {
-        // Fallback to Tenor API
-        try {
-          const tenorEndpoint = q
-            ? `https://g.tenor.com/v1/search?q=${encodeURIComponent(q)}&key=LIVDSRZULELA&limit=36`
-            : `https://g.tenor.com/v1/trending?key=LIVDSRZULELA&limit=36`;
-
-          const tenorRes = await fetch(tenorEndpoint);
-          const tenorJson = await tenorRes.json();
-
-          if (tenorJson && tenorJson.results && tenorJson.results.length > 0) {
-            const formatted = tenorJson.results.map((r: any) => {
-              const media = r.media?.[0];
-              return {
-                id: r.id,
-                title: r.title || 'GIF',
-                url: media?.gif?.url || media?.mediumgif?.url,
-                preview: media?.nanogif?.url || media?.tinygif?.url,
-              };
-            }).filter((g: any) => Boolean(g.url));
-
-            if (isMounted) {
-              setLiveGifs(formatted);
-              setIsSearchingGifs(false);
-              return;
-            }
-          }
-        } catch (err) {}
+        // Fallback to curated safety & emotion GIFs
       }
 
-      // If offline, filter curated gifs
       if (isMounted) {
-        if (!q) {
+        if (!effectiveQuery) {
           setLiveGifs(ALL_CURATED_GIFS);
         } else {
           setLiveGifs(
             ALL_CURATED_GIFS.filter(
-              (g) => g.title.toLowerCase().includes(q.toLowerCase()) || g.category.toLowerCase().includes(q.toLowerCase())
+              (g) =>
+                g.title.toLowerCase().includes(effectiveQuery.toLowerCase()) ||
+                g.category.toLowerCase().includes(effectiveQuery.toLowerCase())
             )
           );
         }
@@ -282,12 +272,12 @@ export default function EmojiGifPickerModal({
       }
     };
 
-    const timer = setTimeout(fetchGifs, searchQuery ? 300 : 0);
+    const timer = setTimeout(fetchGifs, searchQuery ? 250 : 0);
     return () => {
       isMounted = false;
       clearTimeout(timer);
     };
-  }, [searchQuery, activeTab, visible]);
+  }, [searchQuery, selectedGifCategory, activeTab, visible]);
 
   const translateY = useRef(new Animated.Value(0)).current;
   const isClosingRef = useRef(false);
@@ -341,6 +331,17 @@ export default function EmojiGifPickerModal({
 
   if (!visible) return null;
 
+  // Dynamic Theme Colors with Guaranteed High Contrast
+  const activeTabBg = isDark ? '#FFFFFF' : '#0F172A';
+  const activeTabText = isDark ? '#0F172A' : '#FFFFFF';
+  const inactiveTabText = isDark ? '#94A3B8' : '#475569';
+
+  const activePillBg = isDark ? '#FFFFFF' : '#0F172A';
+  const activePillText = isDark ? '#0F172A' : '#FFFFFF';
+  const inactivePillBg = isDark ? '#1E2430' : '#F1F5F9';
+  const inactivePillBorder = isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0';
+  const inactivePillText = isDark ? '#E2E8F0' : '#334155';
+
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={handleDismiss}>
       <View style={styles.overlay}>
@@ -348,8 +349,9 @@ export default function EmojiGifPickerModal({
           style={[
             styles.trayCard,
             {
-              backgroundColor: isDark ? colors.surface : '#FFFFFF',
-              borderColor: colors.border,
+              height: TRAY_HEIGHT,
+              backgroundColor: isDark ? '#111317' : '#FFFFFF',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0',
               transform: [
                 {
                   translateY: translateY.interpolate({
@@ -367,20 +369,54 @@ export default function EmojiGifPickerModal({
             style={styles.topHandleBar}
             {...panResponder.panHandlers}
             accessible={true}
-            accessibilityLabel="Drag down or tap to close emoji and gif picker"
+            accessibilityLabel="Drag down or tap to close picker"
             accessibilityRole="button"
           >
-            <View style={[styles.dragHandle, { backgroundColor: colors.border }]} />
+            <View style={[styles.dragHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.25)' : '#CBD5E1' }]} />
           </View>
 
+          {/* Reaction Mode Context Header */}
+          {mode === 'reaction' && (
+            <View
+              style={[
+                styles.reactionHeaderBanner,
+                {
+                  backgroundColor: isDark ? 'rgba(245, 158, 11, 0.14)' : 'rgba(245, 158, 11, 0.1)',
+                  borderColor: 'rgba(245, 158, 11, 0.35)',
+                },
+              ]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                <Ionicons name="sparkles" size={16} color="#F59E0B" />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.reactionHeaderText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
+                    React to Message
+                  </Text>
+                  <Text style={[styles.reactionSubText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
+                    Tap any emoji to react • Select multiple emojis
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={[styles.reactionDoneBtn, { backgroundColor: activeTabBg }]}
+                onPress={onClose}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Done selecting reactions"
+              >
+                <Text style={[styles.reactionDoneBtnText, { color: activeTabText }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* Header Row with Discord-Style Segmented Tabs */}
-          <View style={[styles.headerRow, { borderBottomColor: colors.border }]}>
+          <View style={[styles.headerRow, { borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
             <View
               style={[
                 styles.tabPillContainer,
                 {
-                  backgroundColor: isDark ? colors.background : '#F1F5F9',
-                  borderColor: colors.border,
+                  backgroundColor: isDark ? '#181A20' : '#F1F5F9',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
                   flex: 1,
                 },
               ]}
@@ -388,19 +424,19 @@ export default function EmojiGifPickerModal({
               <TouchableOpacity
                 style={[
                   styles.tabBtn,
-                  activeTab === 'emoji' && { backgroundColor: colors.accentGold },
+                  activeTab === 'emoji' && { backgroundColor: activeTabBg, elevation: 2 },
                 ]}
                 onPress={() => {
                   setActiveTab('emoji');
                   setSearchQuery('');
                 }}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
-                <Text style={{ fontSize: 13, marginRight: 5 }}>😄</Text>
+                <Text style={{ fontSize: 14, marginRight: 6 }}>😄</Text>
                 <Text
                   style={[
                     styles.tabBtnText,
-                    { color: activeTab === 'emoji' ? '#1A1A1A' : colors.foreground },
+                    { color: activeTab === 'emoji' ? activeTabText : inactiveTabText },
                   ]}
                 >
                   EMOJIS ({allFlatEmojis.length})
@@ -410,19 +446,19 @@ export default function EmojiGifPickerModal({
               <TouchableOpacity
                 style={[
                   styles.tabBtn,
-                  activeTab === 'gif' && { backgroundColor: colors.accentGold },
+                  activeTab === 'gif' && { backgroundColor: activeTabBg, elevation: 2 },
                 ]}
                 onPress={() => {
                   setActiveTab('gif');
                   setSearchQuery('');
                 }}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
-                <Text style={{ fontSize: 13, marginRight: 5 }}>🎞️</Text>
+                <Text style={{ fontSize: 14, marginRight: 6 }}>🎬</Text>
                 <Text
                   style={[
                     styles.tabBtnText,
-                    { color: activeTab === 'gif' ? '#1A1A1A' : colors.foreground },
+                    { color: activeTab === 'gif' ? activeTabText : inactiveTabText },
                   ]}
                 >
                   GIFS & MEMES
@@ -436,20 +472,20 @@ export default function EmojiGifPickerModal({
             style={[
               styles.searchBox,
               {
-                backgroundColor: isDark ? colors.background : '#F8FAFC',
-                borderColor: colors.border,
+                backgroundColor: isDark ? '#181A20' : '#F8FAFC',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
               },
             ]}
           >
-            <Ionicons name="search" size={16} color={colors.accentGold} />
+            <Ionicons name="search" size={17} color={isDark ? '#F5A623' : '#D97706'} />
             <TextInput
-              style={[styles.searchInput, { color: colors.foreground }]}
+              style={[styles.searchInput, { color: isDark ? '#FFFFFF' : '#0F172A' }]}
               placeholder={
                 activeTab === 'emoji'
-                  ? 'Search all emojis (e.g. fire, happy, dog, pizza, run)...'
-                  : 'Search animated GIFs (e.g. driving, safe, omw, funny)...'
+                  ? 'Search emojis (e.g. fire, laughing, dog, pizza, run)...'
+                  : 'Search live GIFs from the web (e.g. driving, safe, cat)...'
               }
-              placeholderTextColor={colors.textMuted}
+              placeholderTextColor={isDark ? '#64748B' : '#94A3B8'}
               value={searchQuery}
               onChangeText={setSearchQuery}
               autoCorrect={false}
@@ -457,16 +493,16 @@ export default function EmojiGifPickerModal({
             />
             {/* Search Input Clear or Loading Indicator */}
             {isSearchingGifs ? (
-              <ActivityIndicator size="small" color={themeMode === 'brand_green' ? '#3DBE6C' : (colors.accentGold || '#10B981')} />
+              <ActivityIndicator size="small" color={isDark ? '#F5A623' : '#0F172A'} />
             ) : searchQuery ? (
               <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+                <Ionicons name="close-circle" size={18} color={isDark ? '#94A3B8' : '#64748B'} />
               </TouchableOpacity>
             ) : null}
           </View>
 
-          {/* Category Jump Selector Bar (Only for Emoji Tab when not actively searching) */}
-          {activeTab === 'emoji' && !searchQuery.trim() ? (
+          {/* Category Jump Bar for Emojis */}
+          {activeTab === 'emoji' && !searchQuery.trim() && (
             <View>
               <ScrollView
                 horizontal
@@ -477,12 +513,8 @@ export default function EmojiGifPickerModal({
                   style={[
                     styles.categoryPill,
                     {
-                      backgroundColor: selectedEmojiCategory === 'all'
-                        ? (themeMode === 'brand_green' ? '#3DBE6C' : (colors.accentGold || '#10B981'))
-                        : (isDark ? '#27272A' : '#E2E8F0'),
-                      borderColor: selectedEmojiCategory === 'all'
-                        ? (themeMode === 'brand_green' ? '#3DBE6C' : (colors.accentGold || '#10B981'))
-                        : (isDark ? '#3F3F46' : '#CBD5E1'),
+                      backgroundColor: selectedEmojiCategory === 'all' ? activePillBg : inactivePillBg,
+                      borderColor: selectedEmojiCategory === 'all' ? activePillBg : inactivePillBorder,
                     },
                   ]}
                   onPress={() => setSelectedEmojiCategory('all')}
@@ -491,17 +523,13 @@ export default function EmojiGifPickerModal({
                   <Ionicons
                     name="grid-outline"
                     size={13}
-                    color={selectedEmojiCategory === 'all' ? '#FFFFFF' : (isDark ? '#F4F4F5' : '#0F172A')}
+                    color={selectedEmojiCategory === 'all' ? activePillText : inactivePillText}
                     style={{ marginRight: 5 }}
                   />
                   <Text
                     style={[
                       styles.categoryPillText,
-                      {
-                        color: selectedEmojiCategory === 'all'
-                          ? '#FFFFFF'
-                          : (isDark ? '#F4F4F5' : '#0F172A'),
-                      },
+                      { color: selectedEmojiCategory === 'all' ? activePillText : inactivePillText },
                     ]}
                   >
                     All ({allFlatEmojis.length})
@@ -517,26 +545,18 @@ export default function EmojiGifPickerModal({
                       style={[
                         styles.categoryPill,
                         {
-                          backgroundColor: isSelected
-                            ? (themeMode === 'brand_green' ? '#3DBE6C' : (colors.accentGold || '#10B981'))
-                            : (isDark ? '#27272A' : '#E2E8F0'),
-                          borderColor: isSelected
-                            ? (themeMode === 'brand_green' ? '#3DBE6C' : (colors.accentGold || '#10B981'))
-                            : (isDark ? '#3F3F46' : '#CBD5E1'),
+                          backgroundColor: isSelected ? activePillBg : inactivePillBg,
+                          borderColor: isSelected ? activePillBg : inactivePillBorder,
                         },
                       ]}
                       onPress={() => setSelectedEmojiCategory(cat.id)}
                       activeOpacity={0.7}
                     >
-                      <Text style={{ fontSize: 13, marginRight: 4 }}>{catEmoji}</Text>
+                      <Text style={{ fontSize: 13, marginRight: 5 }}>{catEmoji}</Text>
                       <Text
                         style={[
                           styles.categoryPillText,
-                          {
-                            color: isSelected
-                              ? '#FFFFFF'
-                              : (isDark ? '#F4F4F5' : '#0F172A'),
-                          },
+                          { color: isSelected ? activePillText : inactivePillText },
                         ]}
                       >
                         {cat.name.split(' & ')[0]}
@@ -545,9 +565,48 @@ export default function EmojiGifPickerModal({
                   );
                 })}
               </ScrollView>
-              <View style={[styles.separatorLine, { backgroundColor: isDark ? '#27272A' : '#E2E8F0' }]} />
+              <View style={[styles.separatorLine, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]} />
             </View>
-          ) : null}
+          )}
+
+          {/* Category Jump Bar for GIFs (Discord Style) */}
+          {activeTab === 'gif' && !searchQuery.trim() && (
+            <View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.categoryScroll}
+              >
+                {DISCORD_GIF_CATEGORIES.map((cat) => {
+                  const isSelected = selectedGifCategory === cat.id;
+                  return (
+                    <TouchableOpacity
+                      key={cat.id}
+                      style={[
+                        styles.categoryPill,
+                        {
+                          backgroundColor: isSelected ? activePillBg : inactivePillBg,
+                          borderColor: isSelected ? activePillBg : inactivePillBorder,
+                        },
+                      ]}
+                      onPress={() => setSelectedGifCategory(cat.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.categoryPillText,
+                          { color: isSelected ? activePillText : inactivePillText },
+                        ]}
+                      >
+                        {cat.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+              <View style={[styles.separatorLine, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]} />
+            </View>
+          )}
 
           {/* Tab Content: Discord-Style Emoji Grid */}
           {activeTab === 'emoji' ? (
@@ -560,25 +619,36 @@ export default function EmojiGifPickerModal({
               columnWrapperStyle={{ justifyContent: 'flex-start', gap: 6 }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="always"
-              initialNumToRender={28}
-              maxToRenderPerBatch={28}
+              initialNumToRender={35}
+              maxToRenderPerBatch={35}
               windowSize={5}
               removeClippedSubviews={Platform.OS === 'android'}
               getItemLayout={(_, index) => ({ length: 44, offset: 44 * Math.floor(index / 7), index })}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.emojiCell}
-                  onPress={() => onSelectEmoji(item.emoji)}
-                  activeOpacity={0.5}
-                >
-                  <Text style={styles.emojiGlyph}>{item.emoji}</Text>
-                </TouchableOpacity>
-              )}
+              renderItem={({ item }) => {
+                const isSelectedReaction = mode === 'reaction' && myActiveReactions.includes(item.emoji);
+                return (
+                  <TouchableOpacity
+                    style={[
+                      styles.emojiCell,
+                      isSelectedReaction && {
+                        backgroundColor: isDark ? 'rgba(245, 158, 11, 0.28)' : 'rgba(245, 158, 11, 0.2)',
+                        borderRadius: 10,
+                        borderWidth: 1.5,
+                        borderColor: '#F59E0B',
+                      },
+                    ]}
+                    onPress={() => onSelectEmoji(item.emoji)}
+                    activeOpacity={0.5}
+                  >
+                    <Text style={styles.emojiGlyph}>{item.emoji}</Text>
+                  </TouchableOpacity>
+                );
+              }}
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
                   <Text style={{ fontSize: 32, marginBottom: 8 }}>🔍</Text>
-                  <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No Matching Emojis</Text>
-                  <Text style={[styles.emptySub, { color: colors.textMuted }]}>
+                  <Text style={[styles.emptyTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>No Matching Emojis</Text>
+                  <Text style={[styles.emptySub, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                     Try searching for "happy", "car", "heart", "food", or "fire".
                   </Text>
                 </View>
@@ -600,8 +670,8 @@ export default function EmojiGifPickerModal({
                   style={[
                     styles.gifCard,
                     {
-                      backgroundColor: isDark ? colors.background : '#F1F5F9',
-                      borderColor: colors.border,
+                      backgroundColor: isDark ? '#181A20' : '#F1F5F9',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
                     },
                   ]}
                   onPress={() => {
@@ -625,9 +695,13 @@ export default function EmojiGifPickerModal({
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
                   <Text style={{ fontSize: 32, marginBottom: 8 }}>🔍</Text>
-                  <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No GIFs Found</Text>
-                  <Text style={[styles.emptySub, { color: colors.textMuted }]}>
-                    Try searching for any emotion, meme, or phrase (e.g. "laugh", "cat", "omw", "dance").
+                  <Text style={[styles.emptyTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
+                    {isSearchingGifs ? 'Searching Web GIFs...' : 'No GIFs Found'}
+                  </Text>
+                  <Text style={[styles.emptySub, { color: isDark ? '#94A3B8' : '#64748B' }]}>
+                    {isSearchingGifs
+                      ? 'Fetching live animations from GIPHY...'
+                      : 'Try searching for any emotion, meme, or phrase (e.g. "laugh", "cat", "omw", "dance").'}
                   </Text>
                 </View>
               }
@@ -647,55 +721,53 @@ const styles = StyleSheet.create({
   },
   trayCard: {
     width: '100%',
-    height: Platform.OS === 'ios' ? 440 : 410,
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
     borderTopWidth: 1,
     paddingHorizontal: 16,
     paddingBottom: 16,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 20,
   },
   topHandleBar: {
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   dragHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
+    width: 44,
+    height: 4.5,
+    borderRadius: 3,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingBottom: 8,
+    paddingBottom: 10,
     borderBottomWidth: 1,
   },
   tabPillContainer: {
     flexDirection: 'row',
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    padding: 3,
+    padding: 3.5,
     gap: 4,
   },
   tabBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 9,
+    paddingVertical: 7.5,
+    borderRadius: 10,
   },
   tabBtnText: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.6,
-  },
-  closeIconBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    letterSpacing: 0.5,
   },
   searchBox: {
     flexDirection: 'row',
@@ -703,14 +775,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 8.5,
     marginTop: 10,
     gap: 8,
   },
   searchInput: {
     flex: 1,
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
     padding: 0,
   },
   categoryScroll: {
@@ -736,12 +808,12 @@ const styles = StyleSheet.create({
   },
   categoryPillText: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
     letterSpacing: 0.2,
   },
   emojiGridContainer: {
     paddingVertical: 8,
-    paddingBottom: 24,
+    paddingBottom: 28,
   },
   emojiCell: {
     width: (SCREEN_WIDTH - 68) / 7,
@@ -755,11 +827,11 @@ const styles = StyleSheet.create({
   },
   gifGridContainer: {
     paddingVertical: 10,
-    paddingBottom: 30,
+    paddingBottom: 32,
   },
   gifCard: {
     flex: 1,
-    height: 125,
+    height: 130,
     borderRadius: 14,
     borderWidth: 1,
     overflow: 'hidden',
@@ -792,12 +864,40 @@ const styles = StyleSheet.create({
     paddingVertical: 45,
   },
   emptyTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
     marginBottom: 4,
   },
   emptySub: {
-    fontSize: 11.5,
+    fontSize: 12,
     textAlign: 'center',
+    maxWidth: 280,
+  },
+  reactionHeaderBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  reactionHeaderText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  reactionSubText: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  reactionDoneBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  reactionDoneBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

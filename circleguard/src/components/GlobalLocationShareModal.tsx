@@ -10,7 +10,7 @@ import { supabase } from '../lib/supabase';
 import { scheduleLocalNotification } from '../services/PushNotificationService';
 
 export default function GlobalLocationShareModal() {
-  const { colors } = useThemeStore();
+  const { colors, isDark } = useThemeStore();
   const { activeCircle } = useCircleStore();
   const { profile } = useAuthStore();
   const navigation = useNavigation<any>();
@@ -71,11 +71,11 @@ export default function GlobalLocationShareModal() {
   return (
     <Modal visible={!!activeShare} transparent animationType="fade">
       <View style={styles.overlay}>
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.accentGold }]}>
-          <View style={styles.goldLine} />
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255, 255, 255, 0.18)' : '#E2E8F0' }]}>
+          <View style={[styles.goldLine, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]} />
 
-          <View style={[styles.iconCircle, { backgroundColor: 'rgba(212, 175, 55, 0.15)' }]}>
-            <Ionicons name="location-sharp" size={34} color={colors.accentGold} />
+          <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#F1F5F9' }]}>
+            <Ionicons name="location-sharp" size={34} color={isDark ? '#FFFFFF' : '#0F172A'} />
           </View>
 
           <Text style={[styles.overline, { color: colors.textMuted }]}>INCOMING LIVE POSITION BROADCAST</Text>
@@ -88,15 +88,15 @@ export default function GlobalLocationShareModal() {
           </Text>
 
           <TouchableOpacity
-            style={[styles.primaryBtn, { backgroundColor: colors.accentGold }]}
+            style={[styles.primaryBtn, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}
             onPress={() => {
               setActiveShare(null);
               navigation.navigate('MainTabs', { screen: 'Map' });
             }}
             activeOpacity={0.8}
           >
-            <Ionicons name="map-outline" size={18} color="#1A1A1A" />
-            <Text style={styles.primaryBtnText}>VIEW ON MAIN MAP</Text>
+            <Ionicons name="map-outline" size={18} color={isDark ? '#000000' : '#FFFFFF'} />
+            <Text style={[styles.primaryBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>VIEW ON MAIN MAP</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
     left: 20,
     right: 20,
     height: 2,
-    backgroundColor: '#D4AF37',
+    backgroundColor: '#FFFFFF',
   },
   iconCircle: {
     width: 64,

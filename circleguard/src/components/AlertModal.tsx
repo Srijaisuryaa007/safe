@@ -102,8 +102,8 @@ export default function AlertModal({
   if (!visible) return null;
 
   // Authentic Status Configuration
-  let themeColor = '#2E7D5B';
-  let badgeBg = isDark ? 'rgba(58, 223, 171, 0.15)' : '#E8F5EE';
+  let themeColor = isDark ? '#FFFFFF' : '#0F172A';
+  let badgeBg = isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9';
   let iconName: any = 'shield-checkmark-outline';
   let statusBadgeLabel = 'SAFE ZONE ALERT';
 
@@ -118,8 +118,8 @@ export default function AlertModal({
     iconName = 'navigate-outline';
     statusBadgeLabel = 'SAFE ZONE DEPARTURE';
   } else if (isEntry) {
-    themeColor = '#2E7D5B';
-    badgeBg = isDark ? 'rgba(46, 125, 91, 0.18)' : '#E8F5EE';
+    themeColor = isDark ? '#FFFFFF' : '#0F172A';
+    badgeBg = isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9';
     iconName = 'location-outline';
     statusBadgeLabel = 'SAFE ZONE ARRIVAL';
   }
@@ -138,15 +138,15 @@ export default function AlertModal({
           style={[
             styles.sheetCard,
             {
-              backgroundColor: isDark ? '#141A17' : '#FFFFFF',
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#EDEBE6',
+              backgroundColor: isDark ? '#11141A' : '#FFFFFF',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
               transform: [{ translateY: slideAnim }],
               paddingBottom: Math.max(insets.bottom, 16) + 12,
             },
           ]}
         >
           {/* Pill Drag Handle */}
-          <View style={[styles.dragHandle, { backgroundColor: isDark ? '#2E3D35' : '#D8D6CE' }]} />
+          <View style={[styles.dragHandle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.2)' : '#CBD5E1' }]} />
 
           {/* Header Row */}
           <View style={styles.headerRow}>
@@ -160,12 +160,12 @@ export default function AlertModal({
                   {statusBadgeLabel}
                 </Text>
               </View>
-              <Text style={[styles.titleText, { color: isDark ? '#FFFFFF' : '#1F2A24' }]} numberOfLines={2}>
+              <Text style={[styles.titleText, { color: isDark ? '#FFFFFF' : '#0F172A' }]} numberOfLines={2}>
                 {cleanTitle}
               </Text>
             </View>
-            <TouchableOpacity onPress={handleDismiss} style={[styles.closeCircleBtn, isDark && { backgroundColor: '#26342D' }]}>
-              <Ionicons name="close" size={17} color={isDark ? '#D8E2DC' : '#5C665F'} />
+            <TouchableOpacity onPress={handleDismiss} style={[styles.closeCircleBtn, isDark && { backgroundColor: 'rgba(255, 255, 255, 0.08)' }]}>
+              <Ionicons name="close" size={17} color={isDark ? '#FFFFFF' : '#64748B'} />
             </TouchableOpacity>
           </View>
 
@@ -173,13 +173,25 @@ export default function AlertModal({
           <View
             style={[
               styles.messageBox,
-              {
-                backgroundColor: isDark ? '#0F1411' : '#F7F6F2',
-                borderColor: isDark ? '#233029' : '#EDEBE6',
-              },
+              isSOS
+                ? {
+                    backgroundColor: isDark ? 'rgba(239, 68, 68, 0.08)' : '#FEF2F2',
+                    borderColor: isDark ? 'rgba(239, 68, 68, 0.22)' : '#FECACA',
+                  }
+                : {
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
+                  },
             ]}
           >
-            <Text style={[styles.messageText, { color: isDark ? '#CAD5CE' : '#4E5F55' }]}>
+            <Text
+              style={[
+                styles.messageText,
+                isSOS
+                  ? { color: isDark ? '#FCA5A5' : '#991B1B' }
+                  : { color: isDark ? '#CBD5E1' : '#475569' },
+              ]}
+            >
               {cleanMsg}
             </Text>
           </View>
@@ -191,14 +203,14 @@ export default function AlertModal({
                 style={[
                   styles.primaryActionBtn,
                   {
-                    backgroundColor: isSOS ? '#DC2626' : (isDark ? '#2E7D5B' : '#2E7D5B'),
+                    backgroundColor: isSOS ? '#DC2626' : (isDark ? '#FFFFFF' : '#0F172A'),
                   },
                 ]}
                 onPress={onAction}
                 activeOpacity={0.84}
               >
-                <Ionicons name="map-outline" size={18} color="#FFFFFF" />
-                <Text style={styles.primaryActionBtnText}>
+                <Ionicons name="map-outline" size={18} color={isSOS ? '#FFFFFF' : (isDark ? '#000000' : '#FFFFFF')} />
+                <Text style={[styles.primaryActionBtnText, !isSOS && { color: isDark ? '#000000' : '#FFFFFF' }]}>
                   {actionLabel || 'VIEW LIVE ON MAP'}
                 </Text>
               </TouchableOpacity>
@@ -208,14 +220,14 @@ export default function AlertModal({
               style={[
                 styles.secondaryActionBtn,
                 {
-                  backgroundColor: isDark ? '#1C2621' : '#F0EFEA',
-                  borderColor: isDark ? '#2D3D35' : '#E2E0D8',
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
                 },
               ]}
               onPress={handleDismiss}
               activeOpacity={0.8}
             >
-              <Text style={[styles.secondaryActionBtnText, { color: isDark ? '#D8E2DC' : '#4A5750' }]}>
+              <Text style={[styles.secondaryActionBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                 {isSOS ? 'ACKNOWLEDGE DISTRESS SIGNAL' : onAction ? 'DISMISS' : 'GOT IT'}
               </Text>
             </TouchableOpacity>
@@ -234,7 +246,7 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(10, 16, 13, 0.62)',
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
   },
   sheetCard: {
     width: '100%',
@@ -302,7 +314,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#F0EFEA',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },

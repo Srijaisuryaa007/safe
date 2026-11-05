@@ -84,7 +84,8 @@ export const useLuxuryAlert = () => useContext(LuxuryAlertContext);
 
 export function LuxuryAlertProvider({ children }: { children: React.ReactNode }) {
   const { colors, isDark } = useThemeStore();
-  const insets = useSafeAreaInsets();
+  const rawInsets = useSafeAreaInsets();
+  const insets = rawInsets || { top: 0, bottom: 0, left: 0, right: 0 };
   const [visible, setVisible] = useState(false);
   const [modalMode, setModalMode] = useState<'alert' | 'confirm' | 'privacy'>('alert');
 
@@ -355,8 +356,8 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
       case 'success':
         return {
           name: 'checkmark-circle-outline' as const,
-          color: isDark ? '#3ADFAB' : '#2E7D5B',
-          bg: isDark ? 'rgba(58, 223, 171, 0.15)' : '#E8F5EE',
+          color: isDark ? '#F8FAFC' : '#0F172A',
+          bg: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
           tag: '• VERIFIED SUCCESS',
         };
       case 'warning':
@@ -387,17 +388,13 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
   const iconInfo = getAlertIcon();
 
   const primaryBtnColor = () => {
-    if (isPlanLimit) return isDark ? '#2E7D5B' : '#2E7D5B';
-    if (alertConfig.type === 'success') return isDark ? '#2E7D5B' : '#2E7D5B';
-    if (alertConfig.type === 'error') return isDark ? '#2E7D5B' : '#1F2A24';
-    if (alertConfig.type === 'warning') return isDark ? '#2E7D5B' : '#1F2A24';
-    return isDark ? '#2E7D5B' : '#1F2A24';
+    return isDark ? '#FFFFFF' : '#0F172A';
   };
 
   const getToastIconInfo = (type: AlertType) => {
     switch (type) {
       case 'success':
-        return { name: 'checkmark-circle' as const, color: '#10B981', bg: isDark ? 'rgba(16, 185, 129, 0.16)' : '#E8F5EE' };
+        return { name: 'checkmark-circle' as const, color: isDark ? '#FFFFFF' : '#0F172A', bg: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' };
       case 'error':
         return { name: 'alert-circle' as const, color: '#EF4444', bg: isDark ? 'rgba(239, 68, 68, 0.16)' : '#FEE2E2' };
       case 'warning':
@@ -409,6 +406,7 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
   };
 
   const toastIconMeta = getToastIconInfo(toastType);
+  console.log('[LuxuryAlertProvider] render, children type:', typeof children);
 
   return (
     <LuxuryAlertContext.Provider
@@ -425,8 +423,8 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
               top: Math.max(insets.top, 14) + 6,
               opacity: toastFade,
               transform: [{ translateY: toastAnim }],
-              backgroundColor: isDark ? '#141A17' : '#FFFFFF',
-              borderColor: isDark ? 'rgba(58, 223, 171, 0.25)' : '#EDEBE6',
+              backgroundColor: isDark ? '#18181B' : '#FFFFFF',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.14)' : '#EDEBE6',
             },
           ]}
           pointerEvents="box-none"
@@ -449,7 +447,7 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
             {/* Middle Content */}
             <View style={{ flex: 1, marginRight: 8 }}>
               {toastTitle ? (
-                <Text style={[styles.toastTitleText, { color: isDark ? '#FFFFFF' : '#1F2A24' }]} numberOfLines={1}>
+                <Text style={[styles.toastTitleText, { color: isDark ? '#FFFFFF' : '#0F172A' }]} numberOfLines={1}>
                   {toastTitle}
                 </Text>
               ) : null}
@@ -457,7 +455,7 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                 style={[
                   styles.toastMessageText,
                   {
-                    color: toastTitle ? (isDark ? '#CAD5CE' : '#4E5F55') : (isDark ? '#FFFFFF' : '#1F2A24'),
+                    color: toastTitle ? (isDark ? '#94A3B8' : '#64748B') : (isDark ? '#FFFFFF' : '#0F172A'),
                     fontWeight: toastTitle ? '500' : '700',
                   },
                 ]}
@@ -470,14 +468,14 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
             {/* Action Chip or Close */}
             {toastAction ? (
               <TouchableOpacity
-                style={[styles.toastActionChip, { backgroundColor: isDark ? '#2E7D5B' : '#1F2A24' }]}
+                style={[styles.toastActionChip, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}
                 onPress={() => {
                   toastAction.onAction();
                   hideToast();
                 }}
                 activeOpacity={0.8}
               >
-                <Text style={styles.toastActionChipText}>{toastAction.text}</Text>
+                <Text style={[styles.toastActionChipText, { color: isDark ? '#0F172A' : '#FFFFFF' }]}>{toastAction.text}</Text>
               </TouchableOpacity>
             ) : null}
 
@@ -500,15 +498,15 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
             style={[
               styles.sheetCard,
               {
-                backgroundColor: isDark ? '#141A17' : '#FFFFFF',
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#EDEBE6',
+                backgroundColor: isDark ? '#11141A' : '#FFFFFF',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
                 transform: [{ translateY: slideAnim }],
                 paddingBottom: Math.max(insets.bottom, 16) + 12,
               },
             ]}
           >
             {/* Pill Drag Handle */}
-            <View style={[styles.dragHandle, { backgroundColor: isDark ? '#2E3D35' : '#D8D6CE' }]} />
+            <View style={[styles.dragHandle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.2)' : '#CBD5E1' }]} />
 
             {modalMode === 'alert' ? (
               /* Authentic Alert View */
@@ -522,16 +520,16 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                     <Text style={[styles.categoryTag, { color: iconInfo.color }]}>
                       {alertConfig.tag || iconInfo.tag}
                     </Text>
-                    <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#1F2A24' }]} numberOfLines={2}>
+                    <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#0F172A' }]} numberOfLines={2}>
                       {alertConfig.title}
                     </Text>
                   </View>
                   <TouchableOpacity
                     onPress={hideAlert}
-                    style={[styles.closeCircleBtn, isDark && { backgroundColor: '#26342D' }]}
+                    style={[styles.closeCircleBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="close" size={17} color={isDark ? '#D8E2DC' : '#5C665F'} />
+                    <Ionicons name="close" size={17} color={isDark ? '#FFFFFF' : '#64748B'} />
                   </TouchableOpacity>
                 </View>
 
@@ -539,13 +537,39 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                 <View
                   style={[
                     styles.messageBox,
-                    {
-                      backgroundColor: isDark ? '#0F1411' : '#F7F6F2',
-                      borderColor: isDark ? '#233029' : '#EDEBE6',
-                    },
+                    alertConfig.type === 'error'
+                      ? {
+                          backgroundColor: isDark ? 'rgba(239, 68, 68, 0.08)' : '#FEF2F2',
+                          borderColor: isDark ? 'rgba(239, 68, 68, 0.22)' : '#FECACA',
+                        }
+                      : alertConfig.type === 'warning' || isPlanLimit
+                      ? {
+                          backgroundColor: isDark ? 'rgba(245, 158, 11, 0.08)' : '#FFFBEB',
+                          borderColor: isDark ? 'rgba(245, 158, 11, 0.22)' : '#FDE68A',
+                        }
+                      : alertConfig.type === 'info'
+                      ? {
+                          backgroundColor: isDark ? 'rgba(56, 189, 248, 0.08)' : '#F0F9FF',
+                          borderColor: isDark ? 'rgba(56, 189, 248, 0.22)' : '#BAE6FD',
+                        }
+                      : {
+                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+                          borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
+                        },
                   ]}
                 >
-                  <Text style={[styles.messageText, { color: isDark ? '#CAD5CE' : '#4E5F55' }]}>
+                  <Text
+                    style={[
+                      styles.messageText,
+                      alertConfig.type === 'error'
+                        ? { color: isDark ? '#FCA5A5' : '#991B1B' }
+                        : alertConfig.type === 'warning' || isPlanLimit
+                        ? { color: isDark ? '#FCD34D' : '#92400E' }
+                        : alertConfig.type === 'info'
+                        ? { color: isDark ? '#7DD3FC' : '#0369A1' }
+                        : { color: isDark ? '#CBD5E1' : '#475569' },
+                    ]}
+                  >
                     {alertConfig.message}
                   </Text>
                 </View>
@@ -557,14 +581,14 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                       style={[
                         styles.secondaryActionBtn,
                         {
-                          backgroundColor: isDark ? '#1C2621' : '#F0EFEA',
-                          borderColor: isDark ? '#2D3D35' : '#E2E0D8',
+                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                          borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
                         },
                       ]}
                       onPress={handleAlertSecondaryPress}
                       activeOpacity={0.8}
                     >
-                      <Text style={[styles.secondaryActionBtnText, { color: isDark ? '#D8E2DC' : '#4A5750' }]}>
+                      <Text style={[styles.secondaryActionBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                         {alertConfig.secondaryButtonText || 'Dismiss'}
                       </Text>
                     </TouchableOpacity>
@@ -574,7 +598,7 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                       onPress={handleAlertPress}
                       activeOpacity={0.84}
                     >
-                      <Text style={styles.primaryActionBtnText}>
+                      <Text style={[styles.primaryActionBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>
                         {alertConfig.buttonText || (isPlanLimit ? 'Explore Plus' : 'Understood')}
                       </Text>
                     </TouchableOpacity>
@@ -585,7 +609,7 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                     onPress={handleAlertPress}
                     activeOpacity={0.84}
                   >
-                    <Text style={styles.primaryActionBtnText}>{alertConfig.buttonText || 'Understood'}</Text>
+                    <Text style={[styles.primaryActionBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>{alertConfig.buttonText || 'Understood'}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -598,49 +622,65 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                       styles.iconSquircle,
                       {
                         backgroundColor: confirmConfig.isDestructive
-                          ? (isDark ? 'rgba(239, 68, 68, 0.16)' : '#FEE2E2')
-                          : (isDark ? 'rgba(58, 223, 171, 0.15)' : '#E8F5EE'),
+                          ? (isDark ? 'rgba(239, 68, 68, 0.14)' : '#FEE2E2')
+                          : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'),
+                        borderColor: confirmConfig.isDestructive
+                          ? (isDark ? 'rgba(239, 68, 68, 0.28)' : '#FECACA')
+                          : 'transparent',
+                        borderWidth: confirmConfig.isDestructive ? 1 : 0,
                       },
                     ]}
                   >
                     <Ionicons
                       name={confirmConfig.isDestructive ? 'trash-outline' : 'help-circle-outline'}
                       size={24}
-                      color={confirmConfig.isDestructive ? '#EF4444' : (isDark ? '#3ADFAB' : '#2E7D5B')}
+                      color={confirmConfig.isDestructive ? '#DC2626' : (isDark ? '#F8FAFC' : '#0F172A')}
                     />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text
                       style={[
                         styles.categoryTag,
-                        { color: confirmConfig.isDestructive ? '#EF4444' : (isDark ? '#3ADFAB' : '#2E7D5B') },
+                        { color: confirmConfig.isDestructive ? '#DC2626' : (isDark ? '#94A3B8' : '#64748B') },
                       ]}
                     >
                       {confirmConfig.isDestructive ? '• ACTION REQUIRED' : '• CONFIRMATION'}
                     </Text>
-                    <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#1F2A24' }]} numberOfLines={2}>
+                    <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#0F172A' }]} numberOfLines={2}>
                       {confirmConfig.title}
                     </Text>
                   </View>
                   <TouchableOpacity
                     onPress={handleCancelPress}
-                    style={[styles.closeCircleBtn, isDark && { backgroundColor: '#26342D' }]}
+                    style={[styles.closeCircleBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="close" size={17} color={isDark ? '#D8E2DC' : '#5C665F'} />
+                    <Ionicons name="close" size={17} color={isDark ? '#FFFFFF' : '#64748B'} />
                   </TouchableOpacity>
                 </View>
 
                 <View
                   style={[
                     styles.messageBox,
-                    {
-                      backgroundColor: isDark ? '#0F1411' : '#F7F6F2',
-                      borderColor: isDark ? '#233029' : '#EDEBE6',
-                    },
+                    confirmConfig.isDestructive
+                      ? {
+                          backgroundColor: isDark ? 'rgba(239, 68, 68, 0.08)' : '#FEF2F2',
+                          borderColor: isDark ? 'rgba(239, 68, 68, 0.22)' : '#FECACA',
+                        }
+                      : {
+                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+                          borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
+                        },
                   ]}
                 >
-                  <Text style={[styles.messageText, { color: isDark ? '#CAD5CE' : '#4E5F55' }]}>
+                  <Text
+                    style={[
+                      styles.messageText,
+                      confirmConfig.isDestructive
+                        ? { color: isDark ? '#FCA5A5' : '#991B1B' }
+                        : { color: isDark ? '#CBD5E1' : '#475569' },
+                    ]}
+                  >
                     {confirmConfig.message}
                   </Text>
                 </View>
@@ -650,14 +690,14 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                     style={[
                       styles.secondaryActionBtn,
                       {
-                        backgroundColor: isDark ? '#1C2621' : '#F0EFEA',
-                        borderColor: isDark ? '#2D3D35' : '#E2E0D8',
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                        borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
                       },
                     ]}
                     onPress={handleCancelPress}
                     activeOpacity={0.8}
                   >
-                    <Text style={[styles.secondaryActionBtnText, { color: isDark ? '#D8E2DC' : '#4A5750' }]}>
+                    <Text style={[styles.secondaryActionBtnText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                       {confirmConfig.cancelText || 'Cancel'}
                     </Text>
                   </TouchableOpacity>
@@ -668,13 +708,13 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                       {
                         backgroundColor: confirmConfig.isDestructive
                           ? '#DC2626'
-                          : (isDark ? '#2E7D5B' : '#1F2A24'),
+                          : (isDark ? '#FFFFFF' : '#0F172A'),
                       },
                     ]}
                     onPress={handleConfirmPress}
                     activeOpacity={0.84}
                   >
-                    <Text style={styles.primaryActionBtnText}>{confirmConfig.confirmText || 'Confirm'}</Text>
+                    <Text style={[styles.primaryActionBtnText, { color: confirmConfig.isDestructive ? '#FFFFFF' : (isDark ? '#000000' : '#FFFFFF') }]}>{confirmConfig.confirmText || 'Confirm'}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -687,14 +727,14 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.categoryTag, { color: '#0284C7' }]}>• PRIVACY PERMISSION</Text>
-                    <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#1F2A24' }]}>Authorization Request</Text>
+                    <Text style={[styles.title, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>Authorization Request</Text>
                   </View>
                   <TouchableOpacity
                     onPress={handlePrivacyDecline}
-                    style={[styles.closeCircleBtn, isDark && { backgroundColor: '#26342D' }]}
+                    style={[styles.closeCircleBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="close" size={17} color={isDark ? '#D8E2DC' : '#5C665F'} />
+                    <Ionicons name="close" size={17} color={isDark ? '#FFFFFF' : '#64748B'} />
                   </TouchableOpacity>
                 </View>
 
@@ -702,17 +742,17 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                   style={[
                     styles.messageBox,
                     {
-                      backgroundColor: isDark ? '#0F1411' : '#F7F6F2',
-                      borderColor: isDark ? '#233029' : '#EDEBE6',
+                      backgroundColor: isDark ? 'rgba(56, 189, 248, 0.08)' : '#F0F9FF',
+                      borderColor: isDark ? 'rgba(56, 189, 248, 0.22)' : '#BAE6FD',
                     },
                   ]}
                 >
-                  <Text style={[styles.messageText, { color: isDark ? '#CAD5CE' : '#4E5F55' }]}>
-                    <Text style={{ fontWeight: '700', color: isDark ? '#FFFFFF' : '#1F2A24' }}>
+                  <Text style={[styles.messageText, { color: isDark ? '#E0F2FE' : '#0369A1' }]}>
+                    <Text style={{ fontWeight: '700', color: isDark ? '#FFFFFF' : '#0F172A' }}>
                       {privacyConfig.requesterName}
                     </Text>{' '}
                     requested authorization to activate{' '}
-                    <Text style={{ fontWeight: '700', color: isDark ? '#FFFFFF' : '#1F2A24' }}>
+                    <Text style={{ fontWeight: '700', color: isDark ? '#FFFFFF' : '#0F172A' }}>
                       {privacyConfig.featureName}
                     </Text>
                     . As Circle Leader, do you authorize this permission?
@@ -724,22 +764,22 @@ export function LuxuryAlertProvider({ children }: { children: React.ReactNode })
                     style={[
                       styles.secondaryActionBtn,
                       {
-                        backgroundColor: isDark ? '#2A1818' : '#FEE2E2',
-                        borderColor: isDark ? '#4A2323' : '#FECACA',
+                        backgroundColor: isDark ? 'rgba(239, 68, 68, 0.12)' : '#FEE2E2',
+                        borderColor: isDark ? 'rgba(239, 68, 68, 0.25)' : '#FECACA',
                       },
                     ]}
                     onPress={handlePrivacyDecline}
                     activeOpacity={0.8}
                   >
-                    <Text style={[styles.secondaryActionBtnText, { color: '#EF4444' }]}>Decline</Text>
+                    <Text style={[styles.secondaryActionBtnText, { color: '#DC2626' }]}>Decline</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.confirmActionBtn, { backgroundColor: isDark ? '#2E7D5B' : '#2E7D5B' }]}
+                    style={[styles.confirmActionBtn, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}
                     onPress={handlePrivacyApprove}
                     activeOpacity={0.84}
                   >
-                    <Text style={styles.primaryActionBtnText}>Authorize</Text>
+                    <Text style={[styles.primaryActionBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Authorize</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -759,7 +799,7 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(10, 16, 13, 0.62)',
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
   },
   sheetCard: {
     width: '100%',
@@ -816,7 +856,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#F0EFEA',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },

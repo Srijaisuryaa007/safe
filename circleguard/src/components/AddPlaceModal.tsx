@@ -12,12 +12,12 @@ interface AddPlaceModalProps {
 }
 
 const CATEGORY_OPTIONS = [
-  { id: 'home', icon: 'home', label: 'Home', color: '#10B981' },
+  { id: 'home', icon: 'home', label: 'Home', color: '#0F172A' },
   { id: 'work', icon: 'briefcase', label: 'Work', color: '#3B82F6' },
   { id: 'school', icon: 'school', label: 'School', color: '#F59E0B' },
   { id: 'fitness', icon: 'fitness', label: 'Gym', color: '#0D9488' },
   { id: 'danger', icon: 'alert-circle', label: 'Danger Zone', color: '#EF4444' },
-  { id: 'custom', icon: 'shield-checkmark', label: 'Custom', color: '#D4AF37' },
+  { id: 'custom', icon: 'shield-checkmark', label: 'Custom', color: '#64748B' },
 ];
 
 export default function AddPlaceModal({ visible, coordinate, members = [], onClose, onSave }: AddPlaceModalProps) {
@@ -195,7 +195,7 @@ export default function AddPlaceModal({ visible, coordinate, members = [], onClo
               <Text style={[styles.label, { color: colors.foreground, marginBottom: 0 }]}>ALLOCATE TO CIRCLE MEMBERS</Text>
               {members.length > 0 ? (
                 <TouchableOpacity onPress={toggleSelectAll}>
-                  <Text style={[styles.selectAllText, { color: colors.accentGold }]}>
+                  <Text style={[styles.selectAllText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                     {selectedUserIds.length === members.length ? 'Deselect All' : 'Select All'}
                   </Text>
                 </TouchableOpacity>
@@ -222,8 +222,8 @@ export default function AddPlaceModal({ visible, coordinate, members = [], onClo
                     style={[
                       styles.memberItemRow,
                       {
-                        backgroundColor: isSelected ? 'rgba(212, 175, 55, 0.12)' : colors.surfaceMuted,
-                        borderColor: isSelected ? colors.accentGold : colors.border,
+                        backgroundColor: isSelected ? (isDark ? 'rgba(255, 255, 255, 0.10)' : '#F1F5F9') : colors.surfaceMuted,
+                        borderColor: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : colors.border,
                       }
                     ]}
                     onPress={() => toggleUserSelection(uid)}
@@ -239,8 +239,8 @@ export default function AddPlaceModal({ visible, coordinate, members = [], onClo
 
                     <Text style={[styles.memberNameText, { color: colors.foreground }]}>{mName}</Text>
 
-                    <View style={[styles.checkbox, isSelected && { backgroundColor: colors.accentGold, borderColor: colors.accentGold }]}>
-                      {isSelected ? <Ionicons name="checkmark" size={14} color="#1A1A1A" /> : null}
+                    <View style={[styles.checkbox, isSelected && { backgroundColor: isDark ? '#FFFFFF' : '#0F172A', borderColor: isDark ? '#FFFFFF' : '#0F172A' }]}>
+                      {isSelected ? <Ionicons name="checkmark" size={14} color={isDark ? '#000000' : '#FFFFFF'} /> : null}
                     </View>
                   </TouchableOpacity>
                 );
@@ -249,16 +249,32 @@ export default function AddPlaceModal({ visible, coordinate, members = [], onClo
           </ScrollView>
           
           <View style={styles.buttonRow}>
-            <TouchableOpacity style={[styles.button, styles.cancelButton, { backgroundColor: colors.surfaceMuted }]} onPress={onClose}>
+            <TouchableOpacity
+              style={[
+                styles.button,
+                styles.cancelButton,
+                { backgroundColor: colors.surfaceMuted, borderColor: colors.border }
+              ]}
+              onPress={onClose}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close-circle-outline" size={18} color={colors.foreground} style={{ marginRight: 6 }} />
               <Text style={[styles.cancelButtonText, { color: colors.foreground }]}>Cancel</Text>
             </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.button, styles.saveButton, { backgroundColor: colors.accentGold }, !name.trim() && styles.disabledButton]} 
+
+            <TouchableOpacity
+              style={[
+                styles.button,
+                styles.saveButton,
+                { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' },
+                !name.trim() && styles.disabledButton,
+              ]}
               onPress={handleSave}
               disabled={!name.trim()}
+              activeOpacity={0.8}
             >
-              <Text style={styles.saveButtonText}>Save Zone</Text>
+              <Ionicons name="shield-checkmark" size={18} color={isDark ? '#000000' : '#FFFFFF'} style={{ marginRight: 6 }} />
+              <Text style={[styles.saveButtonText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Save Zone</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -404,29 +420,32 @@ const styles = StyleSheet.create({
   },
   buttonRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 16,
+    marginTop: 18,
     gap: 12,
   },
   button: {
     flex: 1,
     height: 48,
-    borderRadius: 100,
+    borderRadius: 14,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cancelButton: {},
+  cancelButton: {
+    borderWidth: 1,
+  },
   cancelButtonText: {
     fontWeight: '700',
     fontSize: 15,
   },
   saveButton: {},
   disabledButton: {
-    opacity: 0.5,
+    opacity: 0.45,
   },
   saveButtonText: {
-    color: '#1A1A1A',
-    fontWeight: '900',
+    fontWeight: '800',
     fontSize: 15,
   },
 });

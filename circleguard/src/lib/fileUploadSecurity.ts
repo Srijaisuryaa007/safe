@@ -11,6 +11,7 @@
 declare const Buffer: any;
 
 export const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+export const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024; // 25MB for chat documents & media
 
 export type AllowedImageMimeType = 'image/jpeg' | 'image/png' | 'image/webp';
 
@@ -26,6 +27,8 @@ export interface ValidateImageOptions {
   base64Content: string;
   fileSizeBytes?: number;
   userId: string;
+  maxSizeBytes?: number;
+  prefix?: string;
 }
 
 /**
@@ -152,7 +155,8 @@ export function hasExecutableOrScriptSignature(base64: string): boolean {
  * Validates an image before upload: size, magic bytes, prohibited scripts, and builds safe path.
  */
 export function validateImageUpload(options: ValidateImageOptions): FileValidationResult {
-  const { base64Content, fileSizeBytes, userId } = options;
+  const { base64Content, fileSizeBytes, userId, maxSizeBytes, prefix } = options;
+  const sizeCap = maxSizeBytes || MAX_AVATAR_SIZE_BYTES;
 
   // 1. User ID validation (UUID / safe identifier)
   if (!userId || !/^[0-9a-fA-F-]{36}$/.test(userId)) {
@@ -161,8 +165,8 @@ export function validateImageUpload(options: ValidateImageOptions): FileValidati
 
   // 2. File size validation
   const calculatedSize = fileSizeBytes || Math.round((base64Content.length * 3) / 4);
-  if (calculatedSize > MAX_AVATAR_SIZE_BYTES) {
-    const maxMb = (MAX_AVATAR_SIZE_BYTES / (1024 * 1024)).toFixed(0);
+  if (calculatedSize > sizeCap) {
+    const maxMb = (sizeCap / (1024 * 1024)).toFixed(0);
     return { valid: false, error: `Image size exceeds the maximum allowed limit of ${maxMb}MB.` };
   }
 
@@ -186,7 +190,9 @@ export function validateImageUpload(options: ValidateImageOptions): FileValidati
 
   // 5. Deterministic, safe storage path (strictly isolated per user UID, preventing traversal)
   const timestamp = Date.now();
-  const sanitizedPath = `${userId}/${timestamp}.${detected.ext}`;
+  const sanitizedPath = prefix 
+    ? `${userId}/${prefix}_${timestamp}.${detected.ext}`
+    : `${userId}/${timestamp}.${detected.ext}`;
 
   return {
     valid: true,
@@ -194,4 +200,116 @@ export function validateImageUpload(options: ValidateImageOptions): FileValidati
     extension: detected.ext,
     sanitizedPath
   };
+}
+
+export interface AttachmentValidationOptions {
+  fileName: string;
+  fileSizeBytes?: number;
+  userId: string;
+  base64Content?: string;
+  maxSizeBytes?: number;
+}
+
+export interface AttachmentValidationResult {
+  valid: boolean;
+  error?: string;
+  mimeType: string;
+  extension: string;
+  sanitizedPath?: string;
+}
+
+/**
+ * Validates chat documents & attachments (PDFs, text, office files, images) up to 25MB.
+ * Rejects executable scripts, checks directory traversal, and creates safe isolated path.
+ */
+export function validateAttachmentUpload(options: AttachmentValidationOptions): AttachmentValidationResult {
+  const { fileName, fileSizeBytes, userId, base64Content, maxSizeBytes } = options;
+  const sizeCap = maxSizeBytes || MAX_ATTACHMENT_SIZE_BYTES;
+
+  if (!userId || !/^[0-9a-fA-F-]{36}$/.test(userId)) {
+    return { valid: false, error: 'Invalid user session for storage upload.', mimeType: '', extension: '' };
+  }
+
+  const rawExt = (fileName.split('.').pop() || '').toLowerCase();
+  const dangerousExts = ['exe', 'bat', 'cmd', 'sh', 'php', 'vbs', 'ps1', 'jar', 'apk', 'msi', 'dll', 'com', 'scr'];
+  if (dangerousExts.includes(rawExt)) {
+    return {
+      valid: false,
+      error: 'Executable and system script files cannot be uploaded for security reasons.',
+      mimeType: '',
+      extension: rawExt,
+    };
+  }
+
+  const calculatedSize = fileSizeBytes || (base64Content ? Math.round((base64Content.length * 3) / 4) : 0);
+  if (calculatedSize > sizeCap) {
+    const sizeMb = (calculatedSize / (1024 * 1024)).toFixed(1);
+    const maxMb = (sizeCap / (1024 * 1024)).toFixed(0);
+    return {
+      valid: false,
+      error: `File size (${sizeMb}MB) exceeds the maximum allowed limit of ${maxMb}MB. Please select a smaller file.`,
+      mimeType: '',
+      extension: rawExt,
+    };
+  }
+
+  if (base64Content && hasExecutableOrScriptSignature(base64Content)) {
+    return {
+      valid: false,
+      error: 'Prohibited file content detected (scripts or executable binaries not allowed).',
+      mimeType: '',
+      extension: rawExt,
+    };
+  }
+
+  let mimeType = 'application/octet-stream';
+  if (['jpg', 'jpeg'].includes(rawExt)) mimeType = 'image/jpeg';
+  else if (rawExt === 'png') mimeType = 'image/png';
+  else if (rawExt === 'webp') mimeType = 'image/webp';
+  else if (rawExt === 'pdf') mimeType = 'application/pdf';
+  else if (rawExt === 'txt') mimeType = 'text/plain';
+  else if (['doc', 'docx'].includes(rawExt)) mimeType = 'application/msword';
+  else if (['xls', 'xlsx'].includes(rawExt)) mimeType = 'application/vnd.ms-excel';
+
+  const cleanName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 40);
+  const timestamp = Date.now();
+  const sanitizedPath = `${userId}/chat_${timestamp}_${cleanName}`;
+
+  return {
+    valid: true,
+    mimeType,
+    extension: rawExt.toUpperCase(),
+    sanitizedPath,
+  };
+}
+
+/**
+ * Universal dual-layer base64 file reader for Expo SDK 54+
+ * Primary: expo-file-system/legacy
+ * Fallback: fetch blob + FileReader
+ */
+export async function readLocalFileAsBase64Async(uri: string): Promise<string> {
+  try {
+    const FileSystem = require('expo-file-system/legacy');
+    return await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType?.Base64 || 'base64',
+    });
+  } catch (fsErr) {
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const res = reader.result as string;
+          const commaIdx = res.indexOf(',');
+          resolve(commaIdx !== -1 ? res.substring(commaIdx + 1) : res);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      throw fsErr;
+    }
+  }
 }

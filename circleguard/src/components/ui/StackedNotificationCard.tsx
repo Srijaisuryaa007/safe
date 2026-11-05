@@ -38,7 +38,7 @@ export default function StackedNotificationCard({ alerts }: StackedNotificationC
         const getIconConfig = () => {
           switch (item.variant) {
             case 'success':
-              return { name: 'checkmark-circle' as const, color: '#10B981', bg: isDark ? 'rgba(16, 185, 129, 0.12)' : '#ECFDF5' };
+              return { name: 'checkmark-circle' as const, color: isDark ? '#FFFFFF' : '#0F172A', bg: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' };
             case 'warning':
               return { name: 'warning' as const, color: '#F59E0B', bg: isDark ? 'rgba(245, 158, 11, 0.12)' : '#FFFBEB' };
             case 'destructive':
@@ -58,7 +58,7 @@ export default function StackedNotificationCard({ alerts }: StackedNotificationC
               styles.panelContainer,
               !isLast && (isDark ? styles.panelDividerDark : styles.panelDividerLight),
               item.variant === 'warning' && (isDark ? { backgroundColor: 'rgba(245, 158, 11, 0.04)' } : { backgroundColor: '#FFFEFA' }),
-              item.variant === 'success' && (isDark ? { backgroundColor: 'rgba(16, 185, 129, 0.03)' } : { backgroundColor: '#FAFFFD' }),
+              item.variant === 'success' && (isDark ? { backgroundColor: 'rgba(255, 255, 255, 0.02)' } : { backgroundColor: '#FAFAFA' }),
             ]}
           >
             {/* Icon */}
@@ -96,7 +96,7 @@ export default function StackedNotificationCard({ alerts }: StackedNotificationC
                         styles.actionButtonText,
                         item.variant === 'warning'
                           ? { color: '#D97706' }
-                          : (isDark ? { color: '#3ADFAB' } : { color: '#006C4F' }),
+                          : (isDark ? { color: '#FFFFFF' } : { color: '#0F172A' }),
                       ]}
                     >
                       {item.actionText}
@@ -122,7 +122,7 @@ export default function StackedNotificationCard({ alerts }: StackedNotificationC
                   onPress={item.onSecondaryAction}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.secondaryActionText, isDark && { color: '#3ADFAB' }]}>
+                  <Text style={[styles.secondaryActionText, isDark && { color: '#FFFFFF' }]}>
                     {item.secondaryActionText} ›
                   </Text>
                 </TouchableOpacity>
@@ -228,14 +228,14 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(245, 158, 11, 0.35)',
   },
   actionButtonDefaultLight: {
-    backgroundColor: '#E6F4ED',
+    backgroundColor: '#F1F5F9',
     borderWidth: 1,
-    borderColor: '#CBE6D7',
+    borderColor: '#E2E8F0',
   },
   actionButtonDefaultDark: {
-    backgroundColor: 'rgba(58, 223, 171, 0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(58, 223, 171, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   actionButtonText: {
     fontSize: 12,
@@ -248,6 +248,6 @@ const styles = StyleSheet.create({
   secondaryActionText: {
     fontSize: 11.5,
     fontWeight: '600',
-    color: '#006C4F',
+    color: '#0F172A',
   },
 });

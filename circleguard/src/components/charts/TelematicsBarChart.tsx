@@ -48,7 +48,7 @@ export const TelematicsBarChart: React.FC<TelematicsBarChartProps> = ({
   height = 190,
   barWidth: propBarWidth,
   lineCap = 'round',
-  accentColor = '#00E599',
+  accentColor = '#FFFFFF',
   secondaryColor = '#38E8FF',
   isDark = true,
   title = 'WEEKLY MOBILITY & DISTANCE (KM)',
@@ -151,16 +151,16 @@ export const TelematicsBarChart: React.FC<TelematicsBarChartProps> = ({
           <Defs>
             {/* Primary Bar Linear Gradient (Top to bottom) */}
             <LinearGradient id="barGradPrimary" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0%" stopColor="#00E599" stopOpacity={0.95} />
-              <Stop offset="70%" stopColor="#00B87A" stopOpacity={0.7} />
-              <Stop offset="100%" stopColor="#008A5B" stopOpacity={0.4} />
+              <Stop offset="0%" stopColor={isDark ? '#FFFFFF' : '#0F172A'} stopOpacity={0.95} />
+              <Stop offset="70%" stopColor={isDark ? '#E2E8F0' : '#334155'} stopOpacity={0.7} />
+              <Stop offset="100%" stopColor={isDark ? '#94A3B8' : '#475569'} stopOpacity={0.4} />
             </LinearGradient>
 
             {/* Selected Active Bar Glow */}
             <LinearGradient id="barGradActive" x1="0" y1="0" x2="0" y2="1">
               <Stop offset="0%" stopColor="#38E8FF" stopOpacity={1} />
-              <Stop offset="65%" stopColor="#00E599" stopOpacity={0.85} />
-              <Stop offset="100%" stopColor="#00B87A" stopOpacity={0.5} />
+              <Stop offset="65%" stopColor={isDark ? '#FFFFFF' : '#0F172A'} stopOpacity={0.85} />
+              <Stop offset="100%" stopColor={isDark ? '#CBD5E1' : '#334155'} stopOpacity={0.5} />
             </LinearGradient>
 
             {/* Glass Sheen (3D depth layer) */}
@@ -261,7 +261,7 @@ export const TelematicsBarChart: React.FC<TelematicsBarChartProps> = ({
                   x={x + calculatedBarWidth / 2}
                   y={height - 10}
                   textAnchor="middle"
-                  fill={isSelected ? '#00E599' : d.isToday ? '#38E8FF' : isDark ? '#718096' : '#A0AEC0'}
+                  fill={isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : d.isToday ? '#38E8FF' : isDark ? '#718096' : '#A0AEC0'}
                   fontSize={9.5}
                   fontWeight={isSelected || d.isToday ? '800' : '600'}
                 >
@@ -295,13 +295,13 @@ export const TelematicsBarChart: React.FC<TelematicsBarChartProps> = ({
           style={[
             styles.tooltipBox,
             {
-              backgroundColor: isDark ? 'rgba(0, 229, 153, 0.08)' : '#F0FFF4',
-              borderColor: isDark ? 'rgba(0, 229, 153, 0.25)' : '#C6E7D5',
+              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0',
             },
           ]}
         >
           <View style={styles.tooltipHeader}>
-            <Text style={[styles.tooltipDay, { color: '#00E599' }]}>
+            <Text style={[styles.tooltipDay, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
               {selectedItem.label.toUpperCase()} {selectedItem.isToday ? '• TODAY' : ''}
             </Text>
             {selectedItem.subLabel ? (
@@ -312,7 +312,7 @@ export const TelematicsBarChart: React.FC<TelematicsBarChartProps> = ({
           </View>
           <View style={styles.tooltipMetricsRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-              <Ionicons name="navigate" size={13} color="#00E599" />
+              <Ionicons name="navigate" size={13} color={isDark ? '#FFFFFF' : '#0F172A'} />
               <Text style={[styles.tooltipMetricVal, { color: isDark ? '#FFFFFF' : '#1A202C' }]}>
                 {selectedItem.value.toFixed(1)} {unit} driven
               </Text>
@@ -382,12 +382,12 @@ const styles = StyleSheet.create({
   selectedPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 229, 153, 0.12)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(0, 229, 153, 0.25)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
     gap: 4,
   },
   selectedVal: {

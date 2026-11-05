@@ -24,6 +24,7 @@ import AnimatedListDropdown from '../components/AnimatedListDropdown';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
 import ConcentricActivityRings from '../components/charts/ConcentricActivityRings';
 import PlacesDwellDonutChart from '../components/charts/PlacesDwellDonutChart';
+import Analytics5DonutChart from '../components/charts/Analytics5DonutChart';
 
 import {
   processEnterpriseLocationHistory,
@@ -360,6 +361,7 @@ export default function LocationHistoryScreen() {
     if (showAllPlaces || timelineEvents.length <= 3) return timelineEvents;
     return timelineEvents.filter((ev, idx) => {
       if (ev.type === 'trip') return true;
+      if (ev.type === 'gap') return true;
       const isSafe = ev.data?.isSafePlace || ev.data?.category === 'safe_zone';
       const mins = ev.data?.durationMinutes || 0;
       return isSafe || mins >= 15 || idx === 0 || idx === timelineEvents.length - 1;
@@ -539,8 +541,8 @@ export default function LocationHistoryScreen() {
         return;
       }
 
-      // 0. Instant Cache-First Hydration for sub-300ms instant view (v5: authentic GPS only, no synthetic routes)
-      const cacheKey = `@circleguard_history_cache_v5_${targetUserId}_${selectedDate}`;
+      // 0. Instant Cache-First Hydration for sub-300ms instant view (v6: authentic GPS only, no synthetic routes)
+      const cacheKey = `@circleguard_history_cache_v6_${targetUserId}_${selectedDate}`;
       try {
         const cachedRaw = await AsyncStorage.getItem(cacheKey);
         if (cachedRaw) {
@@ -756,7 +758,7 @@ export default function LocationHistoryScreen() {
           timeRange: `${timeFormatted} - Present`,
           durationText: durationFormatted,
           categoryIcon: matchedPlace ? 'shield-checkmark' : 'home',
-          categoryColor: matchedPlace ? '#4ADE80' : '#E07A5F',
+          categoryColor: matchedPlace ? '#0F172A' : '#E07A5F',
           pointIndex: 0,
           latitude: dwellLat,
           longitude: dwellLng,
@@ -867,6 +869,7 @@ export default function LocationHistoryScreen() {
       sendMapTelemetry({
         tripLegs: enterpriseResult.tripLegs,
         roadCoords: enterpriseResult.allRoadCoords,
+        trackingGaps: enterpriseResult.trackingGaps || [],
         currentPt: enterpriseResult.allRoadCoords[0] || [activePt.latitude, activePt.longitude],
         bearing: enterpriseResult.allRoadBearings[0] || 0,
         cardinalDir: getCardinalDirection(enterpriseResult.allRoadBearings[0] || 0),
@@ -1165,7 +1168,7 @@ export default function LocationHistoryScreen() {
                     var isMetro = leg.transitType === 'metro';
                     var isRail = leg.transitType === 'rail';
 
-                    var color = isMetro ? '#0284C7' : (isRail ? '#0EA5E9' : (isOutbound ? '#4ADE80' : '#E07A5F'));
+                    var color = isMetro ? '#0284C7' : (isRail ? '#0EA5E9' : (isOutbound ? '#0F172A' : '#E07A5F'));
                     var offsetVal = isTransit ? 0 : (isOutbound ? 4 : -4);
 
                     var coords = leg.roadCoords;
@@ -1222,9 +1225,9 @@ export default function LocationHistoryScreen() {
 
                   // Start Marker (only if genuine travel took place)
                   if (data.roadCoords && data.roadCoords.length > 1) {
-                    var startPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(74,222,128,0.45));">' +
+                    var startPinSvg = '<div style="filter: drop-shadow(0 4px 8px rgba(15,23,42,0.35));">' +
                       '<svg width="34" height="44" viewBox="0 0 38 48" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                        '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#4ADE80"/>' +
+                        '<path d="M19 0C8.5 0 0 8.5 0 19C0 32.3 19 48 19 48C19 48 38 32.3 38 19C38 8.5 29.5 0 19 0Z" fill="#0F172A"/>' +
                         '<ellipse cx="19" cy="19" rx="7" ry="7" fill="#FFFFFF"/>' +
                       '</svg>' +
                     '</div>';
@@ -1240,6 +1243,27 @@ export default function LocationHistoryScreen() {
                     '</div>';
                     var endIcon = L.divIcon({ className: 'custom-3d-pin', html: endPinSvg, iconSize: [34, 44], iconAnchor: [17, 44] });
                     endMarker = L.marker(data.roadCoords[data.roadCoords.length - 1], { icon: endIcon }).addTo(map).bindPopup('End Destination');
+                  }
+
+                  // Render Tracking Gaps (Interrupted signal, phone deep sleep, or dead zones)
+                  if (data.trackingGaps && data.trackingGaps.length > 0) {
+                    data.trackingGaps.forEach(function(gap) {
+                      if (gap.startCoords && gap.endCoords) {
+                        var gapLine = L.polyline([gap.startCoords, gap.endCoords], {
+                          color: '#F59E0B',
+                          weight: 3,
+                          dashArray: '5, 7',
+                          opacity: 0.8
+                        }).addTo(map);
+                        legPolylines.push(gapLine);
+                        gapLine.bindPopup('<b>Tracking Interruption</b><br>' + gap.durationMinutes + ' min pause • ' + gap.reason);
+
+                        var gapDotHtml = '<div style="background:#F59E0B; color:#FFFFFF; border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; border:2px solid #FFFFFF; box-shadow:0 2px 6px rgba(245,158,11,0.4); font-size:10px; font-weight:800;">!</div>';
+                        var gapDotIcon = L.divIcon({ className: 'custom-gap-marker', html: gapDotHtml, iconSize: [20, 20], iconAnchor: [10, 10] });
+                        var gMarker = L.marker(gap.startCoords, { icon: gapDotIcon }).addTo(map).bindPopup('<b>Signal Interrupted Here</b><br>' + gap.durationMinutes + ' min pause<br><small>' + gap.reason + '</small>');
+                        stopMarkers.push(gMarker);
+                      }
+                    });
                   }
                 } else if (data.stops && data.stops.length > 0) {
                   // Stationary / Dwell only: focus cleanly on stay location
@@ -1263,11 +1287,11 @@ export default function LocationHistoryScreen() {
 
                   var isSafe = st.isSafePlace || st.category === 'safe_zone';
                   var badgeHtml = isSafe
-                    ? '<div style="background:#4ADE80; color:#FFFFFF; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; border:2.5px solid #FFFFFF; box-shadow:0 3px 10px rgba(74,222,128,0.5);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>'
+                    ? '<div style="background:#0F172A; color:#FFFFFF; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; border:2.5px solid #FFFFFF; box-shadow:0 3px 10px rgba(15,23,42,0.3);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>'
                     : '<div class="stop-badge" style="background:#E07A5F; box-shadow:0 3px 10px rgba(224,122,95,0.4); width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:11px; border:2px solid #fff;">' + (i+1) + '</div>';
                   var icon = L.divIcon({ className: 'custom-stop-marker', html: badgeHtml, iconSize: [28, 28], iconAnchor: [14, 14] });
                   var popupContent = '<b>' + (st.name || 'Stationary Stay') + '</b>' +
-                    (isSafe ? '<br/><span style="color:#16A34A; font-weight:700; font-size:11px;">✓ Circle Safe Place</span>' : '') +
+                    (isSafe ? '<br/><span style="color:#0F172A; font-weight:700; font-size:11px;">✓ Circle Safe Place</span>' : '') +
                     '<br/><span style="font-size:11px;color:#666;">Dwell: ' + (st.durationMinutes || 0) + ' mins</span>';
                   var m = L.marker([st.lat, st.lng], { icon: icon }).addTo(map).bindPopup(popupContent);
                   stopMarkers.push(m);
@@ -1283,18 +1307,18 @@ export default function LocationHistoryScreen() {
 
               var imgOrInitial = avatarUrl
                 ? '<img src="' + avatarUrl + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display=\\'none\\'; this.nextElementSibling.style.display=\\'flex\\';" />' +
-                  '<div style="display:none;width:100%;height:100%;background:#4ADE80;color:#FFFFFF;font-weight:900;font-size:16px;align-items:center;justify-content:center;border-radius:50%;">' + userInitial + '</div>'
-                : '<div style="width:100%;height:100%;background:#4ADE80;color:#FFFFFF;font-weight:900;font-size:16px;display:flex;align-items:center;justify-content:center;border-radius:50%;">' + userInitial + '</div>';
+                  '<div style="display:none;width:100%;height:100%;background:#0F172A;color:#FFFFFF;font-weight:900;font-size:16px;align-items:center;justify-content:center;border-radius:50%;">' + userInitial + '</div>'
+                : '<div style="width:100%;height:100%;background:#0F172A;color:#FFFFFF;font-weight:900;font-size:16px;display:flex;align-items:center;justify-content:center;border-radius:50%;">' + userInitial + '</div>';
 
               var svgArrow = '<div style="position:absolute; top:-12px; left:50%; margin-left:-10px; width:20px; height:16px; transform:rotate(' + bearing + 'deg); transform-origin:10px 34px; z-index:10; filter:drop-shadow(0 2px 5px rgba(0,0,0,0.5));">' +
                 '<svg width="20" height="16" viewBox="0 0 20 16" fill="none">' +
-                  '<path d="M10 0L20 16L10 12L0 16L10 0Z" fill="#4ADE80" stroke="#FFFFFF" stroke-width="1.8"/>' +
+                  '<path d="M10 0L20 16L10 12L0 16L10 0Z" fill="#0F172A" stroke="#FFFFFF" stroke-width="1.8"/>' +
                 '</svg>' +
               '</div>';
 
               var playerHtml = '<div class="travel-avatar-marker" style="position:relative; width:48px; height:48px;">' +
                 svgArrow +
-                '<div style="width:48px; height:48px; border-radius:50%; border:3px solid #4ADE80; background:#0D0E12; box-shadow:0 4px 14px rgba(74,222,128,0.55), 0 0 0 2px rgba(255,255,255,0.9); overflow:hidden; display:flex; align-items:center; justify-content:center;">' +
+                '<div style="width:48px; height:48px; border-radius:50%; border:3px solid #0F172A; background:#0D0E12; box-shadow:0 4px 14px rgba(15,23,42,0.4), 0 0 0 2px rgba(255,255,255,0.9); overflow:hidden; display:flex; align-items:center; justify-content:center;">' +
                   imgOrInitial +
                 '</div>' +
               '</div>';
@@ -1428,7 +1452,7 @@ export default function LocationHistoryScreen() {
         borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' 
       }]}>
         <View style={styles.memberScopeLeft}>
-          <View style={[styles.memberScopeDot, { backgroundColor: selectedMemberObj?.isOnline ? '#4ADE80' : '#94A3B8' }]} />
+          <View style={[styles.memberScopeDot, { backgroundColor: selectedMemberObj?.isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : '#94A3B8' }]} />
           <Text style={[styles.memberScopeText, { color: colors.textMuted }]} numberOfLines={1}>
             Timeline: <Text style={{ fontWeight: '700', color: colors.foreground }}>{selectedMemberName}</Text>
           </Text>
@@ -1554,7 +1578,7 @@ export default function LocationHistoryScreen() {
 
               {loading && (
                 <View style={[styles.mapLoadingOverlay, { backgroundColor: isDark ? 'rgba(13,14,18,0.8)' : 'rgba(255,255,255,0.8)' }]}>
-                  <ActivityIndicator size="small" color="#4ADE80" />
+                  <ActivityIndicator size="small" color={colors.foreground} />
                   <Text style={[styles.mapLoadingOverlayText, { color: colors.foreground }]}>Updating Route...</Text>
                 </View>
               )}
@@ -1565,7 +1589,7 @@ export default function LocationHistoryScreen() {
               <View style={[styles.playbackCardDocked, { backgroundColor: colors.surface, borderColor: '#EDEBE6', marginTop: 10, borderRadius: 16, padding: 14, borderWidth: 1 }]}>
                 <View style={styles.playbackHeader}>
                   <TouchableOpacity
-                    style={[styles.playBtn, { backgroundColor: isPlaying ? '#4ADE80' : '#E07A5F', borderRadius: 20 }]}
+                    style={[styles.playBtn, { backgroundColor: isPlaying ? (isDark ? '#334155' : '#0F172A') : '#64748B', borderRadius: 20 }]}
                     onPress={() => setIsPlaying(!isPlaying)}
                     activeOpacity={0.7}
                     delayPressIn={0}
@@ -1584,13 +1608,13 @@ export default function LocationHistoryScreen() {
                   </View>
 
                   <TouchableOpacity
-                    style={[styles.speedBtn, { borderColor: '#4ADE80', backgroundColor: '#F0FDF4', borderRadius: 12 }]}
+                    style={[styles.speedBtn, { borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9', borderRadius: 12 }]}
                     onPress={() => setPlaybackSpeed(prev => (prev === 1 ? 2 : prev === 2 ? 5 : 1))}
                     activeOpacity={0.7}
                     delayPressIn={0}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <Text style={[styles.speedBtnText, { color: '#16A34A', fontWeight: '800' }]}>{playbackSpeed}x</Text>
+                    <Text style={[styles.speedBtnText, { color: colors.foreground, fontWeight: '800' }]}>{playbackSpeed}x</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -1600,7 +1624,7 @@ export default function LocationHistoryScreen() {
                     style={[
                       styles.scrubberFill,
                       {
-                        backgroundColor: '#4ADE80',
+                        backgroundColor: isDark ? '#94A3B8' : '#0F172A',
                         width: `${((playbackIndex + 1) / historyPoints.length) * 100}%`,
                       },
                     ]}
@@ -1650,7 +1674,7 @@ export default function LocationHistoryScreen() {
                 <Ionicons
                   name={isSheetExpanded ? 'chevron-down-circle' : 'chevron-up-circle'}
                   size={16}
-                  color="#4ADE80"
+                  color={colors.foreground}
                 />
                 <Text style={[styles.sheetHandleLabel, { color: colors.foreground }]}>
                   {isSheetExpanded ? 'COLLAPSE TO MAP VIEW' : 'DRAG UP OR TAP TO EXPAND CHARTS'}
@@ -1768,12 +1792,12 @@ export default function LocationHistoryScreen() {
               ]}>
                 <View style={[
                   styles.reconstructionBannerIcon,
-                  isDark && { backgroundColor: 'rgba(58, 223, 171, 0.15)' }
+                  isDark && { backgroundColor: 'rgba(255, 255, 255, 0.08)' }
                 ]}>
                   <Ionicons
                     name="shield-checkmark"
                     size={16}
-                    color={isDark ? '#4ADE80' : '#16A34A'}
+                    color={colors.foreground}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
@@ -1786,11 +1810,11 @@ export default function LocationHistoryScreen() {
                 </View>
                 <View style={[
                   styles.reconstructionBadge,
-                  isDark && { backgroundColor: 'rgba(74, 222, 128, 0.18)' }
+                  isDark && { backgroundColor: 'rgba(255, 255, 255, 0.08)' }
                 ]}>
                   <Text style={[
                     styles.reconstructionBadgeText,
-                    isDark && { color: '#4ADE80' }
+                    isDark && { color: '#FFFFFF' }
                   ]}>
                     ROAD SNAPPED
                   </Text>
@@ -1803,8 +1827,8 @@ export default function LocationHistoryScreen() {
               {/* Row 1: Total Distance & Active Transit */}
               <View style={styles.kpiRow}>
                 <View style={styles.kpiItem}>
-                  <View style={[styles.kpiIconWrap, { backgroundColor: isDark ? 'rgba(74, 222, 128, 0.18)' : '#F0FDF4' }]}>
-                    <Ionicons name="navigate-outline" size={17} color="#16A34A" />
+                  <View style={[styles.kpiIconWrap, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : '#F1F5F9' }]}>
+                    <Ionicons name="navigate-outline" size={17} color={colors.foreground} />
                   </View>
                   <View style={styles.kpiTextWrap}>
                     <Text style={[styles.kpiVal, { color: colors.foreground }]}>
@@ -1869,21 +1893,21 @@ export default function LocationHistoryScreen() {
               <>
                 <View style={styles.sectionTitleRow}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                    <Ionicons name={showAllPlaces ? "location" : "star"} size={14} color="#4ADE80" />
+                    <Ionicons name={showAllPlaces ? "location" : "star"} size={14} color={colors.foreground} />
                     <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
                       {showAllPlaces ? `ALL VISITED PLACES (${stationaryStops.length})` : `KEY PLACES (${displayedStops.length})`}
                     </Text>
                   </View>
                   {stationaryStops.length > mainStops.length && (
                     <TouchableOpacity
-                      style={[styles.detailToggleBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F0FDF4' }]}
+                      style={[styles.detailToggleBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9' }]}
                       onPress={() => setShowAllPlaces(!showAllPlaces)}
                       activeOpacity={0.7}
                     >
-                      <Text style={[styles.detailToggleBtnText, { color: '#16A34A' }]}>
+                      <Text style={[styles.detailToggleBtnText, { color: colors.foreground }]}>
                         {showAllPlaces ? 'Key Places' : `View All (${stationaryStops.length})`}
                       </Text>
-                      <Ionicons name={showAllPlaces ? "chevron-up" : "chevron-down"} size={13} color="#4ADE80" />
+                      <Ionicons name={showAllPlaces ? "chevron-up" : "chevron-down"} size={13} color={colors.foreground} />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -1903,13 +1927,13 @@ export default function LocationHistoryScreen() {
                         styles.stopItemCard,
                         {
                           backgroundColor: colors.surface,
-                          borderColor: isSafe ? (isDark ? '#1E3A2B' : '#BBF7D0') : (isDark ? '#222' : '#EDEBE6'),
+                          borderColor: isSafe ? (isDark ? 'rgba(255,255,255,0.15)' : '#CBD5E1') : (isDark ? '#222' : '#EDEBE6'),
                         },
                       ]}
                       onPress={() => focusMapLocation(stop.latitude, stop.longitude, 17)}
                       activeOpacity={0.8}
                     >
-                      <View style={[styles.stopNumberBadge, { backgroundColor: isSafe ? '#4ADE80' : '#E07A5F' }]}>
+                      <View style={[styles.stopNumberBadge, { backgroundColor: isSafe ? (isDark ? '#334155' : '#0F172A') : '#64748B' }]}>
                         {isSafe ? (
                           <Ionicons name="shield-checkmark" size={14} color="#FFFFFF" />
                         ) : (
@@ -1929,7 +1953,7 @@ export default function LocationHistoryScreen() {
                           Dwell: {stop.durationMinutes} mins • {stop.arrivalTime} – {stop.departureTime}
                         </Text>
                       </View>
-                      <Ionicons name="navigate-circle-outline" size={20} color={isSafe ? '#4ADE80' : colors.textMuted} />
+                      <Ionicons name="navigate-circle-outline" size={20} color={isSafe ? colors.foreground : colors.textMuted} />
                     </TouchableOpacity>
                   );
                 })}
@@ -1939,21 +1963,21 @@ export default function LocationHistoryScreen() {
             {/* Travel & Movement Timeline */}
             <View style={styles.sectionTitleRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                <Ionicons name="git-commit-outline" size={14} color="#4ADE80" />
+                <Ionicons name="git-commit-outline" size={14} color={colors.foreground} />
                 <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
                   {showAllPlaces ? `COMPLETE TIMELINE (${displayedTimelineEvents.length})` : `TRIPS & KEY STOPS (${displayedTimelineEvents.length})`}
                 </Text>
               </View>
               {timelineEvents.length > displayedTimelineEvents.length && (
                 <TouchableOpacity
-                  style={[styles.detailToggleBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F0FDF4' }]}
+                  style={[styles.detailToggleBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9' }]}
                   onPress={() => setShowAllPlaces(!showAllPlaces)}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.detailToggleBtnText, { color: '#16A34A' }]}>
+                  <Text style={[styles.detailToggleBtnText, { color: colors.foreground }]}>
                     {showAllPlaces ? 'Key Highlights' : `All Events (${timelineEvents.length})`}
                   </Text>
-                  <Ionicons name={showAllPlaces ? "chevron-up" : "chevron-down"} size={13} color="#4ADE80" />
+                  <Ionicons name={showAllPlaces ? "chevron-up" : "chevron-down"} size={13} color={colors.foreground} />
                 </TouchableOpacity>
               )}
             </View>
@@ -1961,7 +1985,7 @@ export default function LocationHistoryScreen() {
             {displayedTimelineEvents.length === 0 ? (
               <View style={[styles.emptyTimelineCard, { backgroundColor: colors.surface, borderColor: isDark ? '#222' : '#EDEBE6' }]}>
                 <View style={styles.emptyCardHeader}>
-                  <View style={[styles.avatarCircleSmall, { backgroundColor: '#4ADE80' }]}>
+                  <View style={[styles.avatarCircleSmall, { backgroundColor: isDark ? '#334155' : '#0F172A' }]}>
                     <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 13 }}>{selectedMemberInitial}</Text>
                   </View>
                   <View style={{ flex: 1, marginLeft: 10 }}>
@@ -1979,9 +2003,9 @@ export default function LocationHistoryScreen() {
                 {/* Status Chips: Battery & Last Seen */}
                 <View style={styles.emptyStatusRow}>
                   {selectedMemberObj?.batteryPct != null && (
-                    <View style={[styles.emptyStatusChip, { backgroundColor: '#F0FDF4' }]}>
-                      <Ionicons name="battery-charging" size={13} color="#16A34A" />
-                      <Text style={[styles.emptyStatusChipText, { color: '#16A34A' }]}>
+                    <View style={[styles.emptyStatusChip, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9' }]}>
+                      <Ionicons name="battery-charging" size={13} color={colors.foreground} />
+                      <Text style={[styles.emptyStatusChipText, { color: colors.foreground }]}>
                         {selectedMemberObj.batteryPct}% Battery
                       </Text>
                     </View>
@@ -2004,9 +2028,9 @@ export default function LocationHistoryScreen() {
 
                 {/* Clean tip without redundant duplicate buttons */}
                 {selectedDate === 'today' && (
-                  <View style={[styles.emptyHintBox, { backgroundColor: isDark ? 'rgba(74, 222, 128, 0.1)' : '#F0FDF4', borderColor: isDark ? 'rgba(74, 222, 128, 0.25)' : '#BBF7D0' }]}>
-                    <Ionicons name="information-circle-outline" size={15} color="#16A34A" />
-                    <Text style={[styles.emptyHintText, { color: isDark ? '#A7F3D0' : '#166534' }]}>
+                  <View style={[styles.emptyHintBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0' }]}>
+                    <Ionicons name="information-circle-outline" size={15} color={colors.textMuted} />
+                    <Text style={[styles.emptyHintText, { color: colors.textMuted }]}>
                       Switch dates using the selector above (Today, Yesterday, 2 Days) to view recorded routes.
                     </Text>
                   </View>
@@ -2016,6 +2040,7 @@ export default function LocationHistoryScreen() {
               <>
                 {displayedTimelineEvents.map((event, idx) => {
                   const isStay = event.type === 'stay';
+                  const isGap = event.type === 'gap';
                   const isSelected = selectedEventId === event.id;
                   const isSafe = isStay && (event.data?.isSafePlace || event.data?.category === 'safe_zone');
 
@@ -2025,8 +2050,16 @@ export default function LocationHistoryScreen() {
                       style={[
                         styles.timelineEventCard,
                         {
-                          backgroundColor: isSelected ? (isDark ? '#142B1E' : '#F0FDF4') : colors.surface,
-                          borderColor: isSelected ? '#4ADE80' : (isDark ? '#222' : '#EDEBE6'),
+                          backgroundColor: isSelected
+                            ? (isDark ? '#334155' : '#0F172A')
+                            : (isGap
+                                ? (isDark ? 'rgba(245, 158, 11, 0.08)' : '#FFFBEB')
+                                : colors.surface),
+                          borderColor: isSelected
+                            ? (isDark ? '#64748B' : '#0F172A')
+                            : (isGap
+                                ? (isDark ? 'rgba(245, 158, 11, 0.35)' : '#FDE68A')
+                                : (isDark ? '#222' : '#EDEBE6')),
                         },
                       ]}
                       onPress={() => {
@@ -2034,6 +2067,12 @@ export default function LocationHistoryScreen() {
                         setIsPlaying(false);
                         if (isStay) {
                           focusMapLocation(event.latitude, event.longitude, 17);
+                        } else if (isGap) {
+                          if (event.data?.startCoords && event.data?.endCoords) {
+                            focusMapBounds([event.data.startCoords, event.data.endCoords]);
+                          } else {
+                            focusMapLocation(event.latitude, event.longitude, 16);
+                          }
                         } else if (event.data?.roadCoords && event.data.roadCoords.length > 0) {
                           focusMapBounds(event.data.roadCoords);
                         }
@@ -2044,71 +2083,124 @@ export default function LocationHistoryScreen() {
                         style={[
                           styles.timelineIconBadge,
                           {
-                            backgroundColor: isStay
-                              ? (isSafe ? (isDark ? '#142B1E' : '#F0FDF4') : (isDark ? '#35231C' : '#FFF3EB'))
-                              : (isDark ? '#142B1E' : '#F0FDF4'),
+                            backgroundColor: isGap
+                              ? (isDark ? 'rgba(245, 158, 11, 0.22)' : '#FEF3C7')
+                              : (isStay
+                                  ? (isSafe ? (isDark ? 'rgba(255,255,255,0.08)' : '#F1F5F9') : (isDark ? '#35231C' : '#FFF3EB'))
+                                  : (isDark ? 'rgba(255,255,255,0.08)' : '#F1F5F9')),
                           },
                         ]}
                       >
                         <Ionicons
-                          name={isStay ? (isSafe ? "shield-checkmark" : "location") : (event.data?.isTransit ? "subway-outline" : "car-sport")}
+                          name={
+                            isGap
+                              ? "cloud-offline-outline"
+                              : (isStay
+                                  ? (isSafe ? "shield-checkmark" : "location")
+                                  : (event.data?.isTransit ? "subway-outline" : "car-sport"))
+                          }
                           size={18}
-                          color={isStay ? (isSafe ? '#16A34A' : '#E07A5F') : '#16A34A'}
+                          color={
+                            isGap
+                              ? (isSelected ? '#FBBF24' : '#D97706')
+                              : (isStay
+                                  ? (isSafe ? (isSelected ? '#FFFFFF' : colors.foreground) : '#E07A5F')
+                                  : (isSelected ? '#FFFFFF' : colors.foreground))
+                          }
                         />
                       </View>
 
                       <View style={styles.timelineEventContent}>
                         <View style={styles.timelineEventHeaderRow}>
-                          <Text style={[styles.timelineEventTitle, { color: colors.foreground }]} numberOfLines={1}>
+                          <Text style={[styles.timelineEventTitle, { color: isSelected ? '#FFFFFF' : colors.foreground }]} numberOfLines={1}>
                             {event.title}
                           </Text>
                           <View
                             style={[
                               styles.timelineTypeBadge,
                               {
-                                backgroundColor: isStay
-                                  ? (isSafe ? '#16A34A' : '#E07A5F')
-                                  : (event.data?.isTransit ? '#0284C7' : '#16A34A'),
+                                backgroundColor: isGap
+                                  ? '#D97706'
+                                  : (isStay
+                                      ? (isSafe ? (isDark ? '#334155' : '#0F172A') : '#E07A5F')
+                                      : (event.data?.isTransit ? '#0284C7' : (isDark ? '#334155' : '#0F172A'))),
                               },
                             ]}
                           >
                             <Text style={styles.timelineTypeBadgeText}>
-                              {isStay ? (isSafe ? 'SAFE ZONE' : 'STAY') : (event.data?.isTransit ? 'TRANSIT' : 'TRIP')}
+                              {isGap
+                                ? 'SIGNAL PAUSED'
+                                : (isStay ? (isSafe ? 'SAFE ZONE' : 'STAY') : (event.data?.isTransit ? 'TRANSIT' : 'TRIP'))}
                             </Text>
                           </View>
                         </View>
 
-                        <Text style={[styles.timelineEventSubtitle, { color: colors.textMuted }]} numberOfLines={1}>
+                        <Text style={[styles.timelineEventSubtitle, { color: isSelected ? 'rgba(255,255,255,0.7)' : colors.textMuted }]} numberOfLines={2}>
                           {event.subtitle}
                         </Text>
 
                         <View style={styles.timelineMetaRow}>
                           <View style={styles.timelineMetaItem}>
-                            <Ionicons name="time-outline" size={12} color={colors.textMuted} />
-                            <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.timeRange}</Text>
+                            <Ionicons name="time-outline" size={12} color={isSelected ? 'rgba(255,255,255,0.6)' : colors.textMuted} />
+                            <Text style={[styles.timelineMetaText, { color: isSelected ? 'rgba(255,255,255,0.8)' : colors.textMuted }]}>{event.timeRange}</Text>
                           </View>
                           {event.distanceText && (
                             <View style={styles.timelineMetaItem}>
-                              <Ionicons name="navigate-outline" size={12} color={colors.textMuted} />
-                              <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.distanceText}</Text>
+                              <Ionicons name="navigate-outline" size={12} color={isSelected ? 'rgba(255,255,255,0.6)' : colors.textMuted} />
+                              <Text style={[styles.timelineMetaText, { color: isSelected ? 'rgba(255,255,255,0.8)' : colors.textMuted }]}>{event.distanceText}</Text>
                             </View>
                           )}
                           {event.durationText && (
                             <View style={styles.timelineMetaItem}>
-                              <Ionicons name="hourglass-outline" size={12} color={colors.textMuted} />
-                              <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.durationText}</Text>
+                              <Ionicons name="hourglass-outline" size={12} color={isSelected ? 'rgba(255,255,255,0.6)' : colors.textMuted} />
+                              <Text style={[styles.timelineMetaText, { color: isSelected ? 'rgba(255,255,255,0.8)' : colors.textMuted }]}>{event.durationText}</Text>
                             </View>
                           )}
                           {event.speedText && (
                             <View style={styles.timelineMetaItem}>
-                              <Ionicons name="speedometer-outline" size={12} color={colors.textMuted} />
-                              <Text style={[styles.timelineMetaText, { color: colors.textMuted }]}>{event.speedText}</Text>
+                              <Ionicons name="speedometer-outline" size={12} color={isSelected ? 'rgba(255,255,255,0.6)' : colors.textMuted} />
+                              <Text style={[styles.timelineMetaText, { color: isSelected ? 'rgba(255,255,255,0.8)' : colors.textMuted }]}>{event.speedText}</Text>
                             </View>
                           )}
                         </View>
+
+                        {isGap && (
+                          <View
+                            style={[
+                              styles.gapDiagnosticBox,
+                              {
+                                backgroundColor: isSelected
+                                  ? 'rgba(0,0,0,0.25)'
+                                  : (isDark ? 'rgba(245, 158, 11, 0.12)' : '#FEF3C7'),
+                                borderColor: isSelected
+                                  ? 'rgba(255,255,255,0.15)'
+                                  : (isDark ? 'rgba(245, 158, 11, 0.25)' : '#FDE68A'),
+                              },
+                            ]}
+                          >
+                            <Ionicons
+                              name="information-circle-outline"
+                              size={13}
+                              color={isSelected ? '#FDE68A' : (isDark ? '#FBBF24' : '#B45309')}
+                              style={{ marginTop: 1 }}
+                            />
+                            <Text
+                              style={[
+                                styles.gapDiagnosticText,
+                                {
+                                  color: isSelected
+                                    ? '#FEF3C7'
+                                    : (isDark ? '#FDE68A' : '#92400E'),
+                                },
+                              ]}
+                            >
+                              {event.data?.reason || 'Tracking paused due to device sleep, battery saving, or low GPS coverage.'}
+                            </Text>
+                          </View>
+                        )}
                       </View>
 
-                      <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                      <Ionicons name="chevron-forward" size={16} color={isSelected ? 'rgba(255,255,255,0.5)' : colors.textMuted} />
                     </TouchableOpacity>
                   );
                 })}
@@ -2119,8 +2211,8 @@ export default function LocationHistoryScreen() {
                     onPress={() => setShowAllPlaces(true)}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="list-outline" size={15} color="#16A34A" />
-                    <Text style={[styles.expandAllTimelineBtnText, { color: '#16A34A' }]}>
+                    <Ionicons name="list-outline" size={15} color={colors.foreground} />
+                    <Text style={[styles.expandAllTimelineBtnText, { color: colors.foreground }]}>
                       Show All {timelineEvents.length} Events ({timelineEvents.length - displayedTimelineEvents.length} brief pauses hidden)
                     </Text>
                   </TouchableOpacity>
@@ -2170,8 +2262,8 @@ export default function LocationHistoryScreen() {
                       ) * 10) / 10 || 16.5),
                       target: 24,
                       unit: 'hrs',
-                      color: '#4ADE80',
-                      gradientTo: '#22C55E',
+                      color: '#0F172A',
+                      gradientTo: '#334155',
                     },
                     {
                       key: 'mobility',
@@ -2188,46 +2280,51 @@ export default function LocationHistoryScreen() {
                       value: stationaryStops.length > 0 ? 88 : 96,
                       target: 100,
                       unit: '%',
-                      color: '#2E7D5B',
-                      gradientTo: '#10B981',
+                      color: '#64748B',
+                      gradientTo: '#94A3B8',
                     },
                   ]}
                 />
 
-                {/* Places Dwell Distribution Donut */}
-                <PlacesDwellDonutChart
+                {/* Analytics 5 React Bits Pro Donut with Live Center Total */}
+                <Analytics5DonutChart
                   isDark={isDark}
                   title="TIME & DWELL DISTRIBUTION"
+                  subtitle="Live time distribution across detected locations"
+                  trendText={`${stationaryStops.length} STOPS`}
+                  trendPositive={true}
                   segments={stationaryStops.length > 0 ? [
                     {
                       id: 'safe',
                       name: 'Saved Places',
-                      durationMins: Math.max(
+                      value: Math.max(
                         30,
                         stationaryStops
                           .filter(s => s.isSafePlace || s.category === 'safe_zone')
                           .reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
                       ),
-                      color: '#4ADE80',
-                      isSafeHaven: true,
+                      color: isDark ? '#FFFFFF' : '#0F172A',
+                      subText: 'Safe Havens',
                     },
                     {
                       id: 'transit',
                       name: 'In Transit',
-                      durationMins: Math.max(15, travelDurationMinutes || 45),
-                      color: '#3B82F6',
+                      value: Math.max(15, travelDurationMinutes || 45),
+                      color: '#38BDF8',
+                      subText: 'Vehicular & Walking',
                     },
                     ...(stationaryStops.some(s => !s.isSafePlace && s.category !== 'safe_zone')
                       ? [{
                           id: 'other',
                           name: 'Other Stops',
-                          durationMins: Math.max(
+                          value: Math.max(
                             20,
                             stationaryStops
                               .filter(s => !s.isSafePlace && s.category !== 'safe_zone')
                               .reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
                           ),
-                          color: '#F59E0B',
+                          color: '#94A3B8',
+                          subText: 'Secondary Stops',
                         }]
                       : []),
                   ] : undefined}
@@ -2504,7 +2601,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(46,125,91,0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -2775,12 +2872,12 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: '#D4AF37',
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
   },
   stopNumberText: {
-    color: '#1A1A1A',
+    color: '#000000',
     fontWeight: '800',
     fontSize: 12,
   },
@@ -2796,7 +2893,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   safePlaceBadge: {
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
@@ -2804,7 +2901,7 @@ const styles = StyleSheet.create({
   safePlaceBadgeText: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#16A34A',
+    color: '#0F172A',
     letterSpacing: 0.5,
   },
   timelineEventCard: {
@@ -2896,9 +2993,9 @@ const styles = StyleSheet.create({
   reconstructionBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#BFE3D1',
+    borderColor: '#E2E8F0',
     borderRadius: 14,
     padding: 12,
     marginBottom: 12,
@@ -2908,19 +3005,19 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: 'rgba(46, 125, 91, 0.12)',
+    backgroundColor: 'rgba(15, 23, 42, 0.06)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   reconstructionBannerTitle: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#1A3326',
+    color: '#0F172A',
     letterSpacing: 0.3,
   },
   reconstructionBannerSubtitle: {
     fontSize: 11,
-    color: '#3C6753',
+    color: '#64748B',
     marginTop: 2,
     lineHeight: 15,
   },
@@ -2928,13 +3025,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
-    backgroundColor: 'rgba(74, 222, 128, 0.15)',
+    backgroundColor: 'rgba(15, 23, 42, 0.08)',
   },
   reconstructionBadgeText: {
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.5,
-    color: '#16A34A',
+    color: '#0F172A',
   },
   reconstructionBadgeMini: {
     flexDirection: 'row',
@@ -2980,7 +3077,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#F0FDF4',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
@@ -2988,7 +3085,7 @@ const styles = StyleSheet.create({
   memberScopeSwitchText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#16A34A',
+    color: '#0F172A',
   },
   emptyTimelineCard: {
     padding: 18,
@@ -3019,7 +3116,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#F0FDF4',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
@@ -3028,12 +3125,12 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#4ADE80',
+    backgroundColor: '#0F172A',
   },
   liveStationaryText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#16A34A',
+    color: '#0F172A',
     letterSpacing: 0.5,
   },
   emptyStatusRow: {
@@ -3178,5 +3275,21 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     fontWeight: '600',
     letterSpacing: 0.6,
+  },
+  gapDiagnosticBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 9,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  gapDiagnosticText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
   },
 });

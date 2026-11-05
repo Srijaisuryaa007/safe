@@ -171,8 +171,8 @@ export default function LeaderApprovalModal({
           style={[
             styles.modalCard,
             {
-              backgroundColor: isDark ? '#141A17' : '#FFFFFF',
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#ECEAE4',
+              backgroundColor: isDark ? '#11141A' : '#FFFFFF',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
               opacity: fadeAnim,
               transform: [{ scale: scaleAnim }],
             },
@@ -191,7 +191,7 @@ export default function LeaderApprovalModal({
             <View style={styles.headerTextWrap}>
               <Text style={styles.categoryTag}>• PROTOCOL GOVERNANCE</Text>
               <Text
-                style={[styles.title, { color: isDark ? '#FFFFFF' : '#1F2A24' }]}
+                style={[styles.title, { color: isDark ? '#FFFFFF' : '#0F172A' }]}
                 numberOfLines={1}
               >
                 Leader Approval Required
@@ -201,11 +201,11 @@ export default function LeaderApprovalModal({
               onPress={onClose}
               style={[
                 styles.closeCircleBtn,
-                { backgroundColor: isDark ? '#233029' : '#F0EFEA' },
+                { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' },
               ]}
               activeOpacity={0.7}
             >
-              <Ionicons name="close" size={17} color={isDark ? '#D8E2DC' : '#5C665F'} />
+              <Ionicons name="close" size={17} color={isDark ? '#FFFFFF' : '#64748B'} />
             </TouchableOpacity>
           </View>
 
@@ -228,12 +228,12 @@ export default function LeaderApprovalModal({
             style={[
               styles.messageBox,
               {
-                backgroundColor: isDark ? '#0F1411' : '#F7F6F2',
-                borderColor: isDark ? '#233029' : '#EDEBE6',
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F1F5F9',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0',
               },
             ]}
           >
-            <Text style={[styles.messageText, { color: isDark ? '#CAD5CE' : '#4E5F55' }]}>
+            <Text style={[styles.messageText, { color: isDark ? '#CBD5E1' : '#475569' }]}>
               Your Circle Leader has activated continuous family protection. Enabling{' '}
               <Text style={{ color: isDark ? '#FBBF24' : '#D97706', fontWeight: '700' }}>
                 {featureName}
@@ -245,27 +245,27 @@ export default function LeaderApprovalModal({
             <View
               style={[
                 styles.metaDivider,
-                { backgroundColor: isDark ? '#1C2621' : '#E8E6DE' },
+                { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0' },
               ]}
             />
             <View style={styles.metaRow}>
               <View style={styles.metaCol}>
-                <Text style={[styles.metaLabel, { color: isDark ? '#7E8B83' : '#8C9790' }]}>
+                <Text style={[styles.metaLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                   CIRCLE
                 </Text>
                 <Text
-                  style={[styles.metaValue, { color: isDark ? '#FFFFFF' : '#1F2A24' }]}
+                  style={[styles.metaValue, { color: isDark ? '#FFFFFF' : '#0F172A' }]}
                   numberOfLines={1}
                 >
                   {activeCircle?.name || 'Active Circle'}
                 </Text>
               </View>
               <View style={styles.metaCol}>
-                <Text style={[styles.metaLabel, { color: isDark ? '#7E8B83' : '#8C9790' }]}>
+                <Text style={[styles.metaLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                   GOVERNED BY
                 </Text>
                 <Text
-                  style={[styles.metaValue, { color: isDark ? '#FFFFFF' : '#1F2A24' }]}
+                  style={[styles.metaValue, { color: isDark ? '#FFFFFF' : '#0F172A' }]}
                   numberOfLines={1}
                 >
                   {leaderName}
@@ -280,24 +280,24 @@ export default function LeaderApprovalModal({
               style={[
                 styles.sentBox,
                 {
-                  backgroundColor: isDark ? 'rgba(16, 185, 129, 0.12)' : '#ECFDF5',
-                  borderColor: isDark ? 'rgba(16, 185, 129, 0.35)' : '#A7F3D0',
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0',
                 },
               ]}
             >
               <View
                 style={[
                   styles.sentIconCircle,
-                  { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#D1FAE5' },
+                  { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0' },
                 ]}
               >
-                <Ionicons name="checkmark-circle" size={20} color="#10B981" />
+                <Ionicons name="checkmark-circle" size={20} color={isDark ? '#FFFFFF' : '#0F172A'} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.sentTitle, { color: isDark ? '#34D399' : '#059669' }]}>
+                <Text style={[styles.sentTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                   Request Dispatched to Leader
                 </Text>
-                <Text style={[styles.sentDesc, { color: isDark ? '#A7F3D0' : '#047857' }]}>
+                <Text style={[styles.sentDesc, { color: isDark ? '#94A3B8' : '#64748B' }]}>
                   {leaderName} has been notified via priority push notification and circle safety feed.
                 </Text>
               </View>
@@ -307,8 +307,8 @@ export default function LeaderApprovalModal({
           {/* Action Buttons */}
           {sending ? (
             <View style={styles.loaderBox}>
-              <ActivityIndicator size="small" color="#10B981" />
-              <Text style={[styles.loaderText, { color: isDark ? '#CAD5CE' : '#4E5F55' }]}>
+              <ActivityIndicator size="small" color={isDark ? '#FFFFFF' : '#0F172A'} />
+              <Text style={[styles.loaderText, { color: isDark ? '#CBD5E1' : '#475569' }]}>
                 Transmitting authorization request...
               </Text>
             </View>
@@ -320,8 +320,8 @@ export default function LeaderApprovalModal({
                     style={[
                       styles.secondaryActionBtn,
                       {
-                        backgroundColor: isDark ? '#1C2621' : '#F0EFEA',
-                        borderColor: isDark ? '#2D3D35' : '#E2E0D8',
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+                        borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0',
                       },
                     ]}
                     onPress={onClose}
@@ -330,7 +330,7 @@ export default function LeaderApprovalModal({
                     <Text
                       style={[
                         styles.secondaryActionBtnText,
-                        { color: isDark ? '#D8E2DC' : '#5C665F' },
+                        { color: isDark ? '#FFFFFF' : '#0F172A' },
                       ]}
                     >
                       Maintain Safety
@@ -338,21 +338,21 @@ export default function LeaderApprovalModal({
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.primaryActionBtn, { backgroundColor: '#10B981' }]}
+                    style={[styles.primaryActionBtn, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}
                     onPress={handleRequestApproval}
                     activeOpacity={0.84}
                   >
-                    <Ionicons name="paper-plane" size={15} color="#FFFFFF" />
-                    <Text style={styles.primaryActionBtnText}>Request Approval</Text>
+                    <Ionicons name="paper-plane" size={15} color={isDark ? '#000000' : '#FFFFFF'} />
+                    <Text style={[styles.primaryActionBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Request Approval</Text>
                   </TouchableOpacity>
                 </>
               ) : (
                 <TouchableOpacity
-                  style={[styles.doneBtn, { backgroundColor: '#10B981' }]}
+                  style={[styles.doneBtn, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}
                   onPress={onClose}
                   activeOpacity={0.84}
                 >
-                  <Text style={styles.doneBtnText}>Understood</Text>
+                  <Text style={[styles.doneBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Understood</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -366,7 +366,7 @@ export default function LeaderApprovalModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(10, 15, 12, 0.72)',
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -550,7 +550,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 7,
-    shadowColor: '#10B981',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.24,
     shadowRadius: 8,
@@ -569,7 +569,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#10B981',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.24,
     shadowRadius: 8,

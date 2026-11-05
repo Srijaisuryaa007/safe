@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { isValidUuid } from '../lib/utils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState } from 'react-native';
+import { parseEWKBPoint } from './RoadRoutingService';
 
 export interface GeofencePlace {
   id: string;
@@ -1110,10 +1111,29 @@ export async function fetchCirclePlacesWithMembers(circleId: string): Promise<Ge
 
       if ((!lat || !lng || isNaN(lat) || isNaN(lng)) && p.geom) {
         if (typeof p.geom === 'string') {
-          const matches = p.geom.match(/POINT\s*\(\s*([-\d.]+)[,\s]+([-\d.]+)\s*\)/i);
-          if (matches && matches.length >= 3) {
-            lng = parseFloat(matches[1]);
-            lat = parseFloat(matches[2]);
+          const clean = p.geom.trim();
+          if (clean.startsWith('01') || clean.startsWith('00')) {
+            const parsed = parseEWKBPoint(clean);
+            if (parsed) {
+              lat = parsed.latitude;
+              lng = parsed.longitude;
+            }
+          } else {
+            const matches = clean.match(/POINT\s*\(\s*([-\d.]+)[,\s]+([-\d.]+)\s*\)/i);
+            if (matches && matches.length >= 3) {
+              const val1 = parseFloat(matches[1]);
+              const val2 = parseFloat(matches[2]);
+              if (Math.abs(val1) > 90) {
+                lng = val1;
+                lat = val2;
+              } else if (Math.abs(val2) > 90) {
+                lat = val1;
+                lng = val2;
+              } else {
+                lng = val1;
+                lat = val2;
+              }
+            }
           }
         } else if (typeof p.geom === 'object' && Array.isArray(p.geom.coordinates)) {
           lng = parseFloat(p.geom.coordinates[0]);

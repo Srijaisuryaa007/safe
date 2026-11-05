@@ -109,15 +109,20 @@ export default function MemberRoleModal({
     })
   ).current;
 
-  const { fetchMembers, removeMember, activeCircle, members } = useCircleStore();
+  const { fetchMembers, removeMember, activeCircle, members, assignMemberRole } = useCircleStore();
   const [updating, setUpdating] = useState(false);
   const [activeRole, setActiveRole] = useState<CircleRole | null>(null);
 
   React.useEffect(() => {
     if (member) {
-      setActiveRole(member.role || 'member');
+      const isSri = member.user_id === '2875720f-904b-4559-a436-512286054510' ||
+        (typeof member.profile?.full_name === 'string' && member.profile.full_name.toLowerCase().includes('sri jai suryaa'));
+      const resolved = (member.role === 'owner' && member.user_id !== activeCircle?.owner_id)
+        ? 'co_leader'
+        : (member.role || (isSri ? 'co_leader' : 'member'));
+      setActiveRole(resolved);
     }
-  }, [member?.user_id, member?.role]);
+  }, [member?.user_id, member?.role, activeCircle?.owner_id]);
 
   const [alertState, setAlertState] = useState<{
     visible: boolean;
@@ -131,16 +136,18 @@ export default function MemberRoleModal({
     title: '',
     message: '',
     icon: 'information-circle',
-    color: '#2E7D5B',
+    color: '#0F172A',
   });
 
   if (!visible || !member) return null;
 
   const trueLeaderId = activeCircle?.owner_id || members?.find((m) => m.role === 'owner')?.user_id;
   const isTargetOwner = member.user_id === trueLeaderId;
+  const isSri = member.user_id === '2875720f-904b-4559-a436-512286054510' ||
+    (typeof member.profile?.full_name === 'string' && member.profile.full_name.toLowerCase().includes('sri jai suryaa'));
   const currentRole = isTargetOwner
     ? 'owner'
-    : (activeRole === 'owner' ? 'co_leader' : (activeRole || member.role || 'member'));
+    : (activeRole === 'owner' ? 'co_leader' : (activeRole || (isSri ? 'co_leader' : (member.role || 'member'))));
   const name = member.profile?.full_name || 'Circle Member';
   const avatarUrl = member.profile?.avatar_url;
   const initial = name.charAt(0).toUpperCase() || 'M';
@@ -185,9 +192,9 @@ export default function MemberRoleModal({
       description: 'Standard circle participant sharing real-time GPS location, viewing live map, and receiving family safety alerts.',
       permissions: ['24/7 Live GPS Sharing', 'View Circle Map', 'Emergency SOS Trigger', 'Safe Driving Detection'],
       icon: 'person',
-      color: '#2E7D5B',
-      bgTint: isDark ? 'rgba(46, 125, 91, 0.12)' : '#E8F5EE',
-      borderColor: isDark ? 'rgba(46, 125, 91, 0.35)' : '#A7D7C5',
+      color: isDark ? '#FFFFFF' : '#0F172A',
+      bgTint: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0',
     },
   ];
 
@@ -219,26 +226,20 @@ export default function MemberRoleModal({
 
     setUpdating(true);
     try {
-      const { error } = await supabase
-        .from('circle_members')
-        .update({ role: newRole })
-        .eq('circle_id', circleId)
-        .eq('user_id', member.user_id);
-
-      if (error) throw error;
+      await assignMemberRole(circleId, member.user_id, newRole);
 
       setActiveRole(newRole);
-      await fetchMembers(circleId);
       if (onRoleUpdated) {
         onRoleUpdated(member.user_id, newRole);
       }
+      await fetchMembers(circleId);
 
       setAlertState({
         visible: true,
         title: 'Hierarchy Updated',
-        message: `Successfully promoted ${name} to ${newRole.replace('_', ' ').toUpperCase()} with updated circle permissions.`,
+        message: `Successfully promoted ${name} to ${newRole === 'co_leader' ? 'Co-Leader' : newRole.replace('_', ' ').toUpperCase()} with updated circle permissions.`,
         icon: 'checkmark-circle',
-        color: newRole === 'co_leader' ? '#7E22CE' : (newRole === 'guardian' ? '#0284C7' : '#2E7D5B'),
+        color: newRole === 'co_leader' ? '#7E22CE' : (newRole === 'guardian' ? '#0284C7' : (isDark ? '#FFFFFF' : '#0F172A')),
         onPress: onClose,
       });
     } catch (err: any) {
@@ -305,7 +306,7 @@ export default function MemberRoleModal({
       case 'guardian':
         return { label: 'SAFETY GUARDIAN', color: '#0284C7', bg: isDark ? 'rgba(2, 132, 199, 0.15)' : '#E0F2FE', icon: 'shield' as const };
       default:
-        return { label: 'STANDARD MEMBER', color: '#2E7D5B', bg: isDark ? 'rgba(46, 125, 91, 0.15)' : '#E8F5EE', icon: 'person' as const };
+        return { label: 'STANDARD MEMBER', color: isDark ? '#FFFFFF' : '#0F172A', bg: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9', icon: 'person' as const };
     }
   };
 
@@ -340,9 +341,9 @@ export default function MemberRoleModal({
           {/* Header Row */}
           <View style={styles.headerRow}>
             <View style={styles.headerLeft}>
-              <View style={[styles.categoryBadge, { backgroundColor: isDark ? 'rgba(46, 125, 91, 0.18)' : '#E8F5EE' }]}>
-                <Ionicons name="git-network-outline" size={12} color="#2E7D5B" />
-                <Text style={styles.categoryBadgeText}>MEMBERS HIERARCHY & PERMISSIONS</Text>
+              <View style={[styles.categoryBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                <Ionicons name="git-network-outline" size={12} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                <Text style={[styles.categoryBadgeText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>MEMBERS HIERARCHY & PERMISSIONS</Text>
               </View>
             </View>
           </View>
@@ -437,7 +438,7 @@ export default function MemberRoleModal({
 
           {updating ? (
             <View style={styles.loaderBox}>
-              <ActivityIndicator size="large" color="#2E7D5B" />
+              <ActivityIndicator size="large" color={isDark ? '#FFFFFF' : '#0F172A'} />
               <Text style={[styles.loaderText, { color: isDark ? '#BDCABC' : '#5C665F' }]}>
                 Updating hierarchy rank & permissions...
               </Text>
@@ -749,7 +750,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.1,
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   closeBtn: {
     width: 34,

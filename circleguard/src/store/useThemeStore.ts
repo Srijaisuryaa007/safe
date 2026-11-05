@@ -144,22 +144,26 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       // Persist to both specific user and global storage
       const themeKey = getStorageKey(activeUser);
       await Promise.all([
-        AsyncStorage.setItem(themeKey, mode).catch(() => {}),
-        AsyncStorage.setItem(GLOBAL_THEME_KEY, mode).catch(() => {}),
+        StorageRecoveryService.safeSetItem(themeKey, mode).catch(() => {}),
+        StorageRecoveryService.safeSetItem(GLOBAL_THEME_KEY, mode).catch(() => {}),
       ]);
     } catch (e) {
-      console.error('Error setting theme mode:', e);
+      console.warn('Theme mode persistence warning:', e);
     }
   },
 
   setMapStyle: async (style: MapStyleType, userId?: string) => {
+    // Optimistic instant in-memory update: guaranteed zero UI lag or freezing
+    set({ mapStyle: style });
     try {
       const activeUser = userId ?? get().currentUserId;
       const mapKey = getMapStyleKey(activeUser);
-      await AsyncStorage.setItem(mapKey, style);
-      set({ mapStyle: style });
+      await Promise.all([
+        StorageRecoveryService.safeSetItem(mapKey, style).catch(() => {}),
+        StorageRecoveryService.safeSetItem('@circleguard_map_style', style).catch(() => {}),
+      ]);
     } catch (e) {
-      console.error('Error saving map style:', e);
+      console.warn('Map style persistence warning:', e);
     }
   },
 

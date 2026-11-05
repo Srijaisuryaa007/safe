@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  RefreshControl,
   TouchableOpacity,
   Image,
   Dimensions,
@@ -20,7 +21,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuthStore } from '../store/useAuthStore';
 import { useCircleStore, formatZoneArrival, formatMemberLastActive } from '../store/useCircleStore';
 import { useThemeStore } from '../store/useThemeStore';
-import { sendInstantLocationPing } from '../services/LocationBackgroundService';
+import { sendInstantLocationPing, broadcastCircleLocationUpdate } from '../services/LocationBackgroundService';
 import { supabase } from '../lib/supabase';
 import { sendExpoPushNotification } from '../services/PushNotificationService';
 import { broadcastCheckIn } from '../services/ActivityService';
@@ -32,8 +33,9 @@ import FeatureInfoModal from './FeatureInfoModal';
 import { validateAndSanitizeGpsFix } from '../utils/locationValidator';
 import { getSafeTopInset } from '../utils/safeArea';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { navigationRef } from '../navigation/AppNavigator';
+import { navigationRef } from '../navigation/navigationRef';
 import SafeZonePermissionBanner from './SafeZonePermissionBanner';
+import ParallaxCard from './ui/ParallaxCard';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const LAST_USER_LOC_STORAGE_KEY = '@circleguard_last_user_location';
@@ -132,6 +134,30 @@ export default function BillionDollarHomeView() {
     });
   }, []);
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const handlePullToRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const uid = profile?.id || useAuthStore.getState().user?.id;
+      if (uid) {
+        await useCircleStore.getState().fetchUserCircles(uid);
+      }
+      const curCircle = useCircleStore.getState().activeCircle;
+      if (curCircle?.id) {
+        await Promise.all([
+          useCircleStore.getState().fetchMembers(curCircle.id),
+          useCircleStore.getState().fetchPlaces(curCircle.id),
+        ]);
+      } else if (uid) {
+        await useCircleStore.getState().fetchActiveCircle(uid);
+      }
+      sendInstantLocationPing().catch(() => {});
+    } catch (_) {
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   useEffect(() => {
     // Clear old circle's local places immediately on circle switch!
     setLocalPlaces([]);
@@ -152,8 +178,13 @@ export default function BillionDollarHomeView() {
           }
         } catch (_) {}
       })();
+    } else {
+      const uid = profile?.id || useAuthStore.getState().user?.id;
+      if (uid) {
+        useCircleStore.getState().fetchActiveCircle(uid);
+      }
     }
-  }, [activeCircle?.id]);
+  }, [activeCircle?.id, profile?.id]);
 
   useEffect(() => {
     let locSub: Location.LocationSubscription | null = null;
@@ -246,7 +277,8 @@ export default function BillionDollarHomeView() {
                 const timeDiff = now - lastBroadcastTime;
                 const minBroadcastInterval = isMoving ? 3000 : 60000;
 
-                if (profile?.id && timeDiff >= minBroadcastInterval) {
+                const targetUid = useAuthStore.getState().user?.id || profile?.id;
+                if (targetUid && timeDiff >= minBroadcastInterval) {
                   lastBroadcastTime = now;
                   lastBroadcastLat = pos.coords.latitude;
                   lastBroadcastLng = pos.coords.longitude;
@@ -255,27 +287,56 @@ export default function BillionDollarHomeView() {
                   const isDriving = rawSpeed > 4.5;
                   const point = `POINT(${pos.coords.longitude} ${pos.coords.latitude})`;
                   const currentCircleId = useCircleStore.getState().activeCircle?.id;
+                  const activityState = isDriving ? 'Traveling' : rawSpeed >= 0.8 ? 'Walking' : 'Active';
+
+                  // 1. Peer broadcast ALWAYS sent unconditionally for real-time responsiveness
+                  if (currentCircleId) {
+                    broadcastCircleLocationUpdate(currentCircleId, {
+                      user_id: targetUid,
+                      latitude: pos.coords.latitude,
+                      longitude: pos.coords.longitude,
+                      speed_mps: rawSpeed,
+                      heading: pos.coords.heading || 0,
+                      accuracy_m: pos.coords.accuracy ?? undefined,
+                      is_driving: isDriving,
+                      activity_state: activityState,
+                      updated_at: new Date().toISOString(),
+                      circle_id: currentCircleId,
+                    });
+                  }
+
+                  // 2. Persistent Supabase DB write with RLS recovery
+                  const locPayload = {
+                    user_id: targetUid,
+                    circle_id: currentCircleId || null,
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    geom: point,
+                    accuracy_m: pos.coords.accuracy ?? undefined,
+                    speed_mps: rawSpeed,
+                    is_driving: isDriving,
+                    activity_state: activityState,
+                    updated_at: new Date().toISOString(),
+                  };
 
                   supabase
                     .from('locations')
-                    .upsert(
-                      {
-                        user_id: profile.id,
-                        circle_id: currentCircleId || null,
-                        latitude: pos.coords.latitude,
-                        longitude: pos.coords.longitude,
-                        geom: point,
-                        accuracy_m: pos.coords.accuracy ?? undefined,
-                        speed_mps: rawSpeed,
-                        is_driving: isDriving,
-                        activity_state: isDriving ? 'Traveling' : rawSpeed >= 0.8 ? 'Walking' : 'Active',
-                        updated_at: new Date().toISOString(),
-                      },
-                      { onConflict: 'user_id' }
-                    )
+                    .upsert(locPayload, { onConflict: 'user_id' })
                     .then(
-                      ({ error }) => {
-                        if (error) console.warn('[LiveMovementBroadcaster] Upsert warning:', error.message);
+                      async ({ error }) => {
+                        if (error) {
+                          console.warn('[LiveMovementBroadcaster] Upsert warning:', error.message);
+                          if (error.message?.includes('row-level security') || error.message?.includes('JWT') || error.message?.includes('expired')) {
+                            try {
+                              const { data: refData } = await supabase.auth.refreshSession();
+                              const refreshedUid = refData?.session?.user?.id;
+                              if (refreshedUid) {
+                                locPayload.user_id = refreshedUid;
+                                await supabase.from('locations').upsert(locPayload, { onConflict: 'user_id' });
+                              }
+                            } catch (_) {}
+                          }
+                        }
                       },
                       () => {}
                     );
@@ -526,7 +587,7 @@ export default function BillionDollarHomeView() {
       return {
         isInZone: false,
         statusText: 'In transit • Driving',
-        color: isDark ? '#3ADFAB' : '#2E7D5B',
+        color: isDark ? '#F8FAFC' : '#0F172A',
         zoneName: null,
         entryTimeStr: null,
         sinceText: null,
@@ -540,7 +601,7 @@ export default function BillionDollarHomeView() {
       return {
         isInZone: false,
         statusText: `Outside Safe Zones • ${activeSubtitle}`,
-        color: isDark ? '#9EACA3' : '#718076',
+        color: isDark ? '#94A3B8' : '#64748B',
         zoneName: null,
         entryTimeStr: null,
         sinceText: null,
@@ -568,7 +629,7 @@ export default function BillionDollarHomeView() {
           isInZone: true,
           statusText: `In ${cleanName} • ${sinceLabel}`,
           shortStatusText: `In ${cleanName}`,
-          color: isDark ? '#3ADFAB' : '#2E7D5B',
+          color: isDark ? '#F8FAFC' : '#0F172A',
           zoneName: cleanName,
           entryTimeStr: arrivalInfo.timeStr || null,
           entryFullText: arrivalInfo.entryText,
@@ -584,7 +645,7 @@ export default function BillionDollarHomeView() {
     return {
       isInZone: false,
       statusText: `Outside Safe Zones • ${activeSubtitle}`,
-      color: isDark ? '#9EACA3' : '#718076',
+      color: isDark ? '#94A3B8' : '#64748B',
       zoneName: null,
       entryTimeStr: null,
       sinceText: null,
@@ -646,7 +707,7 @@ export default function BillionDollarHomeView() {
           battery: m.batteryPct != null ? `${m.batteryPct}%` : '100%',
           isSelf,
           isOnline: m.isOnline ?? true,
-          roleColor: isSelf ? '#2E7D5B' : (m.role === 'owner' ? '#E07A5F' : '#34A853'),
+          roleColor: isSelf ? '#0F172A' : (m.role === 'owner' ? '#0F172A' : '#64748B'),
         };
       })
       .filter(Boolean);
@@ -671,7 +732,7 @@ export default function BillionDollarHomeView() {
             width:100%; height:100%;
             background-color: #0E131F;
             background-image:
-              radial-gradient(circle at 50% 50%, rgba(46, 125, 91, 0.08) 0%, transparent 65%),
+              radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.03) 0%, transparent 65%),
               linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
               linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
             background-size: 100% 100%, 36px 36px, 36px 36px;
@@ -680,7 +741,7 @@ export default function BillionDollarHomeView() {
           .leaflet-container {
             background-color: #0E131F !important;
             background-image:
-              radial-gradient(circle at 50% 50%, rgba(46, 125, 91, 0.08) 0%, transparent 65%),
+              radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.03) 0%, transparent 65%),
               linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
               linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px) !important;
             background-size: 100% 100%, 36px 36px, 36px 36px !important;
@@ -703,8 +764,8 @@ export default function BillionDollarHomeView() {
             height: 38px;
             border-radius: 19px;
             border: 2.5px solid #FFFFFF;
-            box-shadow: 0 4px 10px rgba(46, 125, 91, 0.24);
-            background: #2E7D5B;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+            background: #0F172A;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -743,25 +804,25 @@ export default function BillionDollarHomeView() {
           }
           .pin-label.self-label {
             background: rgba(15, 23, 42, 0.95);
-            border: 1.5px solid #3ADFAB;
-            box-shadow: 0 4px 14px rgba(0,0,0,0.45), 0 0 10px rgba(58, 223, 171, 0.3);
+            border: 1.5px solid rgba(255, 255, 255, 0.4);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.45);
             color: #FFFFFF;
             font-weight: 700;
           }
           .self-ring {
-            border: 2.5px solid #2E7D5B !important;
-            box-shadow: 0 0 0 4px rgba(46, 125, 91, 0.22), 0 4px 12px rgba(46, 125, 91, 0.35) !important;
+            border: 2.5px solid #0F172A !important;
+            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.2), 0 4px 12px rgba(0, 0, 0, 0.3) !important;
           }
           .online-dot {
             width: 6px;
             height: 6px;
             border-radius: 3px;
-            background: #10B981;
-            box-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
+            background: #3B82F6;
+            box-shadow: 0 0 6px rgba(59, 130, 246, 0.6);
           }
           .online-dot.self-dot {
-            background: #3ADFAB;
-            box-shadow: 0 0 8px #3ADFAB;
+            background: #3B82F6;
+            box-shadow: 0 0 6px rgba(59, 130, 246, 0.6);
           }
           .batt-tag {
             font-size: 10px;
@@ -787,8 +848,8 @@ export default function BillionDollarHomeView() {
             letter-spacing: 0.3px;
             padding: 4px 11px;
             border-radius: 999px;
-            border: 1.5px solid #10B981;
-            box-shadow: 0 4px 14px rgba(0,0,0,0.5), 0 0 10px rgba(16, 185, 129, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
             white-space: nowrap;
             display: inline-flex;
             align-items: center;
@@ -812,11 +873,11 @@ export default function BillionDollarHomeView() {
         <svg id="dome-defs-svg" style="position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;" aria-hidden="true">
           <defs>
             <radialGradient id="dome-grad-green" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
-              <stop offset="0%" stop-color="#A7F3D0" stop-opacity="0.80" />
-              <stop offset="20%" stop-color="#34D399" stop-opacity="0.50" />
-              <stop offset="55%" stop-color="#10B981" stop-opacity="0.24" />
-              <stop offset="85%" stop-color="#059669" stop-opacity="0.45" />
-              <stop offset="100%" stop-color="#047857" stop-opacity="0.90" />
+              <stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.80" />
+              <stop offset="20%" stop-color="#CBD5E1" stop-opacity="0.50" />
+              <stop offset="55%" stop-color="#94A3B8" stop-opacity="0.24" />
+              <stop offset="85%" stop-color="#64748B" stop-opacity="0.45" />
+              <stop offset="100%" stop-color="#334155" stop-opacity="0.90" />
             </radialGradient>
             <radialGradient id="dome-grad-blue" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
               <stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.80" />
@@ -826,11 +887,11 @@ export default function BillionDollarHomeView() {
               <stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.90" />
             </radialGradient>
             <radialGradient id="dome-grad-gold" cx="44%" cy="38%" r="60%" fx="38%" fy="30%">
-              <stop offset="0%" stop-color="#FEF9C3" stop-opacity="0.80" />
-              <stop offset="20%" stop-color="#FACC15" stop-opacity="0.50" />
-              <stop offset="55%" stop-color="#D4AF37" stop-opacity="0.24" />
-              <stop offset="85%" stop-color="#CA8A04" stop-opacity="0.45" />
-              <stop offset="100%" stop-color="#854D0E" stop-opacity="0.90" />
+              <stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.80" />
+              <stop offset="20%" stop-color="#CBD5E1" stop-opacity="0.50" />
+              <stop offset="55%" stop-color="#94A3B8" stop-opacity="0.24" />
+              <stop offset="85%" stop-color="#64748B" stop-opacity="0.45" />
+              <stop offset="100%" stop-color="#334155" stop-opacity="0.90" />
             </radialGradient>
           </defs>
         </svg>
@@ -893,7 +954,7 @@ export default function BillionDollarHomeView() {
               
               var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
               defs.id = 'dome-defs-injected';
-              defs.innerHTML = '<radialGradient id="dome-grad-green" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#A7F3D0" stop-opacity="0.80" /><stop offset="22%" stop-color="#34D399" stop-opacity="0.50" /><stop offset="55%" stop-color="#10B981" stop-opacity="0.24" /><stop offset="85%" stop-color="#059669" stop-opacity="0.45" /><stop offset="100%" stop-color="#047857" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-blue" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.80" /><stop offset="22%" stop-color="#60A5FA" stop-opacity="0.50" /><stop offset="55%" stop-color="#3B82F6" stop-opacity="0.24" /><stop offset="85%" stop-color="#2563EB" stop-opacity="0.45" /><stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-gold" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#FEF9C3" stop-opacity="0.80" /><stop offset="20%" stop-color="#FACC15" stop-opacity="0.50" /><stop offset="55%" stop-color="#D4AF37" stop-opacity="0.24" /><stop offset="85%" stop-color="#CA8A04" stop-opacity="0.45" /><stop offset="100%" stop-color="#854D0E" stop-opacity="0.90" /></radialGradient>';
+              defs.innerHTML = '<radialGradient id="dome-grad-green" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.80" /><stop offset="22%" stop-color="#CBD5E1" stop-opacity="0.50" /><stop offset="55%" stop-color="#94A3B8" stop-opacity="0.24" /><stop offset="85%" stop-color="#64748B" stop-opacity="0.45" /><stop offset="100%" stop-color="#334155" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-blue" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.80" /><stop offset="22%" stop-color="#60A5FA" stop-opacity="0.50" /><stop offset="55%" stop-color="#3B82F6" stop-opacity="0.24" /><stop offset="85%" stop-color="#2563EB" stop-opacity="0.45" /><stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.90" /></radialGradient><radialGradient id="dome-grad-gold" cx="44%" cy="38%" r="60%" fx="38%" fy="30%"><stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.80" /><stop offset="20%" stop-color="#CBD5E1" stop-opacity="0.50" /><stop offset="55%" stop-color="#94A3B8" stop-opacity="0.24" /><stop offset="85%" stop-color="#64748B" stop-opacity="0.45" /><stop offset="100%" stop-color="#334155" stop-opacity="0.90" /></radialGradient>';
               overlaySvg.insertBefore(defs, overlaySvg.firstChild);
             } catch(e) {}
           }
@@ -903,10 +964,10 @@ export default function BillionDollarHomeView() {
             if (c === 'work' || c === 'office') {
               return { main: '#3B82F6', highlight: '#93C5FD', dark: '#1D4ED8', gradKey: 'blue' };
             } else if (c === 'school' || c === 'college') {
-              return { main: '#F59E0B', highlight: '#FDE68A', dark: '#D97706', gradKey: 'gold' };
+              return { main: '#94A3B8', highlight: '#E2E8F0', dark: '#475569', gradKey: 'gold' };
             }
-            // Default: Vivid Pine & Emerald Green Safe Zone
-            return { main: '#10B981', highlight: '#34D399', dark: '#047857', gradKey: 'green' };
+            // Default: Crisp Monochrome Slate Safe Zone
+            return { main: '#334155', highlight: '#94A3B8', dark: '#0F172A', gradKey: 'green' };
           }
 
           function getZoneSvgIcon(name, color) {
@@ -1299,15 +1360,15 @@ export default function BillionDollarHomeView() {
 
         <View style={styles.headerRight}>
           <TouchableOpacity
-            style={[styles.profileAvatarBtn, isDark && { borderColor: '#3ADFAB' }]}
+            style={[styles.profileAvatarBtn, isDark && { borderColor: 'rgba(255, 255, 255, 0.2)' }]}
             onPress={() => navigation.navigate('Profile')}
             activeOpacity={0.7}
           >
             {profile?.avatar_url ? (
               <Image source={{ uri: profile.avatar_url }} style={styles.profileAvatarImg} />
             ) : (
-              <View style={[styles.profileAvatarImg, styles.avatarFallback, isDark && { backgroundColor: '#1C2621' }]}>
-                <Text style={[styles.avatarFallbackText, isDark && { color: '#3ADFAB' }]}>
+              <View style={[styles.profileAvatarImg, styles.avatarFallback, isDark && { backgroundColor: '#1E293B' }]}>
+                <Text style={[styles.avatarFallbackText, isDark && { color: '#F8FAFC' }]}>
                   {(profile?.full_name || 'U').charAt(0).toUpperCase()}
                 </Text>
               </View>
@@ -1322,11 +1383,19 @@ export default function BillionDollarHomeView() {
         style={styles.scrollArea}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handlePullToRefresh}
+            tintColor={isDark ? '#F59E0B' : '#D97706'}
+            colors={['#F59E0B', '#D97706']}
+          />
+        }
       >
         <SafeZonePermissionBanner />
 
         {/* 2. Interactive Map Viewport Canvas */}
-        <View style={[styles.mapViewport, isDark && { backgroundColor: '#141A17' }]}>
+        <View style={[styles.mapViewport, isDark && { backgroundColor: '#111318' }]}>
           {Platform.OS === 'web' ? (
             <iframe
               id="homeMapIframe"
@@ -1355,7 +1424,7 @@ export default function BillionDollarHomeView() {
               <TouchableOpacity
                 style={[
                   styles.filterChip,
-                  isDark && { backgroundColor: '#1C2621', borderColor: '#2A3A32' },
+                  isDark && { backgroundColor: '#181B22', borderColor: '#262933' },
                   activeFilter === 'all' && styles.filterChipActive,
                 ]}
                 onPress={() => {
@@ -1371,13 +1440,13 @@ export default function BillionDollarHomeView() {
                 <View
                   style={[
                     styles.chipDot,
-                    { backgroundColor: activeFilter === 'all' ? '#FFFFFF' : isDark ? '#3ADFAB' : '#2E7D5B' },
+                    { backgroundColor: activeFilter === 'all' ? '#FFFFFF' : isDark ? '#FFFFFF' : '#0F172A' },
                   ]}
                 />
                 <Text
                   style={[
                     styles.filterChipText,
-                    isDark && { color: '#CAD5CE' },
+                    isDark && { color: '#94A3B8' },
                     activeFilter === 'all' && styles.filterChipTextActive,
                   ]}
                 >
@@ -1386,7 +1455,7 @@ export default function BillionDollarHomeView() {
                 <View
                   style={[
                     styles.chipCountBadge,
-                    isDark && { backgroundColor: '#28362F' },
+                    isDark && { backgroundColor: '#262933' },
                     activeFilter === 'all' && styles.chipCountBadgeActive,
                   ]}
                 >
@@ -1405,7 +1474,7 @@ export default function BillionDollarHomeView() {
               <TouchableOpacity
                 style={[
                   styles.filterChip,
-                  isDark && { backgroundColor: '#1C2621', borderColor: '#2A3A32' },
+                  isDark && { backgroundColor: '#181B22', borderColor: '#262933' },
                   activeFilter === 'safe' && styles.filterChipActive,
                 ]}
                 onPress={() => {
@@ -1429,13 +1498,13 @@ export default function BillionDollarHomeView() {
                 <View
                   style={[
                     styles.chipDot,
-                    { backgroundColor: activeFilter === 'safe' ? '#FFFFFF' : isDark ? '#3ADFAB' : '#2E7D5B' },
+                    { backgroundColor: activeFilter === 'safe' ? '#FFFFFF' : isDark ? '#FFFFFF' : '#0F172A' },
                   ]}
                 />
                 <Text
                   style={[
                     styles.filterChipText,
-                    isDark && { color: '#CAD5CE' },
+                    isDark && { color: '#94A3B8' },
                     activeFilter === 'safe' && styles.filterChipTextActive,
                   ]}
                 >
@@ -1512,8 +1581,8 @@ export default function BillionDollarHomeView() {
             <TouchableOpacity
               style={[
                 styles.railButton,
-                isDark && { backgroundColor: '#1C2621', borderColor: '#2A3A32' },
-                satelliteLayer && { backgroundColor: isDark ? '#23382D' : '#E8F5E9', borderColor: '#2E7D5B' }
+                isDark && { backgroundColor: '#181B22', borderColor: '#262933' },
+                satelliteLayer && { backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : '#F1F5F9', borderColor: '#E2E8F0' }
               ]}
               onPress={handleToggleSatellite}
               activeOpacity={0.85}
@@ -1521,15 +1590,15 @@ export default function BillionDollarHomeView() {
               <Ionicons
                 name={satelliteLayer ? 'map' : 'layers-outline'}
                 size={18}
-                color={satelliteLayer ? (isDark ? '#3ADFAB' : '#2E7D5B') : (isDark ? '#CAD5CE' : '#5C665F')}
+                color={satelliteLayer ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#94A3B8' : '#64748B')}
               />
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
                 styles.railButton,
-                isDark && { backgroundColor: '#1C2621', borderColor: '#2A3A32' },
-                highlightZones && { backgroundColor: isDark ? '#23382D' : '#E8F5EE', borderColor: '#2E7D5B' }
+                isDark && { backgroundColor: '#181B22', borderColor: '#262933' },
+                highlightZones && { backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : '#F1F5F9', borderColor: '#E2E8F0' }
               ]}
               onPress={handleToggleHighlightZones}
               activeOpacity={0.85}
@@ -1537,7 +1606,7 @@ export default function BillionDollarHomeView() {
               <Ionicons
                 name={highlightZones ? 'shield' : 'shield-outline'}
                 size={18}
-                color={highlightZones ? (isDark ? '#3ADFAB' : '#2E7D5B') : (isDark ? '#CAD5CE' : '#5C665F')}
+                color={highlightZones ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#94A3B8' : '#64748B')}
               />
             </TouchableOpacity>
 
@@ -1545,16 +1614,16 @@ export default function BillionDollarHomeView() {
             <TouchableOpacity
               style={[
                 styles.railButton,
-                isDark && { backgroundColor: '#1C2621', borderColor: '#2A3A32' },
+                isDark && { backgroundColor: '#181B22', borderColor: '#262933' },
               ]}
               onPress={handleFocusOthers}
               activeOpacity={0.85}
               accessibilityLabel="View Others Location"
             >
-              <Ionicons name="people" size={19} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Ionicons name="people" size={19} color={isDark ? '#FFFFFF' : '#0F172A'} />
               {otherMembersWithLocation.length > 0 && (
-                <View style={[styles.miniMemberBadge, isDark && { backgroundColor: '#3ADFAB', borderColor: '#141A17' }]}>
-                  <Text style={[styles.miniMemberBadgeText, isDark && { color: '#002116' }]}>
+                <View style={[styles.miniMemberBadge, isDark && { backgroundColor: '#FFFFFF', borderColor: '#111318' }]}>
+                  <Text style={[styles.miniMemberBadgeText, isDark && { color: '#0F172A' }]}>
                     {otherMembersWithLocation.length}
                   </Text>
                 </View>
@@ -1562,58 +1631,81 @@ export default function BillionDollarHomeView() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.railButton, isDark && { backgroundColor: '#1C2621', borderColor: '#2A3A32' }]}
+              style={[styles.railButton, isDark && { backgroundColor: '#181B22', borderColor: '#262933' }]}
               onPress={handleRecenter}
               activeOpacity={0.85}
               accessibilityLabel="My Location"
             >
-              <Ionicons name="locate" size={19} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+              <Ionicons name="locate" size={19} color={isDark ? '#FFFFFF' : '#0F172A'} />
             </TouchableOpacity>
           </View>
 
-          {/* Live GPS Satellite Lock & Telematics Signal Strength Badge */}
-          <TouchableOpacity
-            style={[
-              styles.gpsSignalBadge,
-              isDark && { backgroundColor: 'rgba(28, 38, 33, 0.92)', borderColor: '#2A3A32' },
-            ]}
-            onPress={() => {
-              const acc = userAccuracy != null ? `±${Math.round(userAccuracy)}m` : 'Acquiring satellite lock';
-              showToast(`GPS Precision: ${acc} • Zero-False-Alarm Buffer Active`);
-            }}
-            activeOpacity={0.8}
-            accessibilityLabel="Live GPS Satellite Signal Precision"
-          >
-            <View
+          {/* Live GPS Satellite Lock & Telematics Signal Strength Badge + Ghost Mode Pill */}
+          <View style={{ position: 'absolute', bottom: 14, left: 14, flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <TouchableOpacity
               style={[
-                styles.gpsSignalDot,
-                {
-                  backgroundColor:
-                    userAccuracy == null
-                      ? '#EAB308'
-                      : userAccuracy <= 15
-                      ? '#22C55E'
-                      : userAccuracy <= 40
-                      ? '#3B82F6'
-                      : '#F97316',
-                },
+                styles.gpsSignalBadge,
+                { position: 'relative', bottom: undefined, left: undefined },
+                isDark && { backgroundColor: 'rgba(28, 38, 33, 0.92)', borderColor: '#2A3A32' },
               ]}
-            />
-            <Text style={[styles.gpsSignalText, isDark && { color: '#CAD5CE' }]}>
-              {userAccuracy == null
-                ? 'GPS: Acquiring...'
-                : userAccuracy <= 15
-                ? `GPS 100% (±${Math.round(userAccuracy)}m)`
-                : userAccuracy <= 40
-                ? `GPS Good (±${Math.round(userAccuracy)}m)`
-                : `GPS Fair (±${Math.round(userAccuracy)}m)`}
-            </Text>
-          </TouchableOpacity>
+              onPress={() => {
+                const acc = userAccuracy != null ? `±${Math.round(userAccuracy)}m` : 'Acquiring satellite lock';
+                showToast(`GPS Precision: ${acc} • Zero-False-Alarm Buffer Active`);
+              }}
+              activeOpacity={0.8}
+              accessibilityLabel="Live GPS Satellite Signal Precision"
+            >
+              <View
+                style={[
+                  styles.gpsSignalDot,
+                  {
+                    backgroundColor:
+                      userAccuracy == null
+                        ? '#EAB308'
+                        : userAccuracy <= 15
+                        ? (isDark ? '#FFFFFF' : '#0F172A')
+                        : userAccuracy <= 40
+                        ? '#3B82F6'
+                        : '#F97316',
+                  },
+                ]}
+              />
+              <Text style={[styles.gpsSignalText, isDark && { color: '#CAD5CE' }]}>
+                {userAccuracy == null
+                  ? 'GPS: Acquiring...'
+                  : userAccuracy <= 15
+                  ? `GPS 100% (±${Math.round(userAccuracy)}m)`
+                  : userAccuracy <= 40
+                  ? `GPS Good (±${Math.round(userAccuracy)}m)`
+                  : `GPS Fair (±${Math.round(userAccuracy)}m)`}
+              </Text>
+            </TouchableOpacity>
+
+            {Boolean(profile?.is_ghost_mode) && (
+              <View
+                style={[
+                  styles.gpsSignalBadge,
+                  {
+                    position: 'relative',
+                    bottom: undefined,
+                    left: undefined,
+                    backgroundColor: isDark ? 'rgba(139, 92, 246, 0.25)' : '#F5F3FF',
+                    borderColor: isDark ? '#8B5CF6' : '#DDD6FE',
+                  }
+                ]}
+              >
+                <Ionicons name="eye-off" size={12} color={isDark ? '#C4B5FD' : '#7C3AED'} />
+                <Text style={[styles.gpsSignalText, { color: isDark ? '#EDE9FE' : '#5B21B6', fontWeight: '700' }]}>
+                  Ghost Mode (~1.2km)
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
 
         {/* 3. Refined Bottom Sheet Container */}
-        <View style={[styles.bottomSheetCard, isDark && { backgroundColor: '#141A17', borderColor: '#212C26' }]}>
-          <View style={[styles.sheetHandle, isDark && { backgroundColor: '#26342D' }]} />
+        <View style={[styles.bottomSheetCard, isDark && { backgroundColor: '#161920', borderColor: '#262933' }]}>
+          <View style={[styles.sheetHandle, isDark && { backgroundColor: '#262933' }]} />
 
           {/* Bottom Sheet Header */}
           <View style={styles.sheetHeaderRow}>
@@ -1621,13 +1713,13 @@ export default function BillionDollarHomeView() {
               <Text style={[styles.sheetTitle, isDark && { color: '#FFFFFF' }]} numberOfLines={1}>
                 {circleTitle}
               </Text>
-              <Text style={[styles.sheetSubtitle, isDark && { color: '#9EACA3' }]}>
+              <Text style={[styles.sheetSubtitle, isDark && { color: '#94A3B8' }]}>
                 {members.length} {members.length === 1 ? 'member' : 'members'} active · Shared location on
               </Text>
             </View>
-            <View style={[styles.safeBadgePill, isDark && { backgroundColor: '#1C2621', borderColor: '#26342D' }]}>
+            <View style={[styles.safeBadgePill, isDark && { backgroundColor: '#181B22', borderColor: '#262933' }]}>
               <View style={styles.pulsingGreenDot} />
-              <Text style={[styles.safeBadgeText, isDark && { color: '#3ADFAB' }]}>All members safe</Text>
+              <Text style={[styles.safeBadgeText, isDark && { color: '#E2E8F0' }]}>All members safe</Text>
             </View>
           </View>
 
@@ -1636,25 +1728,25 @@ export default function BillionDollarHomeView() {
             <TouchableOpacity
               style={[
                 styles.quickSwitchBanner,
-                isDark && { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: 'rgba(212, 175, 55, 0.3)' }
+                isDark && { backgroundColor: 'rgba(255, 255, 255, 0.06)', borderColor: 'rgba(255, 255, 255, 0.1)' }
               ]}
               onPress={() => setCircleModalVisible(true)}
               activeOpacity={0.8}
             >
-              <Ionicons name="swap-horizontal" size={15} color={isDark ? '#D4AF37' : '#926C15'} />
+              <Ionicons name="swap-horizontal" size={15} color={isDark ? '#F8FAFC' : '#0F172A'} />
               <Text style={[styles.quickSwitchBannerText, isDark && { color: '#E8EDE9' }]}>
                 Switch circle or select family group
               </Text>
-              <Ionicons name="chevron-forward" size={14} color={isDark ? '#D4AF37' : '#926C15'} />
+              <Ionicons name="chevron-forward" size={14} color={isDark ? '#F8FAFC' : '#0F172A'} />
             </TouchableOpacity>
           )}
 
           {/* Senior Easy Mode Active Banner */}
           {isSeniorSimpleMode && (
             <View style={{
-              backgroundColor: isDark ? 'rgba(46, 125, 91, 0.2)' : '#E8F5EE',
-              borderWidth: 1.5,
-              borderColor: '#2E7D5B',
+              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : '#F1F5F9',
+              borderWidth: 1,
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0',
               borderRadius: 14,
               paddingVertical: 10,
               paddingHorizontal: 14,
@@ -1663,14 +1755,14 @@ export default function BillionDollarHomeView() {
               gap: 10,
               marginBottom: 12,
             }}>
-              <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: isDark ? '#23352B' : '#CEEAD6', justifyContent: 'center', alignItems: 'center' }}>
-                <Ionicons name="accessibility" size={20} color="#2E7D5B" />
+              <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: isDark ? '#20242D' : '#E2E8F0', justifyContent: 'center', alignItems: 'center' }}>
+                <Ionicons name="accessibility" size={20} color={isDark ? '#FFFFFF' : '#0F172A'} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14, fontWeight: '800', color: isDark ? '#3ADFAB' : '#2E7D5B' }}>
+                <Text style={{ fontSize: 14, fontWeight: '800', color: isDark ? '#FFFFFF' : '#0F172A' }}>
                   Senior Easy Mode Active
                 </Text>
-                <Text style={{ fontSize: 12, fontWeight: '500', color: isDark ? '#CAD5CE' : '#4A554F', marginTop: 1 }}>
+                <Text style={{ fontSize: 12, fontWeight: '500', color: isDark ? '#94A3B8' : '#64748B', marginTop: 1 }}>
                   Large text, high-contrast buttons & false-alarm protected safety active
                 </Text>
               </View>
@@ -1680,16 +1772,16 @@ export default function BillionDollarHomeView() {
           {/* Quick Safety Check-in Bar */}
           <View style={[
             styles.checkInBanner,
-            isDark && { backgroundColor: '#1A231F', borderColor: '#283730' },
-            isSeniorSimpleMode && { paddingVertical: 16, borderWidth: 1.5, borderColor: '#2E7D5B' }
+            isDark && { backgroundColor: '#181B22', borderColor: '#262933' },
+            isSeniorSimpleMode && { paddingVertical: 16, borderWidth: 1.5, borderColor: isDark ? '#FFFFFF' : '#0F172A' }
           ]}>
             <View style={styles.checkInLeft}>
               <View style={[
                 styles.checkInIconBox,
-                isDark && { backgroundColor: '#23352B' },
+                isDark && { backgroundColor: '#20242D' },
                 isSeniorSimpleMode && { width: 44, height: 44, borderRadius: 14 }
               ]}>
-                <Ionicons name="checkmark-done" size={isSeniorSimpleMode ? 24 : 19} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                <Ionicons name="checkmark-done" size={isSeniorSimpleMode ? 24 : 19} color={isDark ? '#FFFFFF' : '#0F172A'} />
               </View>
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -1705,16 +1797,16 @@ export default function BillionDollarHomeView() {
                       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                       accessibilityLabel="Learn how automatic geofence check-in works"
                     >
-                      <Ionicons name="information-circle-outline" size={15} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
+                      <Ionicons name="information-circle-outline" size={15} color={isDark ? '#94A3B8' : '#64748B'} />
                     </TouchableOpacity>
-                    <View style={{ backgroundColor: isDark ? 'rgba(58, 223, 171, 0.16)' : '#E8F5EE', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
-                      <Text style={{ fontSize: 9, fontWeight: '800', color: isDark ? '#3ADFAB' : '#2E7D5B', letterSpacing: 0.5 }}>AUTO-ACTIVE</Text>
+                    <View style={{ backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                      <Text style={{ fontSize: 9, fontWeight: '800', color: isDark ? '#E2E8F0' : '#0F172A', letterSpacing: 0.5 }}>AUTO-ACTIVE</Text>
                     </View>
                   </View>
                   <Text style={[
                     styles.checkInSub,
-                    isDark && { color: '#9EACA3' },
-                    isSeniorSimpleMode && { fontSize: 13, fontWeight: '600', color: isDark ? '#CAD5CE' : '#3C4942' }
+                    isDark && { color: '#94A3B8' },
+                    isSeniorSimpleMode && { fontSize: 13, fontWeight: '600', color: isDark ? '#94A3B8' : '#64748B' }
                   ]}>
                     Auto-checks in when arriving at safe zones • Tap for instant ping
                   </Text>
@@ -1723,8 +1815,7 @@ export default function BillionDollarHomeView() {
             <TouchableOpacity
               style={[
                 styles.checkInBtn,
-                { backgroundColor: '#2E7D5B' },
-                checkInState === 'sent' && { backgroundColor: '#3ADFAB' },
+                { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' },
                 isSeniorSimpleMode && { paddingVertical: 14, paddingHorizontal: 18, borderRadius: 14 }
               ]}
               onPress={handleCheckIn}
@@ -1733,12 +1824,12 @@ export default function BillionDollarHomeView() {
               <Ionicons
                 name={checkInState === 'sent' ? 'checkmark-circle' : 'send-outline'}
                 size={isSeniorSimpleMode ? 18 : 14}
-                color={checkInState === 'sent' && isDark ? '#002116' : '#FFFFFF'}
+                color={isDark ? '#0F172A' : '#FFFFFF'}
               />
               <Text
                 style={[
                   styles.checkInBtnText,
-                  { color: checkInState === 'sent' && isDark ? '#002116' : '#FFFFFF' },
+                  { color: isDark ? '#0F172A' : '#FFFFFF' },
                   isSeniorSimpleMode && { fontSize: 15, fontWeight: '800' }
                 ]}
               >
@@ -1753,6 +1844,7 @@ export default function BillionDollarHomeView() {
 
           {/* Quick Action Feature Hub */}
           <View style={styles.quickFeatureHub}>
+
             <TouchableOpacity
               style={[
                 styles.featureHubTile,
@@ -1780,8 +1872,8 @@ export default function BillionDollarHomeView() {
               onPress={() => navigateToScreen('LocationHistory')}
               activeOpacity={0.8}
             >
-              <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(48, 209, 88, 0.15)' : '#E8F5EE' }]}>
-                <Ionicons name="time" size={17} color={isDark ? '#30D158' : '#2E7D5B'} />
+              <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                <Ionicons name="time" size={17} color={isDark ? '#FFFFFF' : '#0F172A'} />
               </View>
               <Text style={[styles.featureHubTitle, isDark && { color: '#FFFFFF' }]}>History</Text>
               <Text style={[styles.featureHubSub, isDark && { color: '#94A3B8' }]}>Route replay</Text>
@@ -1797,8 +1889,8 @@ export default function BillionDollarHomeView() {
               onPress={() => navigateToScreen('SafePlaces')}
               activeOpacity={0.8}
             >
-              <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(48, 209, 88, 0.15)' : '#E8F5EE' }]}>
-                <Ionicons name="shield-checkmark" size={17} color={isDark ? '#30D158' : '#2E7D5B'} />
+              <View style={[styles.featureIconBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9' }]}>
+                <Ionicons name="shield-checkmark" size={17} color={isDark ? '#FFFFFF' : '#0F172A'} />
               </View>
               <Text style={[styles.featureHubTitle, isDark && { color: '#FFFFFF' }]}>Safe Zones</Text>
               <Text style={[styles.featureHubSub, isDark && { color: '#94A3B8' }]}>{safePlaces.length} monitored</Text>
@@ -1809,7 +1901,7 @@ export default function BillionDollarHomeView() {
           <View style={styles.statusSectionHeader}>
             <Text style={[styles.statusSectionTitle, isDark && { color: '#FFFFFF' }]}>Live Family Status</Text>
             <TouchableOpacity onPress={() => navigation.navigate('Circle')}>
-              <Text style={[styles.manageGeofenceLink, isDark && { color: '#30D158' }]}>Manage Circle ›</Text>
+              <Text style={[styles.manageGeofenceLink, isDark && { color: '#FFFFFF' }]}>Manage Circle ›</Text>
             </TouchableOpacity>
           </View>
 
@@ -1823,12 +1915,15 @@ export default function BillionDollarHomeView() {
                 const zoneStatus = getMemberSafeZoneStatus(member);
 
                 return (
-                  <TouchableOpacity
+                  <ParallaxCard
                     key={member.user_id}
                     style={[
                       styles.memberStatusCard,
                       isDark && { backgroundColor: '#101114', borderColor: 'rgba(255, 255, 255, 0.08)' },
                     ]}
+                    depthMultiplier={1.05}
+                    maxTiltAngle={11}
+                    enableGlare={true}
                     onPress={() => {
                       if (isSelf) {
                         handleRecenter();
@@ -1838,7 +1933,6 @@ export default function BillionDollarHomeView() {
                         navigateToScreen('LocationHistory', { member, circleId: activeCircle?.id });
                       }
                     }}
-                    activeOpacity={0.85}
                   >
                     <View style={styles.memberCardHeader}>
                       <View style={styles.memberInfoRow}>
@@ -1847,7 +1941,7 @@ export default function BillionDollarHomeView() {
                             styles.memberCardAvatarBox,
                             {
                               backgroundColor: isSelf
-                                ? (isDark ? '#1A1C22' : '#E8F5EE')
+                                ? (isDark ? '#1E293B' : '#F1F5F9')
                                 : (isDark ? '#261D1A' : '#FFF3EB'),
                             },
                           ]}
@@ -1861,7 +1955,7 @@ export default function BillionDollarHomeView() {
                             <Text
                               style={[
                                 styles.memberCardInitial,
-                                { color: isSelf ? (isDark ? '#30D158' : '#2E7D5B') : '#E07A5F' },
+                                { color: isSelf ? (isDark ? '#FFFFFF' : '#0F172A') : '#0F172A' },
                               ]}
                             >
                               {name.charAt(0).toUpperCase()}
@@ -1874,8 +1968,8 @@ export default function BillionDollarHomeView() {
                               {name}
                             </Text>
                             {isSelf && (
-                              <View style={[styles.selfBadgePill, isDark && { backgroundColor: 'rgba(48, 209, 88, 0.15)', borderColor: 'rgba(48, 209, 88, 0.4)' }]}>
-                                <Text style={[styles.selfBadgeText, isDark && { color: '#30D158' }]}>YOU</Text>
+                              <View style={[styles.selfBadgePill, isDark && { backgroundColor: 'rgba(255, 255, 255, 0.08)', borderColor: 'rgba(255, 255, 255, 0.2)' }]}>
+                                <Text style={[styles.selfBadgeText, isDark && { color: '#FFFFFF' }]}>YOU</Text>
                               </View>
                             )}
                           </View>
@@ -1905,7 +1999,7 @@ export default function BillionDollarHomeView() {
                               : 'battery-dead'
                           }
                           size={13}
-                          color={(member.batteryPct ?? 100) > 20 ? (isDark ? '#30D158' : '#2E7D5B') : '#E07A5F'}
+                          color={(member.batteryPct ?? 100) > 20 ? (isDark ? '#94A3B8' : '#0F172A') : '#DC2626'}
                         />
                         <Text style={[styles.batteryChipText, isDark && { color: '#F1F5F9' }]}>{battery}</Text>
                       </View>
@@ -1919,40 +2013,40 @@ export default function BillionDollarHomeView() {
                         </Text>
                       </View>
                       <View style={styles.metricRow}>
-                        <Text style={[styles.metricLabel, isDark && { color: '#9EACA3' }]}>Last Active</Text>
+                        <Text style={[styles.metricLabel, isDark && { color: '#94A3B8' }]}>Last Active</Text>
                         <Text
                           style={[
                             styles.metricVal,
-                            { color: member.isOnline ? (isDark ? '#3ADFAB' : '#2E7D5B') : (isDark ? '#CAD5CE' : '#5C665F') },
+                            { color: member.isOnline ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? '#94A3B8' : '#64748B') },
                           ]}
                         >
                           {member.isOnline ? 'Active now' : (member.lastActiveShort || 'Recent')}
                         </Text>
                       </View>
                       {zoneStatus.isInZone && zoneStatus.entryTimeStr ? (
-                        <View style={[styles.metricRow, { marginTop: 3, paddingTop: 3, borderTopWidth: 0.5, borderTopColor: isDark ? '#23352B' : '#E8EDE9' }]}>
-                          <Text style={[styles.metricLabel, isDark && { color: '#9EACA3' }]}>Zone Arrival</Text>
-                          <Text style={[styles.metricVal, { color: isDark ? '#3ADFAB' : '#2E7D5B', fontWeight: '700' }]} numberOfLines={1}>
+                        <View style={[styles.metricRow, { marginTop: 3, paddingTop: 3, borderTopWidth: 0.5, borderTopColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                          <Text style={[styles.metricLabel, isDark && { color: '#94A3B8' }]}>Zone Arrival</Text>
+                          <Text style={[styles.metricVal, { color: isDark ? '#FFFFFF' : '#0F172A', fontWeight: '700' }]} numberOfLines={1}>
                             {zoneStatus.entryTimeStr}
                           </Text>
                         </View>
                       ) : member.lastActiveTimeStr && member.lastActiveTimeStr !== 'Now' && member.lastActiveTimeStr !== 'Unknown' ? (
-                        <View style={[styles.metricRow, { marginTop: 3, paddingTop: 3, borderTopWidth: 0.5, borderTopColor: isDark ? '#23352B' : '#E8EDE9' }]}>
-                          <Text style={[styles.metricLabel, isDark && { color: '#9EACA3' }]}>Time Seen</Text>
-                          <Text style={[styles.metricVal, { color: isDark ? '#CAD5CE' : '#718076' }]} numberOfLines={1}>
+                        <View style={[styles.metricRow, { marginTop: 3, paddingTop: 3, borderTopWidth: 0.5, borderTopColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                          <Text style={[styles.metricLabel, isDark && { color: '#94A3B8' }]}>Time Seen</Text>
+                          <Text style={[styles.metricVal, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
                             {member.lastActiveTimeStr}
                           </Text>
                         </View>
                       ) : null}
                     </View>
-                  </TouchableOpacity>
+                  </ParallaxCard>
                 );
               })}
             </ScrollView>
           ) : (
-            <View style={[styles.emptyMembersBox, isDark && { backgroundColor: '#1A231F', borderColor: '#283730' }]}>
-              <Ionicons name="people-outline" size={24} color={isDark ? '#3ADFAB' : '#2E7D5B'} />
-              <Text style={[styles.emptyMembersText, isDark && { color: '#CAD5CE' }]}>
+            <View style={[styles.emptyMembersBox, isDark && { backgroundColor: '#181B22', borderColor: '#262933' }]}>
+              <Ionicons name="people-outline" size={24} color={isDark ? '#FFFFFF' : '#0F172A'} />
+              <Text style={[styles.emptyMembersText, isDark && { color: '#94A3B8' }]}>
                 No members found for this filter. Invite family to grow your circle!
               </Text>
             </View>
@@ -2001,7 +2095,7 @@ export default function BillionDollarHomeView() {
         title="Automatic & Zero-Touch Check-In"
         subtitle="How CircleGuard eliminates manual check-ins"
         iconName="checkmark-done-circle"
-        iconColor="#2E7D5B"
+        iconColor="#0F172A"
         overview="CircleGuard eliminates the friction of remembering to check in. As soon as you arrive at a designated Safe Place (Home, School, Work, Gym), your presence is detected and your circle is automatically notified."
         bullets={[
           {
@@ -2029,7 +2123,7 @@ export default function BillionDollarHomeView() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAF9F6',
+    backgroundColor: '#F8FAFC',
   },
   header: {
     height: 56,
@@ -2037,9 +2131,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    backgroundColor: 'rgba(250, 249, 246, 0.96)',
+    backgroundColor: 'rgba(248, 250, 252, 0.96)',
     borderBottomWidth: 1,
-    borderBottomColor: '#ECEAE4',
+    borderBottomColor: '#E2E8F0',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -2051,7 +2145,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 9,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2064,7 +2158,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 999,
@@ -2074,7 +2168,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 14,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
   },
   headerRight: {
     flexDirection: 'row',
@@ -2108,13 +2202,13 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F0EFEA',
+    backgroundColor: '#F1F5F9',
   },
   profileAvatarBtn: {
     padding: 1,
     borderRadius: 999,
     borderWidth: 1.5,
-    borderColor: '#2E7D5B',
+    borderColor: '#0F172A',
   },
   profileAvatarImg: {
     width: 30,
@@ -2122,7 +2216,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   avatarFallback: {
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2139,7 +2233,7 @@ const styles = StyleSheet.create({
   },
   mapViewport: {
     height: 390,
-    backgroundColor: '#F3F2EC',
+    backgroundColor: '#F1F5F9',
     position: 'relative',
     overflow: 'hidden',
   },
@@ -2164,13 +2258,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 999,
     marginRight: 8,
-    shadowColor: '#1F2A24',
-    shadowOpacity: 0.08,
+    shadowColor: '#000000',
+    shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
   },
   filterChipActive: {
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
   },
   filterChipActivePeach: {
     backgroundColor: '#E07A5F',
@@ -2184,13 +2278,13 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 12,
     fontWeight: '600',
-    color: '#1F2A24',
+    color: '#0F172A',
   },
   filterChipTextActive: {
     color: '#FFFFFF',
   },
   chipCountBadge: {
-    backgroundColor: '#F0EFEA',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 999,
@@ -2204,7 +2298,7 @@ const styles = StyleSheet.create({
   chipCountText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#5C665F',
+    color: '#64748B',
   },
   chipCountTextActive: {
     color: '#FFFFFF',
@@ -2223,12 +2317,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#1F2A24',
-    shadowOpacity: 0.12,
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
     shadowRadius: 6,
     elevation: 3,
     borderWidth: 1,
-    borderColor: '#ECEAE4',
+    borderColor: '#E2E8F0',
   },
   miniMemberBadge: {
     position: 'absolute',
@@ -2237,7 +2331,7 @@ const styles = StyleSheet.create({
     minWidth: 17,
     height: 17,
     borderRadius: 8.5,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 3,
@@ -2255,15 +2349,15 @@ const styles = StyleSheet.create({
     lineHeight: 12,
   },
   bottomSheetCard: {
-    backgroundColor: '#FAF9F6',
+    backgroundColor: '#F8FAFC',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     marginTop: -22,
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 20,
-    shadowColor: '#1F2A24',
-    shadowOpacity: 0.08,
+    shadowColor: '#000000',
+    shadowOpacity: 0.06,
     shadowRadius: 10,
     elevation: 6,
   },
@@ -2271,7 +2365,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#DCDAD3',
+    backgroundColor: '#CBD5E1',
     alignSelf: 'center',
     marginBottom: 12,
   },
@@ -2285,37 +2379,37 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 19,
     fontWeight: '800',
-    color: '#1F2A24',
+    color: '#0F172A',
     letterSpacing: -0.2,
   },
   sheetSubtitle: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 12,
-    color: '#5C665F',
+    color: '#64748B',
     marginTop: 2,
   },
   safeBadgePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#C6E7D5',
+    borderColor: '#E2E8F0',
   },
   pulsingGreenDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
   },
   safeBadgeText: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 11,
     fontWeight: '700',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   checkInBanner: {
     flexDirection: 'row',
@@ -2326,8 +2420,8 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#EDEBE6',
-    shadowColor: '#1F2A24',
+    borderColor: '#E2E8F0',
+    shadowColor: '#000000',
     shadowOpacity: 0.03,
     shadowRadius: 6,
     elevation: 1,
@@ -2342,7 +2436,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2350,19 +2444,19 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 13,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
   },
   checkInSub: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 11,
-    color: '#5C665F',
+    color: '#64748B',
     marginTop: 1,
   },
   checkInBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#2E7D5B',
+    backgroundColor: '#0F172A',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 999,
@@ -2397,12 +2491,12 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 11,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
   },
   featureHubSub: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 9,
-    color: '#5C665F',
+    color: '#64748B',
     marginTop: 1,
   },
   statusSectionHeader: {
@@ -2415,13 +2509,13 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 14,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
   },
   manageGeofenceLink: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 12,
     fontWeight: '600',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   memberStatusCard: {
     backgroundColor: '#FFFFFF',
@@ -2430,8 +2524,8 @@ const styles = StyleSheet.create({
     marginRight: 10,
     width: 236,
     borderWidth: 1,
-    borderColor: '#EDEBE6',
-    shadowColor: '#1F2A24',
+    borderColor: '#E2E8F0',
+    shadowColor: '#000000',
     shadowOpacity: 0.03,
     shadowRadius: 6,
     elevation: 1,
@@ -2463,32 +2557,32 @@ const styles = StyleSheet.create({
   memberCardInitial: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
   },
   memberCardName: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 13,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
   },
   selfBadgePill: {
     paddingHorizontal: 5.5,
     paddingVertical: 1.5,
     borderRadius: 6,
-    backgroundColor: 'rgba(46, 125, 91, 0.12)',
+    backgroundColor: '#F1F5F9',
     borderWidth: 1,
-    borderColor: 'rgba(46, 125, 91, 0.28)',
+    borderColor: '#E2E8F0',
   },
   selfBadgeText: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#2E7D5B',
+    color: '#0F172A',
     letterSpacing: 0.4,
   },
   memberCardSafeStatus: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 10,
-    color: '#2E7D5B',
+    color: '#64748B',
     fontWeight: '600',
     marginTop: 1,
   },
@@ -2496,7 +2590,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: '#E8F5EE',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 999,
@@ -2504,10 +2598,10 @@ const styles = StyleSheet.create({
   batteryChipText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#2E7D5B',
+    color: '#0F172A',
   },
   memberCardMetrics: {
-    backgroundColor: '#FAF9F6',
+    backgroundColor: '#F8FAFC',
     borderRadius: 10,
     padding: 8,
     gap: 4,
@@ -2519,13 +2613,13 @@ const styles = StyleSheet.create({
   metricLabel: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 10,
-    color: '#5C665F',
+    color: '#64748B',
   },
   metricVal: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,
     fontSize: 10,
     fontWeight: '700',
-    color: '#1F2A24',
+    color: '#0F172A',
   },
   emptyMembersBox: {
     backgroundColor: '#FFFFFF',
@@ -2636,9 +2730,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(212, 175, 55, 0.25)',
+    borderColor: 'rgba(255, 255, 255, 0.16)',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -2681,8 +2775,8 @@ const styles = StyleSheet.create({
     borderColor: '#1E293B',
   },
   quickProtectionPillActiveBatt: {
-    backgroundColor: '#16A34A',
-    borderColor: '#15803D',
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
   },
   quickProtectionText: {
     fontFamily: Platform.OS === 'web' ? 'Inter' : undefined,

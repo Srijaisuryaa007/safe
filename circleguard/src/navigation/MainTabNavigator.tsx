@@ -97,27 +97,17 @@ const ThreeDTabIcon: React.FC<ThreeDTabIconProps> = React.memo(({
   }, [focused]);
 
   const isSos = type === 'sos';
-  const isBillion = activeTintColor === '#2E7D5B' || activeTintColor === '#183CE6';
-  const isGreen = activeTintColor === '#3DBE6C';
   const pillBg = isSos
     ? (isDark ? 'rgba(239, 68, 68, 0.20)' : 'rgba(239, 68, 68, 0.14)')
-    : isBillion
-    ? 'rgba(46, 125, 91, 0.14)'
-    : isGreen
-    ? (isDark ? 'rgba(61, 190, 108, 0.16)' : 'rgba(61, 190, 108, 0.12)')
-    : (isDark ? 'rgba(212, 175, 55, 0.16)' : 'rgba(212, 175, 55, 0.12)');
+    : (isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(15, 23, 42, 0.08)');
   const pillBorder = isSos
     ? (isDark ? 'rgba(239, 68, 68, 0.42)' : 'rgba(239, 68, 68, 0.28)')
-    : isBillion
-    ? 'rgba(46, 125, 91, 0.25)'
-    : isGreen
-    ? (isDark ? 'rgba(61, 190, 108, 0.32)' : 'rgba(61, 190, 108, 0.22)')
-    : (isDark ? 'rgba(212, 175, 55, 0.32)' : 'rgba(212, 175, 55, 0.22)');
+    : (isDark ? 'rgba(255, 255, 255, 0.20)' : 'rgba(15, 23, 42, 0.14)');
 
   const iconColor = isSos
     ? (focused ? '#EF4444' : (isDark ? '#F87171' : '#DC2626'))
     : color;
-  const dotColor = isSos ? '#EF4444' : activeTintColor;
+  const dotColor = isSos ? '#EF4444' : (isDark ? '#FFFFFF' : '#0F172A');
 
   return (
     <Animated.View
@@ -166,8 +156,8 @@ export default function MainTabNavigator() {
   const { width: windowWidth } = useWindowDimensions();
   const { colors, themeMode, isDark } = useThemeStore();
 
-  const activeTintColor = isDark ? '#3ADFAB' : '#2E7D5B';
-  const inactiveTintColor = isDark ? '#CAD5CE' : '#717871';
+  const activeTintColor = isDark ? '#FFFFFF' : '#0F172A';
+  const inactiveTintColor = isDark ? '#94A3B8' : '#64748B';
 
   // Floating capsule pill dock geometry:
   const isWide = windowWidth > 480;
@@ -192,8 +182,8 @@ export default function MainTabNavigator() {
         tabBarStyle: [
           styles.tabBar,
           {
-            backgroundColor: isDark ? '#141A17' : 'rgba(255, 255, 255, 0.97)',
-            borderColor: isDark ? '#26342D' : '#EDEBE6',
+            backgroundColor: isDark ? '#111318' : '#FFFFFF',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0',
             bottom: bottomOffset,
             height: barHeight,
             left: sideGap,
@@ -258,7 +248,7 @@ export default function MainTabNavigator() {
               activeIcon="time"
               inactiveIcon="time-outline"
               isDark={isDark}
-              type="profile"
+              type="activity"
             />
           ),
         }}
@@ -297,7 +287,10 @@ export default function MainTabNavigator() {
             <Text
               style={[
                 styles.tabBarLabel,
-                { color: focused ? '#EF4444' : (isDark ? '#F87171' : '#DC2626') },
+                {
+                  color: focused ? '#EF4444' : (isDark ? '#F87171' : '#DC2626'),
+                  textAlign: 'center',
+                },
               ]}
             >
               SOS
@@ -349,6 +342,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
     marginBottom: 0,
     lineHeight: 12,
+    textAlign: 'center',
   },
   iconWrapper: {
     alignItems: 'center',

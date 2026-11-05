@@ -110,7 +110,7 @@ export default function CircleGuardLoader({
       context.fill()
 
       // 2. Globe Sphere Border
-      context.strokeStyle = "#D4AF37"
+      context.strokeStyle = "#FFFFFF"
       context.lineWidth = 1.6 * scaleFactor
       context.globalAlpha = 0.85
       context.stroke()
@@ -120,7 +120,7 @@ export default function CircleGuardLoader({
       const graticule = d3.geoGraticule().step([20, 20])
       context.beginPath()
       path(graticule())
-      context.strokeStyle = "#A16207"
+      context.strokeStyle = "#94A3B8"
       context.lineWidth = 0.5 * scaleFactor
       context.globalAlpha = 0.18
       context.stroke()
@@ -139,7 +139,7 @@ export default function CircleGuardLoader({
         if (countriesGeo) {
           context.beginPath()
           path(countriesGeo)
-          context.strokeStyle = "#D4AF37"
+          context.strokeStyle = "#CBD5E1"
           context.lineWidth = 0.55 * scaleFactor
           context.globalAlpha = 0.45
           context.stroke()
@@ -149,7 +149,7 @@ export default function CircleGuardLoader({
         // 6. Prominent Coastlines
         context.beginPath()
         path(landGeo)
-        context.strokeStyle = "#F3E5AB"
+        context.strokeStyle = "#FFFFFF"
         context.lineWidth = 1.1 * scaleFactor
         context.globalAlpha = 0.85
         context.stroke()
@@ -172,7 +172,7 @@ export default function CircleGuardLoader({
 
               context.beginPath()
               context.arc(coords[0], coords[1], 1.15 * scaleFactor * sphereFactor, 0, 2 * Math.PI)
-              context.fillStyle = "#F59E0B"
+              context.fillStyle = "#CBD5E1"
               context.globalAlpha = 0.8 * sphereFactor
               context.fill()
             }
@@ -190,13 +190,13 @@ export default function CircleGuardLoader({
             if (coords) {
               context.beginPath()
               context.arc(coords[0], coords[1], 3.5 * beaconSize, 0, 2 * Math.PI)
-              context.fillStyle = "#F59E0B"
+              context.fillStyle = "#FFFFFF"
               context.globalAlpha = 0.25
               context.fill()
 
               context.beginPath()
               context.arc(coords[0], coords[1], 1.6 * scaleFactor, 0, 2 * Math.PI)
-              context.fillStyle = "#FFFBEB"
+              context.fillStyle = "#FFFFFF"
               context.globalAlpha = 0.95
               context.fill()
             }
@@ -214,7 +214,7 @@ export default function CircleGuardLoader({
         cy,
         currentScale
       )
-      shadowGrad.addColorStop(0, "rgba(243, 229, 171, 0.12)")
+      shadowGrad.addColorStop(0, "rgba(255, 255, 255, 0.12)")
       shadowGrad.addColorStop(0.65, "rgba(0, 0, 0, 0)")
       shadowGrad.addColorStop(1, "rgba(0, 0, 0, 0.65)")
 
@@ -273,14 +273,14 @@ export default function CircleGuardLoader({
         <canvas
           ref={canvasRef}
           className="rounded-full"
-          style={{ filter: "drop-shadow(0 0 24px rgba(212,175,55,0.45))" }}
+          style={{ filter: "drop-shadow(0 0 24px rgba(255,255,255,0.25))" }}
         />
         {/* Pulsing radar ring */}
-        <div className="absolute inset-0 rounded-full border border-[#D4AF37]/40 animate-ping" />
+        <div className="absolute inset-0 rounded-full border border-white/40 animate-ping" />
       </div>
 
       <div className="flex flex-col items-center gap-2">
-        <span className="text-[#D4AF37] text-sm tracking-[0.3em] uppercase font-medium">
+        <span className="text-white text-sm tracking-[0.3em] uppercase font-medium">
           Circle Guard
         </span>
         <span className="text-muted-foreground text-xs tracking-wide">

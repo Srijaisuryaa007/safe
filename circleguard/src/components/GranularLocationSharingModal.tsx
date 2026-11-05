@@ -132,7 +132,7 @@ export default function GranularLocationSharingModal({
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
             {/* Quick Pause Section */}
             <View style={styles.sectionHeadingRow}>
-              <Ionicons name="pause-circle-outline" size={16} color={isDark ? '#3ADFAB' : '#059669'} />
+              <Ionicons name="pause-circle-outline" size={16} color={isDark ? '#FFFFFF' : '#0F172A'} />
               <Text style={[styles.sectionHeading, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
                 PAUSE LIVE SHARING
               </Text>
@@ -153,10 +153,10 @@ export default function GranularLocationSharingModal({
                       styles.pausePill,
                       {
                         backgroundColor: isActive
-                          ? (isDark ? 'rgba(58, 223, 171, 0.22)' : '#E0F5EB')
+                          ? (isDark ? 'rgba(255, 255, 255, 0.15)' : '#0F172A')
                           : (isDark ? '#18241D' : '#F6FAF7'),
                         borderColor: isActive
-                          ? (isDark ? '#3ADFAB' : '#006C4F')
+                          ? (isDark ? '#FFFFFF' : '#0F172A')
                           : (isDark ? '#26372E' : '#E2ECE6'),
                       },
                     ]}
@@ -166,14 +166,14 @@ export default function GranularLocationSharingModal({
                     <Ionicons
                       name={opt.icon as any}
                       size={14}
-                      color={isActive ? (isDark ? '#3ADFAB' : '#006C4F') : (isDark ? '#8A9E92' : '#64748B')}
+                      color={isActive ? (isDark ? '#FFFFFF' : '#FFFFFF') : (isDark ? '#8A9E92' : '#64748B')}
                     />
                     <Text
                       style={[
                         styles.pausePillText,
                         {
                           color: isActive
-                            ? (isDark ? '#3ADFAB' : '#006C4F')
+                            ? '#FFFFFF'
                             : (isDark ? '#CAD8D0' : '#475C50'),
                           fontWeight: isActive ? '700' : '500',
                         },
@@ -188,7 +188,7 @@ export default function GranularLocationSharingModal({
 
             {/* Granular Per-Contact Overrides */}
             <View style={[styles.sectionHeadingRow, { marginTop: 18 }]}>
-              <Ionicons name="people-outline" size={16} color={isDark ? '#3ADFAB' : '#059669'} />
+              <Ionicons name="people-outline" size={16} color={isDark ? '#FFFFFF' : '#0F172A'} />
               <Text style={[styles.sectionHeading, { color: isDark ? '#8A9E92' : '#6A7D71' }]}>
                 CIRCLE MEMBER ACCESS
               </Text>
@@ -219,7 +219,7 @@ export default function GranularLocationSharingModal({
                       <Switch
                         value={isEnabled}
                         onValueChange={() => handleToggleMember(m.user_id, isEnabled)}
-                        trackColor={{ false: '#475569', true: isDark ? '#2E7D5B' : '#3ADFAB' }}
+                        trackColor={{ false: '#475569', true: isDark ? '#FFFFFF' : '#0F172A' }}
                         thumbColor="#FFFFFF"
                       />
                     </View>

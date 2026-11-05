@@ -1,5 +1,5 @@
 // Polyfill __DEV__ for Node CLI environment
-(global as any).__DEV__ = true;
+(globalThis as any).__DEV__ = true;
 
 import {
   processEnterpriseLocationHistory,
