@@ -523,18 +523,23 @@ export async function evaluateGeofenceBreaches(
       } catch (e) {}
     }
 
-    // Layer 3: Asymmetric Dynamic Hysteresis Deadband
-    // Exit requires distance beyond radius + dynamic accuracy buffer (min 40m)
-    const hysteresisExitMargin = Math.max(45, accuracy * 1.5);
-    const exitThreshold = radius + hysteresisExitMargin;
-    const entryThreshold = radius;
-
-    // Layer 4: Kinematic & Zero-Motion Gate (Speed / Stationary Inertia)
+    // Layer 3: Kinematic & Zero-Motion Gate (Speed / Stationary Inertia)
     const rawSpeed = typeof userLoc.speed_mps === 'number' ? userLoc.speed_mps : 0;
     const isStationary =
       (userLoc.speed_mps !== undefined && rawSpeed < 0.8) ||
       userLoc.activity_state === 'Stationary' ||
       userLoc.activity_state === 'Still';
+
+    // Layer 4: Asymmetric Dynamic Hysteresis Deadband & Speed-Adaptive Buffer
+    // Exit requires distance beyond radius + dynamic accuracy buffer (min 40m)
+    const hysteresisExitMargin = Math.max(45, accuracy * 1.5);
+    // Speed-Adaptive Buffer: When enabled, expands the exit threshold dynamically based on velocity
+    // (velocity lookahead margin = min(speed * 3, 120m)) to account for high-speed GPS latency
+    const speedAdaptiveExitMargin = (place.speed_adaptive && rawSpeed > 3.0)
+      ? Math.min(Math.round(rawSpeed * 3), 120)
+      : 0;
+    const exitThreshold = radius + hysteresisExitMargin + speedAdaptiveExitMargin;
+    const entryThreshold = radius;
 
     let candidateState: 'inside' | 'outside' | null = null;
 
@@ -623,7 +628,11 @@ export async function evaluateGeofenceBreaches(
       // High-confidence GPS fix (accuracy <= 40m or distance comfortably inside perimeter)
       // triggers IMMEDIATE entry confirmation! This ensures background/closed-app notifications
       // fire without being dropped by OS background execution limits or multi-sample latency.
-      const isHighConfidenceEntry = accuracy <= 40 || distMeters <= radius * 0.85;
+      // SPEED-ADAPTIVE BUFFER GUARD: If speed-adaptive is enabled and member is moving at driving speed
+      // (rawSpeed >= 5.5 m/s, ~20 km/h), suppress instant entry to prevent highway fly-bys from triggering
+      // false check-ins. Require multi-sample dwell or deceleration below driving speed.
+      const isDrivingFast = Boolean(place.speed_adaptive && rawSpeed >= 5.5);
+      const isHighConfidenceEntry = !isDrivingFast && (accuracy <= 40 || distMeters <= radius * 0.85);
 
       if (isHighConfidenceEntry) {
         candidateState = 'inside';
