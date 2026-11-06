@@ -35,3 +35,4 @@ CREATE POLICY "circle members see each other location history" ON public.locatio
 FOR SELECT USING (
   public.can_view_member_location(auth.uid(), user_id)
 );
+
