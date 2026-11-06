@@ -232,10 +232,7 @@ export default function CircleGuardGlobeLoader({
             },
             orbit1Style,
           ]}
-        >
-          {/* Orbiting Satellite Node 1 */}
-          <View style={styles.satelliteNode} />
-        </Animated.View>
+        />
 
         {/* 4. Gyroscopic 3D Orbital Satellite Ring 2 (-32° Tilt) */}
         <Animated.View
@@ -248,10 +245,7 @@ export default function CircleGuardGlobeLoader({
             },
             orbit2Style,
           ]}
-        >
-          {/* Orbiting Satellite Node 2 */}
-          <View style={styles.satelliteNodeEmerald} />
-        </Animated.View>
+        />
 
         {/* 5. Central 3D Earth Sphere (Hardware-accelerated layered render) */}
         <View style={[styles.sphereCore, { width: size, height: size, borderRadius: r, borderColor: sphereBorder }]}>
@@ -400,7 +394,6 @@ export default function CircleGuardGlobeLoader({
 
           {/* Secondary Sublabel or Dynamic Telemetry Badge */}
           <View style={[styles.telemetryBadge, { backgroundColor: badgeBg, borderColor: badgeBorder }]}>
-            <View style={styles.pulsingIndicator} />
             <Text style={[styles.telemetryText, { color: badgeTextColor }]}>
               {subLabel || TELEMETRY_FEED[telemetryIdx]}
             </Text>
