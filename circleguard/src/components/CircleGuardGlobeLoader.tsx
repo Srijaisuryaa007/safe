@@ -19,7 +19,6 @@ import Svg, {
   RadialGradient,
   Stop,
   ClipPath,
-  Line,
 } from 'react-native-svg';
 import { useThemeStore } from '../store/useThemeStore';
 import {
@@ -56,9 +55,6 @@ export default function CircleGuardGlobeLoader({
 
   // Theme-adaptive luxury color tokens
   const brandGold = isDark ? '#F59E0B' : '#B45309';
-  const bracketBorder = isDark ? 'rgba(245, 158, 11, 0.45)' : 'rgba(15, 23, 42, 0.28)';
-  const hudTrackColor = isDark ? 'rgba(245, 158, 11, 0.28)' : 'rgba(15, 23, 42, 0.16)';
-  const hudTickColor = isDark ? '#F59E0B' : '#475569';
   const shockwaveColor = isDark ? 'rgba(245, 158, 11, 0.55)' : 'rgba(180, 83, 9, 0.35)';
   const atmosphereBorder = isDark ? 'rgba(245, 158, 11, 0.25)' : 'rgba(180, 83, 9, 0.18)';
   const sphereBorder = isDark ? 'rgba(245, 158, 11, 0.5)' : 'rgba(15, 23, 42, 0.22)';
@@ -70,7 +66,7 @@ export default function CircleGuardGlobeLoader({
 
   const isCompact = hideLabels || size < 60;
   const r = size / 2;
-  const containerSize = isCompact ? size + 8 : size + 56;
+  const containerSize = isCompact ? size + 8 : size + 40;
   const scale = size / 360;
   const tilePixelWidth = WORLD_TILE_WIDTH * scale;
 
@@ -195,17 +191,7 @@ export default function CircleGuardGlobeLoader({
     <Animated.View style={[styles.contentContainer, entranceAnimStyle]}>
       {/* Globe & Gyro Housing Frame */}
       <View style={[styles.outerHousing, { width: containerSize, height: containerSize }]}>
-        {/* 1. Tactical HUD Corner Accents */}
-        {!isCompact && (
-          <>
-            <View style={[styles.cornerBracket, styles.bracketTL, { borderColor: bracketBorder }]} />
-            <View style={[styles.cornerBracket, styles.bracketTR, { borderColor: bracketBorder }]} />
-            <View style={[styles.cornerBracket, styles.bracketBL, { borderColor: bracketBorder }]} />
-            <View style={[styles.cornerBracket, styles.bracketBR, { borderColor: bracketBorder }]} />
-          </>
-        )}
-
-        {/* 2. Expanding Golden Shockwave Pulse */}
+        {/* 1. Expanding Golden Shockwave Pulse */}
         <Animated.View
           style={[
             styles.shockwaveRing,
@@ -219,7 +205,7 @@ export default function CircleGuardGlobeLoader({
           ]}
         />
 
-        {/* 3. Outer Glowing Atmosphere Aura */}
+        {/* 2. Outer Glowing Atmosphere Aura */}
         <Animated.View
           style={[
             styles.atmosphereAura,
@@ -233,7 +219,7 @@ export default function CircleGuardGlobeLoader({
           ]}
         />
 
-        {/* 4. Gyroscopic 3D Orbital Satellite Ring 1 (+28° Tilt) */}
+        {/* 3. Gyroscopic 3D Orbital Satellite Ring 1 (+28° Tilt) */}
         <Animated.View
           style={[
             styles.orbitalTrack,
@@ -249,7 +235,7 @@ export default function CircleGuardGlobeLoader({
           <View style={styles.satelliteNode} />
         </Animated.View>
 
-        {/* 5. Gyroscopic 3D Orbital Satellite Ring 2 (-32° Tilt) */}
+        {/* 4. Gyroscopic 3D Orbital Satellite Ring 2 (-32° Tilt) */}
         <Animated.View
           style={[
             styles.orbitalTrack2,
@@ -265,61 +251,7 @@ export default function CircleGuardGlobeLoader({
           <View style={styles.satelliteNodeEmerald} />
         </Animated.View>
 
-        {/* 6. Precision Outer Calibration HUD Dial */}
-        {!isCompact && (
-          <Svg
-            width={size + 24}
-            height={size + 24}
-            viewBox={`0 0 ${size + 24} ${size + 24}`}
-            style={StyleSheet.absoluteFill}
-          >
-            {/* Outer Dashed Track */}
-            <Circle
-              cx={(size + 24) / 2}
-              cy={(size + 24) / 2}
-              r={r + 8}
-              stroke={hudTrackColor}
-              strokeWidth={1}
-              strokeDasharray="3, 7"
-              fill="none"
-            />
-            {/* Cardinal Radar Tick Crosshairs */}
-            <Line
-              x1={(size + 24) / 2}
-              y1={2}
-              x2={(size + 24) / 2}
-              y2={7}
-              stroke={hudTickColor}
-              strokeWidth={1.5}
-            />
-            <Line
-              x1={(size + 24) / 2}
-              y1={size + 17}
-              x2={(size + 24) / 2}
-              y2={size + 22}
-              stroke={hudTickColor}
-              strokeWidth={1.5}
-            />
-            <Line
-              x1={2}
-              y1={(size + 24) / 2}
-              x2={7}
-              y2={(size + 24) / 2}
-              stroke={hudTickColor}
-              strokeWidth={1.5}
-            />
-            <Line
-              x1={size + 17}
-              y1={(size + 24) / 2}
-              x2={size + 22}
-              y2={(size + 24) / 2}
-              stroke={hudTickColor}
-              strokeWidth={1.5}
-            />
-          </Svg>
-        )}
-
-        {/* 7. Central 3D Earth Sphere (Hardware-accelerated layered render) */}
+        {/* 5. Central 3D Earth Sphere (Hardware-accelerated layered render) */}
         <View style={[styles.sphereCore, { width: size, height: size, borderRadius: r, borderColor: sphereBorder }]}>
           {/* Layer A: Base Oceanic Sphere */}
           <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={StyleSheet.absoluteFill}>
@@ -519,37 +451,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-  },
-  // HUD Corner Brackets
-  cornerBracket: {
-    position: 'absolute',
-    width: 10,
-    height: 10,
-    borderColor: 'rgba(233, 195, 73, 0.35)',
-  },
-  bracketTL: {
-    top: 0,
-    left: 0,
-    borderTopWidth: 1.5,
-    borderLeftWidth: 1.5,
-  },
-  bracketTR: {
-    top: 0,
-    right: 0,
-    borderTopWidth: 1.5,
-    borderRightWidth: 1.5,
-  },
-  bracketBL: {
-    bottom: 0,
-    left: 0,
-    borderBottomWidth: 1.5,
-    borderLeftWidth: 1.5,
-  },
-  bracketBR: {
-    bottom: 0,
-    right: 0,
-    borderBottomWidth: 1.5,
-    borderRightWidth: 1.5,
   },
   // Shockwave Pulse
   shockwaveRing: {
