@@ -2720,6 +2720,7 @@ export default function MapScreen() {
   }, [poiList, places, members, locations, userLoc, activeFilterCategories, distanceUnit, profile?.id]);
   
   const lastHistorySavedPoint = useRef<{ lat: number; lng: number; timeMs: number } | null>(null);
+  const lastMapDbWritePoint = useRef<{ lat: number; lng: number; timeMs: number } | null>(null);
   const lastStableGpsRef = useRef<{ lat: number; lng: number; heading: number; speed: number; lastMoveTime: number } | null>(null);
 
   useEffect(() => {
@@ -3022,9 +3023,26 @@ export default function MapScreen() {
               broadcastCircleLocationUpdate(activeCircle.id, broadcastPayload);
             }
 
-            // 2. Persistent Supabase DB write with RLS & token refresh recovery
+            // 2. High-Efficiency Persistent Supabase DB write with RLS & token refresh recovery
+            // Throttled: Only write to PostgreSQL when moved >= 25m, or >= 30s when moving, or >= 300s when stationary.
+            // Peer broadcasts above deliver live 0ms marker gliding on every frame!
+            const lastDbWrite = lastMapDbWritePoint.current;
+            const distFromLastDbWrite = lastDbWrite
+              ? getDistanceInMeters(lastDbWrite.lat, lastDbWrite.lng, finalLat, finalLng)
+              : 99999;
+            const timeSinceLastDbWrite = lastDbWrite ? (nowMs - lastDbWrite.timeMs) / 1000 : 99999;
+
+            const isMovingFast = isDriving || finalSpeed >= 3.0;
+            const shouldWriteToDb =
+              !lastDbWrite ||
+              distFromLastDbWrite >= 25 ||
+              (isMovingFast && timeSinceLastDbWrite >= 30) ||
+              (finalSpeed >= 0.8 && timeSinceLastDbWrite >= 60) ||
+              timeSinceLastDbWrite >= 300; // 5-minute stationary heartbeat
+
             const writeUid = verifiedAuthUid || (useAuthStore.getState().user?.id ? useAuthStore.getState().user?.id : null);
-            if (writeUid) {
+            if (writeUid && shouldWriteToDb) {
+              lastMapDbWritePoint.current = { lat: finalLat, lng: finalLng, timeMs: nowMs };
               locationPayload.user_id = writeUid;
               try {
                 const { error: upsertErr } = await supabase.from('locations').upsert(locationPayload, {
@@ -3271,94 +3289,11 @@ export default function MapScreen() {
         broadcastChannel.subscribe();
       }
 
+      // HIGH-PERFORMANCE ZERO-COST ARCHITECTURE:
+      // Real-time peer movement is delivered via pure WebSocket broadcast (broadcastChannel above),
+      // completely bypassing Postgres CDC on the high-velocity 'locations' table.
+      // We only listen for structural circle changes (members added/removed, places modified) which are low-frequency.
       dbChannel
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'locations' },
-          (payload: any) => {
-            console.log(`[GPS_PIPELINE:LAYER_5_REALTIME_SYNC] Realtime postgres_changes event=${payload?.eventType} on locations`);
-            if (payload?.eventType === 'DELETE' && payload?.old?.user_id) {
-              const delUid = payload.old.user_id;
-              webViewRef.current?.injectJavaScript(`if (window.removeMemberMarker) { window.removeMemberMarker('${delUid}'); } true;`);
-              useCircleStore.getState().purgeUserFromStore(delUid);
-              setLocations(prev => prev.filter(l => l.user_id !== delUid));
-              schedulePushMapData();
-              return;
-            }
-
-            if (payload?.new && payload.new.user_id) {
-              const newLoc = payload.new;
-              const currentAuthId = useAuthStore.getState().user?.id || profile?.id;
-              if (currentAuthId && String(newLoc.user_id).toLowerCase() === String(currentAuthId).toLowerCase()) return;
-
-              const pt = parseLocationPoint(newLoc);
-              const lat = pt.latitude;
-              const lng = pt.longitude;
-
-              if (lat && lng && lat !== 0 && lng !== 0) {
-                lastKnownMemberPositionsRef.current[newLoc.user_id] = { lat, lng };
-                webViewRef.current?.injectJavaScript(`
-                  if (window.updateMemberLivePosition) {
-                    window.updateMemberLivePosition(
-                      ${JSON.stringify(newLoc.user_id)},
-                      ${lat},
-                      ${lng},
-                      ${newLoc.speed_mps || 0},
-                      ${newLoc.heading || 0},
-                      ${newLoc.battery_pct != null ? newLoc.battery_pct : 100},
-                      ${Boolean(newLoc.is_driving)},
-                      ${JSON.stringify(newLoc.activity_state || 'Online')}
-                    );
-                  }
-                  true;
-                `);
-
-                const updatedLoc = {
-                  ...newLoc,
-                  latitude: lat,
-                  longitude: lng,
-                };
-
-                setLocations(prev => {
-                  const idx = prev.findIndex(l => l.user_id === newLoc.user_id);
-                  if (idx >= 0) {
-                    const copy = [...prev];
-                    copy[idx] = { ...copy[idx], ...updatedLoc };
-                    return copy;
-                  }
-                  return [...prev, updatedLoc];
-                });
-
-                useCircleStore.setState(state => ({
-                  members: state.members.map(m => {
-                    if (m.user_id === newLoc.user_id) {
-                      return {
-                        ...m,
-                        latitude: lat,
-                        longitude: lng,
-                        batteryPct: newLoc.battery_pct != null ? newLoc.battery_pct : m.batteryPct,
-                        isOnline: true,
-                        lastSeenText: 'Just now'
-                      };
-                    }
-                    return m;
-                  })
-                }));
-
-                if (selectedMember && selectedMember.user_id === newLoc.user_id) {
-                  setSelectedMember((prev: any) => prev ? ({
-                    ...prev,
-                    latitude: lat,
-                    longitude: lng,
-                    batteryPct: newLoc.battery_pct != null ? newLoc.battery_pct : prev.batteryPct,
-                  }) : prev);
-                }
-
-                schedulePushMapData();
-              }
-            }
-          }
-        )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'circle_members', filter: `circle_id=eq.${activeCircle.id}` },
@@ -3392,10 +3327,10 @@ export default function MapScreen() {
       console.warn('[GPS_PIPELINE:REALTIME] Failed initializing Supabase channels, running fallback polling:', realtimeErr);
     }
       
-    // High-responsiveness polling as rock-solid safety net (every 3.5s)
+    // High-responsiveness quiet recovery polling (12s interval - prevents REST API hammering while acting as safety net)
     const fallbackInterval = setInterval(() => {
       fetchLocations();
-    }, 3500);
+    }, 12000);
 
     const unsubWatches = activeCircle?.id
       ? useLocationWatchStore.getState().subscribeToWatches(activeCircle.id)

@@ -26,6 +26,7 @@ let lastProcessedLat = 0;
 let lastProcessedLng = 0;
 let lastProcessedTimestamp = 0;
 let lastBgHistorySavedPoint: { [userId: string]: { lat: number; lng: number; timeMs: number } } = {};
+let lastBgDbWritePoint: { [userId: string]: { lat: number; lng: number; timeMs: number } } = {};
 
 // Active subscribed broadcast channels to guarantee 0ms live socket delivery
 const activeBroadcastChannels: Record<string, any> = {};
@@ -352,11 +353,8 @@ try {
           targetCircleIds = [null];
         }
 
+        // 1. High-speed peer WebSockets: Send broadcast to each circle so family sees live movement
         for (const cId of targetCircleIds) {
-          const payload = { ...locPayload };
-          if (cId) payload.circle_id = cId;
-
-          // 1. Peer broadcast is ALWAYS sent unconditionally to all circle peers
           if (cId) {
             try {
               broadcastCircleLocationUpdate(cId, {
@@ -367,20 +365,41 @@ try {
                 heading: latest?.coords?.heading || 0,
                 battery_pct: batteryPct,
                 is_driving: isDriving,
-                activity_state: payload.activity_state,
-                updated_at: payload.updated_at,
+                activity_state: locPayload.activity_state,
+                updated_at: locPayload.updated_at,
                 circle_id: cId,
               });
             } catch (_) {}
           }
+        }
 
-          // 2. Persistent Supabase DB write with RLS recovery
+        // 2. High-Efficiency Database Write Throttling (Maya Lin Zero-Cost Scalability)
+        // Only write to persistent PostgreSQL locations table when:
+        // - First fix since process start
+        // - User moved >= 25 meters
+        // - User is driving/moving and >= 30 seconds elapsed
+        // - User is stationary and >= 5 minutes (300s) elapsed (heartbeat for battery/last-seen)
+        const lastDbWrite = lastBgDbWritePoint[userId];
+        const distFromLastDbWrite = lastDbWrite
+          ? calculateHaversineMeters(lastDbWrite.lat, lastDbWrite.lng, finalLat, finalLng)
+          : 99999;
+        const timeSinceLastDbWrite = lastDbWrite ? (now - lastDbWrite.timeMs) / 1000 : 99999;
+
+        const isMovingFast = isDriving || rawSpeed >= 3.0;
+        const shouldWriteToDb =
+          !lastDbWrite ||
+          distFromLastDbWrite >= 25 ||
+          (isMovingFast && timeSinceLastDbWrite >= 30) ||
+          (!isStationary && timeSinceLastDbWrite >= 60) ||
+          (timeSinceLastDbWrite >= 300); // 5-minute stationary heartbeat
+
+        if (shouldWriteToDb) {
+          lastBgDbWritePoint[userId] = { lat: finalLat, lng: finalLng, timeMs: now };
           try {
-            const { error: upsertErr } = await supabase.from('locations').upsert(payload, {
+            const { error: upsertErr } = await supabase.from('locations').upsert(locPayload, {
               onConflict: 'user_id'
             });
             if (upsertErr) {
-              console.error('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] Upsert error for circle', cId, ':', upsertErr.message);
               if (upsertErr.message?.includes('row-level security') || upsertErr.message?.includes('JWT') || upsertErr.message?.includes('expired')) {
                 try {
                   const { data: refData } = await supabase.auth.refreshSession();
@@ -399,13 +418,11 @@ try {
                     }
                   }
                   if (freshUid) {
-                    payload.user_id = freshUid;
-                    await supabase.from('locations').upsert(payload, { onConflict: 'user_id' });
+                    locPayload.user_id = freshUid;
+                    await supabase.from('locations').upsert(locPayload, { onConflict: 'user_id' });
                   }
                 } catch (_) {}
               }
-            } else {
-              console.log('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] DB updated successfully for user:', userId, 'circle_id:', cId);
             }
           } catch (err: any) {
             console.error('[GPS_PIPELINE:LAYER_2_BACKEND_WRITE] Exception writing location to DB:', err?.message);
@@ -712,9 +729,10 @@ export const startBatteryOptimizedBackgroundLocation = async (): Promise<boolean
     }
 
     // Read user GPS sync rate settings from AsyncStorage
+    // Tuned for high-efficiency enterprise battery life & zero-cost backend scalability
     const syncRate = await AsyncStorage.getItem('@circleguard_gps_sync_rate');
-    let timeInterval = 5000;
-    let distanceInterval = 3;
+    let timeInterval = 12000; // 12-second adaptive sync cycle (optimal balance for driving/walking)
+    let distanceInterval = 8; // Moved 8+ meters
     let accuracy = Location.Accuracy.High;
 
     // Pre-populate background session cache so background task starts with hot credentials in offline environments
@@ -756,8 +774,8 @@ export const startBatteryOptimizedBackgroundLocation = async (): Promise<boolean
       distanceInterval = 15; // Moved 15+ meters
       accuracy = Location.Accuracy.Balanced;
     } else if (syncRate === 'high') {
-      timeInterval = 3000; // Fast 3-second sync cycle
-      distanceInterval = 1; // Moved 1+ meter
+      timeInterval = 5000; // High-precision 5-second sync cycle
+      distanceInterval = 4; // Moved 4+ meters
       accuracy = Location.Accuracy.Highest;
     }
 
