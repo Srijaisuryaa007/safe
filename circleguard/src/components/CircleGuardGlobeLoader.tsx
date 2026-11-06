@@ -34,6 +34,7 @@ export interface CircleGuardGlobeLoaderProps {
   loadingLabel?: string;
   subLabel?: string;
   fullscreen?: boolean;
+  hideLabels?: boolean;
 }
 
 const TELEMETRY_FEED = [
@@ -48,6 +49,7 @@ export default function CircleGuardGlobeLoader({
   loadingLabel = 'SECURING CIRCLE...',
   subLabel,
   fullscreen = false,
+  hideLabels = false,
 }: CircleGuardGlobeLoaderProps) {
   const { colors, isDark } = useThemeStore();
   const [telemetryIdx, setTelemetryIdx] = useState(0);
@@ -66,8 +68,9 @@ export default function CircleGuardGlobeLoader({
   const badgeBorder = isDark ? 'rgba(245, 158, 11, 0.22)' : '#CBD5E1';
   const badgeTextColor = isDark ? '#CBD5E1' : '#334155';
 
+  const isCompact = hideLabels || size < 60;
   const r = size / 2;
-  const containerSize = size + 56;
+  const containerSize = isCompact ? size + 8 : size + 56;
   const scale = size / 360;
   const tilePixelWidth = WORLD_TILE_WIDTH * scale;
 
@@ -193,10 +196,14 @@ export default function CircleGuardGlobeLoader({
       {/* Globe & Gyro Housing Frame */}
       <View style={[styles.outerHousing, { width: containerSize, height: containerSize }]}>
         {/* 1. Tactical HUD Corner Accents */}
-        <View style={[styles.cornerBracket, styles.bracketTL, { borderColor: bracketBorder }]} />
-        <View style={[styles.cornerBracket, styles.bracketTR, { borderColor: bracketBorder }]} />
-        <View style={[styles.cornerBracket, styles.bracketBL, { borderColor: bracketBorder }]} />
-        <View style={[styles.cornerBracket, styles.bracketBR, { borderColor: bracketBorder }]} />
+        {!isCompact && (
+          <>
+            <View style={[styles.cornerBracket, styles.bracketTL, { borderColor: bracketBorder }]} />
+            <View style={[styles.cornerBracket, styles.bracketTR, { borderColor: bracketBorder }]} />
+            <View style={[styles.cornerBracket, styles.bracketBL, { borderColor: bracketBorder }]} />
+            <View style={[styles.cornerBracket, styles.bracketBR, { borderColor: bracketBorder }]} />
+          </>
+        )}
 
         {/* 2. Expanding Golden Shockwave Pulse */}
         <Animated.View
@@ -259,56 +266,58 @@ export default function CircleGuardGlobeLoader({
         </Animated.View>
 
         {/* 6. Precision Outer Calibration HUD Dial */}
-        <Svg
-          width={size + 24}
-          height={size + 24}
-          viewBox={`0 0 ${size + 24} ${size + 24}`}
-          style={StyleSheet.absoluteFill}
-        >
-          {/* Outer Dashed Track */}
-          <Circle
-            cx={(size + 24) / 2}
-            cy={(size + 24) / 2}
-            r={r + 8}
-            stroke={hudTrackColor}
-            strokeWidth={1}
-            strokeDasharray="3, 7"
-            fill="none"
-          />
-          {/* Cardinal Radar Tick Crosshairs */}
-          <Line
-            x1={(size + 24) / 2}
-            y1={2}
-            x2={(size + 24) / 2}
-            y2={7}
-            stroke={hudTickColor}
-            strokeWidth={1.5}
-          />
-          <Line
-            x1={(size + 24) / 2}
-            y1={size + 17}
-            x2={(size + 24) / 2}
-            y2={size + 22}
-            stroke={hudTickColor}
-            strokeWidth={1.5}
-          />
-          <Line
-            x1={2}
-            y1={(size + 24) / 2}
-            x2={7}
-            y2={(size + 24) / 2}
-            stroke={hudTickColor}
-            strokeWidth={1.5}
-          />
-          <Line
-            x1={size + 17}
-            y1={(size + 24) / 2}
-            x2={size + 22}
-            y2={(size + 24) / 2}
-            stroke={hudTickColor}
-            strokeWidth={1.5}
-          />
-        </Svg>
+        {!isCompact && (
+          <Svg
+            width={size + 24}
+            height={size + 24}
+            viewBox={`0 0 ${size + 24} ${size + 24}`}
+            style={StyleSheet.absoluteFill}
+          >
+            {/* Outer Dashed Track */}
+            <Circle
+              cx={(size + 24) / 2}
+              cy={(size + 24) / 2}
+              r={r + 8}
+              stroke={hudTrackColor}
+              strokeWidth={1}
+              strokeDasharray="3, 7"
+              fill="none"
+            />
+            {/* Cardinal Radar Tick Crosshairs */}
+            <Line
+              x1={(size + 24) / 2}
+              y1={2}
+              x2={(size + 24) / 2}
+              y2={7}
+              stroke={hudTickColor}
+              strokeWidth={1.5}
+            />
+            <Line
+              x1={(size + 24) / 2}
+              y1={size + 17}
+              x2={(size + 24) / 2}
+              y2={size + 22}
+              stroke={hudTickColor}
+              strokeWidth={1.5}
+            />
+            <Line
+              x1={2}
+              y1={(size + 24) / 2}
+              x2={7}
+              y2={(size + 24) / 2}
+              stroke={hudTickColor}
+              strokeWidth={1.5}
+            />
+            <Line
+              x1={size + 17}
+              y1={(size + 24) / 2}
+              x2={size + 22}
+              y2={(size + 24) / 2}
+              stroke={hudTickColor}
+              strokeWidth={1.5}
+            />
+          </Svg>
+        )}
 
         {/* 7. Central 3D Earth Sphere (Hardware-accelerated layered render) */}
         <View style={[styles.sphereCore, { width: size, height: size, borderRadius: r, borderColor: sphereBorder }]}>
@@ -440,26 +449,28 @@ export default function CircleGuardGlobeLoader({
       </View>
 
       {/* Brand & Loading Status Typography */}
-      <View style={styles.textStack}>
-        {/* Brand Badge with Mini Shield */}
-        <View style={styles.brandRow}>
-          <Ionicons name="shield-checkmark" size={13} color={brandGold} />
-          <Text style={[styles.brandTitle, { color: brandGold }]}>CIRCLE GUARD</Text>
-        </View>
+      {!hideLabels && (
+        <View style={styles.textStack}>
+          {/* Brand Badge with Mini Shield */}
+          <View style={styles.brandRow}>
+            <Ionicons name="shield-checkmark" size={13} color={brandGold} />
+            <Text style={[styles.brandTitle, { color: brandGold }]}>CIRCLE GUARD</Text>
+          </View>
 
-        {/* Primary Loading Message */}
-        <Animated.Text style={[styles.loadingLabel, { color: labelColor }, labelAnimStyle]}>
-          {loadingLabel}
-        </Animated.Text>
+          {/* Primary Loading Message */}
+          <Animated.Text style={[styles.loadingLabel, { color: labelColor }, labelAnimStyle]}>
+            {loadingLabel}
+          </Animated.Text>
 
-        {/* Secondary Sublabel or Dynamic Telemetry Badge */}
-        <View style={[styles.telemetryBadge, { backgroundColor: badgeBg, borderColor: badgeBorder }]}>
-          <View style={styles.pulsingIndicator} />
-          <Text style={[styles.telemetryText, { color: badgeTextColor }]}>
-            {subLabel || TELEMETRY_FEED[telemetryIdx]}
-          </Text>
+          {/* Secondary Sublabel or Dynamic Telemetry Badge */}
+          <View style={[styles.telemetryBadge, { backgroundColor: badgeBg, borderColor: badgeBorder }]}>
+            <View style={styles.pulsingIndicator} />
+            <Text style={[styles.telemetryText, { color: badgeTextColor }]}>
+              {subLabel || TELEMETRY_FEED[telemetryIdx]}
+            </Text>
+          </View>
         </View>
-      </View>
+      )}
     </Animated.View>
   );
 
@@ -476,7 +487,11 @@ export default function CircleGuardGlobeLoader({
     );
   }
 
-  return <View style={styles.inlineContainer}>{content}</View>;
+  return (
+    <View style={[styles.inlineContainer, isCompact && { paddingVertical: 0 }]}>
+      {content}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({

@@ -33,6 +33,7 @@ import {
 import { evaluateGeofenceBreaches } from '../services/GeofenceEngine';
 import { fetchCategoryPois, generateFallbackPois } from '../services/PoiService';
 import LuxuryRadarLoading from '../components/LuxuryRadarLoading';
+import CircleGuardGlobeLoader from '../components/CircleGuardGlobeLoader';
 import { useThemeStore } from '../store/useThemeStore';
 import { queueAndSyncLocationHistory, flushOfflineBreadcrumbs } from '../services/OfflineLocationQueueService';
 import { useLuxuryAlert } from '../components/LuxuryAlertModal';
@@ -1882,6 +1883,7 @@ export default function MapScreen() {
     setMemberRoadInfo(null);
     setAvailableRoutes([]);
     setSelectedRouteIndex(0);
+    setIsRouteLoading(false);
     executeMapScript(`
       if (window.clearMemberRoute) { window.clearMemberRoute(); }
       true;
@@ -2312,6 +2314,7 @@ export default function MapScreen() {
   const [memberRoadDistances, setMemberRoadDistances] = useState<Record<string, string>>({});
   const [availableRoutes, setAvailableRoutes] = useState<DrivingRouteOption[]>([]);
   const [selectedRouteIndex, setSelectedRouteIndex] = useState<number>(0);
+  const [isRouteLoading, setIsRouteLoading] = useState<boolean>(false);
 
   useEffect(() => {
     if (!userLoc || !members || members.length === 0) return;
@@ -2345,6 +2348,7 @@ export default function MapScreen() {
       setMemberRoadInfo(null);
       setAvailableRoutes([]);
       setSelectedRouteIndex(0);
+      setIsRouteLoading(false);
       executeMapScript(`
         if (window.clearMemberRoute) { window.clearMemberRoute(); }
         true;
@@ -2356,6 +2360,7 @@ export default function MapScreen() {
       setMemberRoadInfo({ distText: 'Your Location' });
       setAvailableRoutes([]);
       setSelectedRouteIndex(0);
+      setIsRouteLoading(false);
       executeMapScript(`
         if (window.clearMemberRoute) { window.clearMemberRoute(); }
         true;
@@ -2365,33 +2370,44 @@ export default function MapScreen() {
     const memberLoc = locations.find(l => l.user_id === selectedMember.user_id);
     const targetLat = memberLoc?.latitude || selectedMember.latitude;
     const targetLng = memberLoc?.longitude || selectedMember.longitude;
-    if (!targetLat || !targetLng || targetLat === 0 || targetLng === 0) return;
+    if (!targetLat || !targetLng || targetLat === 0 || targetLng === 0) {
+      setIsRouteLoading(false);
+      return;
+    }
 
     let isMounted = true;
+    setIsRouteLoading(true);
     fetchMultipleDrivingRoutes(
       { latitude: userLoc.latitude, longitude: userLoc.longitude },
       { latitude: targetLat, longitude: targetLng }
     ).then((routes) => {
-      if (isMounted && routes && routes.length > 0) {
-        setAvailableRoutes(routes);
-        setSelectedRouteIndex(0);
-        const active = routes[0];
-        setMemberRoadInfo({
-          distText: `${active.distText} (via road) • ~${active.timeText}`
-        });
+      if (isMounted) {
+        setIsRouteLoading(false);
+        if (routes && routes.length > 0) {
+          setAvailableRoutes(routes);
+          setSelectedRouteIndex(0);
+          const active = routes[0];
+          setMemberRoadInfo({
+            distText: `${active.distText} (via road) • ~${active.timeText}`
+          });
 
-        if (webViewRef.current) {
-          webViewRef.current.injectJavaScript(`
-            if (window.drawMultipleRoadRoutes) {
-              window.drawMultipleRoadRoutes(${JSON.stringify(routes)}, 0);
-            } true;
-          `);
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript(`
+              if (window.drawMultipleRoadRoutes) {
+                window.drawMultipleRoadRoutes(${JSON.stringify(routes)}, 0);
+              } true;
+            `);
+          }
         }
       }
-    }).catch(() => {});
+    }).catch(() => {
+      if (isMounted) {
+        setIsRouteLoading(false);
+      }
+    });
 
     return () => { isMounted = false; };
-  }, [selectedMember?.user_id, userLoc?.latitude, userLoc?.longitude]);
+  }, [selectedMember?.user_id, selectedMember?.latitude, selectedMember?.longitude, userLoc?.latitude, userLoc?.longitude, profile?.id]);
 
   const handleSelectRouteOption = (index: number) => {
     setSelectedRouteIndex(index);
@@ -2456,10 +2472,12 @@ export default function MapScreen() {
     }
 
     if (!isSelf && userLoc && targetLat && targetLng && userLoc.latitude && userLoc.longitude) {
+      setIsRouteLoading(true);
       fetchMultipleDrivingRoutes(
         { latitude: userLoc.latitude, longitude: userLoc.longitude },
         { latitude: targetLat, longitude: targetLng }
       ).then((routes) => {
+        setIsRouteLoading(false);
         if (routes && routes.length > 0) {
           setAvailableRoutes(routes);
           setSelectedRouteIndex(0);
@@ -2475,7 +2493,9 @@ export default function MapScreen() {
             `);
           }
         }
-      }).catch(() => {});
+      }).catch(() => {
+        setIsRouteLoading(false);
+      });
     }
   };
 
@@ -4689,8 +4709,19 @@ export default function MapScreen() {
                   </View>
                 )}
 
-                {/* Google Maps ETA Hero Banner (Only when member has real broadcasted GPS) */}
-                {!isSelf && hasRealCoords && (
+                {/* Route Calculating Globe Animation */}
+                {!isSelf && hasRealCoords && isRouteLoading && (
+                  <View style={[styles.routeLoadingHeroCard, { backgroundColor: isDark ? 'rgba(30, 41, 59, 0.7)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0' }]}>
+                    <CircleGuardGlobeLoader
+                      size={90}
+                      loadingLabel="CALCULATING DRIVING ROUTE..."
+                      subLabel={`Optimizing road path to ${selectedMember.profile?.full_name?.split(' ')[0] || 'Member'}`}
+                    />
+                  </View>
+                )}
+
+                {/* Google Maps ETA Hero Banner (Only when member has real broadcasted GPS and route ready) */}
+                {!isSelf && hasRealCoords && !isRouteLoading && (
                   <View style={[styles.etaHeroCard, { backgroundColor: isDark ? 'rgba(30, 41, 59, 0.7)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.1)' : '#E2E8F0' }]}>
                     <View style={styles.etaHeroLeft}>
                       <View style={styles.etaTimeRow}>
@@ -4712,7 +4743,7 @@ export default function MapScreen() {
                 )}
 
                 {/* Route Options Segmented Selector (UI/UX Pro Max Bento & Tactile Design) */}
-                {!isSelf && hasRealCoords && availableRoutes.length > 1 && (
+                {!isSelf && hasRealCoords && !isRouteLoading && availableRoutes.length > 1 && (
                   <View style={styles.routeSelectorBlock}>
                     <View style={styles.routeSelectorHeaderRow}>
                       <View style={styles.routeSelectorTitleGroup}>
@@ -5358,6 +5389,32 @@ export default function MapScreen() {
           </SpringTouchable>
         </View>
       )}
+
+      {/* Floating Route Calculating Radar HUD (Top Center) */}
+      {isRouteLoading && selectedMember && String(selectedMember.user_id).toLowerCase() !== String(profile?.id).toLowerCase() && (
+        <View style={[styles.floatingRouteHudContainer, { top: topInset + 68 }]} pointerEvents="none">
+          <View style={[
+            styles.floatingRouteHudCard,
+            {
+              backgroundColor: isDark ? 'rgba(15, 23, 42, 0.94)' : 'rgba(255, 255, 255, 0.96)',
+              borderColor: isDark ? 'rgba(245, 158, 11, 0.35)' : 'rgba(245, 158, 11, 0.45)',
+            }
+          ]}>
+            <CircleGuardGlobeLoader size={36} hideLabels />
+            <View style={styles.floatingRouteHudTextCol}>
+              <View style={styles.floatingRouteHudTitleRow}>
+                <View style={styles.floatingRoutePulseDot} />
+                <Text style={[styles.floatingRouteHudTitle, { color: isDark ? '#F59E0B' : '#B45309' }]}>
+                  CALCULATING ROUTE
+                </Text>
+              </View>
+              <Text style={[styles.floatingRouteHudSub, { color: isDark ? '#E2E8F0' : '#1E293B' }]} numberOfLines={1}>
+                Connecting road network to {selectedMember.profile?.full_name?.split(' ')[0] || 'Member'}...
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -5858,6 +5915,64 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  routeLoadingHeroCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  floatingRouteHudContainer: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  floatingRouteHudCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 8,
+    gap: 10,
+    maxWidth: 340,
+  },
+  floatingRouteHudTextCol: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  floatingRouteHudTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
+  floatingRoutePulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  floatingRouteHudTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  floatingRouteHudSub: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 
   etaHeroCard: {
