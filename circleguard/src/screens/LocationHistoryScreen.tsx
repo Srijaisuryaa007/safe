@@ -2330,21 +2330,16 @@ export default function LocationHistoryScreen() {
                   ] : undefined}
                 />
 
-                {/* Time & Places Summary Card (Executive Luxury Analytics) */}
+                {/* Time & Places Summary Card */}
                 <View style={[styles.analyticsGridCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                   <View style={styles.analyticsCardTitleRow}>
-                    <Ionicons name="time" size={15} color="#F59E0B" />
+                    <Ionicons name="time-outline" size={15} color={colors.foreground} />
                     <Text style={[styles.analyticsCardTitle, { color: colors.foreground }]}>TIME & PLACES</Text>
                   </View>
                   <View style={styles.analyticsStats2x2}>
                     {/* Stat 1: At Saved Places */}
                     <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
-                      <View style={styles.analyticsStatHeaderRow}>
-                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.1)' }]}>
-                          <Ionicons name="home" size={11} color="#F59E0B" />
-                        </View>
-                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>AT SAVED PLACES</Text>
-                      </View>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>AT SAVED PLACES</Text>
                       <View style={styles.statValueRow}>
                         <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
                           {Math.min(24, Math.round((
@@ -2359,12 +2354,7 @@ export default function LocationHistoryScreen() {
 
                     {/* Stat 2: Time in Motion */}
                     <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
-                      <View style={styles.analyticsStatHeaderRow}>
-                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.1)' }]}>
-                          <Ionicons name="walk" size={11} color="#10B981" />
-                        </View>
-                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TIME IN MOTION</Text>
-                      </View>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TIME IN MOTION</Text>
                       <View style={styles.statValueRow}>
                         {travelDurationMinutes >= 60 ? (
                           <>
@@ -2393,12 +2383,7 @@ export default function LocationHistoryScreen() {
                       const count = stationaryStops.filter(s => s.isSafePlace || s.category === 'safe_zone').length;
                       return (
                         <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
-                          <View style={styles.analyticsStatHeaderRow}>
-                            <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.1)' }]}>
-                              <Ionicons name="shield-checkmark" size={11} color="#3B82F6" />
-                            </View>
-                            <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>SAVED PLACES</Text>
-                          </View>
+                          <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>SAVED PLACES</Text>
                           <View style={styles.statValueRow}>
                             <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
                               {count}
@@ -2413,12 +2398,7 @@ export default function LocationHistoryScreen() {
 
                     {/* Stat 4: Total Stops */}
                     <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
-                      <View style={styles.analyticsStatHeaderRow}>
-                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(139, 92, 246, 0.12)' : 'rgba(139, 92, 246, 0.1)' }]}>
-                          <Ionicons name="location" size={11} color="#8B5CF6" />
-                        </View>
-                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TOTAL STOPS</Text>
-                      </View>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TOTAL STOPS</Text>
                       <View style={styles.statValueRow}>
                         <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
                           {stationaryStops.length}
@@ -2431,21 +2411,16 @@ export default function LocationHistoryScreen() {
                   </View>
                 </View>
 
-                {/* Speed & Movement Card (Executive Luxury Analytics) */}
+                {/* Speed & Movement Card */}
                 <View style={[styles.analyticsGridCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                   <View style={styles.analyticsCardTitleRow}>
-                    <Ionicons name="speedometer" size={15} color="#0284C7" />
+                    <Ionicons name="speedometer-outline" size={15} color={colors.foreground} />
                     <Text style={[styles.analyticsCardTitle, { color: colors.foreground }]}>SPEED & MOVEMENT</Text>
                   </View>
                   <View style={styles.analyticsStats2x2}>
                     {/* Stat 5: Top Speed */}
                     <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
-                      <View style={styles.analyticsStatHeaderRow}>
-                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.1)' }]}>
-                          <Ionicons name="flash" size={11} color="#EF4444" />
-                        </View>
-                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TOP SPEED</Text>
-                      </View>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TOP SPEED</Text>
                       <View style={styles.statValueRow}>
                         <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
                           {topSpeedKmh}
@@ -2456,12 +2431,7 @@ export default function LocationHistoryScreen() {
 
                     {/* Stat 6: Average Speed */}
                     <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
-                      <View style={styles.analyticsStatHeaderRow}>
-                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(2, 132, 199, 0.12)' : 'rgba(2, 132, 199, 0.1)' }]}>
-                          <Ionicons name="trending-up" size={11} color="#0284C7" />
-                        </View>
-                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>AVERAGE SPEED</Text>
-                      </View>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>AVERAGE SPEED</Text>
                       <View style={styles.statValueRow}>
                         <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
                           {effectiveAvgSpeed}
@@ -2472,12 +2442,7 @@ export default function LocationHistoryScreen() {
 
                     {/* Stat 7: Route Waypoints */}
                     <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
-                      <View style={styles.analyticsStatHeaderRow}>
-                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(99, 102, 241, 0.12)' : 'rgba(99, 102, 241, 0.1)' }]}>
-                          <Ionicons name="navigate" size={11} color="#6366F1" />
-                        </View>
-                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>ROUTE WAYPOINTS</Text>
-                      </View>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>ROUTE WAYPOINTS</Text>
                       <View style={styles.statValueRow}>
                         <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
                           {roadCoords.length > 0 ? roadCoords.length : historyPoints.length}
@@ -2488,18 +2453,11 @@ export default function LocationHistoryScreen() {
 
                     {/* Stat 8: GPS Precision */}
                     <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
-                      <View style={styles.analyticsStatHeaderRow}>
-                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.1)' }]}>
-                          <Ionicons name="radio" size={11} color="#10B981" />
-                        </View>
-                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>GPS PRECISION</Text>
-                      </View>
+                      <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>GPS PRECISION</Text>
                       <View style={styles.statValueRow}>
-                        <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>High</Text>
-                        <View style={[styles.precisionBadge, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5', borderColor: isDark ? 'rgba(16, 185, 129, 0.35)' : '#A7F3D0' }]}>
-                          <View style={styles.precisionDot} />
-                          <Text style={[styles.precisionBadgeText, { color: isDark ? '#34D399' : '#059669' }]}>LIVE</Text>
-                        </View>
+                        <Text style={[styles.analyticsStatValue, { fontSize: 17, color: colors.foreground }]}>
+                          High Precision
+                        </Text>
                       </View>
                     </View>
                   </View>
@@ -3338,23 +3296,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
   },
-  analyticsStatHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 8,
-  },
-  analyticsIconWrap: {
-    width: 20,
-    height: 20,
-    borderRadius: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   analyticsStatLabel: {
     fontSize: 9.5,
     fontWeight: '700',
     letterSpacing: 0.6,
+    marginBottom: 6,
   },
   statValueRow: {
     flexDirection: 'row',
@@ -3372,28 +3318,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.2,
     textTransform: 'lowercase',
-  },
-  precisionBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 5,
-    borderWidth: 1,
-    marginLeft: 4,
-    alignSelf: 'center',
-  },
-  precisionDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#10B981',
-  },
-  precisionBadgeText: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    letterSpacing: 0.4,
   },
   gapDiagnosticBox: {
     flexDirection: 'row',
