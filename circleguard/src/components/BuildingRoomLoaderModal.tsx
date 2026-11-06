@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, StyleSheet, Modal } from 'react-native';
+import { View, Text, StyleSheet, Modal, Platform } from 'react-native';
+import { BlurView } from 'expo-blur';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -47,7 +48,7 @@ function transformSvgForTheme(rawSvg: string, isDark: boolean): string {
 
 export default function BuildingRoomLoaderModal({
   visible,
-  size = 72,
+  size = 58,
 }: BuildingRoomLoaderModalProps) {
   const { isDark } = useThemeStore();
   const [stepIndex, setStepIndex] = useState(0);
@@ -95,10 +96,48 @@ export default function BuildingRoomLoaderModal({
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent={true}>
       <View style={styles.modalOverlay}>
-        {/* Smaller icon shown in the front with transparent background */}
-        <Animated.View style={[styles.iconContainer, animatedIconStyle]}>
-          <SvgXml xml={themedSvg} width={size} height={size} />
-        </Animated.View>
+        {/* Frosted Glassmorphism Backdrop Blur */}
+        <BlurView
+          intensity={Platform.OS === 'ios' ? 35 : 24}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: isDark
+                ? 'rgba(7, 10, 15, 0.62)'
+                : 'rgba(15, 23, 42, 0.28)',
+            },
+          ]}
+        />
+
+        {/* Floating Luxury Glass HUD Pod */}
+        <View
+          style={[
+            styles.hudPod,
+            {
+              backgroundColor: isDark ? 'rgba(18, 24, 35, 0.94)' : 'rgba(255, 255, 255, 0.96)',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.08)',
+            },
+          ]}
+        >
+          {/* Architectural Vector Icon cycling every 1s */}
+          <Animated.View style={[styles.iconWrapper, animatedIconStyle]}>
+            <SvgXml xml={themedSvg} width={size} height={size} />
+          </Animated.View>
+
+          {/* Clean Micro Caption */}
+          <Text
+            style={[
+              styles.captionText,
+              { color: isDark ? '#CBD5E1' : '#334155' },
+            ]}
+          >
+            Building room...
+          </Text>
+        </View>
       </View>
     </Modal>
   );
@@ -107,18 +146,33 @@ export default function BuildingRoomLoaderModal({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 9999,
   },
-  iconContainer: {
+  hudPod: {
+    width: 132,
+    height: 124,
+    borderRadius: 24,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 9,
+    paddingTop: 4,
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.32,
+    shadowRadius: 22,
+    elevation: 12,
+  },
+  iconWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  captionText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+    textAlign: 'center',
   },
 });
