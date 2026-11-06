@@ -295,8 +295,7 @@ export default function CreateCircleScreen() {
       {/* Building Room 1-Second Vector SVG Architecture Loading Modal */}
       <BuildingRoomLoaderModal
         visible={loading}
-        circleName={name.trim() || 'My Family Circle'}
-        trackingMode={trackingMode}
+        size={72}
       />
     </ScrollView>
   );

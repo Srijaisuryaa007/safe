@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, Modal } from 'react-native';
+import { View, StyleSheet, Modal } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -14,6 +14,7 @@ export interface BuildingRoomLoaderModalProps {
   visible: boolean;
   circleName?: string;
   trackingMode?: 'continuous' | 'privacy';
+  size?: number;
 }
 
 function transformSvgForTheme(rawSvg: string, isDark: boolean): string {
@@ -46,7 +47,7 @@ function transformSvgForTheme(rawSvg: string, isDark: boolean): string {
 
 export default function BuildingRoomLoaderModal({
   visible,
-  circleName = 'New Circle',
+  size = 72,
 }: BuildingRoomLoaderModalProps) {
   const { isDark } = useThemeStore();
   const [stepIndex, setStepIndex] = useState(0);
@@ -93,21 +94,11 @@ export default function BuildingRoomLoaderModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent={true}>
-      <View
-        style={[
-          styles.modalOverlay,
-          { backgroundColor: isDark ? 'rgba(7, 10, 15, 0.94)' : 'rgba(255, 255, 255, 0.96)' },
-        ]}
-      >
-        {/* Only the Icon — Centered, Pure, Zero Distractions, No Jumping Background Icons */}
-        <View style={styles.iconContainer}>
-          <Animated.View style={animatedIconStyle}>
-            <SvgXml xml={themedSvg} width={160} height={160} />
-          </Animated.View>
-          <Text style={[styles.loadingLabel, { color: isDark ? '#94A3B8' : '#64748B' }]}>
-            Setting up {circleName}...
-          </Text>
-        </View>
+      <View style={styles.modalOverlay}>
+        {/* Smaller icon shown in the front with transparent background */}
+        <Animated.View style={[styles.iconContainer, animatedIconStyle]}>
+          <SvgXml xml={themedSvg} width={size} height={size} />
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -116,19 +107,18 @@ export default function BuildingRoomLoaderModal({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    zIndex: 9999,
   },
   iconContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 18,
-  },
-  loadingLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-    textAlign: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
   },
 });
