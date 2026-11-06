@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -51,6 +52,20 @@ export default function CircleGuardGlobeLoader({
   const { colors, isDark } = useThemeStore();
   const [telemetryIdx, setTelemetryIdx] = useState(0);
 
+  // Theme-adaptive luxury color tokens
+  const brandGold = isDark ? '#F59E0B' : '#B45309';
+  const bracketBorder = isDark ? 'rgba(245, 158, 11, 0.45)' : 'rgba(15, 23, 42, 0.28)';
+  const hudTrackColor = isDark ? 'rgba(245, 158, 11, 0.28)' : 'rgba(15, 23, 42, 0.16)';
+  const hudTickColor = isDark ? '#F59E0B' : '#475569';
+  const shockwaveColor = isDark ? 'rgba(245, 158, 11, 0.55)' : 'rgba(180, 83, 9, 0.35)';
+  const atmosphereBorder = isDark ? 'rgba(245, 158, 11, 0.25)' : 'rgba(180, 83, 9, 0.18)';
+  const sphereBorder = isDark ? 'rgba(245, 158, 11, 0.5)' : 'rgba(15, 23, 42, 0.22)';
+  const goldenRimColor = isDark ? '#F59E0B' : '#D97706';
+  const labelColor = isDark ? '#FFFFFF' : '#0F172A';
+  const badgeBg = isDark ? 'rgba(245, 158, 11, 0.08)' : '#F1F5F9';
+  const badgeBorder = isDark ? 'rgba(245, 158, 11, 0.22)' : '#CBD5E1';
+  const badgeTextColor = isDark ? '#CBD5E1' : '#334155';
+
   const r = size / 2;
   const containerSize = size + 56;
   const scale = size / 360;
@@ -64,10 +79,21 @@ export default function CircleGuardGlobeLoader({
   const shockwavePulse = useSharedValue(0);
   const beaconGlow = useSharedValue(1);
   const shieldAuraPulse = useSharedValue(0.85);
+  const labelPulse = useSharedValue(1);
 
   useEffect(() => {
     // 0. Smooth entrance fade-in
     entranceOpacity.value = withTiming(1, { duration: 280, easing: Easing.out(Easing.cubic) });
+
+    // Subtle breathing pulse for loading label
+    labelPulse.value = withRepeat(
+      withSequence(
+        withTiming(0.82, { duration: 1100, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 1100, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1,
+      true
+    );
 
     // 1. Seamless 360° Earth Rotation on UI thread (instant 0ms start)
     globeTranslateX.value = withRepeat(
@@ -158,15 +184,19 @@ export default function CircleGuardGlobeLoader({
     opacity: interpolate(shieldAuraPulse.value, [0.88, 1.12], [0.35, 0.75]),
   }));
 
+  const labelAnimStyle = useAnimatedStyle(() => ({
+    opacity: labelPulse.value,
+  }));
+
   const content = (
     <Animated.View style={[styles.contentContainer, entranceAnimStyle]}>
       {/* Globe & Gyro Housing Frame */}
       <View style={[styles.outerHousing, { width: containerSize, height: containerSize }]}>
         {/* 1. Tactical HUD Corner Accents */}
-        <View style={[styles.cornerBracket, styles.bracketTL]} />
-        <View style={[styles.cornerBracket, styles.bracketTR]} />
-        <View style={[styles.cornerBracket, styles.bracketBL]} />
-        <View style={[styles.cornerBracket, styles.bracketBR]} />
+        <View style={[styles.cornerBracket, styles.bracketTL, { borderColor: bracketBorder }]} />
+        <View style={[styles.cornerBracket, styles.bracketTR, { borderColor: bracketBorder }]} />
+        <View style={[styles.cornerBracket, styles.bracketBL, { borderColor: bracketBorder }]} />
+        <View style={[styles.cornerBracket, styles.bracketBR, { borderColor: bracketBorder }]} />
 
         {/* 2. Expanding Golden Shockwave Pulse */}
         <Animated.View
@@ -176,6 +206,7 @@ export default function CircleGuardGlobeLoader({
               width: size + 16,
               height: size + 16,
               borderRadius: (size + 16) / 2,
+              borderColor: shockwaveColor,
             },
             shockwaveStyle,
           ]}
@@ -189,6 +220,7 @@ export default function CircleGuardGlobeLoader({
               width: size + 10,
               height: size + 10,
               borderRadius: (size + 10) / 2,
+              borderColor: atmosphereBorder,
             },
             auraStyle,
           ]}
@@ -238,7 +270,7 @@ export default function CircleGuardGlobeLoader({
             cx={(size + 24) / 2}
             cy={(size + 24) / 2}
             r={r + 8}
-            stroke="rgba(233, 195, 73, 0.28)"
+            stroke={hudTrackColor}
             strokeWidth={1}
             strokeDasharray="3, 7"
             fill="none"
@@ -249,7 +281,7 @@ export default function CircleGuardGlobeLoader({
             y1={2}
             x2={(size + 24) / 2}
             y2={7}
-            stroke="#E9C349"
+            stroke={hudTickColor}
             strokeWidth={1.5}
           />
           <Line
@@ -257,7 +289,7 @@ export default function CircleGuardGlobeLoader({
             y1={size + 17}
             x2={(size + 24) / 2}
             y2={size + 22}
-            stroke="#E9C349"
+            stroke={hudTickColor}
             strokeWidth={1.5}
           />
           <Line
@@ -265,7 +297,7 @@ export default function CircleGuardGlobeLoader({
             y1={(size + 24) / 2}
             x2={7}
             y2={(size + 24) / 2}
-            stroke="#E9C349"
+            stroke={hudTickColor}
             strokeWidth={1.5}
           />
           <Line
@@ -273,13 +305,13 @@ export default function CircleGuardGlobeLoader({
             y1={(size + 24) / 2}
             x2={size + 22}
             y2={(size + 24) / 2}
-            stroke="#E9C349"
+            stroke={hudTickColor}
             strokeWidth={1.5}
           />
         </Svg>
 
         {/* 7. Central 3D Earth Sphere (Hardware-accelerated layered render) */}
-        <View style={[styles.sphereCore, { width: size, height: size, borderRadius: r }]}>
+        <View style={[styles.sphereCore, { width: size, height: size, borderRadius: r, borderColor: sphereBorder }]}>
           {/* Layer A: Base Oceanic Sphere */}
           <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={StyleSheet.absoluteFill}>
             <Defs>
@@ -398,7 +430,7 @@ export default function CircleGuardGlobeLoader({
               cx={r}
               cy={r}
               r={r - 0.8}
-              stroke="#E9C349"
+              stroke={goldenRimColor}
               strokeWidth={1.6}
               fill="none"
               opacity={0.9}
@@ -411,20 +443,19 @@ export default function CircleGuardGlobeLoader({
       <View style={styles.textStack}>
         {/* Brand Badge with Mini Shield */}
         <View style={styles.brandRow}>
-          <View style={styles.brandDot} />
-          <Text style={styles.brandTitle}>CIRCLE GUARD</Text>
-          <View style={styles.brandDot} />
+          <Ionicons name="shield-checkmark" size={13} color={brandGold} />
+          <Text style={[styles.brandTitle, { color: brandGold }]}>CIRCLE GUARD</Text>
         </View>
 
         {/* Primary Loading Message */}
-        <Text style={[styles.loadingLabel, { color: colors.foreground || '#E2E2E6' }]}>
+        <Animated.Text style={[styles.loadingLabel, { color: labelColor }, labelAnimStyle]}>
           {loadingLabel}
-        </Text>
+        </Animated.Text>
 
         {/* Secondary Sublabel or Dynamic Telemetry Badge */}
-        <View style={styles.telemetryBadge}>
+        <View style={[styles.telemetryBadge, { backgroundColor: badgeBg, borderColor: badgeBorder }]}>
           <View style={styles.pulsingIndicator} />
-          <Text style={styles.telemetryText}>
+          <Text style={[styles.telemetryText, { color: badgeTextColor }]}>
             {subLabel || TELEMETRY_FEED[telemetryIdx]}
           </Text>
         </View>
@@ -578,60 +609,58 @@ const styles = StyleSheet.create({
   },
   textStack: {
     alignItems: 'center',
-    gap: 6,
+    gap: 7,
+    marginTop: 6,
   },
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-  },
-  brandDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#E9C349',
-    opacity: 0.75,
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
   },
   brandTitle: {
-    color: '#E9C349',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 4,
+    letterSpacing: 2.8,
     textTransform: 'uppercase',
   },
   loadingLabel: {
-    fontSize: 13.5,
-    fontWeight: '600',
-    letterSpacing: 0.5,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.8,
     textAlign: 'center',
-    maxWidth: 260,
+    maxWidth: 280,
   },
   telemetryBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 4.5,
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 5.5,
     borderRadius: 9999,
-    backgroundColor: 'rgba(233, 195, 73, 0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(233, 195, 73, 0.22)',
-    marginTop: 2,
+    marginTop: 3,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
   pulsingIndicator: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#6EE591',
-    shadowColor: '#6EE591',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+    shadowColor: '#10B981',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.9,
-    shadowRadius: 4,
+    shadowRadius: 5,
+    elevation: 2,
   },
   telemetryText: {
-    color: '#BDCABC',
-    fontSize: 10,
-    fontWeight: '600',
+    fontSize: 10.5,
+    fontWeight: '700',
     letterSpacing: 1.2,
     textTransform: 'uppercase',
   },

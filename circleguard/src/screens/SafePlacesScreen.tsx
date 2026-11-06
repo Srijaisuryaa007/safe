@@ -528,7 +528,9 @@ export default function SafePlacesScreen() {
   };
 
   const fetchSavedPlaces = async (circleId: string) => {
-    setLoadingPlaces(true);
+    if (savedPlaces.length === 0) {
+      setLoadingPlaces(true);
+    }
     try {
       const placesWithMembers = await fetchCirclePlacesWithMembers(circleId);
       const activeId = useCircleStore.getState().activeCircle?.id;
@@ -1794,7 +1796,7 @@ export default function SafePlacesScreen() {
             <View style={[styles.accentLine, { backgroundColor: colors.accentGold }]} />
           </View>
 
-          {loadingPlaces ? (
+          {loadingPlaces && displayedPlaces.length === 0 ? (
             <View style={{ paddingVertical: 36, alignItems: 'center' }}>
               <LuxuryRadarLoading
                 size={120}
@@ -1840,6 +1842,14 @@ export default function SafePlacesScreen() {
             </View>
           ) : (
             <View style={styles.placesList}>
+              {loadingPlaces && (
+                <View style={[styles.syncPillBanner, { backgroundColor: isDark ? 'rgba(245, 158, 11, 0.08)' : '#F1F5F9', borderColor: isDark ? 'rgba(245, 158, 11, 0.22)' : '#CBD5E1' }]}>
+                  <View style={styles.syncPulseDot} />
+                  <Text style={[styles.syncPillText, { color: isDark ? '#F59E0B' : '#B45309' }]}>
+                    SYNCHRONIZING REAL-TIME PERIMETERS...
+                  </Text>
+                </View>
+              )}
               {displayedPlaces.map((p) => {
                 const assignedIds: string[] = p.assigned_user_ids || (p.target_user_id ? [p.target_user_id] : []);
                 const assignedMembers = members.filter((m) => assignedIds.includes(m.user_id));
@@ -3272,6 +3282,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     marginTop: 4,
+  },
+  syncPillBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  syncPulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  syncPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   placesList: {
     gap: 12,
