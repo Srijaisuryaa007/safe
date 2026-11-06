@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="workshop">
+    <path d="M30.888 194.014V62.531l67.651 46.374V62.531l68.197 46.374V62.531l58.376 45.828v85.655Z" fill="#ffffff" stroke="#050505" stroke-width="5.24" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="173.28" y="142.18" width="31.64" height="51.83" fill="#b9b9b8" stroke="#050505" stroke-width="5.24" stroke-linejoin="round"/>
+    <rect x="50.53" y="148.19" width="103.66" height="16.37" fill="#ffffff" stroke="#050505" stroke-width="5.24" stroke-linejoin="round"/>
+    <path d="M71.26 148.732v15.276M91.992 148.732v15.276M112.724 148.732v15.276M133.456 148.732v15.276" fill="none" stroke="#050505" stroke-width="5.24"/>
+  </g>
+</svg>

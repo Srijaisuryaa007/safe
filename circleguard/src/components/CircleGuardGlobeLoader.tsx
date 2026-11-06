@@ -34,6 +34,7 @@ export interface CircleGuardGlobeLoaderProps {
   subLabel?: string;
   fullscreen?: boolean;
   hideLabels?: boolean;
+  showBrandHeader?: boolean;
 }
 
 const TELEMETRY_FEED = [
@@ -49,6 +50,7 @@ export default function CircleGuardGlobeLoader({
   subLabel,
   fullscreen = false,
   hideLabels = false,
+  showBrandHeader = false,
 }: CircleGuardGlobeLoaderProps) {
   const { colors, isDark } = useThemeStore();
   const [telemetryIdx, setTelemetryIdx] = useState(0);
@@ -60,9 +62,9 @@ export default function CircleGuardGlobeLoader({
   const sphereBorder = isDark ? 'rgba(245, 158, 11, 0.5)' : 'rgba(15, 23, 42, 0.22)';
   const goldenRimColor = isDark ? '#F59E0B' : '#D97706';
   const labelColor = isDark ? '#FFFFFF' : '#0F172A';
-  const badgeBg = isDark ? 'rgba(245, 158, 11, 0.08)' : '#F1F5F9';
-  const badgeBorder = isDark ? 'rgba(245, 158, 11, 0.22)' : '#CBD5E1';
-  const badgeTextColor = isDark ? '#CBD5E1' : '#334155';
+  const badgeBg = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(15, 23, 42, 0.04)';
+  const badgeBorder = isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.08)';
+  const badgeTextColor = isDark ? '#CBD5E1' : '#475569';
 
   const isCompact = hideLabels || size < 60;
   const r = size / 2;
@@ -383,11 +385,13 @@ export default function CircleGuardGlobeLoader({
       {/* Brand & Loading Status Typography */}
       {!hideLabels && (
         <View style={styles.textStack}>
-          {/* Brand Badge with Mini Shield */}
-          <View style={styles.brandRow}>
-            <Ionicons name="shield-checkmark" size={13} color={brandGold} />
-            <Text style={[styles.brandTitle, { color: brandGold }]}>CIRCLE GUARD</Text>
-          </View>
+          {/* Optional Brand Badge with Mini Shield */}
+          {showBrandHeader && (
+            <View style={styles.brandRow}>
+              <Ionicons name="shield-checkmark" size={12} color={brandGold} />
+              <Text style={[styles.brandTitle, { color: brandGold }]}>CIRCLE GUARD</Text>
+            </View>
+          )}
 
           {/* Primary Loading Message */}
           <Animated.Text style={[styles.loadingLabel, { color: labelColor }, labelAnimStyle]}>
@@ -525,43 +529,39 @@ const styles = StyleSheet.create({
   },
   textStack: {
     alignItems: 'center',
-    gap: 7,
-    marginTop: 6,
+    gap: 6,
+    marginTop: 8,
   },
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
+    gap: 5,
+    paddingHorizontal: 8,
     paddingVertical: 2,
+    marginBottom: 2,
   },
   brandTitle: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '800',
-    letterSpacing: 2.8,
+    letterSpacing: 2,
     textTransform: 'uppercase',
   },
   loadingLabel: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '700',
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
     textAlign: 'center',
     maxWidth: 280,
   },
   telemetryBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
-    paddingHorizontal: 14,
-    paddingVertical: 5.5,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 4.5,
     borderRadius: 9999,
     borderWidth: 1,
-    marginTop: 3,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
+    marginTop: 2,
   },
   pulsingIndicator: {
     width: 6,
@@ -570,14 +570,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
     shadowColor: '#10B981',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 5,
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
     elevation: 2,
   },
   telemetryText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.4,
   },
 });

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="barrier-arm">
+    <path d="M93 112 234 82V100L93 130Z" fill="#ffffff"/>
+    <path d="M106 109 118 107 106 127 94 130Z" fill="#b7b6b6"/>
+    <path d="M136 103 149 100 137 120 124 123Z" fill="#b7b6b6"/>
+    <path d="M167 96 180 94 168 114 155 117Z" fill="#b7b6b6"/>
+    <path d="M198 90 211 87 199 107 186 110Z" fill="#b7b6b6"/>
+    <path d="M226 84 234 82V100L217 104Z" fill="#b7b6b6"/>
+    <path d="M106 109 94 130M118 107 106 127M136 103 124 123M149 100 137 120M167 96 155 117M180 94 168 114M198 90 186 110M211 87 199 107M226 84 217 104" fill="none" stroke="#050505" stroke-width="3.5"/>
+    <path d="M93 112 234 82V100L93 130Z" fill="none" stroke="#050505" stroke-width="4.5" stroke-linejoin="round"/>
+  </g>
+  <g id="barrier-pedestal">
+    <path d="M46.5 191.5V103C46.5 97.8 51 94 56.5 94H84C89.5 94 93.5 98.5 93.5 104V191.5Z" fill="#eeeeee" stroke="#050505" stroke-width="5" stroke-linejoin="round"/>
+    <rect x="60" y="108" width="21" height="19" rx="1" fill="#b7b6b6" stroke="#050505" stroke-width="4.5"/>
+    <ellipse cx="70.5" cy="141.8" rx="4.5" ry="3.7" fill="#050505"/>
+    <path d="M38 191.5H102" fill="none" stroke="#050505" stroke-width="5" stroke-linecap="round"/>
+  </g>
+</svg>

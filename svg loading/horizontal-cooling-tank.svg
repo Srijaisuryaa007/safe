@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="rear-pipe" stroke="#050505" stroke-width="5.65" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M192.048 90.325L201.467 95.976Q206.491 99.115 206.491 104.139V221.561H192.048Z" fill="#ffffff"/>
+    <path d="M192.676 119.209H206.491M192.676 141.814H206.491M192.676 164.42H206.491M192.676 188.281H206.491" fill="none"/>
+    <path d="M130.512 61.44V34.439H160.024C177.606 34.439 192.048 48.254 192.048 65.208V221.561" fill="#ffffff"/>
+  </g>
+  <g id="cooling-tower" stroke="#050505" stroke-width="5.65" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M64.58 174.466L56.417 221.561M74.626 188.281L79.65 221.561M114.186 195.816V221.561M152.489 188.281L148.094 221.561M163.792 174.466L171.955 221.561" fill="none"/>
+    <path d="M96.604 61.44V46.998H130.512V61.44Z" fill="#ffffff"/>
+    <circle cx="114.19" cy="128.63" r="69.7" fill="#ffffff"/>
+    <path d="M45.742 138.047H182.629M69.603 156.885V180.746M158.14 156.885V180.746" fill="none"/>
+  </g>
+  <g id="ground">
+    <path d="M31.928 221.561H224.7" fill="none" stroke="#050505" stroke-width="5.65" stroke-linecap="round"/>
+  </g>
+</svg>

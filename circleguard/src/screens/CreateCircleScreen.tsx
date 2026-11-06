@@ -12,6 +12,7 @@ import { generateInviteCode } from '../lib/utils';
 import { ValidationSchema } from '../lib/validationSchema';
 import { handleServiceError } from '../lib/errorHandler';
 import BatteryOptimizationGuideModal from '../components/BatteryOptimizationGuideModal';
+import BuildingRoomLoaderModal from '../components/BuildingRoomLoaderModal';
 import { oemBatteryOptimizationService } from '../services/OemBatteryOptimizationService';
 
 export default function CreateCircleScreen() {
@@ -44,6 +45,7 @@ export default function CreateCircleScreen() {
       return;
     }
 
+    const startTime = Date.now();
     setLoading(true);
     try {
       const inviteCode = generateInviteCode();
@@ -79,6 +81,15 @@ export default function CreateCircleScreen() {
 
       // 3. Save circle to store with persistence & fetch members
       await useCircleStore.getState().addCreatedCircle(circleData as any, userId);
+
+      // Guarantee minimum showcase of ~3-4 building steps so the room creation animation is appreciated
+      const elapsed = Date.now() - startTime;
+      const minDisplayMs = 3200;
+      if (elapsed < minDisplayMs) {
+        await new Promise((resolve) => setTimeout(resolve, minDisplayMs - elapsed));
+      }
+
+      setLoading(false);
 
       if (trackingMode === 'continuous' && Platform.OS === 'android') {
         Alert.alert(
@@ -279,6 +290,13 @@ export default function CreateCircleScreen() {
       <BatteryOptimizationGuideModal
         visible={showBatteryModal}
         onClose={() => setShowBatteryModal(false)}
+      />
+
+      {/* Building Room 1-Second Vector SVG Architecture Loading Modal */}
+      <BuildingRoomLoaderModal
+        visible={loading}
+        circleName={name.trim() || 'My Family Circle'}
+        trackingMode={trackingMode}
       />
     </ScrollView>
   );

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="large-storage-tank" fill="#ffffff" stroke="#050505" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M58.5 81V71.5C58.5 64.5 82 60.5 112 60.5S165 64.5 165 71.5V82Z"/>
+    <path d="M79 64V76M107 61V75M133 62V75M154 65.5V78" fill="none"/>
+    <path d="M46.5 193.5V87.5C46.5 81.5 66 77.5 85 75.5H87.5V78C94 76 101 74.5 108 74.5C142 74.5 171 80.5 171 87.5V193.5Z"/>
+    <path d="M87.5 76V193M107 75V193M88 91.5H106M88 112H106M88 132H106M88 152.5H106M88 173H106" fill="none"/>
+  </g>
+  <g id="small-storage-tank" fill="#ffffff" stroke="#050505" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M141 193.5V120C141 112 159 107 181 107S220.5 112 220.5 120V193.5Z"/>
+    <path d="M141.5 128C159 120.5 202.5 120.5 220 128" fill="none"/>
+  </g>
+  <g id="ground">
+    <path d="M37.5 193.5H229" fill="none" stroke="#050505" stroke-width="4.5" stroke-linecap="round"/>
+  </g>
+</svg>

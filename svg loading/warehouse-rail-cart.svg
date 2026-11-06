@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="ground">
+    <path d="M32.5 163H230M116.5 176.5H211.5" fill="none" stroke="#050505" stroke-width="4.5" stroke-linecap="round"/>
+  </g>
+  <g id="warehouse">
+    <path d="M40 85V163M221.5 94V163" fill="none" stroke="#050505" stroke-width="4.5" stroke-linecap="round"/>
+    <path d="M35 85.5L94 66.5L226.5 93.5" fill="none" stroke="#050505" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="61" y="101.5" width="52" height="61.5" rx="1" fill="#bbbaba" stroke="#050505" stroke-width="4.5"/>
+    <path d="M62 118.5H112M62 132.5H112M62 146.5H112" fill="none" stroke="#050505" stroke-width="4.5"/>
+    <rect x="130" y="108" width="17" height="10" rx="1.5" fill="#050505"/>
+    <rect x="158.5" y="108" width="17" height="10" rx="1.5" fill="#050505"/>
+    <rect x="187" y="108" width="16.5" height="10" rx="1.5" fill="#050505"/>
+  </g>
+  <g id="upper-left-crate">
+    <rect x="131" y="135.5" width="27" height="21" rx="1" fill="#bbbaba" stroke="#050505" stroke-width="4.5"/>
+  </g>
+  <g id="upper-right-crate">
+    <rect x="158" y="135.5" width="28" height="21" rx="1" fill="#bbbaba" stroke="#050505" stroke-width="4.5"/>
+  </g>
+  <g id="lower-left-crate">
+    <rect x="123" y="155" width="23" height="21.5" rx="1" fill="#bbbaba" stroke="#050505" stroke-width="4.5"/>
+  </g>
+  <g id="lower-middle-left-crate">
+    <rect x="146" y="155" width="23" height="21.5" rx="1" fill="#bbbaba" stroke="#050505" stroke-width="4.5"/>
+  </g>
+  <g id="lower-middle-right-crate">
+    <rect x="169" y="155" width="17" height="21.5" rx="1" fill="#bbbaba" stroke="#050505" stroke-width="4.5"/>
+  </g>
+  <g id="lower-right-crate">
+    <rect x="186" y="155" width="20" height="21.5" rx="1" fill="#bbbaba" stroke="#050505" stroke-width="4.5"/>
+  </g>
+</svg>

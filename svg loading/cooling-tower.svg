@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="steam">
+    <path d="M100.984 73.382C94.524 62.223 101.572 48.715 118.603 49.303 123.889 39.906 133.873 36.382 143.27 42.255 153.841 26.985 173.809 26.985 184.38 42.255 194.952 40.493 203.174 49.303 200.237 60.461 196.713 77.493 184.38 71.032 175.571 72.794 171.46 73.382 167.936 75.144 165.587 77.493" fill="none" stroke="#050505" stroke-width="5.29" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g id="cooling-tower">
+    <path d="M79.842 89.239H177.333L173.222 109.207C169.698 144.444 177.92 183.793 193.777 224.316H62.223C76.318 184.38 87.477 145.619 83.953 109.207Z" fill="#ffffff" stroke="#050505" stroke-width="5.29" stroke-linejoin="round"/>
+    <path d="M79.842 89.239H177.333L173.222 109.207H83.953Z" fill="#bababa" stroke="#050505" stroke-width="5.29" stroke-linejoin="round"/>
+    <path d="M52.239 224.316H203.761" fill="none" stroke="#050505" stroke-width="5.29" stroke-linecap="round"/>
+  </g>
+</svg>

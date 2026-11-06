@@ -1843,10 +1843,18 @@ export default function SafePlacesScreen() {
           ) : (
             <View style={styles.placesList}>
               {loadingPlaces && (
-                <View style={[styles.syncPillBanner, { backgroundColor: isDark ? 'rgba(245, 158, 11, 0.08)' : '#F1F5F9', borderColor: isDark ? 'rgba(245, 158, 11, 0.22)' : '#CBD5E1' }]}>
+                <View
+                  style={[
+                    styles.syncPillBanner,
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(15, 23, 42, 0.04)',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.08)',
+                    },
+                  ]}
+                >
                   <View style={styles.syncPulseDot} />
-                  <Text style={[styles.syncPillText, { color: isDark ? '#F59E0B' : '#B45309' }]}>
-                    SYNCHRONIZING REAL-TIME PERIMETERS...
+                  <Text style={[styles.syncPillText, { color: isDark ? '#E2E8F0' : '#334155' }]}>
+                    Synchronizing real-time perimeters...
                   </Text>
                 </View>
               )}
@@ -3286,12 +3294,13 @@ const styles = StyleSheet.create({
   syncPillBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 12,
+    alignSelf: 'center',
+    gap: 7,
+    paddingHorizontal: 13,
+    paddingVertical: 5.5,
+    borderRadius: 9999,
     borderWidth: 1,
-    marginBottom: 8,
+    marginBottom: 12,
   },
   syncPulseDot: {
     width: 6,
@@ -3301,8 +3310,8 @@ const styles = StyleSheet.create({
   },
   syncPillText: {
     fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   placesList: {
     gap: 12,

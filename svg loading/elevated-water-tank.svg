@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="water-tower" stroke="#050505" stroke-width="5.98" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M81.966 129.794H105.88L101.097 138.163H89.14Q84.357 136.968 81.966 129.794ZM150.12 129.794H175.23Q172.838 135.772 166.86 138.163H154.903Z" fill="#050505" stroke="none"/>
+    <path d="M101.097 144.142L159.686 180.012 91.531 217.079M154.903 144.142L96.314 180.012 164.469 217.079" fill="none"/>
+    <path d="M91.531 129.794H103.488L89.14 224.253H77.183Z" fill="#a8a8a8"/>
+    <path d="M152.512 129.794H164.469L178.817 224.253H166.86Z" fill="#a8a8a8"/>
+    <rect x="83.16" y="62.24" width="89.68" height="53.81" fill="#bbbbbb"/>
+    <path d="M74.194 62.237L128 31.149 181.806 62.237Z" fill="#ffffff"/>
+    <rect x="74.79" y="114.85" width="107.01" height="15.54" rx="1.2" fill="#ffffff"/>
+    <path d="M64.031 224.253H191.969" fill="none"/>
+  </g>
+</svg>

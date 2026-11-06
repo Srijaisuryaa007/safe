@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="cargo">
+    <rect x="161.5" y="111.5" width="42.5" height="58" rx="2" fill="#c6c6c6" stroke="#050505" stroke-width="5" stroke-linejoin="round"/>
+  </g>
+  <g id="forklift">
+    <path d="M53 125V76Q53 66.5 62 66.5H101Q108.5 66.5 111 75L132.5 141" fill="none" stroke="#050505" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M108.5 116.5L120 134M104 120L114 112.5" fill="none" stroke="#050505" stroke-width="4.5" stroke-linecap="round"/>
+    <path d="M119 128.5L125.5 127L132 143H118L115 135.5Q113.5 131 119 128.5Z" fill="#999999" stroke="#050505" stroke-width="4.5" stroke-linejoin="round"/>
+    <path d="M45 125.5H65.5L71.5 140H95L98.5 153.5H111.5L119 143H138V177H42Q35 177 35 169V136Q35 125.5 45 125.5Z" fill="#ffffff" stroke="#050505" stroke-width="5" stroke-linejoin="round"/>
+    <path d="M68.5 103.5Q62.5 104.5 64.5 112L70.5 136.5Q71 140.5 76 140.5H96.5L97.5 137Q99 128.5 91 128.5H77.5L74 110Q73 103 68.5 103.5Z" fill="#999999" stroke="#050505" stroke-width="4.5" stroke-linejoin="round"/>
+    <path d="M138 52H152V177H138Z" fill="#c6c6c6" stroke="#050505" stroke-width="5" stroke-linejoin="round"/>
+    <path d="M160 169H217.5Q219 169 218.5 172L203 176.5H160Z" fill="#c6c6c6" stroke="#050505" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <g id="rear-wheel">
+      <circle cx="58" cy="174" r="15.5" fill="#c6c6c6" stroke="#050505" stroke-width="5"/>
+      <circle cx="58" cy="174" r="4.5" fill="#999999" stroke="#050505" stroke-width="4"/>
+    </g>
+    <g id="front-wheel">
+      <circle cx="128.5" cy="173" r="17.5" fill="#c6c6c6" stroke="#050505" stroke-width="5"/>
+      <circle cx="128.5" cy="173" r="5" fill="#999999" stroke="#050505" stroke-width="4"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="smoke">
+    <path d="M99.212 77.161C90.637 66.136 96.762 51.436 111.462 50.211 117.587 39.185 129.838 35.51 140.863 41.635 149.438 30.61 162.913 29.385 173.939 35.51 187.414 42.86 189.864 60.011 181.289 71.036 172.714 82.061 155.563 80.836 144.538 71.036 138.413 78.386 129.838 79.611 121.262 75.936Z" fill="#ffffff" stroke="#050505" stroke-width="6.13" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g id="smokestack">
+    <path d="M90.637 77.161H121.262L131.063 224.777H79.611Z" fill="#ffffff"/>
+    <path d="M88.187 109.625H123.467L124.692 127.387H86.839Z" fill="#bab9b9"/>
+    <path d="M84.634 157.401H126.53L127.877 178.226H83.041Z" fill="#bab9b9"/>
+    <path d="M90.637 77.161H121.262L131.063 224.777H79.611Z" fill="none" stroke="#050505" stroke-width="6.13" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M89.657 90.024H122.12M88.187 109.625H123.467M86.839 127.387H124.692M84.634 157.401H126.53M83.041 178.226H127.877M69.199 224.777H142.088" fill="none" stroke="#050505" stroke-width="5.51" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

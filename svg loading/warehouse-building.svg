@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="industrial-warehouse" stroke="#050505" stroke-width="5.71" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M39.57 94.91L128.571 54.404 216.43 94.91V201.026H39.57Z" fill="#ffffff" stroke="none"/>
+    <path d="M39.57 94.91V201.026H216.43V94.91" fill="none"/>
+    <path d="M31.583 98.333L128.571 54.404 224.417 98.333" fill="none"/>
+    <rect x="88.63" y="97.19" width="14.83" height="13.69" fill="#ffffff"/>
+    <rect x="120.58" y="97.19" width="14.83" height="13.69" fill="#ffffff"/>
+    <rect x="152.53" y="97.19" width="14.83" height="13.69" fill="#ffffff"/>
+    <rect x="74.37" y="135.99" width="107.83" height="65.04" fill="#bbbbba"/>
+    <path d="M74.942 149.68H181.058M74.942 162.801H181.058M74.942 175.923H181.058M74.942 188.475H181.058" fill="none"/>
+    <path d="M31.013 201.026H224.987" fill="none"/>
+  </g>
+</svg>

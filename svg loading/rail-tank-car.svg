@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="railway-track" fill="none" stroke="#050505" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M27 170H229M27 179.5H229"/>
+    <path d="M42 171V182.5M67 171V182.5M92 171V182.5M117 171V182.5M141 171V182.5M166 171V182.5M191 171V182.5M216 171V182.5"/>
+  </g>
+  <g id="tank-car" stroke="#050505" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M118 57H142V66.5H118Z" fill="#b6b6b6"/>
+    <path d="M113 57H147" fill="none"/>
+    <path d="M66 66.5H187C201 66.5 210 82.5 210 102.5C210 116.5 205 128.5 197 135.5H55C46.5 128 42 116 42 103C42 83 51.5 66.5 66 66.5Z" fill="#ffffff"/>
+    <path d="M75 67V134.5M151 67V134.5M174.5 67V134.5M152 84H173.5M152 102.5H173.5M152 121H173.5" fill="none"/>
+    <path d="M37.5 144.5H216V149.5H37.5Z" fill="#b6b6b6"/>
+    <path d="M43 135H210V149H43Z" fill="#b6b6b6"/>
+    <g id="wheel-left-outer">
+      <circle cx="64.5" cy="158" r="11.5" fill="#b6b6b6"/>
+      <circle cx="64.5" cy="158" r="4.5" fill="#050505" stroke="none"/>
+    </g>
+    <g id="wheel-left-inner">
+      <circle cx="93" cy="158" r="11.5" fill="#b6b6b6"/>
+      <circle cx="93" cy="158" r="4.5" fill="#050505" stroke="none"/>
+    </g>
+    <g id="wheel-right-inner">
+      <circle cx="159" cy="158" r="11.5" fill="#b6b6b6"/>
+      <circle cx="159" cy="158" r="4.5" fill="#050505" stroke="none"/>
+    </g>
+    <g id="wheel-right-outer">
+      <circle cx="187.5" cy="158" r="11.5" fill="#b6b6b6"/>
+      <circle cx="187.5" cy="158" r="4.5" fill="#050505" stroke="none"/>
+    </g>
+  </g>
+</svg>

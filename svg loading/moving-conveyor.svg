@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="direction-arrow">
+    <path d="M75 77.8H187.8M176.8 68.7L187.8 77.8L176.8 86.5" fill="none" stroke="#050505" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g id="package">
+    <rect x="105.5" y="98.5" width="56.5" height="36" rx="0.8" fill="#cccccc" stroke="#050505" stroke-width="4.5"/>
+    <path d="M133.8 99.5V114.2" fill="none" stroke="#050505" stroke-width="4.7" stroke-linecap="round"/>
+  </g>
+  <g id="conveyor">
+    <rect x="22" y="133.3" width="208.5" height="44.4" rx="22.2" fill="#ffffff" stroke="#050505" stroke-width="4.5"/>
+    <circle cx="47.7" cy="155.5" r="9" fill="#ffffff" stroke="#050505" stroke-width="4.7"/>
+    <circle cx="99.6" cy="155.5" r="9" fill="#ffffff" stroke="#050505" stroke-width="4.7"/>
+    <circle cx="152.3" cy="155.5" r="9" fill="#ffffff" stroke="#050505" stroke-width="4.7"/>
+    <circle cx="204.6" cy="155.5" r="9" fill="#ffffff" stroke="#050505" stroke-width="4.7"/>
+  </g>
+</svg>

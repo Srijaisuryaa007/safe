@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="connecting-pipe">
+    <rect x="71" y="52" width="104" height="8" fill="#d7d6d6" stroke="#050505" stroke-width="4.5" stroke-linejoin="round"/>
+    <path d="M66 76V59Q66 52 71 52Q76 52 76 59V76" fill="none" stroke="#050505" stroke-width="9" stroke-linejoin="round"/>
+    <path d="M66 76V59Q66 52 71 52Q76 52 76 59V76" fill="none" stroke="#d7d6d6" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M169 73V59Q169 52 175 52Q181 52 181 59V73" fill="none" stroke="#050505" stroke-width="7" stroke-linejoin="round"/>
+    <path d="M169 73V59Q169 52 175 52Q181 52 181 59V73" fill="none" stroke="#d7d6d6" stroke-width="3" stroke-linejoin="round"/>
+  </g>
+  <g id="left-storage-tank">
+    <rect x="39" y="98" width="64" height="99" fill="#d7d6d6"/>
+    <path d="M39 130.5H103M39 148.5H103M39 167H103M39 185.5H103" fill="none" stroke="#a8a8a8" stroke-width="3.5"/>
+    <path d="M39 98V197H103V98" fill="none" stroke="#050505" stroke-width="4.5" stroke-linejoin="round"/>
+    <path d="M36 98L63 76H78L106 98Z" fill="#d7d6d6" stroke="#050505" stroke-width="4.5" stroke-linejoin="round"/>
+  </g>
+  <g id="right-storage-tank">
+    <rect x="133" y="98" width="83" height="99" fill="#d7d6d6"/>
+    <path d="M133 130.5H216M133 148.5H216M133 167H216M133 185.5H216" fill="none" stroke="#a8a8a8" stroke-width="3.5"/>
+    <path d="M133 98V197H216V98" fill="none" stroke="#050505" stroke-width="4.5" stroke-linejoin="round"/>
+    <path d="M130 98L168 73H182L219 98Z" fill="#d7d6d6" stroke="#050505" stroke-width="4.5" stroke-linejoin="round"/>
+  </g>
+  <g id="ground">
+    <path d="M29 197.5H227" fill="none" stroke="#050505" stroke-width="4.5" stroke-linecap="round"/>
+  </g>
+</svg>

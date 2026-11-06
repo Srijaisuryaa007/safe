@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="valve">
+    <path d="M129.109 159.061V172.373" fill="none" stroke="#050505" stroke-width="4.99" stroke-linecap="round"/>
+    <g id="handwheel">
+      <circle cx="129.11" cy="133.55" r="26.62" fill="#ffffff" stroke="#050505" stroke-width="4.99"/>
+      <path d="M129.109 106.923V160.171M102.485 133.547H155.733" fill="none" stroke="#050505" stroke-width="4.99"/>
+      <circle cx="129.11" cy="133.55" r="4.99" fill="#b8b8b8" stroke="#050505" stroke-width="4.44"/>
+    </g>
+  </g>
+  <g id="substation-conduit">
+    <path d="M64.768 57.003H190.123C204.544 57.003 216.747 69.205 216.747 84.736V171.264C216.747 186.795 205.653 198.997 190.123 198.997H64.768C48.128 198.997 34.816 186.795 34.816 171.264V85.845C34.816 69.205 48.128 57.003 64.768 57.003ZM69.205 86.955C63.659 86.955 60.331 90.283 60.331 95.829V163.499C60.331 169.045 63.659 172.373 69.205 172.373H183.467C189.013 172.373 192.341 169.045 192.341 163.499V95.829C192.341 90.283 189.013 86.955 183.467 86.955Z" fill="#ffffff" fill-rule="evenodd" stroke="#050505" stroke-width="4.99" stroke-linejoin="round"/>
+    <path d="M88.064 172.373H170.155V198.997H88.064Z" fill="#b8b8b8"/>
+    <path d="M89.173 172.373H165.717M89.173 198.997H165.717" fill="none" stroke="#050505" stroke-width="4.99"/>
+    <path d="M181.248 58.112V85.845" fill="none" stroke="#050505" stroke-width="4.99"/>
+    <rect x="70.31" y="52.01" width="13.87" height="40.49" rx="1.66" fill="#b8b8b8" stroke="#050505" stroke-width="4.99"/>
+    <rect x="31.49" y="98.05" width="32.17" height="10.54" rx="1.11" fill="#ffffff" stroke="#050505" stroke-width="4.99"/>
+    <rect x="31.49" y="161.28" width="32.17" height="10.54" rx="1.11" fill="#ffffff" stroke="#050505" stroke-width="4.99"/>
+    <rect x="184.58" y="122.45" width="39.94" height="15.53" rx="1.11" fill="#b8b8b8" stroke="#050505" stroke-width="4.99"/>
+    <rect x="81.41" y="166.83" width="12.2" height="36.61" rx="1.11" fill="#b8b8b8" stroke="#050505" stroke-width="4.99"/>
+    <rect x="164.61" y="166.83" width="11.65" height="36.61" rx="1.11" fill="#b8b8b8" stroke="#050505" stroke-width="4.99"/>
+  </g>
+</svg>

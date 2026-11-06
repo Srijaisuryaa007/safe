@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <g id="rear-pipe" stroke="#070707" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M115 175V45a7.5 7.5 0 0 1 7.5-7.5h7a7.5 7.5 0 0 1 7.5 7.5v130Z" fill="#ffffff"/>
+    <path d="M128 94h12M128 114h9M128 134h9M128 154h9" fill="none"/>
+  </g>
+  <g id="left-stack" stroke="#070707" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M77 114h6q6 0 6 8v53H77Z" fill="#ffffff"/>
+    <path d="M77 134h3M77 154h3" fill="none"/>
+    <path d="M55.5 175V89a10.5 10.5 0 0 1 21 0v86Z" fill="#ffffff"/>
+    <path d="M52.5 94h27M52.5 114h3M52.5 134h3M52.5 154h3" fill="none"/>
+  </g>
+  <g id="middle-stack" stroke="#070707" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M115 66V54h7v12" fill="#ffffff"/>
+    <path d="M108.5 78V66h14v12" fill="#ffffff"/>
+    <path d="M100.5 175V85q0-7.5 7.5-7.5h13q7.5 0 7.5 7.5v90Z" fill="#ffffff"/>
+    <path d="M103 114h23M103 154h23" fill="none" stroke="#b9b9b9" stroke-linecap="butt"/>
+    <path d="M97.5 94h3M97.5 114h3M97.5 134h3M97.5 154h3" fill="none"/>
+  </g>
+  <g id="platform" stroke="#070707" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M43 192v-17h110v17Z" fill="#b9b9b9"/>
+  </g>
+  <g id="storage-building" stroke="#070707" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M165 100V71q0-9 9-9h4q9 0 9 9v29Z" fill="#ffffff"/>
+    <path d="M165 77.5h22M176.5 78v15" fill="none"/>
+    <circle cx="179" cy="119" r="24.5" fill="#ffffff"/>
+    <path d="M155.5 125h47" fill="none"/>
+    <path d="M152.5 192V137h56v55Z" fill="#ffffff"/>
+    <path d="M165 192v-41h25.5v41Z" fill="#b9b9b9"/>
+    <rect x="171" y="158" width="13.5" height="10.5" rx="1" fill="#070707" stroke="none"/>
+  </g>
+  <g id="ground">
+    <path d="M35 192.5h186" fill="none" stroke="#070707" stroke-width="4.5" stroke-linecap="round"/>
+  </g>
+</svg>
