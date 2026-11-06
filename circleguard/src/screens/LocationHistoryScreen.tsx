@@ -2330,100 +2330,177 @@ export default function LocationHistoryScreen() {
                   ] : undefined}
                 />
 
-                {/* Time & Places Summary Card (Executive Monochrome Style) */}
+                {/* Time & Places Summary Card (Executive Luxury Analytics) */}
                 <View style={[styles.analyticsGridCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                   <View style={styles.analyticsCardTitleRow}>
-                    <Ionicons name="time-outline" size={16} color={colors.foreground} />
+                    <Ionicons name="time" size={15} color="#F59E0B" />
                     <Text style={[styles.analyticsCardTitle, { color: colors.foreground }]}>TIME & PLACES</Text>
                   </View>
                   <View style={styles.analyticsStats2x2}>
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                    {/* Stat 1: At Saved Places */}
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                       <View style={styles.analyticsStatHeaderRow}>
-                        <Ionicons name="home-outline" size={13} color={colors.textMuted} />
+                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.1)' }]}>
+                          <Ionicons name="home" size={11} color="#F59E0B" />
+                        </View>
                         <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>AT SAVED PLACES</Text>
                       </View>
-                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
-                        {(Math.min(24, Math.round((
-                          stationaryStops
-                            .filter(s => s.isSafePlace || s.category === 'safe_zone')
-                            .reduce((acc, s) => acc + (s.durationMinutes || 0), 0) / 60
-                        ) * 10) / 10 || 16.5))} hrs
-                      </Text>
+                      <View style={styles.statValueRow}>
+                        <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
+                          {Math.min(24, Math.round((
+                            stationaryStops
+                              .filter(s => s.isSafePlace || s.category === 'safe_zone')
+                              .reduce((acc, s) => acc + (s.durationMinutes || 0), 0) / 60
+                          ) * 10) / 10)}
+                        </Text>
+                        <Text style={[styles.statValueUnit, { color: colors.textMuted }]}>hrs</Text>
+                      </View>
                     </View>
 
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                    {/* Stat 2: Time in Motion */}
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                       <View style={styles.analyticsStatHeaderRow}>
-                        <Ionicons name="walk-outline" size={13} color={colors.textMuted} />
+                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.1)' }]}>
+                          <Ionicons name="walk" size={11} color="#10B981" />
+                        </View>
                         <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TIME IN MOTION</Text>
                       </View>
-                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
-                        {travelDurationMinutes >= 60
-                          ? `${Math.floor(travelDurationMinutes / 60)}h ${travelDurationMinutes % 60}m`
-                          : `${travelDurationMinutes || 45} mins`}
-                      </Text>
-                    </View>
-
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
-                      <View style={styles.analyticsStatHeaderRow}>
-                        <Ionicons name="shield-checkmark-outline" size={13} color={colors.textMuted} />
-                        <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>SAVED PLACES</Text>
+                      <View style={styles.statValueRow}>
+                        {travelDurationMinutes >= 60 ? (
+                          <>
+                            <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
+                              {Math.floor(travelDurationMinutes / 60)}
+                            </Text>
+                            <Text style={[styles.statValueUnit, { color: colors.textMuted }]}>h </Text>
+                            <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
+                              {travelDurationMinutes % 60}
+                            </Text>
+                            <Text style={[styles.statValueUnit, { color: colors.textMuted }]}>m</Text>
+                          </>
+                        ) : (
+                          <>
+                            <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
+                              {travelDurationMinutes || 0}
+                            </Text>
+                            <Text style={[styles.statValueUnit, { color: colors.textMuted }]}>mins</Text>
+                          </>
+                        )}
                       </View>
-                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
-                        {stationaryStops.filter(s => s.isSafePlace || s.category === 'safe_zone').length} Places
-                      </Text>
                     </View>
 
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                    {/* Stat 3: Saved Places Count */}
+                    {(() => {
+                      const count = stationaryStops.filter(s => s.isSafePlace || s.category === 'safe_zone').length;
+                      return (
+                        <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                          <View style={styles.analyticsStatHeaderRow}>
+                            <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.1)' }]}>
+                              <Ionicons name="shield-checkmark" size={11} color="#3B82F6" />
+                            </View>
+                            <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>SAVED PLACES</Text>
+                          </View>
+                          <View style={styles.statValueRow}>
+                            <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
+                              {count}
+                            </Text>
+                            <Text style={[styles.statValueUnit, { color: colors.textMuted }]}>
+                              {count === 1 ? 'place' : 'places'}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })()}
+
+                    {/* Stat 4: Total Stops */}
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                       <View style={styles.analyticsStatHeaderRow}>
-                        <Ionicons name="location-outline" size={13} color={colors.textMuted} />
+                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(139, 92, 246, 0.12)' : 'rgba(139, 92, 246, 0.1)' }]}>
+                          <Ionicons name="location" size={11} color="#8B5CF6" />
+                        </View>
                         <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TOTAL STOPS</Text>
                       </View>
-                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
-                        {stationaryStops.length} Stops
-                      </Text>
+                      <View style={styles.statValueRow}>
+                        <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
+                          {stationaryStops.length}
+                        </Text>
+                        <Text style={[styles.statValueUnit, { color: colors.textMuted }]}>
+                          {stationaryStops.length === 1 ? 'stop' : 'stops'}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 </View>
 
-                {/* Speed & Movement Card (Executive Monochrome Style) */}
+                {/* Speed & Movement Card (Executive Luxury Analytics) */}
                 <View style={[styles.analyticsGridCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                   <View style={styles.analyticsCardTitleRow}>
-                    <Ionicons name="speedometer-outline" size={16} color={colors.foreground} />
+                    <Ionicons name="speedometer" size={15} color="#0284C7" />
                     <Text style={[styles.analyticsCardTitle, { color: colors.foreground }]}>SPEED & MOVEMENT</Text>
                   </View>
                   <View style={styles.analyticsStats2x2}>
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                    {/* Stat 5: Top Speed */}
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                       <View style={styles.analyticsStatHeaderRow}>
-                        <Ionicons name="flash-outline" size={13} color={colors.textMuted} />
+                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.1)' }]}>
+                          <Ionicons name="flash" size={11} color="#EF4444" />
+                        </View>
                         <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>TOP SPEED</Text>
                       </View>
-                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>{topSpeedKmh} km/h</Text>
+                      <View style={styles.statValueRow}>
+                        <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
+                          {topSpeedKmh}
+                        </Text>
+                        <Text style={[styles.statValueUnit, { color: colors.textMuted }]}>km/h</Text>
+                      </View>
                     </View>
 
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                    {/* Stat 6: Average Speed */}
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                       <View style={styles.analyticsStatHeaderRow}>
-                        <Ionicons name="trending-up-outline" size={13} color={colors.textMuted} />
+                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(2, 132, 199, 0.12)' : 'rgba(2, 132, 199, 0.1)' }]}>
+                          <Ionicons name="trending-up" size={11} color="#0284C7" />
+                        </View>
                         <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>AVERAGE SPEED</Text>
                       </View>
-                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>{effectiveAvgSpeed} km/h</Text>
+                      <View style={styles.statValueRow}>
+                        <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
+                          {effectiveAvgSpeed}
+                        </Text>
+                        <Text style={[styles.statValueUnit, { color: colors.textMuted }]}>km/h</Text>
+                      </View>
                     </View>
 
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                    {/* Stat 7: Route Waypoints */}
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                       <View style={styles.analyticsStatHeaderRow}>
-                        <Ionicons name="navigate-outline" size={13} color={colors.textMuted} />
+                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(99, 102, 241, 0.12)' : 'rgba(99, 102, 241, 0.1)' }]}>
+                          <Ionicons name="navigate" size={11} color="#6366F1" />
+                        </View>
                         <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>ROUTE WAYPOINTS</Text>
                       </View>
-                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
-                        {roadCoords.length > 0 ? roadCoords.length : historyPoints.length} Pts
-                      </Text>
+                      <View style={styles.statValueRow}>
+                        <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>
+                          {roadCoords.length > 0 ? roadCoords.length : historyPoints.length}
+                        </Text>
+                        <Text style={[styles.statValueUnit, { color: colors.textMuted }]}>pts</Text>
+                      </View>
                     </View>
 
-                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
+                    {/* Stat 8: GPS Precision */}
+                    <View style={[styles.analyticsStatBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0' }]}>
                       <View style={styles.analyticsStatHeaderRow}>
-                        <Ionicons name="radio-outline" size={13} color={colors.textMuted} />
+                        <View style={[styles.analyticsIconWrap, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.1)' }]}>
+                          <Ionicons name="radio" size={11} color="#10B981" />
+                        </View>
                         <Text style={[styles.analyticsStatLabel, { color: colors.textMuted }]}>GPS PRECISION</Text>
                       </View>
-                      <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>High Precision</Text>
+                      <View style={styles.statValueRow}>
+                        <Text style={[styles.analyticsStatValue, { color: colors.foreground }]}>High</Text>
+                        <View style={[styles.precisionBadge, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5', borderColor: isDark ? 'rgba(16, 185, 129, 0.35)' : '#A7F3D0' }]}>
+                          <View style={styles.precisionDot} />
+                          <Text style={[styles.precisionBadgeText, { color: isDark ? '#34D399' : '#059669' }]}>LIVE</Text>
+                        </View>
+                      </View>
                     </View>
                   </View>
                 </View>
@@ -3227,15 +3304,15 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   analyticsGridCard: {
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
     padding: 16,
     marginBottom: 14,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    shadowRadius: 8,
+    elevation: 2,
   },
   analyticsCardTitleRow: {
     flexDirection: 'row',
@@ -3245,7 +3322,7 @@ const styles = StyleSheet.create({
   },
   analyticsCardTitle: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
     letterSpacing: 0.8,
   },
   analyticsStats2x2: {
@@ -3256,25 +3333,67 @@ const styles = StyleSheet.create({
   analyticsStatBox: {
     flex: 1,
     minWidth: '45%',
-    padding: 12,
-    borderRadius: 12,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+    borderRadius: 16,
     borderWidth: 1,
   },
   analyticsStatHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    marginBottom: 6,
+    gap: 6,
+    marginBottom: 8,
   },
-  analyticsStatValue: {
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: -0.3,
+  analyticsIconWrap: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   analyticsStatLabel: {
     fontSize: 9.5,
-    fontWeight: '600',
+    fontWeight: '700',
     letterSpacing: 0.6,
+  },
+  statValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 3,
+  },
+  analyticsStatValue: {
+    fontSize: 23,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.6,
+  },
+  statValueUnit: {
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+    textTransform: 'lowercase',
+  },
+  precisionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+    borderWidth: 1,
+    marginLeft: 4,
+    alignSelf: 'center',
+  },
+  precisionDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#10B981',
+  },
+  precisionBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
   gapDiagnosticBox: {
     flexDirection: 'row',
