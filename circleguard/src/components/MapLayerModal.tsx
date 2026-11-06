@@ -20,7 +20,7 @@ export default function MapLayerModal({
   onSelectStyle,
 }: MapLayerModalProps) {
   const insets = useSafeAreaInsets();
-  const { colors } = useThemeStore();
+  const { colors, isDark } = useThemeStore();
 
   const translateY = useRef(new Animated.Value(0)).current;
 
@@ -75,37 +75,37 @@ export default function MapLayerModal({
       id: 'vector',
       title: 'Standard Vector Map',
       description: 'Clean high-clarity street vector map optimized for city navigation.',
-      icon: 'map-outline',
-      badge: 'DEFAULT',
-      previewBg: '#1E293B',
-      borderColor: '#0284C7',
+      icon: 'map',
+      badge: 'STREETS',
+      previewBg: isDark ? 'rgba(37, 99, 235, 0.15)' : '#EFF6FF',
+      borderColor: '#2563EB',
     },
     {
       id: 'satellite',
       title: 'Satellite Photographic Imagery',
       description: 'High resolution orbital imagery with topological street overlays.',
-      icon: 'earth-outline',
+      icon: 'planet',
       badge: 'ORBITAL',
-      previewBg: '#0F172A',
-      borderColor: '#94A3B8',
+      previewBg: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5',
+      borderColor: '#10B981',
     },
     {
       id: 'terrain',
       title: 'Topographic Terrain Radar',
       description: 'Elevation contours and elevation tracking with shaded physical relief.',
-      icon: 'trail-sign-outline',
+      icon: 'layers',
       badge: 'TOPOGRAPHY',
-      previewBg: '#1B262C',
-      borderColor: '#64748B',
+      previewBg: isDark ? 'rgba(245, 158, 11, 0.15)' : '#FFFBEB',
+      borderColor: '#F59E0B',
     },
     {
       id: 'dark',
       title: 'Tactical Midnight Stealth',
       description: 'Ultra high-contrast OLED dark radar mode for night operations.',
-      icon: 'moon-outline',
+      icon: 'moon',
       badge: 'OLED DARK',
-      previewBg: '#2D281E',
-      borderColor: '#F59E0B',
+      previewBg: isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9',
+      borderColor: isDark ? '#FFFFFF' : '#0F172A',
     },
   ];
 
@@ -162,7 +162,13 @@ export default function MapLayerModal({
                   key={item.id}
                   style={[
                     styles.layerCard,
-                    { backgroundColor: colors.background, borderColor: isSelected ? item.borderColor : colors.border },
+                    {
+                      backgroundColor: isSelected
+                        ? (isDark ? 'rgba(255, 255, 255, 0.07)' : '#F8FAFC')
+                        : (isDark ? colors.surface : '#FFFFFF'),
+                      borderColor: isSelected ? item.borderColor : colors.border,
+                      borderWidth: isSelected ? 2 : 1.2,
+                    },
                     isSelected && styles.layerCardActive,
                   ]}
                   onPress={() => {
@@ -171,15 +177,22 @@ export default function MapLayerModal({
                   }}
                   activeOpacity={0.8}
                 >
-                  <View style={[styles.iconBox, { backgroundColor: item.previewBg, borderColor: item.borderColor }]}>
-                    <Ionicons name={item.icon} size={24} color={isSelected ? item.borderColor : '#9CA3AF'} />
+                  <View style={[styles.iconBox, { backgroundColor: item.previewBg, borderColor: isSelected ? item.borderColor : (isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0') }]}>
+                    <Ionicons name={item.icon} size={22} color={isSelected ? item.borderColor : (isDark ? '#CBD5E1' : '#64748B')} />
                   </View>
 
                   <View style={styles.cardInfo}>
                     <View style={styles.titleRow}>
-                      <Text style={[styles.cardTitle, { color: colors.foreground }]}>{item.title}</Text>
-                      <View style={[styles.badgePill, { backgroundColor: isSelected ? item.borderColor : 'rgba(156, 163, 175, 0.15)' }]}>
-                        <Text style={[styles.badgeText, { color: isSelected ? '#FFFFFF' : '#9CA3AF' }]}>
+                      <Text style={[styles.cardTitle, { color: colors.foreground, fontWeight: isSelected ? '800' : '700' }]}>{item.title}</Text>
+                      <View style={[
+                        styles.badgePill,
+                        {
+                          backgroundColor: isSelected ? item.borderColor : (isDark ? 'rgba(255, 255, 255, 0.08)' : '#F1F5F9'),
+                          borderWidth: 1,
+                          borderColor: isSelected ? item.borderColor : colors.border,
+                        }
+                      ]}>
+                        <Text style={[styles.badgeText, { color: isSelected ? (item.id === 'dark' && isDark ? '#000000' : '#FFFFFF') : colors.textMuted }]}>
                           {item.badge}
                         </Text>
                       </View>

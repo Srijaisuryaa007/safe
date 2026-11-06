@@ -173,14 +173,14 @@ export default function SearchFilterModal({
 
   const getCategoryColor = (catId: string) => {
     switch (catId) {
-      case 'hospital': return '#EF4444';
-      case 'police': return '#2563EB';
-      case 'school': return '#3B82F6';
-      case 'fuel': return '#64748B';
-      case 'restaurant': return '#F59E0B';
-      case 'member': return '#8B5CF6';
-      case 'place': return '#EC4899';
-      default: return '#6B7280';
+      case 'hospital': return '#EF4444'; // SOS Red Emergency
+      case 'police': return '#2563EB'; // Cobalt Security Blue
+      case 'school': return '#0284C7'; // Cyan Education
+      case 'fuel': return '#F97316'; // Dynamic Energy Orange
+      case 'restaurant': return '#F59E0B'; // Luxury Amber Gold
+      case 'member': return '#8B5CF6'; // Circle Royal Violet
+      case 'place': return '#10B981'; // Perimeter Safe Emerald
+      default: return '#64748B';
     }
   };
 
@@ -189,10 +189,10 @@ export default function SearchFilterModal({
       case 'hospital': return 'medical';
       case 'police': return 'shield-checkmark';
       case 'school': return 'school';
-      case 'fuel': return 'car';
+      case 'fuel': return 'flash';
       case 'restaurant': return 'restaurant';
       case 'member': return 'people';
-      case 'place': return 'bookmark';
+      case 'place': return 'shield';
       default: return 'location';
     }
   };
@@ -328,11 +328,11 @@ export default function SearchFilterModal({
   const filterOptions = [
     { id: 'hospital', title: 'Hospitals / Emergency Clinics', icon: 'medical', color: '#EF4444' },
     { id: 'police', title: 'Police Stations & Helplines', icon: 'shield-checkmark', color: '#2563EB' },
-    { id: 'school', title: 'Schools & Universities', icon: 'school', color: '#3B82F6' },
-    { id: 'fuel', title: 'Fuel & EV Fast Chargers', icon: 'car', color: '#64748B' },
+    { id: 'school', title: 'Schools & Universities', icon: 'school', color: '#0284C7' },
+    { id: 'fuel', title: 'Fuel & EV Fast Chargers', icon: 'flash', color: '#F97316' },
     { id: 'restaurant', title: 'Dining, Food & Cafes', icon: 'restaurant', color: '#F59E0B' },
     { id: 'member', title: 'Circle Member Pins', icon: 'people', color: '#8B5CF6' },
-    { id: 'place', title: 'Safe Places & Geofences', icon: 'bookmark', color: '#EC4899' },
+    { id: 'place', title: 'Safe Places & Geofences', icon: 'shield', color: '#10B981' },
   ];
 
   const translateY = useRef(new Animated.Value(0)).current;
@@ -441,9 +441,9 @@ export default function SearchFilterModal({
                       styles.quickFilterPill,
                       {
                         backgroundColor: isSelected
-                          ? (isDark ? 'rgba(255, 255, 255, 0.16)' : '#F1F5F9')
-                          : (isDark ? colors.surfaceMuted : '#F4F4F5'),
-                        borderColor: isSelected ? colors.accentGold : colors.border,
+                          ? (isDark ? 'rgba(255, 255, 255, 0.16)' : '#0F172A')
+                          : (isDark ? colors.surfaceMuted : '#F1F5F9'),
+                        borderColor: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : colors.border,
                       }
                     ]}
                     onPress={() => toggleCategory(item.id)}
@@ -454,14 +454,17 @@ export default function SearchFilterModal({
                     </View>
                     <Text style={[
                       styles.pillText,
-                      { color: isSelected ? colors.foreground : colors.textMuted, fontWeight: isSelected ? '700' : '500' }
+                      {
+                        color: isSelected ? '#FFFFFF' : colors.textMuted,
+                        fontWeight: isSelected ? '800' : '600',
+                      }
                     ]}>
                       {item.title.split('/')[0].split('&')[0].trim()}
                     </Text>
                     {isLoadingThis ? (
                       <ActivityIndicator size="small" color={item.color} style={{ transform: [{ scale: 0.6 }] }} />
                     ) : isSelected ? (
-                      <Ionicons name="checkmark-circle" size={13} color={colors.accentGold} />
+                      <Ionicons name="checkmark-circle" size={13} color="#FFFFFF" />
                     ) : null}
                   </TouchableOpacity>
                 );
@@ -480,13 +483,13 @@ export default function SearchFilterModal({
                     NEARBY THINGS (CLOSEST FIRST)
                   </Text>
                 </View>
-                <View style={[styles.countBadge, { backgroundColor: colors.accentGold }]}>
-                  <Text style={styles.countBadgeText}>{nearbyPlaces.length} FOUND</Text>
+                <View style={[styles.countBadge, { backgroundColor: isDark ? '#FFFFFF' : '#0F172A' }]}>
+                  <Text style={[styles.countBadgeText, { color: isDark ? '#0F172A' : '#FFFFFF' }]}>{nearbyPlaces.length} FOUND</Text>
                 </View>
               </View>
 
               {loadingCats.length > 0 && (
-                <View style={styles.scanningBox}>
+                <View style={[styles.scanningBox, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : '#F1F5F9' }]}>
                   <ActivityIndicator size="small" color={colors.accentGold} />
                   <Text style={[styles.scanningText, { color: colors.textMuted }]}>
                     Scanning live places around your coordinates...
@@ -524,7 +527,7 @@ export default function SearchFilterModal({
                   style={[
                     styles.nearbyPoiCard,
                     {
-                      backgroundColor: isDark ? colors.surfaceMuted : '#F4F4F5',
+                      backgroundColor: isDark ? colors.surfaceMuted : '#F8FAFC',
                       borderColor: colors.border,
                     }
                   ]}
@@ -536,8 +539,8 @@ export default function SearchFilterModal({
                   }}
                   activeOpacity={0.7}
                 >
-                  <View style={styles.rankBadge}>
-                    <Text style={styles.rankBadgeText}>#{idx + 1}</Text>
+                  <View style={[styles.rankBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.08)' }]}>
+                    <Text style={[styles.rankBadgeText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>#{idx + 1}</Text>
                   </View>
                   <View style={[styles.poiIconBox, { backgroundColor: getCategoryColor(place.category) }]}>
                     <Ionicons name={getCategoryIcon(place.category)} size={16} color="#FFFFFF" />
@@ -553,12 +556,12 @@ export default function SearchFilterModal({
                   <View style={[
                     styles.distancePill,
                     {
-                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#F1F5F9',
-                      borderColor: colors.accentGold,
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.10)' : '#F1F5F9',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0',
                     }
                   ]}>
-                    <Ionicons name="navigate" size={10} color={colors.accentGold} />
-                    <Text style={[styles.distancePillText, { color: colors.accentGold }]}>
+                    <Ionicons name="navigate" size={10} color={isDark ? '#FFFFFF' : '#0F172A'} />
+                    <Text style={[styles.distancePillText, { color: isDark ? '#FFFFFF' : '#0F172A' }]}>
                       {place.formattedDist}
                     </Text>
                   </View>
@@ -567,7 +570,7 @@ export default function SearchFilterModal({
             </View>
 
             {/* 2. CATEGORY BREAKDOWN & RADAR SETTINGS */}
-            <View style={[styles.categorySettingsSection, { borderColor: colors.border }]}>
+            <View style={[styles.categorySettingsSection, { borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0' }]}>
               <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>CATEGORY DETAILS & LIVE STATUS</Text>
               {filterOptions.map((item) => {
                 const isSelected = activeCats.includes(item.id);
@@ -582,12 +585,13 @@ export default function SearchFilterModal({
                       {
                         backgroundColor: isSelected
                           ? isDark
-                            ? 'rgba(255, 255, 255, 0.12)'
-                            : '#F1F5F9'
+                            ? 'rgba(255, 255, 255, 0.10)'
+                            : '#F8FAFC'
                           : isDark
                           ? colors.surfaceMuted
-                          : '#F4F4F5',
-                        borderColor: isSelected ? colors.accentGold : colors.border,
+                          : '#FFFFFF',
+                        borderColor: isSelected ? (isDark ? '#FFFFFF' : '#0F172A') : colors.border,
+                        borderWidth: isSelected ? 1.8 : 1,
                       },
                     ]}
                     onPress={() => toggleCategory(item.id)}
@@ -598,7 +602,7 @@ export default function SearchFilterModal({
                         <Ionicons name={item.icon as any} size={18} color="#FFFFFF" />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={[styles.rowTitle, { color: colors.foreground }]}>{item.title}</Text>
+                        <Text style={[styles.rowTitle, { color: colors.foreground, fontWeight: isSelected ? '800' : '700' }]}>{item.title}</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
                           {isLoadingThis && (
                             <ActivityIndicator size="small" color={item.color} style={{ transform: [{ scale: 0.65 }] }} />
@@ -632,15 +636,15 @@ export default function SearchFilterModal({
             style={[
               styles.applyBtn,
               {
-                backgroundColor: activeCats.length > 0 ? (isDark ? '#FFFFFF' : '#0F172A') : colors.surface,
+                backgroundColor: activeCats.length > 0 ? (isDark ? '#FFFFFF' : '#0F172A') : (isDark ? 'rgba(255,255,255,0.08)' : '#F1F5F9'),
                 borderWidth: 1.5,
-                borderColor: isDark ? '#FFFFFF' : '#0F172A',
+                borderColor: activeCats.length > 0 ? (isDark ? '#FFFFFF' : '#0F172A') : colors.border,
               }
             ]}
             onPress={handleApply}
             activeOpacity={0.8}
           >
-            <Text style={[styles.applyBtnText, { color: activeCats.length > 0 ? (isDark ? '#000000' : '#FFFFFF') : (isDark ? '#FFFFFF' : '#0F172A') }]}>
+            <Text style={[styles.applyBtnText, { color: activeCats.length > 0 ? (isDark ? '#000000' : '#FFFFFF') : colors.textMuted }]}>
               {activeCats.length > 0
                 ? `APPLY MAP FILTERS (${activeCats.length} ACTIVE • ${nearbyPlaces.length} NEARBY)`
                 : 'CLEAR ALL FILTERS (CLEAN MAP)'}

@@ -1625,14 +1625,14 @@ const LEAFLET_HTML = `
               pinColor = '#2563EB';
               svgIcon = '<svg viewBox="0 0 24 24" width="13" height="13" fill="#FFF"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>';
             } else if (p.category === 'school') {
-              pinColor = '#3B82F6';
+              pinColor = '#0284C7';
               svgIcon = '<svg viewBox="0 0 24 24" width="13" height="13" fill="#FFF"><path d="M5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82zM12 3L1 9l11 6 9-4.91V17h2V9L12 3z"/></svg>';
             } else if (p.category === 'restaurant') {
               pinColor = '#F59E0B';
               svgIcon = '<svg viewBox="0 0 24 24" width="13" height="13" fill="#FFF"><path d="M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z"/></svg>';
             } else if (p.category === 'fuel') {
-              pinColor = '#64748B';
-              svgIcon = '<svg viewBox="0 0 24 24" width="13" height="13" fill="#FFF"><path d="M19.77 7.23l.01-.01-3.72-3.72L15 4.56l2.11 2.11c-.94.36-1.61 1.26-1.61 2.33 0 1.38 1.12 2.5 2.5 2.5.36 0 .69-.08 1-.22v5.72c0 .55-.45 1-1 1s-1-.45-1-1V14c0-1.1-.9-2-2-2h-1V5c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v16h10v-7.5h1.5v5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V9c0-.69-.28-1.32-.73-1.77zM12 10H6V5h6v5zm6 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"/></svg>';
+              pinColor = '#F97316';
+              svgIcon = '<svg viewBox="0 0 24 24" width="13" height="13" fill="#FFF"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>';
             }
 
             var cleanName = (p.name || 'POI').length > 20 ? p.name.substring(0, 18) + '...' : (p.name || 'POI');
@@ -2618,14 +2618,14 @@ export default function MapScreen() {
 
   const getCategoryColor = (catId: string) => {
     switch (catId) {
-      case 'hospital': return '#EF4444';
-      case 'police': return '#2563EB';
-      case 'school': return '#3B82F6';
-      case 'fuel': return isDark ? '#FFFFFF' : '#0F172A';
-      case 'restaurant': return '#F59E0B';
-      case 'member': return isDark ? '#FFFFFF' : '#0F172A';
-      case 'place': return isDark ? '#FFFFFF' : '#0F172A';
-      default: return '#6B7280';
+      case 'hospital': return '#EF4444'; // SOS Red Emergency
+      case 'police': return '#2563EB'; // Cobalt Security Blue
+      case 'school': return '#0284C7'; // Cyan Education
+      case 'fuel': return '#F97316'; // Dynamic Energy Orange
+      case 'restaurant': return '#F59E0B'; // Luxury Amber Gold
+      case 'member': return '#8B5CF6'; // Circle Royal Violet
+      case 'place': return '#10B981'; // Perimeter Safe Emerald
+      default: return '#64748B';
     }
   };
 
@@ -2634,10 +2634,10 @@ export default function MapScreen() {
       case 'hospital': return 'medical';
       case 'police': return 'shield-checkmark';
       case 'school': return 'school';
-      case 'fuel': return 'car';
+      case 'fuel': return 'flash';
       case 'restaurant': return 'restaurant';
       case 'member': return 'people';
-      case 'place': return 'bookmark';
+      case 'place': return 'shield';
       default: return 'location';
     }
   };
